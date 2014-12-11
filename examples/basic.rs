@@ -3,6 +3,7 @@ extern crate cpal;
 fn main() {
     let mut channel = cpal::Channel::new();
 
+    // producing a sinusoid
     let mut data_source =
         std::iter::iterate(0.0f32, |f| f + 0.03)
             .map(|angle| {
