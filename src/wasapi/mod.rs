@@ -13,10 +13,10 @@ pub struct Channel {
     started: bool,
 }
 
-pub struct Buffer<'a, T> {
+pub struct Buffer<'a> {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
-    buffer: CVec<T>,
+    buffer: CVec<u8>,
     frames: winapi::UINT32,
     start_on_drop: bool,
 }
@@ -26,13 +26,11 @@ impl Channel {
         init().unwrap()
     }
 
-    pub fn get_channels(&self) -> u16 {
-        self.num_channels as u16
+    pub fn get_channels(&self) -> ::ChannelsCount {
+        self.num_channels as ::ChannelsCount
     }
 
-    pub fn append_data<'a, T>(&'a mut self) -> Buffer<'a, T> {
-        assert!(mem::size_of::<T>() == self.bytes_per_frame as uint);
-
+    pub fn append_data<'a>(&'a mut self) -> Buffer<'a> {
         unsafe {
             loop {
                 // 
@@ -52,14 +50,16 @@ impl Channel {
                 }
 
                 // loading buffer
-                let buffer: CVec<T> = {
+                let buffer: CVec<u8> = {
                     let mut buffer: *mut winapi::BYTE = mem::uninitialized();
                     let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().GetBuffer;
                     let hresult = f(self.render_client, frames_available,
                                     &mut buffer as *mut *mut libc::c_uchar);
                     check_result(hresult).unwrap();
                     assert!(!buffer.is_null());
-                    CVec::new(buffer as *mut T, frames_available as uint)
+
+                    CVec::new(buffer as *mut u8,
+                              frames_available as uint * self.bytes_per_frame as uint)
                 };
 
                 let buffer = Buffer {
@@ -77,14 +77,14 @@ impl Channel {
     }
 }
 
-impl<'a, T> Buffer<'a, T> {
-    pub fn get_buffer(&mut self) -> &mut [T] {
+impl<'a> Buffer<'a> {
+    pub fn get_buffer(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
     }
 }
 
 #[unsafe_destructor]
-impl<'a, T> Drop for Buffer<'a, T> {
+impl<'a> Drop for Buffer<'a> {
     fn drop(&mut self) {
         // releasing buffer
         unsafe {

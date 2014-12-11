@@ -15,14 +15,17 @@ fn main() {
                 let max: u16 = Int::max_value();
                 let value = (max as f32 / 2.0) + (angle * (max as f32 / 2.0));
                 value as u16
-            })
-            .map(|v| (v, v));
+            });
 
     loop {
-        let mut buffer = channel.append_data::<(u16, u16)>();
+        let mut buffer = channel.append_data();
 
-        for value in buffer.iter_mut() {
-            *value = data_source.next().unwrap();
+        for sample in buffer.chunks_mut(4) {
+            let value = data_source.next().unwrap();
+
+            let mut writer = std::io::BufWriter::new(sample);
+            writer.write_le_u16(value).unwrap();
+            writer.write_le_u16(value).unwrap();
         }
     }
 }
