@@ -237,68 +237,6 @@ fn init() -> Result<Channel, String> {
         })
     }
 }
-/*
-        let mut started = false;
-        loop {
-            // 
-            let frames_available = if started {
-                let mut padding = mem::uninitialized();
-                let f = audio_client.lpVtbl.as_ref().unwrap().GetCurrentPadding;
-                let hresult = f(audio_client, &mut padding);
-                try!(check_result(hresult));
-                buffer_frame_count - padding
-            } else {
-                buffer_frame_count
-            };
-
-            if frames_available == 0 {
-                ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds((1000.0 * (44100 - frames_available) as f32 / 44100.0) as i64));
-                continue;
-            }
-
-            // loading buffer
-            let mut buffer: CVec<u16> = {
-                let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                let f = render_client.lpVtbl.as_ref().unwrap().GetBuffer;
-                let hresult = f(render_client, frames_available,
-                                &mut buffer as *mut *mut libc::c_uchar);
-                try!(check_result(hresult));
-                assert!(!buffer.is_null());
-                CVec::new(buffer as *mut u16, frames_available as uint)     // TODO: size of a frame?
-            };
-
-            // generating sinosoïd
-            let mut angle = 0.0f32;
-            for elem in buffer.as_mut_slice().iter_mut() {
-                use std::num::Int;
-                use std::num::FloatMath;
-
-                angle += 1.0;
-                let value = angle.sin();
-                let max: u16 = Int::max_value();
-                let value = (value * max as f32) as u16;
-                *elem = value;
-            }
-
-            // releasing buffer
-            {
-                let f = render_client.lpVtbl.as_ref().unwrap().ReleaseBuffer;
-                let hresult = f(render_client, frames_available, 0);
-                try!(check_result(hresult));
-            };
-
-            //
-            if !started {
-                let f = audio_client.lpVtbl.as_ref().unwrap().Start;
-                let hresult = f(audio_client);
-                try!(check_result(hresult));
-                started = true;
-            }
-        }
-    };
-
-    Ok(())
-}*/
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {
