@@ -4,7 +4,104 @@ extern crate winapi;
 use std::{mem, ptr};
 use std::c_vec::CVec;
 
-pub fn create() -> Result<(), String> {
+pub struct Channel {
+    audio_client: *mut winapi::IAudioClient,
+    render_client: *mut winapi::IAudioRenderClient,
+    max_frames_in_buffer: winapi::UINT32,
+    num_channels: winapi::WORD,
+    bytes_per_frame: winapi::WORD,
+    started: bool,
+}
+
+pub struct Buffer<'a, T> {
+    audio_client: *mut winapi::IAudioClient,
+    render_client: *mut winapi::IAudioRenderClient,
+    buffer: CVec<T>,
+    frames: winapi::UINT32,
+    start_on_drop: bool,
+}
+
+impl Channel {
+    pub fn new() -> Channel {
+        init().unwrap()
+    }
+
+    pub fn get_channels(&self) -> u16 {
+        self.num_channels as u16
+    }
+
+    pub fn append_data<'a, T>(&'a mut self) -> Buffer<'a, T> {
+        assert!(mem::size_of::<T>() == self.bytes_per_frame as uint);
+
+        unsafe {
+            loop {
+                // 
+                let frames_available = {
+                    let mut padding = mem::uninitialized();
+                    let f = self.audio_client.as_mut().unwrap().lpVtbl
+                                .as_ref().unwrap().GetCurrentPadding;
+                    let hresult = f(self.audio_client, &mut padding);
+                    check_result(hresult).unwrap();
+                    self.max_frames_in_buffer - padding
+                };
+
+                if frames_available == 0 {
+                    // TODO: 
+                    ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds(5));
+                    continue;
+                }
+
+                // loading buffer
+                let buffer: CVec<T> = {
+                    let mut buffer: *mut winapi::BYTE = mem::uninitialized();
+                    let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().GetBuffer;
+                    let hresult = f(self.render_client, frames_available,
+                                    &mut buffer as *mut *mut libc::c_uchar);
+                    check_result(hresult).unwrap();
+                    assert!(!buffer.is_null());
+                    CVec::new(buffer as *mut T, frames_available as uint)
+                };
+
+                let buffer = Buffer {
+                    audio_client: self.audio_client,
+                    render_client: self.render_client,
+                    buffer: buffer,
+                    frames: frames_available,
+                    start_on_drop: !self.started,
+                };
+
+                self.started = true;
+                return buffer;
+            }
+        }
+    }
+}
+
+impl<'a, T> Buffer<'a, T> {
+    pub fn get_buffer(&mut self) -> &mut [T] {
+        self.buffer.as_mut_slice()
+    }
+}
+
+#[unsafe_destructor]
+impl<'a, T> Drop for Buffer<'a, T> {
+    fn drop(&mut self) {
+        // releasing buffer
+        unsafe {
+            let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;
+            let hresult = f(self.render_client, self.frames, 0);
+            check_result(hresult).unwrap();
+
+            if self.start_on_drop {
+                let f = self.audio_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Start;
+                let hresult = f(self.audio_client);
+                check_result(hresult).unwrap();
+            }
+        };
+    }
+}
+
+fn init() -> Result<Channel, String> {
     // FIXME: release everything
     unsafe {
         try!(check_result(winapi::CoInitializeEx(::std::ptr::null_mut(), 0)));
@@ -42,36 +139,51 @@ pub fn create() -> Result<(), String> {
             audio_client.as_mut().unwrap()
         };
 
-        // format is a WAVEFORMATEX
-        // but we store it as an array of bytes because of the weird format inheritance system
-        let format: Vec<u8> = {
+        // computing the format and initializing the device
+        let format = {
+            let format_attempt = winapi::WAVEFORMATEX {
+                wFormatTag: 1,      // WAVE_FORMAT_PCM ; TODO: replace by constant
+                nChannels: 2,
+                nSamplesPerSec: 44100,
+                nAvgBytesPerSec: 2 * 44100 * 2,
+                nBlockAlign: (2 * 16) / 8,
+                wBitsPerSample: 16,
+                cbSize: 0,
+            };
+
             let mut format_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
-            let f = audio_client.lpVtbl.as_ref().unwrap().GetMixFormat;
-            let hresult = f(audio_client, &mut format_ptr);
+            let f = audio_client.lpVtbl.as_ref().unwrap().IsFormatSupported;
+            let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
+                            &format_attempt, &mut format_ptr);
             try!(check_result(hresult));
-            let format = format_ptr.as_ref().unwrap();
-            let mut format_copy = Vec::from_elem(mem::size_of::<winapi::WAVEFORMATEX>() +
-                                                 format.cbSize as uint, 0u8);
-            ptr::copy_nonoverlapping_memory(format_copy.as_mut_ptr(), mem::transmute(format),
-                                            format_copy.len());
-            winapi::CoTaskMemFree(format_ptr as *mut libc::c_void);
+
+            let format = match format_ptr.as_ref() {
+                Some(f) => f,
+                None => &format_attempt,
+            };
+
+            let format_copy = *format;
+
+            let f = audio_client.lpVtbl.as_ref().unwrap().Initialize;
+            let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
+                            0, 10000000, 0, format, ptr::null());
+
+            if !format_ptr.is_null() {
+                winapi::CoTaskMemFree(format_ptr as *mut libc::c_void);
+            }
+
+            try!(check_result(hresult));
+
             format_copy
         };
 
-        // initializing
-        {
-            let f = audio_client.lpVtbl.as_ref().unwrap().Initialize;
-            let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED, 0, 10000000, 0, format.as_ptr() as *const winapi::WAVEFORMATEX, ptr::null());
-            try!(check_result(hresult));
-        };
-
         // 
-        let buffer_frame_count = {
-            let mut buffer_frame_count = mem::uninitialized();
+        let max_frames_in_buffer = {
+            let mut max_frames_in_buffer = mem::uninitialized();
             let f = audio_client.lpVtbl.as_ref().unwrap().GetBufferSize;
-            let hresult = f(audio_client, &mut buffer_frame_count);
+            let hresult = f(audio_client, &mut max_frames_in_buffer);
             try!(check_result(hresult));
-            buffer_frame_count
+            max_frames_in_buffer
         };
 
         // 
@@ -84,6 +196,17 @@ pub fn create() -> Result<(), String> {
             render_client.as_mut().unwrap()
         };
 
+        Ok(Channel {
+            audio_client: audio_client,
+            render_client: render_client,
+            max_frames_in_buffer: max_frames_in_buffer,
+            num_channels: format.nChannels,
+            bytes_per_frame: format.nBlockAlign,
+            started: false,
+        })
+    }
+}
+/*
         let mut started = false;
         loop {
             // 
@@ -144,7 +267,7 @@ pub fn create() -> Result<(), String> {
     };
 
     Ok(())
-}
+}*/
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {

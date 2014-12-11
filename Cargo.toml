@@ -5,7 +5,12 @@ version = "0.0.1"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 
-[dependencies.winapi]
+[target.i686-pc-windows-gnu.dependencies.winapi]
+git = "https://github.com/tomaka/winapi-rs"
+branch = "mmdeviceapi"
+features = ["ole32"]
+
+[target.x86_64-pc-windows-gnu.dependencies.winapi]
 git = "https://github.com/tomaka/winapi-rs"
 branch = "mmdeviceapi"
 features = ["ole32"]
