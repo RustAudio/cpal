@@ -90,6 +90,22 @@ impl Channel {
     }
 }
 
+impl Drop for Channel {
+    fn drop(&mut self) {
+        unsafe {
+            {
+                let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Release;
+                f(self.render_client);
+            }
+
+            {
+                let f = self.audio_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Release;
+                f(self.audio_client);
+            }
+        }
+    }
+}
+
 impl<'a> Buffer<'a> {
     pub fn get_buffer(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
