@@ -1,0 +1,11 @@
+[package]
+
+name = "cpal"
+version = "0.0.1"
+authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
+description = "Cross-platform audio playing library in pure Rust."
+
+[dependencies.winapi]
+git = "https://github.com/tomaka/winapi-rs"
+branch = "mmdeviceapi"
+features = ["ole32"]
