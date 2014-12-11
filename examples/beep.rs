@@ -3,6 +3,8 @@ extern crate cpal;
 fn main() {
     let mut channel = cpal::Channel::new();
 
+    assert!(channel.get_samples_format() == cpal::SampleFormat::U16);
+
     // producing a sinusoid
     let mut data_source =
         std::iter::iterate(0.0f32, |f| f + 0.03)

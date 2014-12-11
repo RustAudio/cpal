@@ -21,6 +21,15 @@ pub type ChannelsCount = u16;
 /// A `Buffer` object borrows the channel.
 pub struct Buffer<'a>(cpal_impl::Buffer<'a>);
 
+/// Format that each sample has.
+#[deriving(Clone, Show, PartialEq, Eq)]
+pub enum SampleFormat {
+    /// The value 0 corresponds to 0.
+    I16,
+    /// The value 0 corresponds to 32768.
+    U16,
+}
+
 impl Channel {
     pub fn new() -> Channel {
         let channel = cpal_impl::Channel::new();
@@ -32,6 +41,20 @@ impl Channel {
     /// 1 for mono, 2 for stereo, etc.
     pub fn get_channels(&self) -> ChannelsCount {
         self.0.get_channels()
+    }
+
+    /// Returns the number of samples that are played per second.
+    ///
+    /// Common values are 22050 Hz or 44100 Hz.
+    pub fn get_samples_per_second(&self) -> u32 {
+        self.0.get_samples_per_second()
+    }
+
+    /// Returns the number of samples that are played per second.
+    ///
+    /// Common values are 22050 Hz or 44100 Hz.
+    pub fn get_samples_format(&self) -> SampleFormat {
+        self.0.get_samples_format()
     }
 
     /// Adds some PCM data to the channel's buffer.

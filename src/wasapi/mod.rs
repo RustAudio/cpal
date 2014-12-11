@@ -10,6 +10,8 @@ pub struct Channel {
     max_frames_in_buffer: winapi::UINT32,
     num_channels: winapi::WORD,
     bytes_per_frame: winapi::WORD,
+    samples_per_second: winapi::DWORD,
+    bits_per_sample: winapi::WORD,
     started: bool,
 }
 
@@ -28,6 +30,17 @@ impl Channel {
 
     pub fn get_channels(&self) -> ::ChannelsCount {
         self.num_channels as ::ChannelsCount
+    }
+
+    pub fn get_samples_per_second(&self) -> u32 {
+        self.samples_per_second as u32
+    }
+
+    pub fn get_samples_format(&self) -> ::SampleFormat {
+        match self.bits_per_sample {
+            16 => ::SampleFormat::U16,
+            _ => unimplemented!(),
+        }
     }
 
     pub fn append_data<'a>(&'a mut self) -> Buffer<'a> {
@@ -202,6 +215,8 @@ fn init() -> Result<Channel, String> {
             max_frames_in_buffer: max_frames_in_buffer,
             num_channels: format.nChannels,
             bytes_per_frame: format.nBlockAlign,
+            samples_per_second: format.nSamplesPerSec,
+            bits_per_sample: format.wBitsPerSample,
             started: false,
         })
     }
