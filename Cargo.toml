@@ -7,11 +7,12 @@ description = "Cross-platform audio playing library in pure Rust."
 keywords = ["audio", "sound"]
 
 [target.i686-pc-windows-gnu.dependencies.winapi]
-git = "https://github.com/tomaka/winapi-rs"
-branch = "mmdeviceapi"
+git = "https://github.com/retep998/winapi-rs"
 features = ["ole32"]
 
 [target.x86_64-pc-windows-gnu.dependencies.winapi]
-git = "https://github.com/tomaka/winapi-rs"
-branch = "mmdeviceapi"
+git = "https://github.com/retep998/winapi-rs"
 features = ["ole32"]
+
+[dev-dependencies.vorbis]
+git = "https://github.com/tomaka/vorbis-rs"
