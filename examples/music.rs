@@ -9,14 +9,26 @@ fn main() {
     let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("mozart_symfony_40.ogg")))
         .unwrap();
 
-    for packet in decoder.packets() {
+    'main: for packet in decoder.packets() {
         let packet = packet.unwrap();
+        let vorbis::Packet { channels, rate, data, .. } = packet;
 
-        let mut buffer = channel.append_data(packet.channels, cpal::SamplesRate(packet.rate as u32));
+        let mut data = data.iter();
 
-        // FIXME: data loss
-        for (i, o) in packet.data.into_iter().zip(buffer.iter_mut()) {
-            *o = i as u16;
+        loop {
+            let mut buffer = channel.append_data(channels, cpal::SamplesRate(rate as u32));
+            let mut buffer = buffer.samples();
+
+            for output in buffer {
+                match data.next() {
+                    Some(sample) => {
+                        *output = *sample as u16;
+                    },
+                    None => {
+                        continue 'main;
+                    }
+                }
+            }
         }
     }
 }

@@ -108,14 +108,11 @@ impl Drop for Channel {
 }
 
 impl<'a, T> Buffer<'a, T> {
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         self.buffer.as_mut_slice()
     }
-}
 
-#[unsafe_destructor]
-impl<'a, T> Drop for Buffer<'a, T> {
-    fn drop(&mut self) {
+    pub fn finish(self, elements_written: uint) {
         // releasing buffer
         unsafe {
             let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;

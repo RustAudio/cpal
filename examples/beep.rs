@@ -20,7 +20,7 @@ fn main() {
     loop {
         let mut buffer = channel.append_data(1, cpal::SamplesRate(44100));
 
-        for sample in buffer.iter_mut() {
+        for sample in buffer.samples() {
             let value = data_source.next().unwrap();
             *sample = value;
         }

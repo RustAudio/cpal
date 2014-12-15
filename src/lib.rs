@@ -25,7 +25,18 @@ pub struct SamplesRate(pub u32);
 /// Represents a buffer that must be filled with audio data.
 ///
 /// A `Buffer` object borrows the channel.
-pub struct Buffer<'a, T>(cpal_impl::Buffer<'a, T>, Option<RequiredConversion<T>>);
+pub struct Buffer<'a, T> {
+    // also contains something, taken by `Drop`
+    target: Option<cpal_impl::Buffer<'a, T>>, 
+    // if this is non-none, then the data will be written to `conversion.intermediate_buffer`
+    // instead of `target`, and the conversion will be done in buffer's destructor
+    conversion: Option<RequiredConversion<T>>,
+    // number of elements that have been written
+    elements_written: uint,
+}
+
+/// Iterator over the samples of the buffer.
+pub struct SamplesIter<'a, 'b, T: 'b>(&'b mut uint, std::slice::MutItems<'b, T>);
 
 struct RequiredConversion<T> {
     intermediate_buffer: Vec<T>,
@@ -134,9 +145,9 @@ impl Channel {
             // TODO: adapt size to samples format too
             let mut intermediate_buffer = Vec::from_elem(intermediate_buffer_length, unsafe { std::mem::uninitialized() });
 
-            Buffer(
-                target_buffer,
-                Some(RequiredConversion {
+            Buffer {
+                target: Some(target_buffer),
+                conversion: Some(RequiredConversion {
                     intermediate_buffer: intermediate_buffer,
                     from_sample_rate: samples_rate,
                     to_sample_rate: target_samples_rate,
@@ -144,34 +155,44 @@ impl Channel {
                     to_format: target_samples_format,
                     from_channels: channels,
                     to_channels: target_channels,
-                })
-            )
+                }),
+                elements_written: 0,
+            }
 
         } else {
-            Buffer(self.0.append_data(), None)
+            Buffer {
+                target: Some(self.0.append_data()), 
+                conversion: None,
+                elements_written: 0
+            }
         }
     }
 }
 
-impl<'a, T> Deref<[T]> for Buffer<'a, T> {
-    fn deref(&self) -> &[T] {
-        panic!()
+impl<'a, T> Buffer<'a, T> {
+    pub fn samples<'b>(&'b mut self) -> SamplesIter<'a, 'b, T> {
+        let iter = if let Some(ref mut conversion) = self.conversion {
+            conversion.intermediate_buffer.as_mut_slice().iter_mut()
+        } else {
+            self.target.as_mut().unwrap().get_buffer().iter_mut()
+        };
+
+        SamplesIter(&mut self.elements_written, iter)
     }
 }
 
-impl<'a, T> DerefMut<[T]> for Buffer<'a, T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        match self.1 {
-            Some(ref mut conv) => conv.intermediate_buffer.as_mut_slice(),
-            None => self.0.get_buffer()
-        }
+/// Iterator over the samples of the buffer.
+impl<'a, 'b, T> Iterator<&'b mut T> for SamplesIter<'a, 'b, T> {
+    fn next(&mut self) -> Option<&'b mut T> {
+        *self.0 += 1;
+        self.1.next()
     }
 }
 
 #[unsafe_destructor]
 impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
     fn drop(&mut self) {
-        if let Some(conversion) = self.1.take() {
+        if let Some(conversion) = self.conversion.take() {
             let buffer = conversion.intermediate_buffer;
 
             let buffer = if conversion.from_channels != conversion.to_channels {
@@ -198,11 +219,14 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
             };*/
             if conversion.from_format != conversion.to_format { unimplemented!() }
 
-            let output = self.0.get_buffer();
+            let output = self.target.as_mut().unwrap().get_buffer();
             assert!(buffer.len() == output.len(), "Buffers length mismatch: {} vs {}", buffer.len(), output.len());
+            self.elements_written += buffer.len();
             for (i, o) in buffer.into_iter().zip(output.iter_mut()) {
                 *o = i;
             }
         }
+
+        self.target.take().unwrap().finish(self.elements_written);
     }
 }
