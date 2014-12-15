@@ -19,7 +19,7 @@ pub type ChannelsCount = u16;
 /// Represents a buffer that must be filled with audio data.
 ///
 /// A `Buffer` object borrows the channel.
-pub struct Buffer<'a>(cpal_impl::Buffer<'a>);
+pub struct Buffer<'a, T>(cpal_impl::Buffer<'a, T>);
 
 /// Format that each sample has.
 #[deriving(Clone, Copy, Show, PartialEq, Eq)]
@@ -62,19 +62,19 @@ impl Channel {
     /// This function returns a `Buffer` object that must be filled with the audio data.
     /// You can't know in advance the size of the buffer, as it depends on the current state
     /// of the backend.
-    pub fn append_data<'a>(&'a mut self) -> Buffer<'a> {
+    pub fn append_data<'a, T>(&'a mut self) -> Buffer<'a, T> {
         Buffer(self.0.append_data())
     }
 }
 
-impl<'a> Deref<[u8]> for Buffer<'a> {
-    fn deref(&self) -> &[u8] {
+impl<'a, T> Deref<[T]> for Buffer<'a, T> {
+    fn deref(&self) -> &[T] {
         panic!()
     }
 }
 
-impl<'a> DerefMut<[u8]> for Buffer<'a> {
-    fn deref_mut(&mut self) -> &mut [u8] {
+impl<'a, T> DerefMut<[T]> for Buffer<'a, T> {
+    fn deref_mut(&mut self) -> &mut [T] {
         self.0.get_buffer()
     }
 }

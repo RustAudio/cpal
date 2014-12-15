@@ -22,12 +22,11 @@ fn main() {
     loop {
         let mut buffer = channel.append_data();
 
-        for sample in buffer.chunks_mut(4) {
+        for sample in buffer.chunks_mut(2) {
             let value = data_source.next().unwrap();
 
-            let mut writer = std::io::BufWriter::new(sample);
-            writer.write_le_u16(value).unwrap();
-            writer.write_le_u16(value).unwrap();
+            sample[0] = value;
+            sample[1] = value;
         }
     }
 }

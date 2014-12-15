@@ -15,10 +15,10 @@ pub struct Channel {
     started: bool,
 }
 
-pub struct Buffer<'a> {
+pub struct Buffer<'a, T> {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
-    buffer: CVec<u8>,
+    buffer: CVec<T>,
     frames: winapi::UINT32,
     start_on_drop: bool,
 }
@@ -43,7 +43,7 @@ impl Channel {
         }
     }
 
-    pub fn append_data<'a>(&'a mut self) -> Buffer<'a> {
+    pub fn append_data<'a, T>(&'a mut self) -> Buffer<'a, T> {
         unsafe {
             loop {
                 // 
@@ -63,7 +63,7 @@ impl Channel {
                 }
 
                 // loading buffer
-                let buffer: CVec<u8> = {
+                let buffer: CVec<T> = {
                     let mut buffer: *mut winapi::BYTE = mem::uninitialized();
                     let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().GetBuffer;
                     let hresult = f(self.render_client, frames_available,
@@ -71,8 +71,9 @@ impl Channel {
                     check_result(hresult).unwrap();
                     assert!(!buffer.is_null());
 
-                    CVec::new(buffer as *mut u8,
-                              frames_available as uint * self.bytes_per_frame as uint)
+                    CVec::new(buffer as *mut T,
+                              frames_available as uint * self.bytes_per_frame as uint
+                                  / mem::size_of::<T>())
                 };
 
                 let buffer = Buffer {
@@ -106,14 +107,14 @@ impl Drop for Channel {
     }
 }
 
-impl<'a> Buffer<'a> {
-    pub fn get_buffer(&mut self) -> &mut [u8] {
+impl<'a, T> Buffer<'a, T> {
+    pub fn get_buffer(&mut self) -> &mut [T] {
         self.buffer.as_mut_slice()
     }
 }
 
 #[unsafe_destructor]
-impl<'a> Drop for Buffer<'a> {
+impl<'a, T> Drop for Buffer<'a, T> {
     fn drop(&mut self) {
         // releasing buffer
         unsafe {
