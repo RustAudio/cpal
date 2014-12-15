@@ -20,7 +20,7 @@ pub type ChannelsCount = u16;
 
 /// 
 #[deriving(Show, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SamplesRate(pub u16);
+pub struct SamplesRate(pub u32);
 
 /// Represents a buffer that must be filled with audio data.
 ///

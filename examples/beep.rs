@@ -20,11 +20,9 @@ fn main() {
     loop {
         let mut buffer = channel.append_data(1, cpal::SamplesRate(44100));
 
-        for sample in buffer.chunks_mut(1) {
+        for sample in buffer.iter_mut() {
             let value = data_source.next().unwrap();
-
-            sample[0] = value;
-            //sample[1] = value;
+            *sample = value;
         }
     }
 }

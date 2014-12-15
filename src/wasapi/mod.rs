@@ -33,7 +33,7 @@ impl Channel {
     }
 
     pub fn get_samples_rate(&self) -> ::SamplesRate {
-        ::SamplesRate(self.samples_per_second as u16)
+        ::SamplesRate(self.samples_per_second as u32)
     }
 
     pub fn get_samples_format(&self) -> ::SampleFormat {
