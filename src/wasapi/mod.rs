@@ -4,6 +4,7 @@ extern crate winapi;
 use std::{mem, ptr};
 use std::c_vec::CVec;
 
+// TODO: determine if should be NoSend or not
 pub struct Channel {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
@@ -58,7 +59,7 @@ impl Channel {
 
                 if frames_available == 0 {
                     // TODO: 
-                    ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds(5));
+                    ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds(1));
                     continue;
                 }
 
@@ -116,7 +117,7 @@ impl<'a, T> Buffer<'a, T> {
         // releasing buffer
         unsafe {
             let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;
-            let hresult = f(self.render_client, self.frames, 0);
+            let hresult = f(self.render_client, elements_written as u32, 0);
             check_result(hresult).unwrap();
 
             if self.start_on_drop {

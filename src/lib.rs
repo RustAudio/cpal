@@ -186,8 +186,13 @@ impl<'a, T> Buffer<'a, T> {
 /// Iterator over the samples of the buffer.
 impl<'a, 'b, T> Iterator<&'b mut T> for SamplesIter<'a, 'b, T> {
     fn next(&mut self) -> Option<&'b mut T> {
-        *self.0 += 1;
-        self.1.next()
+        match self.1.next() {
+            Some(v) => {
+                *self.0 += 1;
+                Some(v)
+            },
+            None => None
+        }
     }
 }
 
