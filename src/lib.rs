@@ -163,7 +163,7 @@ impl Channel {
             Buffer {
                 target: Some(self.0.append_data()), 
                 conversion: None,
-                elements_written: 0
+                elements_written: 0,
             }
         }
     }
