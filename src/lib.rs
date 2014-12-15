@@ -36,7 +36,7 @@ pub struct Buffer<'a, T> {
 }
 
 /// Iterator over the samples of the buffer.
-pub struct SamplesIter<'a, 'b, T: 'b>(&'b mut uint, std::slice::MutItems<'b, T>);
+pub struct SamplesIter<'a, 'b, T: 'b>(&'b mut uint, std::iter::Skip<std::slice::MutItems<'b, T>>);
 
 struct RequiredConversion<T> {
     intermediate_buffer: Vec<T>,
@@ -176,6 +176,8 @@ impl<'a, T> Buffer<'a, T> {
         } else {
             self.target.as_mut().unwrap().get_buffer().iter_mut()
         };
+
+        let iter = iter.skip(self.elements_written);
 
         SamplesIter(&mut self.elements_written, iter)
     }
