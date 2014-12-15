@@ -32,8 +32,8 @@ impl Channel {
         self.num_channels as ::ChannelsCount
     }
 
-    pub fn get_samples_per_second(&self) -> u32 {
-        self.samples_per_second as u32
+    pub fn get_samples_rate(&self) -> ::SamplesRate {
+        ::SamplesRate(self.samples_per_second as u16)
     }
 
     pub fn get_samples_format(&self) -> ::SampleFormat {

@@ -3,8 +3,6 @@ extern crate cpal;
 fn main() {
     let mut channel = cpal::Channel::new();
 
-    assert!(channel.get_samples_format() == cpal::SampleFormat::U16);
-
     // producing a sinusoid
     let mut data_source =
         std::iter::iterate(0.0f32, |f| f + 0.03)
@@ -20,13 +18,13 @@ fn main() {
             });
 
     loop {
-        let mut buffer = channel.append_data();
+        let mut buffer = channel.append_data(1, cpal::SamplesRate(44100));
 
-        for sample in buffer.chunks_mut(2) {
+        for sample in buffer.chunks_mut(1) {
             let value = data_source.next().unwrap();
 
             sample[0] = value;
-            sample[1] = value;
+            //sample[1] = value;
         }
     }
 }
