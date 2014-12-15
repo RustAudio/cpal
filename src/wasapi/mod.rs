@@ -21,6 +21,7 @@ pub struct Buffer<'a, T> {
     render_client: *mut winapi::IAudioRenderClient,
     buffer: CVec<T>,
     frames: winapi::UINT32,
+    channels: winapi::WORD,
     start_on_drop: bool,
 }
 
@@ -44,7 +45,7 @@ impl Channel {
         }
     }
 
-    pub fn append_data<'a, T>(&'a mut self) -> Buffer<'a, T> {
+    pub fn append_data<'a, T>(&'a mut self, max_elements: uint) -> Buffer<'a, T> {
         unsafe {
             loop {
                 // 
@@ -62,6 +63,11 @@ impl Channel {
                     ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds(1));
                     continue;
                 }
+
+                let frames_available = ::std::cmp::min(frames_available,
+                                                       max_elements as u32 * mem::size_of::<T>() as u32 /
+                                                       self.bytes_per_frame as u32);
+                assert!(frames_available != 0);
 
                 // loading buffer
                 let buffer: CVec<T> = {
@@ -81,6 +87,7 @@ impl Channel {
                     audio_client: self.audio_client,
                     render_client: self.render_client,
                     buffer: buffer,
+                    channels: self.num_channels,
                     frames: frames_available,
                     start_on_drop: !self.started,
                 };
@@ -114,6 +121,8 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self, elements_written: uint) {
+        let elements_written = elements_written / self.channels as uint;
+
         // releasing buffer
         unsafe {
             let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;

@@ -120,10 +120,18 @@ impl Channel {
     /// This function returns a `Buffer` object that must be filled with the audio data.
     /// You can't know in advance the size of the buffer, as it depends on the current state
     /// of the backend.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if `max_elements` is 0 or is not a multiple of `channels`.
+    ///
     pub fn append_data<'a, T>(&'a mut self, channels: ChannelsCount,
-                              samples_rate: SamplesRate)
+                              samples_rate: SamplesRate, max_elements: uint)
                               -> Buffer<'a, T> where T: Sample + Clone
     {
+        assert!(max_elements != 0);
+        assert!(max_elements % channels as uint == 0);
+
         let target_samples_rate = self.0.get_samples_rate();
         let target_channels = self.0.get_channels();
 
@@ -134,7 +142,7 @@ impl Channel {
         if samples_rate != target_samples_rate || channels != target_channels ||
            source_samples_format != target_samples_format
         {
-            let mut target_buffer = self.0.append_data();
+            let mut target_buffer = self.0.append_data(max_elements);
 
             // computing the length of the intermediary buffer
             let intermediate_buffer_length = target_buffer.get_buffer().len();
@@ -161,7 +169,7 @@ impl Channel {
 
         } else {
             Buffer {
-                target: Some(self.0.append_data()), 
+                target: Some(self.0.append_data(max_elements)), 
                 conversion: None,
                 elements_written: 0,
             }
