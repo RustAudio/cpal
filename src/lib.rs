@@ -59,10 +59,6 @@ pub trait Sample: Copy {
 
     /// Turns the data into a `Vec<u16>` where each element is a sample.
     fn to_vec_u16(&[Self]) -> Vec<u16>;
-
-    fn convert_channels_count(&[Self], from: u16, to: u16) -> Vec<Self>;
-
-    fn convert_samples_rate(&[Self], from: SamplesRate, to: SamplesRate) -> Vec<Self>;
 }
 
 impl Sample for u16 {
@@ -72,14 +68,6 @@ impl Sample for u16 {
 
     fn to_vec_u16(input: &[u16]) -> Vec<u16> {
         input.to_vec()
-    }
-
-    fn convert_channels_count(input: &[u16], from: u16, to: u16) -> Vec<u16> {
-        unimplemented!()
-    }
-
-    fn convert_samples_rate(input: &[u16], _from: SamplesRate, _to: SamplesRate) -> Vec<u16> {
-        unimplemented!()
     }
 }
 
@@ -150,7 +138,7 @@ impl Channel {
             let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as uint /
                                              target_samples_rate.0 as uint;
             // TODO: adapt size to samples format too
-            let mut intermediate_buffer = Vec::from_elem(intermediate_buffer_length, unsafe { std::mem::uninitialized() });
+            let intermediate_buffer = Vec::from_elem(intermediate_buffer_length, unsafe { std::mem::uninitialized() });
 
             Buffer {
                 target: Some(target_buffer),
