@@ -191,7 +191,7 @@ fn init() -> Result<Channel, String> {
                 None => &format_attempt,
             };
 
-            let format_copy = *format;
+            let format_copy = ptr::read(format);
 
             let f = audio_client.lpVtbl.as_ref().unwrap().Initialize;
             let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,

@@ -22,7 +22,7 @@ pub type ChannelsCount = u16;
 pub struct Buffer<'a>(cpal_impl::Buffer<'a>);
 
 /// Format that each sample has.
-#[deriving(Clone, Show, PartialEq, Eq)]
+#[deriving(Clone, Copy, Show, PartialEq, Eq)]
 pub enum SampleFormat {
     /// The value 0 corresponds to 0.
     I16,
