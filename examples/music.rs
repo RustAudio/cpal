@@ -14,19 +14,28 @@ fn main() {
         let vorbis::Packet { channels, rate, data, .. } = packet;
 
         let mut data = data.iter();
+        let mut next_sample = None;
 
         loop {
             let mut buffer = channel.append_data(channels, cpal::SamplesRate(rate as u32));
             let mut buffer = buffer.samples();
 
-            for output in buffer {
-                match data.next() {
-                    Some(sample) => {
-                        *output = *sample as u16;
-                    },
-                    None => {
-                        continue 'main;
+            loop {
+                if next_sample.is_none() {
+                    match data.next() {
+                        Some(sample) => {
+                            next_sample = Some(*sample as u16)
+                        },
+                        None => {
+                            continue 'main;
+                        }
                     }
+                }
+
+                if let Some(output) = buffer.next() {
+                    *output = next_sample.take().unwrap();
+                } else {
+                    break;
                 }
             }
         }
