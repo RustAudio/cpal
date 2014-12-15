@@ -137,6 +137,10 @@ impl Channel {
         if samples_rate != target_samples_rate || channels != target_channels ||
            source_samples_format != target_samples_format
         {
+            let max_elements = max_elements * target_channels as uint / channels as uint;
+            let max_elements = max_elements * target_samples_rate.0 as uint / samples_rate.0 as uint;
+            // TODO: samples format
+
             let mut target_buffer = self.0.append_data(max_elements);
 
             // computing the length of the intermediary buffer
@@ -178,7 +182,11 @@ impl<'a, T> Deref<[T]> for Buffer<'a, T> {
 
 impl<'a, T> DerefMut<[T]> for Buffer<'a, T> {
     fn deref_mut(&mut self) -> &mut [T] {
-        self.target.as_mut().unwrap().get_buffer()
+        if let Some(ref mut conversion) = self.conversion {
+            conversion.intermediate_buffer.as_mut_slice()
+        } else {
+            self.target.as_mut().unwrap().get_buffer()
+        }
     }
 }
 
