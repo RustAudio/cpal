@@ -21,7 +21,6 @@ pub struct Buffer<'a, T> {
     render_client: *mut winapi::IAudioRenderClient,
     buffer: CVec<T>,
     frames: winapi::UINT32,
-    channels: winapi::WORD,
     start_on_drop: bool,
 }
 
@@ -87,7 +86,6 @@ impl Channel {
                     audio_client: self.audio_client,
                     render_client: self.render_client,
                     buffer: buffer,
-                    channels: self.num_channels,
                     frames: frames_available,
                     start_on_drop: !self.started,
                 };
@@ -120,13 +118,11 @@ impl<'a, T> Buffer<'a, T> {
         self.buffer.as_mut_slice()
     }
 
-    pub fn finish(self, elements_written: uint) {
-        let elements_written = elements_written / self.channels as uint;
-
+    pub fn finish(self) {
         // releasing buffer
         unsafe {
             let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;
-            let hresult = f(self.render_client, elements_written as u32, 0);
+            let hresult = f(self.render_client, self.frames as u32, 0);
             check_result(hresult).unwrap();
 
             if self.start_on_drop {

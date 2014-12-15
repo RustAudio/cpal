@@ -21,7 +21,7 @@ fn main() {
             }
 
             let mut buffer = channel.append_data(channels, cpal::SamplesRate(rate as u32), data.len());
-            let mut buffer = buffer.samples();
+            let mut buffer = buffer.iter_mut();
 
             loop {
                 let next_sample = match data.get(0) {

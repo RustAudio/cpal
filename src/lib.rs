@@ -31,12 +31,7 @@ pub struct Buffer<'a, T> {
     // if this is non-none, then the data will be written to `conversion.intermediate_buffer`
     // instead of `target`, and the conversion will be done in buffer's destructor
     conversion: Option<RequiredConversion<T>>,
-    // number of elements that have been written
-    elements_written: uint,
 }
-
-/// Iterator over the samples of the buffer.
-pub struct SamplesIter<'a, 'b, T: 'b>(&'b mut uint, std::iter::Skip<std::slice::MutItems<'b, T>>);
 
 struct RequiredConversion<T> {
     intermediate_buffer: Vec<T>,
@@ -164,43 +159,26 @@ impl Channel {
                     from_channels: channels,
                     to_channels: target_channels,
                 }),
-                elements_written: 0,
             }
 
         } else {
             Buffer {
                 target: Some(self.0.append_data(max_elements)), 
                 conversion: None,
-                elements_written: 0,
             }
         }
     }
 }
 
-impl<'a, T> Buffer<'a, T> {
-    pub fn samples<'b>(&'b mut self) -> SamplesIter<'a, 'b, T> {
-        let iter = if let Some(ref mut conversion) = self.conversion {
-            conversion.intermediate_buffer.as_mut_slice().iter_mut()
-        } else {
-            self.target.as_mut().unwrap().get_buffer().iter_mut()
-        };
-
-        let iter = iter.skip(self.elements_written);
-
-        SamplesIter(&mut self.elements_written, iter)
+impl<'a, T> Deref<[T]> for Buffer<'a, T> {
+    fn deref(&self) -> &[T] {
+        panic!("It is forbidden to read from the audio buffer");
     }
 }
 
-/// Iterator over the samples of the buffer.
-impl<'a, 'b, T> Iterator<&'b mut T> for SamplesIter<'a, 'b, T> {
-    fn next(&mut self) -> Option<&'b mut T> {
-        match self.1.next() {
-            Some(v) => {
-                *self.0 += 1;
-                Some(v)
-            },
-            None => None
-        }
+impl<'a, T> DerefMut<[T]> for Buffer<'a, T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.target.as_mut().unwrap().get_buffer()
     }
 }
 
@@ -236,12 +214,11 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
 
             let output = self.target.as_mut().unwrap().get_buffer();
             assert!(buffer.len() == output.len(), "Buffers length mismatch: {} vs {}", buffer.len(), output.len());
-            self.elements_written += buffer.len();
             for (i, o) in buffer.into_iter().zip(output.iter_mut()) {
                 *o = i;
             }
         }
 
-        self.target.take().unwrap().finish(self.elements_written);
+        self.target.take().unwrap().finish();
     }
 }
