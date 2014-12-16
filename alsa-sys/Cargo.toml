@@ -6,4 +6,4 @@ authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 build = "build.rs"
 
 [build-dependencies]
-pkg-config = "*"
+pkg-config = "^0.1.1"
