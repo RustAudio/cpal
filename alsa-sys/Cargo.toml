@@ -4,6 +4,8 @@ name = "alsa-sys"
 version = "0.0.1"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 build = "build.rs"
+description = "Bindings for the ALSA project (Advanced Linux Sound Architecture)"
+license = "MIT"
 
 [build-dependencies]
 pkg-config = "^0.1.1"
