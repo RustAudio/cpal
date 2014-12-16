@@ -16,5 +16,13 @@ git = "https://github.com/tomaka/winapi-rs"
 branch = "mmdeviceapi"
 features = ["ole32"]
 
+[target.i686-unknown-linux-gnu.dependencies.alsa-sys]
+version = "*"
+path = "alsa-sys"
+
+[target.x86_64-unknown-linux-gnu.dependencies.alsa-sys]
+version = "*"
+path = "alsa-sys"
+
 [dev-dependencies.vorbis]
 git = "https://github.com/tomaka/vorbis-rs"
