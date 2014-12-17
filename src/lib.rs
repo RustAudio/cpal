@@ -1,3 +1,4 @@
+#![feature(macro_rules)]
 #![feature(unsafe_destructor)]
 
 #[cfg(all(not(windows), not(unix)))]
@@ -40,7 +41,6 @@ struct RequiredConversion<T> {
     intermediate_buffer: Vec<T>,
     from_sample_rate: SamplesRate,
     to_sample_rate: SamplesRate,
-    from_format: SampleFormat,
     to_format: SampleFormat,
     from_channels: ChannelsCount,
     to_channels: ChannelsCount,
@@ -53,6 +53,15 @@ pub enum SampleFormat {
     I16,
     /// The value 0 corresponds to 32768.
     U16,
+}
+
+impl SampleFormat {
+    fn get_sample_size(&self) -> uint {
+        match self {
+            &SampleFormat::I16 => std::mem::size_of::<i16>(),
+            &SampleFormat::U16 => std::mem::size_of::<u16>(),
+        }
+    }
 }
 
 /// Trait for containers that contain PCM data.
@@ -71,6 +80,22 @@ impl Sample for u16 {
 
     fn to_vec_u16(input: &[u16]) -> Vec<u16> {
         input.to_vec()
+    }
+}
+
+impl Sample for i16 {
+    fn get_format(_: Option<i16>) -> SampleFormat {
+        SampleFormat::I16
+    }
+
+    fn to_vec_u16(input: &[i16]) -> Vec<u16> {
+        input.iter().map(|&value| {
+            if value < 0 {
+                (value + 32767) as u16
+            } else {
+                (value as u16) + 32768
+            }
+        }).collect()
     }
 }
 
@@ -129,8 +154,10 @@ impl Channel {
            source_samples_format != target_samples_format
         {
             let max_elements = max_elements * target_channels as uint / channels as uint;
-            let max_elements = max_elements * target_samples_rate.0 as uint / samples_rate.0 as uint;
-            // TODO: samples format
+            let max_elements = max_elements * target_samples_rate.0 as uint /
+                               samples_rate.0 as uint;
+            let max_elements = max_elements * target_samples_format.get_sample_size() /
+                               source_samples_format.get_sample_size();
 
             let mut target_buffer = self.0.append_data(max_elements);
 
@@ -140,7 +167,9 @@ impl Channel {
                                              target_channels as uint;
             let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as uint /
                                              target_samples_rate.0 as uint;
-            // TODO: adapt size to samples format too
+            let intermediate_buffer_length = intermediate_buffer_length *
+                                             source_samples_format.get_sample_size() /
+                                             target_samples_format.get_sample_size();
             let intermediate_buffer = Vec::from_elem(intermediate_buffer_length, unsafe { std::mem::uninitialized() });
 
             Buffer {
@@ -149,7 +178,6 @@ impl Channel {
                     intermediate_buffer: intermediate_buffer,
                     from_sample_rate: samples_rate,
                     to_sample_rate: target_samples_rate,
-                    from_format: source_samples_format,
                     to_format: target_samples_format,
                     from_channels: channels,
                     to_channels: target_channels,
@@ -201,20 +229,26 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
                 buffer
             };
 
-            /*let buffer = if conversion.from_format != conversion.to_format {
-                match conversion.to_format {
-                    SampleFormat::U16 => Sample::to_vec_u16(buffer.as_slice()),
-                    _ => unimplemented!(),
-                }
-            } else {
-                buffer
-            };*/
-            if conversion.from_format != conversion.to_format { unimplemented!() }
-
             let output = self.target.as_mut().unwrap().get_buffer();
             assert!(buffer.len() == output.len(), "Buffers length mismatch: {} vs {}", buffer.len(), output.len());
-            for (i, o) in buffer.into_iter().zip(output.iter_mut()) {
-                *o = i;
+
+            macro_rules! write_to_buf(
+                ($buf:expr, $output:expr, $ty:ty) => ({
+                    let output: &mut [$ty] = unsafe { std::mem::transmute($output) };
+                    for (i, o) in $buf.into_iter().zip(output.iter_mut()) {
+                        *o = i;
+                    }
+                })
+            )
+
+            match conversion.to_format {
+                SampleFormat::I16 => {
+                    unimplemented!()
+                },
+                SampleFormat::U16 => {
+                    let buffer = Sample::to_vec_u16(buffer.as_slice());
+                    write_to_buf!(buffer, output, u16);
+                },
             }
         }
 
