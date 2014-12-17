@@ -4,7 +4,7 @@ extern crate vorbis;
 use std::io::BufReader;
 
 fn main() {
-    let mut channel = cpal::Channel::new();
+    let mut channel = cpal::Voice::new();
 
     let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("music.ogg")))
         .unwrap();

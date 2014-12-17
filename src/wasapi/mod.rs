@@ -5,7 +5,7 @@ use std::{mem, ptr};
 use std::c_vec::CVec;
 
 // TODO: determine if should be NoSend or not
-pub struct Channel {
+pub struct Voice {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
     max_frames_in_buffer: winapi::UINT32,
@@ -24,8 +24,8 @@ pub struct Buffer<'a, T> {
     start_on_drop: bool,
 }
 
-impl Channel {
-    pub fn new() -> Channel {
+impl Voice {
+    pub fn new() -> Voice {
         init().unwrap()
     }
 
@@ -97,7 +97,7 @@ impl Channel {
     }
 }
 
-impl Drop for Channel {
+impl Drop for Voice {
     fn drop(&mut self) {
         unsafe {
             {
@@ -134,7 +134,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
-fn init() -> Result<Channel, String> {
+fn init() -> Result<Voice, String> {
     // FIXME: release everything
     unsafe {
         try!(check_result(winapi::CoInitializeEx(::std::ptr::null_mut(), 0)));
@@ -229,7 +229,7 @@ fn init() -> Result<Channel, String> {
             render_client.as_mut().unwrap()
         };
 
-        Ok(Channel {
+        Ok(Voice {
             audio_client: audio_client,
             render_client: render_client,
             max_frames_in_buffer: max_frames_in_buffer,

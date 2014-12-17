@@ -3,18 +3,18 @@ extern crate libc;
 
 use std::{mem, ptr};
 
-pub struct Channel {
+pub struct Voice {
     channel: *mut alsa::snd_pcm_t,
     num_channels: u16,
 }
 
 pub struct Buffer<'a, T> {
-    channel: &'a mut Channel,
+    channel: &'a mut Voice,
     buffer: Vec<T>,
 }
 
-impl Channel {
-    pub fn new() -> Channel {
+impl Voice {
+    pub fn new() -> Voice {
         unsafe {
             let name = "default".to_c_str();
 
@@ -33,7 +33,7 @@ impl Channel {
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
-            Channel {
+            Voice {
                 channel: playback_handle,
                 num_channels: 2,
             }
@@ -65,7 +65,7 @@ impl Channel {
     }
 }
 
-impl Drop for Channel {
+impl Drop for Voice {
     fn drop(&mut self) {
         unsafe {
             alsa::snd_pcm_close(self.channel);
