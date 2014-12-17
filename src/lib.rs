@@ -1,5 +1,6 @@
 #![feature(macro_rules)]
 #![feature(unsafe_destructor)]
+#![unstable]
 
 #[cfg(all(not(windows), not(unix)))]
 use this_platform_is_not_supported;
@@ -11,15 +12,17 @@ mod samples_formats;
 
 #[cfg(unix)]
 #[path="alsa/mod.rs"]
-pub mod cpal_impl;
+mod cpal_impl;
 #[cfg(windows)]
 #[path="wasapi/mod.rs"]
-pub mod cpal_impl;
+mod cpal_impl;
 
-/// A `Channel` represents a sound output.
+/// Controls a sound output.
 ///
-/// A channel must be periodically filled with new data, or the sound will
-/// stop playing.
+/// Create one `Channel` for each sound that you want to play.
+///
+/// A channel must be periodically filled with new data by calling `append_data`, or the sound
+/// will stop playing.
 pub struct Channel(cpal_impl::Channel);
 
 /// Number of channels.
@@ -50,6 +53,7 @@ struct RequiredConversion<T> {
 }
 
 impl Channel {
+    /// Builds a new channel.
     pub fn new() -> Channel {
         let channel = cpal_impl::Channel::new();
         Channel(channel)

@@ -8,10 +8,12 @@ pub enum SampleFormat {
     I16,
     /// The value 0 corresponds to 32768.
     U16,
+    /// The boundaries are (-1.0, 1.0).
     F32,
 }
 
 impl SampleFormat {
+    /// Returns the size in bytes of a sample of this format.
     pub fn get_sample_size(&self) -> uint {
         match self {
             &SampleFormat::I16 => mem::size_of::<i16>(),
@@ -26,11 +28,11 @@ impl SampleFormat {
 pub trait Sample: Copy {
     fn get_format(Option<Self>) -> SampleFormat;
 
-    /// Turns the data into a `Vec<i16>` where each element is a sample.
+    /// Turns the data into samples of type `I16`.
     fn to_vec_i16(&[Self]) -> Cow<Vec<i16>, [i16]>;
-    /// Turns the data into a `Vec<u16>` where each element is a sample.
+    /// Turns the data into samples of type `U16`.
     fn to_vec_u16(&[Self]) -> Cow<Vec<u16>, [u16]>;
-    /// Turns the data into a `Vec<f32>` where each element is a sample.
+    /// Turns the data into samples of type `F32`.
     fn to_vec_f32(&[Self]) -> Cow<Vec<f32>, [f32]>;
 }
 
