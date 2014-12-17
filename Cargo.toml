@@ -9,21 +9,19 @@ license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
 [target.i686-pc-windows-gnu.dependencies.winapi]
-git = "https://github.com/tomaka/winapi-rs"
-branch = "mmdeviceapi"
+version = "^0.0.2"
 features = ["ole32"]
 
 [target.x86_64-pc-windows-gnu.dependencies.winapi]
-git = "https://github.com/tomaka/winapi-rs"
-branch = "mmdeviceapi"
+version = "^0.0.2"
 features = ["ole32"]
 
 [target.i686-unknown-linux-gnu.dependencies.alsa-sys]
-version = "*"
+version = "^0.0.1"
 path = "alsa-sys"
 
 [target.x86_64-unknown-linux-gnu.dependencies.alsa-sys]
-version = "*"
+version = "^0.0.1"
 path = "alsa-sys"
 
 [dev-dependencies]
