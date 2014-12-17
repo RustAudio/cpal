@@ -1,4 +1,13 @@
 language: rust
 
+env:
+  global:
+    - secure: IHk+qN/QJ+OccLXTAhkdvJMaHdVlu6R+4czFPcW+ukt3qnBn23o0kQFW2VoCLuV3Apd1X7Im+jsmOGxo6WtD8kwzbj4rV0SiFaeddwTpnBW4uALIwdmd6z7TPkGKB0eDjQ8y4IgM88zhrAsqenCcfnTtoZw2oh8owGkCkkDGyXc=
+
 install:
-    - sudo apt-get install libasound2-dev
+  - sudo apt-get install libasound2-dev
+
+after_script:
+  - cargo doc
+  - cp -R target/doc doc
+  - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
