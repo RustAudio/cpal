@@ -6,7 +6,7 @@ use std::io::BufReader;
 fn main() {
     let mut channel = cpal::Channel::new();
 
-    let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("mozart_symfony_40.ogg")))
+    let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("music.ogg")))
         .unwrap();
 
     'main: for packet in decoder.packets() {
