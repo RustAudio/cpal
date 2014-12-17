@@ -2,7 +2,7 @@ language: rust
 
 env:
   global:
-    - secure: IHk+qN/QJ+OccLXTAhkdvJMaHdVlu6R+4czFPcW+ukt3qnBn23o0kQFW2VoCLuV3Apd1X7Im+jsmOGxo6WtD8kwzbj4rV0SiFaeddwTpnBW4uALIwdmd6z7TPkGKB0eDjQ8y4IgM88zhrAsqenCcfnTtoZw2oh8owGkCkkDGyXc=
+    - secure: "H7JRHaCkm6NvmMU76pNUyK5fj8d0kEb1snGCTcC4ZdW98P5qSEDbMBOKZgSW0DNhKmzYS1qHHAXlmm9c9JCVYfeErL9JeTrRk4DvIO8sH3ImhHIB/q4U+h+hxZ6W+dGpTi0kjQ5ZS3z+Mlr/9CB4UT83HmF78Zfyf6KA15esUIQ="
 
 install:
   - sudo apt-get install libasound2-dev
@@ -11,3 +11,13 @@ after_script:
   - cargo doc
   - cp -R target/doc doc
   - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
+  - test $TRAVIS_PULL_REQUEST == "false" && test $TRAVIS_BRANCH == "master" && bash deploy.sh
+
+after_success: |
+    [ $TRAVIS_BRANCH = master ] &&
+    [ $TRAVIS_PULL_REQUEST = false ] &&
+    cargo doc &&
+    echo '<meta http-equiv=refresh content=0;url=cpal/index.html>' > target/doc/index.html &&
+    sudo pip install ghp-import &&
+    ghp-import -n target/doc &&
+    git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
