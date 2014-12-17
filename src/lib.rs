@@ -1,3 +1,45 @@
+/*!
+# How to use cpal
+
+In order to play a sound, first you need to create a `Voice`.
+
+```no_run
+let mut voice = cpal::Voice::new();
+```
+
+Then you must send raw samples to it by calling `append_data`.
+This function takes three parameters: the number of channels, the number of samples
+that must be played per second, and the number of samples that you have available.
+
+You can then fill the buffer with the data.
+
+```no_run
+# let mut voice = cpal::Voice::new();
+let mut buffer: cpal::Buffer<f32> = voice.append_data(2, cpal::SamplesRate(44100), 1024);
+
+// filling the buffer with 0s
+for e in buffer.iter_mut() {
+    *e = 0.0f32;
+}
+```
+
+**Important**: the `append_data` function can return a buffer shorter than what you requested.
+This is the case if the device doesn't have enough space available. **It happens very often**,
+this is not some obscure situation that can be ignored.
+
+The audio device of the user will read the buffer that you sent, and play it. If the audio device
+reaches the end of the data, it will stop playing. You **must** continuously fill the buffer by
+calling `append_data` repeatedly if you don't want the audio to stop playing.
+
+# Native format
+
+Each `Voice` is bound to a specific number of channels, samples rate, and samples format.
+If you call `append_data` with values different than these, then cpal will automatically perform
+a conversion on your data.
+
+If you have the possibility, you should try to match the format of the voice.
+
+*/
 #![feature(macro_rules)]
 #![feature(unsafe_destructor)]
 #![unstable]
@@ -17,12 +59,18 @@ mod cpal_impl;
 #[path="wasapi/mod.rs"]
 mod cpal_impl;
 
-/// Controls a sound output.
-///
-/// Create one `Voice` for each sound that you want to play.
+/// Controls a sound output. A typical application has one `Voice` for each sound
+/// it wants to output.
 ///
 /// A voice must be periodically filled with new data by calling `append_data`, or the sound
 /// will stop playing.
+///
+/// Each `Voice` is bound to a specific number of channels, samples rate, and samples format,
+/// which can be retreived by calling `get_channels`, `get_samples_rate` and `get_samples_format`.
+/// If you call `append_data` with values different than these, then cpal will automatically
+/// perform a conversion on your data.
+///
+/// If you have the possibility, you should try to match the format of the voice.
 pub struct Voice(cpal_impl::Voice);
 
 /// Number of channels.
@@ -34,10 +82,12 @@ pub struct SamplesRate(pub u32);
 
 /// Represents a buffer that must be filled with audio data.
 ///
-/// A `Buffer` object borrows the channel.
+/// You should destroy this object as soon as possible. Data is only committed when it
+/// is destroyed.
 pub struct Buffer<'a, T> {
     // also contains something, taken by `Drop`
     target: Option<cpal_impl::Buffer<'a, T>>, 
+
     // if this is non-none, then the data will be written to `conversion.intermediate_buffer`
     // instead of `target`, and the conversion will be done in buffer's destructor
     conversion: Option<RequiredConversion<T>>,
@@ -61,30 +111,47 @@ impl Voice {
 
     /// Returns the number of channels.
     ///
-    /// 1 for mono, 2 for stereo, etc.
+    /// You can add data with any number of channels, but matching the voice's native format
+    /// will lead to better performances.
     pub fn get_channels(&self) -> ChannelsCount {
         self.0.get_channels()
     }
 
     /// Returns the number of samples that are played per second.
     ///
-    /// Common values are 22050 Hz or 44100 Hz.
+    /// You can add data with any samples rate, but matching the voice's native format
+    /// will lead to better performances.
     pub fn get_samples_rate(&self) -> SamplesRate {
         self.0.get_samples_rate()
     }
 
-    /// Returns the number of samples that are played per second.
+    /// Returns the format of the samples that are accepted by the backend.
     ///
-    /// Common values are 22050 Hz or 44100 Hz.
+    /// You can add data of any format, but matching the voice's native format
+    /// will lead to better performances.
     pub fn get_samples_format(&self) -> SampleFormat {
         self.0.get_samples_format()
     }
 
-    /// Adds some PCM data to the channel's buffer.
+    /// Adds some PCM data to the voice's buffer.
     ///
     /// This function returns a `Buffer` object that must be filled with the audio data.
-    /// You can't know in advance the size of the buffer, as it depends on the current state
-    /// of the backend.
+    /// The size of the buffer being returned depends on the current state of the backend
+    /// and can't be known in advance. However it is never greater than `max_elements`.
+    ///
+    /// You must fill the buffer *entirely*, so do not set `max_elements` to a value greater
+    /// than the amount of data available to you.
+    ///
+    /// Channels are interleaved. For example if you have two channels, you must write
+    /// the first sample of the first channel, then the first sample of the second channel,
+    /// then the second sample of the first channel, then the second sample of the second
+    /// channel, etc.
+    ///
+    /// ## Parameters
+    ///
+    /// * `channels`: number of channels (1 for mono, 2 for stereo, etc.)
+    /// * `samples_rate`: number of samples that must be played by second for each channel
+    /// * `max_elements`: maximum size of the returned buffer
     ///
     /// ## Panic
     ///
