@@ -184,9 +184,21 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
 
             macro_rules! write_to_buf(
                 ($buf:expr, $output:expr, $ty:ty) => ({
+                    use std::borrow::Cow;
+
                     let output: &mut [$ty] = unsafe { std::mem::transmute($output) };
-                    for (i, o) in $buf.into_iter().zip(output.iter_mut()) {
-                        *o = i;
+
+                    match $buf {
+                        Cow::Borrowed(buf) => {
+                            for (i, o) in buf.iter().zip(output.iter_mut()) {
+                                *o = *i;
+                            }
+                        },
+                        Cow::Owned(buf) => {
+                            for (i, o) in buf.into_iter().zip(output.iter_mut()) {
+                                *o = i;
+                            }
+                        }
                     }
                 })
             )
