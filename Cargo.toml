@@ -5,6 +5,7 @@ version = "0.0.2-pre"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
+documentation = "http://tomaka.github.io/cpal/"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
