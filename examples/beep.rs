@@ -1,7 +1,7 @@
 extern crate cpal;
 
 fn main() {
-    let mut channel = cpal::Channel::new();
+    let mut channel = cpal::Voice::new();
 
     // producing a sinusoid
     let mut data_source =

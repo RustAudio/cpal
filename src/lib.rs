@@ -19,11 +19,11 @@ mod cpal_impl;
 
 /// Controls a sound output.
 ///
-/// Create one `Channel` for each sound that you want to play.
+/// Create one `Voice` for each sound that you want to play.
 ///
-/// A channel must be periodically filled with new data by calling `append_data`, or the sound
+/// A voice must be periodically filled with new data by calling `append_data`, or the sound
 /// will stop playing.
-pub struct Channel(cpal_impl::Channel);
+pub struct Voice(cpal_impl::Voice);
 
 /// Number of channels.
 pub type ChannelsCount = u16;
@@ -52,11 +52,11 @@ struct RequiredConversion<T> {
     to_channels: ChannelsCount,
 }
 
-impl Channel {
+impl Voice {
     /// Builds a new channel.
-    pub fn new() -> Channel {
-        let channel = cpal_impl::Channel::new();
-        Channel(channel)
+    pub fn new() -> Voice {
+        let channel = cpal_impl::Voice::new();
+        Voice(channel)
     }
 
     /// Returns the number of channels.
