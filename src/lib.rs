@@ -272,7 +272,7 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
                         }
                     }
                 })
-            )
+            );
 
             match conversion.to_format {
                 SampleFormat::I16 => {
