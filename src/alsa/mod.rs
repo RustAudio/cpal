@@ -63,6 +63,15 @@ impl Voice {
             buffer: Vec::from_elem(elements, unsafe { mem::uninitialized() })
         }
     }
+
+    pub fn play(&mut self) {
+        // already playing
+        //unimplemented!()
+    }
+
+    pub fn pause(&mut self) {
+        unimplemented!()
+    }
 }
 
 impl Drop for Voice {

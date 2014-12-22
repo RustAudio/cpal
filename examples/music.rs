@@ -5,6 +5,7 @@ use std::io::BufReader;
 
 fn main() {
     let mut channel = cpal::Voice::new();
+    channel.play();
 
     let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("music.ogg")))
         .unwrap();
@@ -20,22 +21,27 @@ fn main() {
                 continue 'main;
             }
 
-            let mut buffer = channel.append_data(channels, cpal::SamplesRate(rate as u32), data.len());
-            let mut buffer = buffer.iter_mut();
+            {
+                let mut buffer = channel.append_data(channels, cpal::SamplesRate(rate as u32), 
+                                                     data.len());
+                let mut buffer = buffer.iter_mut();
 
-            loop {
-                let next_sample = match data.get(0) {
-                    Some(s) => *s,
-                    None => continue 'main
-                };
+                loop {
+                    let next_sample = match data.get(0) {
+                        Some(s) => *s,
+                        None => continue 'main
+                    };
 
-                if let Some(output) = buffer.next() {
-                    *output = next_sample as u16;
-                    data = data.slice_from(1);
-                } else {
-                    break;
+                    if let Some(output) = buffer.next() {
+                        *output = next_sample as u16;
+                        data = data.slice_from(1);
+                    } else {
+                        break;
+                    }
                 }
             }
+
+            channel.play();
         }
     }
 }

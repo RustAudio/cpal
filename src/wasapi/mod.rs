@@ -13,15 +13,13 @@ pub struct Voice {
     bytes_per_frame: winapi::WORD,
     samples_per_second: winapi::DWORD,
     bits_per_sample: winapi::WORD,
-    started: bool,
+    playing: bool,
 }
 
 pub struct Buffer<'a, T> {
-    audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
     buffer: CVec<T>,
     frames: winapi::UINT32,
-    start_on_drop: bool,
 }
 
 impl Voice {
@@ -83,17 +81,38 @@ impl Voice {
                 };
 
                 let buffer = Buffer {
-                    audio_client: self.audio_client,
                     render_client: self.render_client,
                     buffer: buffer,
                     frames: frames_available,
-                    start_on_drop: !self.started,
                 };
 
-                self.started = true;
                 return buffer;
             }
         }
+    }
+
+    pub fn play(&mut self) {
+        if !self.playing {
+            unsafe {
+                let f = self.audio_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Start;
+                let hresult = f(self.audio_client);
+                check_result(hresult).unwrap();
+            }
+        }
+
+        self.playing = true;
+    }
+
+    pub fn pause(&mut self) {
+        if self.playing {
+            unsafe {
+                let f = self.audio_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Stop;
+                let hresult = f(self.audio_client);
+                check_result(hresult).unwrap();
+            }
+        }
+
+        self.playing = false;
     }
 }
 
@@ -124,12 +143,6 @@ impl<'a, T> Buffer<'a, T> {
             let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().ReleaseBuffer;
             let hresult = f(self.render_client, self.frames as u32, 0);
             check_result(hresult).unwrap();
-
-            if self.start_on_drop {
-                let f = self.audio_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().Start;
-                let hresult = f(self.audio_client);
-                check_result(hresult).unwrap();
-            }
         };
     }
 }
@@ -237,7 +250,7 @@ fn init() -> Result<Voice, String> {
             bytes_per_frame: format.nBlockAlign,
             samples_per_second: format.nSamplesPerSec,
             bits_per_sample: format.wBitsPerSample,
-            started: false,
+            playing: false,
         })
     }
 }

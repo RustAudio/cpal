@@ -27,8 +27,15 @@ for e in buffer.iter_mut() {
 This is the case if the device doesn't have enough space available. **It happens very often**,
 this is not some obscure situation that can be ignored.
 
+After you have submitted data for the first time, call `play`:
+
+```no_run
+# let mut voice = cpal::Voice::new();
+voice.play();
+```
+
 The audio device of the user will read the buffer that you sent, and play it. If the audio device
-reaches the end of the data, it will stop playing. You **must** continuously fill the buffer by
+reaches the end of the data, it will stop playing. You must continuously fill the buffer by
 calling `append_data` repeatedly if you don't want the audio to stop playing.
 
 # Native format
@@ -211,6 +218,25 @@ impl Voice {
                 conversion: None,
             }
         }
+    }
+
+    /// Sends a command to the audio device that it should start playing.
+    ///
+    /// Has no effect is the voice was already playing.
+    ///
+    /// Only call this after you have submitted some data, otherwise you may hear
+    /// some glitches.
+    pub fn play(&mut self) {
+        self.0.play()
+    }
+
+    /// Sends a command to the audio device that it should stop playing.
+    ///
+    /// Has no effect is the voice was already paused.
+    ///
+    /// If you call `play` afterwards, the playback will resume exactly where it was.
+    pub fn pause(&mut self) {
+        self.0.pause()
     }
 }
 
