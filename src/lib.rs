@@ -245,7 +245,8 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
 
             let buffer = if conversion.from_sample_rate != conversion.to_sample_rate {
                 conversions::convert_samples_rate(buffer.as_slice(), conversion.from_sample_rate,
-                                                  conversion.to_sample_rate)
+                                                  conversion.to_sample_rate,
+                                                  conversion.to_channels)
             } else {
                 buffer
             };

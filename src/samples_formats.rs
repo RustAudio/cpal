@@ -25,8 +25,11 @@ impl SampleFormat {
 
 /// Trait for containers that contain PCM data.
 #[unstable = "Will be rewritten with associated types"]
-pub trait Sample: Copy {
+pub trait Sample: Copy + Clone {
     fn get_format(Option<Self>) -> SampleFormat;
+
+    /// Returns `(self + other) / 2`.
+    fn interpolate(self, other: Self) -> Self;
 
     /// Turns the data into samples of type `I16`.
     fn to_vec_i16(&[Self]) -> Cow<Vec<i16>, [i16]>;
@@ -39,6 +42,10 @@ pub trait Sample: Copy {
 impl Sample for u16 {
     fn get_format(_: Option<u16>) -> SampleFormat {
         SampleFormat::U16
+    }
+
+    fn interpolate(self, other: u16) -> u16 {
+        (self + other) / 2
     }
 
     fn to_vec_i16(input: &[u16]) -> Cow<Vec<i16>, [i16]> {
@@ -63,6 +70,10 @@ impl Sample for u16 {
 impl Sample for i16 {
     fn get_format(_: Option<i16>) -> SampleFormat {
         SampleFormat::I16
+    }
+
+    fn interpolate(self, other: i16) -> i16 {
+        (self + other) / 2
     }
 
     fn to_vec_i16(input: &[i16]) -> Cow<Vec<i16>, [i16]> {
@@ -93,6 +104,10 @@ impl Sample for i16 {
 impl Sample for f32 {
     fn get_format(_: Option<f32>) -> SampleFormat {
         SampleFormat::F32
+    }
+
+    fn interpolate(self, other: f32) -> f32 {
+        (self + other) / 2.0
     }
 
     fn to_vec_i16(input: &[f32]) -> Cow<Vec<i16>, [i16]> {
