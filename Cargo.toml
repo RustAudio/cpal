@@ -10,11 +10,11 @@ license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
 [target.i686-pc-windows-gnu.dependencies.winapi]
-version = "^0.0.2"
+version = "^0.0.3"
 features = ["ole32"]
 
 [target.x86_64-pc-windows-gnu.dependencies.winapi]
-version = "^0.0.2"
+version = "^0.0.3"
 features = ["ole32"]
 
 [target.i686-unknown-linux-gnu.dependencies.alsa-sys]

@@ -116,6 +116,9 @@ impl Voice {
     }
 }
 
+unsafe impl Send for Voice {}
+unsafe impl Sync for Voice {}
+
 impl Drop for Voice {
     fn drop(&mut self) {
         unsafe {

@@ -7,7 +7,7 @@ fn main() {
     let mut channel = cpal::Voice::new();
     channel.play();
 
-    let mut decoder = vorbis::Decoder::new(BufReader::new(include_bin!("music.ogg")))
+    let mut decoder = vorbis::Decoder::new(BufReader::new(include_bytes!("music.ogg")))
         .unwrap();
 
     'main: for packet in decoder.packets() {
