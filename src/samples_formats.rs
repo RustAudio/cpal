@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::mem;
 
 /// Format that each sample has.
-#[deriving(Clone, Copy, Show, PartialEq, Eq)]
+#[derive(Clone, Copy, Show, PartialEq, Eq)]
 pub enum SampleFormat {
     /// The value 0 corresponds to 0.
     I16,

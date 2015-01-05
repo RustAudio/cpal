@@ -47,6 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
+#![feature(associated_types)]
 #![feature(macro_rules)]
 #![feature(unsafe_destructor)]
 #![unstable]
@@ -55,6 +56,8 @@ If you have the possibility, you should try to match the format of the voice.
 use this_platform_is_not_supported;
 
 pub use samples_formats::{SampleFormat, Sample};
+
+use std::ops::{Deref, DerefMut};
 
 mod conversions;
 mod samples_formats;
@@ -84,7 +87,7 @@ pub struct Voice(cpal_impl::Voice);
 pub type ChannelsCount = u16;
 
 /// 
-#[deriving(Show, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Show, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
 
 /// Represents a buffer that must be filled with audio data.
@@ -199,7 +202,8 @@ impl Voice {
             let intermediate_buffer_length = intermediate_buffer_length *
                                              source_samples_format.get_sample_size() /
                                              target_samples_format.get_sample_size();
-            let intermediate_buffer = Vec::from_elem(intermediate_buffer_length, unsafe { std::mem::uninitialized() });
+            let intermediate_buffer = std::iter::repeat(unsafe { std::mem::uninitialized() })
+                                        .take(intermediate_buffer_length).collect();
 
             Buffer {
                 target: Some(target_buffer),
@@ -241,13 +245,15 @@ impl Voice {
     }
 }
 
-impl<'a, T> Deref<[T]> for Buffer<'a, T> {
+impl<'a, T> Deref for Buffer<'a, T> {
+    type Target = [T];
+
     fn deref(&self) -> &[T] {
         panic!("It is forbidden to read from the audio buffer");
     }
 }
 
-impl<'a, T> DerefMut<[T]> for Buffer<'a, T> {
+impl<'a, T> DerefMut for Buffer<'a, T> {
     fn deref_mut(&mut self) -> &mut [T] {
         if let Some(ref mut conversion) = self.conversion {
             conversion.intermediate_buffer.as_mut_slice()
