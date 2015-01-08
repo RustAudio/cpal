@@ -1,8 +1,7 @@
 extern crate libc;
 extern crate winapi;
 
-use std::{mem, ptr};
-use std::c_vec::CVec;
+use std::{slice, mem, ptr};
 
 // TODO: determine if should be NoSend or not
 pub struct Voice {
@@ -18,7 +17,8 @@ pub struct Voice {
 
 pub struct Buffer<'a, T> {
     render_client: *mut winapi::IAudioRenderClient,
-    buffer: CVec<T>,
+    buffer_data: *mut T,
+    buffer_len: uint,
     frames: winapi::UINT32,
 }
 
@@ -67,7 +67,7 @@ impl Voice {
                 assert!(frames_available != 0);
 
                 // loading buffer
-                let buffer: CVec<T> = {
+                let (buffer_data, buffer_len) = {
                     let mut buffer: *mut winapi::BYTE = mem::uninitialized();
                     let f = self.render_client.as_mut().unwrap().lpVtbl.as_ref().unwrap().GetBuffer;
                     let hresult = f(self.render_client, frames_available,
@@ -75,14 +75,15 @@ impl Voice {
                     check_result(hresult).unwrap();
                     assert!(!buffer.is_null());
 
-                    CVec::new(buffer as *mut T,
-                              frames_available as uint * self.bytes_per_frame as uint
-                                  / mem::size_of::<T>())
+                    (buffer as *mut T,
+                     frames_available as uint * self.bytes_per_frame as uint
+                          / mem::size_of::<T>())
                 };
 
                 let buffer = Buffer {
                     render_client: self.render_client,
-                    buffer: buffer,
+                    buffer_data: buffer_data,
+                    buffer_len: buffer_len,
                     frames: frames_available,
                 };
 
@@ -137,7 +138,9 @@ impl Drop for Voice {
 
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
-        self.buffer.as_mut_slice()
+        unsafe {
+            slice::from_raw_mut_buf(&self.buffer_data, self.buffer_len)
+        }
     }
 
     pub fn finish(self) {

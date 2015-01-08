@@ -7,7 +7,7 @@ fn main() {
     let mut data_source =
         std::iter::iterate(0.0f32, |f| f + 0.03)
             .map(|angle| {
-                use std::num::FloatMath;
+                use std::num::Float;
                 use std::num::Int;
 
                 let angle = angle.sin();

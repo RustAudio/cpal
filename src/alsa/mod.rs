@@ -1,7 +1,7 @@
 extern crate "alsa-sys" as alsa;
 extern crate libc;
 
-use std::{mem, ptr};
+use std::{ffi, iter, mem};
 
 pub struct Voice {
     channel: *mut alsa::snd_pcm_t,
@@ -16,10 +16,10 @@ pub struct Buffer<'a, T> {
 impl Voice {
     pub fn new() -> Voice {
         unsafe {
-            let name = "default".to_c_str();
+            let name = ffi::CString::from_slice(b"default");
 
             let mut playback_handle = mem::uninitialized();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
+            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_slice_with_nul().as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
 
             let mut hw_params = mem::uninitialized();
             check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).unwrap();
@@ -60,7 +60,7 @@ impl Voice {
 
         Buffer {
             channel: self,
-            buffer: Vec::from_elem(elements, unsafe { mem::uninitialized() })
+            buffer: iter::repeat(unsafe { mem::uninitialized() }).take(elements).collect(),
         }
     }
 
@@ -106,12 +106,12 @@ impl<'a, T> Buffer<'a, T> {
 }
 
 fn check_errors(err: libc::c_int) -> Result<(), String> {
-    use std::c_str::CString;
+    use std::ffi;
 
     if err < 0 {
         unsafe {
-            let s = CString::new(alsa::snd_strerror(err), false);
-            return Err(s.to_string());
+            let s = String::from_utf8(ffi::c_str_to_bytes(&alsa::snd_strerror(err)).to_vec());
+            return Err(s.unwrap());
         }
     }
 

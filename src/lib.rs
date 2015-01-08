@@ -47,8 +47,6 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![feature(associated_types)]
-#![feature(macro_rules)]
 #![feature(unsafe_destructor)]
 #![unstable]
 
