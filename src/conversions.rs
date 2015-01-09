@@ -18,9 +18,9 @@ pub fn convert_samples_rate<T>(input: &[T], from: ::SamplesRate, to: ::SamplesRa
     // then we simply skip some samples
     if from % to == 0 {
         let mut result = Vec::new();
-        for element in input.chunks(channels as uint * (from / to) as uint) {
+        for element in input.chunks(channels as usize * (from / to) as usize) {
             for i in range(0, channels) {
-                result.push(element[i as uint]);
+                result.push(element[i as usize]);
             }
         }
         return result;
@@ -31,7 +31,7 @@ pub fn convert_samples_rate<T>(input: &[T], from: ::SamplesRate, to: ::SamplesRa
     if to == from * 2 {
         let mut result = Vec::new();
         let mut previous: Option<Vec<T>> = None;
-        for element in input.chunks(channels as uint) {
+        for element in input.chunks(channels as usize) {
             if let Some(previous) = previous.take() {
                 for (prev, curr) in previous.into_iter().zip(element.iter()) {
                     result.push(prev.interpolate(*curr));
@@ -68,20 +68,20 @@ pub fn convert_channels<T>(input: &[T], from: ::ChannelsCount, to: ::ChannelsCou
 {
     assert!(from != 0);
     assert!(to != 0);
-    assert!(input.len() % from as uint == 0);
+    assert!(input.len() % from as usize == 0);
 
     let mut result = Vec::new();
 
-    for element in input.chunks(from as uint) {
+    for element in input.chunks(from as usize) {
         // copying the common channels
         for i in range(0, ::std::cmp::min(from, to)) {
-            result.push(element[i as uint]);
+            result.push(element[i as usize]);
         }
 
         // adding extra ones
         if to > from {
             for i in range(0, to - from) {
-                result.push(element[i as uint % element.len()]);
+                result.push(element[i as usize % element.len()]);
             }
         }
     }

@@ -52,11 +52,11 @@ impl Voice {
         ::SampleFormat::U16
     }
 
-    pub fn append_data<'a, T>(&'a mut self, max_elements: uint) -> Buffer<'a, T> where T: Clone {
+    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
         let available = unsafe { alsa::snd_pcm_avail(self.channel) };
         let available = available * self.num_channels as alsa::snd_pcm_sframes_t;
 
-        let elements = ::std::cmp::min(available as uint, max_elements);
+        let elements = ::std::cmp::min(available as usize, max_elements);
 
         Buffer {
             channel: self,
@@ -91,7 +91,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self) {
-        let written = (self.buffer.len() / self.channel.num_channels as uint) as alsa::snd_pcm_uframes_t;
+        let written = (self.buffer.len() / self.channel.num_channels as usize) as alsa::snd_pcm_uframes_t;
 
         unsafe {
             let result = alsa::snd_pcm_writei(self.channel.channel,

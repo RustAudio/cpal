@@ -14,7 +14,7 @@ pub enum SampleFormat {
 
 impl SampleFormat {
     /// Returns the size in bytes of a sample of this format.
-    pub fn get_sample_size(&self) -> uint {
+    pub fn get_sample_size(&self) -> usize {
         match self {
             &SampleFormat::I16 => mem::size_of::<i16>(),
             &SampleFormat::U16 => mem::size_of::<u16>(),
