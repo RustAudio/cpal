@@ -51,9 +51,6 @@ If you have the possibility, you should try to match the format of the voice.
 #![feature(unsafe_destructor)]
 #![unstable]
 
-#[cfg(all(not(windows), not(unix)))]
-use this_platform_is_not_supported;
-
 pub use samples_formats::{SampleFormat, Sample};
 
 use std::ops::{Deref, DerefMut};
@@ -66,6 +63,10 @@ mod samples_formats;
 mod cpal_impl;
 #[cfg(windows)]
 #[path="wasapi/mod.rs"]
+mod cpal_impl;
+
+#[cfg(all(not(windows), not(unix)))]
+#[path="null/mod.rs"]
 mod cpal_impl;
 
 /// Controls a sound output. A typical application has one `Voice` for each sound
