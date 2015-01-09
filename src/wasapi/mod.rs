@@ -18,7 +18,7 @@ pub struct Voice {
 pub struct Buffer<'a, T> {
     render_client: *mut winapi::IAudioRenderClient,
     buffer_data: *mut T,
-    buffer_len: uint,
+    buffer_len: usize,
     frames: winapi::UINT32,
 }
 
@@ -42,7 +42,7 @@ impl Voice {
         }
     }
 
-    pub fn append_data<'a, T>(&'a mut self, max_elements: uint) -> Buffer<'a, T> {
+    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> {
         unsafe {
             loop {
                 // 
@@ -76,7 +76,7 @@ impl Voice {
                     assert!(!buffer.is_null());
 
                     (buffer as *mut T,
-                     frames_available as uint * self.bytes_per_frame as uint
+                     frames_available as usize * self.bytes_per_frame as usize
                           / mem::size_of::<T>())
                 };
 
@@ -263,7 +263,7 @@ fn init() -> Result<Voice, String> {
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {
-        return Err(::std::os::error_string(result as uint));        // TODO: 
+        return Err(::std::os::error_string(result as usize));        // TODO: 
     }
 
     Ok(())

@@ -47,6 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
+#![allow(unstable)]
 #![feature(unsafe_destructor)]
 #![unstable]
 
@@ -167,11 +168,11 @@ impl Voice {
     /// Panics if `max_elements` is 0 or is not a multiple of `channels`.
     ///
     pub fn append_data<'a, T>(&'a mut self, channels: ChannelsCount,
-                              samples_rate: SamplesRate, max_elements: uint)
+                              samples_rate: SamplesRate, max_elements: usize)
                               -> Buffer<'a, T> where T: Sample + Clone
     {
         assert!(max_elements != 0);
-        assert!(max_elements % channels as uint == 0);
+        assert!(max_elements % channels as usize == 0);
 
         let target_samples_rate = self.0.get_samples_rate();
         let target_channels = self.0.get_channels();
@@ -183,9 +184,9 @@ impl Voice {
         if samples_rate != target_samples_rate || channels != target_channels ||
            source_samples_format != target_samples_format
         {
-            let max_elements = max_elements * target_channels as uint / channels as uint;
-            let max_elements = max_elements * target_samples_rate.0 as uint /
-                               samples_rate.0 as uint;
+            let max_elements = max_elements * target_channels as usize / channels as usize;
+            let max_elements = max_elements * target_samples_rate.0 as usize /
+                               samples_rate.0 as usize;
             let max_elements = max_elements * target_samples_format.get_sample_size() /
                                source_samples_format.get_sample_size();
 
@@ -193,10 +194,10 @@ impl Voice {
 
             // computing the length of the intermediary buffer
             let intermediate_buffer_length = target_buffer.get_buffer().len();
-            let intermediate_buffer_length = intermediate_buffer_length * channels as uint /
-                                             target_channels as uint;
-            let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as uint /
-                                             target_samples_rate.0 as uint;
+            let intermediate_buffer_length = intermediate_buffer_length * channels as usize /
+                                             target_channels as usize;
+            let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as usize /
+                                             target_samples_rate.0 as usize;
             let intermediate_buffer_length = intermediate_buffer_length *
                                              source_samples_format.get_sample_size() /
                                              target_samples_format.get_sample_size();
