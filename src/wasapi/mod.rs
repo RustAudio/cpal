@@ -1,5 +1,6 @@
 extern crate libc;
 extern crate winapi;
+extern crate "ole32-sys" as ole32;
 
 use std::{slice, mem, ptr};
 
@@ -156,13 +157,13 @@ impl<'a, T> Buffer<'a, T> {
 fn init() -> Result<Voice, String> {
     // FIXME: release everything
     unsafe {
-        try!(check_result(winapi::CoInitializeEx(::std::ptr::null_mut(), 0)));
+        try!(check_result(ole32::CoInitializeEx(::std::ptr::null_mut(), 0)));
 
         // building the devices enumerator object
         let enumerator = {
             let mut enumerator: *mut winapi::IMMDeviceEnumerator = ::std::mem::uninitialized();
             
-            let hresult = winapi::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
+            let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
                                                    ptr::null_mut(), winapi::CLSCTX_ALL,
                                                    &winapi::IID_IMMDeviceEnumerator,
                                                    mem::transmute(&mut enumerator));
@@ -221,7 +222,7 @@ fn init() -> Result<Voice, String> {
                             0, 10000000, 0, format, ptr::null());
 
             if !format_ptr.is_null() {
-                winapi::CoTaskMemFree(format_ptr as *mut libc::c_void);
+                ole32::CoTaskMemFree(format_ptr as *mut libc::c_void);
             }
 
             try!(check_result(hresult));
