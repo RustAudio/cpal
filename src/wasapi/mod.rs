@@ -58,7 +58,7 @@ impl Voice {
 
                 if frames_available == 0 {
                     // TODO: 
-                    ::std::io::timer::sleep(::std::time::duration::Duration::milliseconds(1));
+                    ::std::old_io::timer::sleep(::std::time::duration::Duration::milliseconds(1));
                     continue;
                 }
 
