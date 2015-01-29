@@ -1,7 +1,7 @@
 extern crate cpal;
 extern crate vorbis;
 
-use std::io::BufReader;
+use std::old_io::BufReader;
 
 fn main() {
     let mut channel = cpal::Voice::new();
