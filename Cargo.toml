@@ -1,13 +1,16 @@
 [package]
 
 name = "cpal"
-version = "0.0.12-pre"
+version = "0.0.13"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
 documentation = "http://tomaka.github.io/cpal/"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
+
+[dependencies]
+libc = "*"
 
 [target.i686-pc-windows-gnu.dependencies.winapi]
 version = "0"
