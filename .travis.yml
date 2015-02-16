@@ -2,16 +2,27 @@ language: rust
 
 env:
   global:
+    - secure: "ZGNi7bKoxNIziWzdNP1QbH6ZbeWDInq42yq1rzWY71I/pi8yA4zjVAYdgXKElc0saB0d2TxJCwpeGVyXwuXXeNoud8HWsqQxhNVMM8K27a2jeezza8UCCJ7kAS6E/+gQj7w+HFtgWiUHZ0KEjGONqXJM+cWqH5oprTEuNBOPqDA="
     - secure: "H7JRHaCkm6NvmMU76pNUyK5fj8d0kEb1snGCTcC4ZdW98P5qSEDbMBOKZgSW0DNhKmzYS1qHHAXlmm9c9JCVYfeErL9JeTrRk4DvIO8sH3ImhHIB/q4U+h+hxZ6W+dGpTi0kjQ5ZS3z+Mlr/9CB4UT83HmF78Zfyf6KA15esUIQ="
 
 install:
   - sudo apt-get install libasound2-dev
 
-after_success: |
-    [ $TRAVIS_BRANCH = master ] &&
-    [ $TRAVIS_PULL_REQUEST = false ] &&
-    cargo doc &&
-    echo '<meta http-equiv=refresh content=0;url=cpal/index.html>' > target/doc/index.html &&
-    sudo pip install ghp-import &&
-    ghp-import -n target/doc &&
-    git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
+after_success:
+    - |
+        [ $TRAVIS_BRANCH = master ] &&
+        [ $TRAVIS_PULL_REQUEST = false ] &&
+        cargo doc &&
+        echo '<meta http-equiv=refresh content=0;url=cpal/index.html>' > target/doc/index.html &&
+        sudo pip install ghp-import &&
+        ghp-import -n target/doc &&
+        git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
+    - cargo login ${CRATESIO_TOKEN}
+    - |
+        [ $TRAVIS_BRANCH = master ] &&
+        [ $TRAVIS_PULL_REQUEST = false ] &&
+        cargo publish
+    - |
+        [ $TRAVIS_BRANCH = master ] &&
+        [ $TRAVIS_PULL_REQUEST = false ] &&
+        cd alsa-sys && cargo publish && cd ..
