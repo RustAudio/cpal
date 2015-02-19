@@ -140,7 +140,7 @@ impl Drop for Voice {
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         unsafe {
-            slice::from_raw_mut_buf(&self.buffer_data, self.buffer_len)
+            slice::from_raw_parts_mut(self.buffer_data, self.buffer_len)
         }
     }
 
@@ -264,7 +264,7 @@ fn init() -> Result<Voice, String> {
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {
-        return Err(::std::os::error_string(result as usize));        // TODO: 
+        return Err(::std::os::error_string(result));        // TODO: 
     }
 
     Ok(())
