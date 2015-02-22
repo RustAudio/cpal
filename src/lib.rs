@@ -47,8 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![allow(unstable)]
-#![feature(unsafe_destructor)]
+#![feature(core, unsafe_destructor)]
 #![unstable]
 
 pub use samples_formats::{SampleFormat, Sample};
@@ -58,11 +57,16 @@ use std::ops::{Deref, DerefMut};
 mod conversions;
 mod samples_formats;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[path="alsa/mod.rs"]
 mod cpal_impl;
+
 #[cfg(windows)]
 #[path="wasapi/mod.rs"]
+mod cpal_impl;
+
+#[cfg(target_os = "macos")]
+#[path="core_audio/mod.rs"]
 mod cpal_impl;
 
 #[cfg(all(not(windows), not(unix)))]
@@ -87,7 +91,7 @@ pub struct Voice(cpal_impl::Voice);
 pub type ChannelsCount = u16;
 
 /// 
-#[derive(Show, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
 
 /// Represents a buffer that must be filled with audio data.
