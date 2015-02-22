@@ -87,7 +87,7 @@ pub struct Voice(cpal_impl::Voice);
 pub type ChannelsCount = u16;
 
 /// 
-#[derive(Show, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
 
 /// Represents a buffer that must be filled with audio data.
@@ -95,7 +95,7 @@ pub struct SamplesRate(pub u32);
 /// You should destroy this object as soon as possible. Data is only committed when it
 /// is destroyed.
 #[must_use]
-pub struct Buffer<'a, T> {
+pub struct Buffer<'a, T: 'a> {
     // also contains something, taken by `Drop`
     target: Option<cpal_impl::Buffer<'a, T>>, 
 
