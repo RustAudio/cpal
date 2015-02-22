@@ -3,6 +3,7 @@ extern crate winapi;
 extern crate "ole32-sys" as ole32;
 
 use std::{slice, mem, ptr};
+use std::marker::PhantomData;
 
 // TODO: determine if should be NoSend or not
 pub struct Voice {
@@ -16,11 +17,12 @@ pub struct Voice {
     playing: bool,
 }
 
-pub struct Buffer<'a, T> {
+pub struct Buffer<'a, T: 'a> {
     render_client: *mut winapi::IAudioRenderClient,
     buffer_data: *mut T,
     buffer_len: usize,
     frames: winapi::UINT32,
+    marker: PhantomData<&'a mut T>,
 }
 
 impl Voice {
@@ -86,6 +88,7 @@ impl Voice {
                     buffer_data: buffer_data,
                     buffer_len: buffer_len,
                     frames: frames_available,
+                    marker: PhantomData,
                 };
 
                 return buffer;
@@ -140,7 +143,7 @@ impl Drop for Voice {
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         unsafe {
-            slice::from_raw_mut_buf(&self.buffer_data, self.buffer_len)
+            slice::from_raw_parts_mut(self.buffer_data, self.buffer_len)
         }
     }
 
@@ -264,7 +267,7 @@ fn init() -> Result<Voice, String> {
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {
-        return Err(::std::os::error_string(result as usize));        // TODO: 
+        return Err(::std::os::error_string(result));        // TODO: 
     }
 
     Ok(())
