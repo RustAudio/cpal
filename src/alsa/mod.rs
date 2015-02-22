@@ -19,7 +19,7 @@ impl Voice {
             let name = ffi::CString::from_slice(b"default");
 
             let mut playback_handle = mem::uninitialized();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_slice_with_nul().as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
+            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
 
             let mut hw_params = mem::uninitialized();
             check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).unwrap();

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::mem;
 
 /// Format that each sample has.
-#[derive(Clone, Copy, Show, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleFormat {
     /// The value 0 corresponds to 0.
     I16,
@@ -32,11 +32,11 @@ pub trait Sample: Copy + Clone {
     fn interpolate(self, other: Self) -> Self;
 
     /// Turns the data into samples of type `I16`.
-    fn to_vec_i16(&[Self]) -> Cow<Vec<i16>, [i16]>;
+    fn to_vec_i16(&[Self]) -> Cow<[i16]>;
     /// Turns the data into samples of type `U16`.
-    fn to_vec_u16(&[Self]) -> Cow<Vec<u16>, [u16]>;
+    fn to_vec_u16(&[Self]) -> Cow<[u16]>;
     /// Turns the data into samples of type `F32`.
-    fn to_vec_f32(&[Self]) -> Cow<Vec<f32>, [f32]>;
+    fn to_vec_f32(&[Self]) -> Cow<[f32]>;
 }
 
 impl Sample for u16 {
@@ -48,7 +48,7 @@ impl Sample for u16 {
         (self + other) / 2
     }
 
-    fn to_vec_i16(input: &[u16]) -> Cow<Vec<i16>, [i16]> {
+    fn to_vec_i16(input: &[u16]) -> Cow<[i16]> {
         Cow::Owned(input.iter().map(|&value| {
             if value >= 32768 {
                 (value - 32768) as i16
@@ -58,11 +58,11 @@ impl Sample for u16 {
         }).collect())
     }
 
-    fn to_vec_u16(input: &[u16]) -> Cow<Vec<u16>, [u16]> {
+    fn to_vec_u16(input: &[u16]) -> Cow<[u16]> {
         Cow::Borrowed(input)
     }
 
-    fn to_vec_f32(input: &[u16]) -> Cow<Vec<f32>, [f32]> {
+    fn to_vec_f32(input: &[u16]) -> Cow<[f32]> {
         Cow::Owned(Sample::to_vec_f32(Sample::to_vec_i16(input).as_slice()).to_vec())
     }
 }
@@ -76,11 +76,11 @@ impl Sample for i16 {
         (self + other) / 2
     }
 
-    fn to_vec_i16(input: &[i16]) -> Cow<Vec<i16>, [i16]> {
+    fn to_vec_i16(input: &[i16]) -> Cow<[i16]> {
         Cow::Borrowed(input)
     }
 
-    fn to_vec_u16(input: &[i16]) -> Cow<Vec<u16>, [u16]> {
+    fn to_vec_u16(input: &[i16]) -> Cow<[u16]> {
         Cow::Owned(input.iter().map(|&value| {
             if value < 0 {
                 (value + 32767) as u16 + 1
@@ -90,7 +90,7 @@ impl Sample for i16 {
         }).collect())
     }
 
-    fn to_vec_f32(input: &[i16]) -> Cow<Vec<f32>, [f32]> {
+    fn to_vec_f32(input: &[i16]) -> Cow<[f32]> {
         Cow::Owned(input.iter().map(|&value| {
             if value > 0 {
                 value as f32 / 32767.0
@@ -110,7 +110,7 @@ impl Sample for f32 {
         (self + other) / 2.0
     }
 
-    fn to_vec_i16(input: &[f32]) -> Cow<Vec<i16>, [i16]> {
+    fn to_vec_i16(input: &[f32]) -> Cow<[i16]> {
         Cow::Owned(input.iter().map(|&value| {
             if value >= 0.0 {
                 (value * 32767.0) as i16
@@ -120,7 +120,7 @@ impl Sample for f32 {
         }).collect())
     }
 
-    fn to_vec_u16(input: &[f32]) -> Cow<Vec<u16>, [u16]> {
+    fn to_vec_u16(input: &[f32]) -> Cow<[u16]> {
         Cow::Owned(input.iter().map(|&value| {
             if value >= 0.0 {
                 ((value * 32767.0) + 32768.0) as u16
@@ -130,7 +130,7 @@ impl Sample for f32 {
         }).collect())
     }
 
-    fn to_vec_f32(input: &[f32]) -> Cow<Vec<f32>, [f32]> {
+    fn to_vec_f32(input: &[f32]) -> Cow<[f32]> {
         Cow::Borrowed(input)
     }
 }
