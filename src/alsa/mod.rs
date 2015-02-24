@@ -49,7 +49,7 @@ impl Voice {
     }
 
     pub fn get_samples_format(&self) -> ::SampleFormat {
-        ::SampleFormat::U16
+        ::SampleFormat::I16
     }
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
