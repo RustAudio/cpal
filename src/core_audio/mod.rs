@@ -72,6 +72,15 @@ impl Voice {
     }
 }
 
+impl Drop for Voice {
+    fn drop(&mut self) {
+        unsafe {
+            check_errors(au::AudioOutputUnitStop(*self.audio_unit)).unwrap();
+            check_errors(au::AudioUnitUninitialize(*self.audio_unit)).unwrap();
+        }
+    }
+}
+
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         &mut self.samples[..]
