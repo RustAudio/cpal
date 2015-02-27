@@ -47,8 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![allow(unstable)]
-#![feature(unsafe_destructor)]
+#![feature(box_syntax, core, unsafe_destructor)]
 #![unstable]
 
 pub use samples_formats::{SampleFormat, Sample};
@@ -58,11 +57,16 @@ use std::ops::{Deref, DerefMut};
 mod conversions;
 mod samples_formats;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[path="alsa/mod.rs"]
 mod cpal_impl;
+
 #[cfg(windows)]
 #[path="wasapi/mod.rs"]
+mod cpal_impl;
+
+#[cfg(target_os = "macos")]
+#[path="core_audio/mod.rs"]
 mod cpal_impl;
 
 #[cfg(all(not(windows), not(unix)))]

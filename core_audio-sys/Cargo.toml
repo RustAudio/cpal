@@ -1,0 +1,10 @@
+[package]
+
+name = "core_audio-sys"
+version = "0.0.1"
+authors = ["Mitchell Nordine <mitchell.nordine@gmail.com>"]
+description = "Bindings for Apple's CoreAudio, AudioUnit and AudioToolbox APIs generated via rust-bindgen"
+license = "MIT"
+
+[dependencies]
+libc = "*"
