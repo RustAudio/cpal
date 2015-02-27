@@ -18,7 +18,7 @@ impl Voice {
         ::SampleFormat::U16
     }
 
-    pub fn append_data<'a, T>(&'a mut self, _: uint) -> Buffer<'a, T> {
+    pub fn append_data<'a, T>(&'a mut self, _: usize) -> Buffer<'a, T> {
         Buffer
     }
 
