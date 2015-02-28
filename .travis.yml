@@ -17,12 +17,11 @@ after_success:
         sudo pip install ghp-import &&
         ghp-import -n target/doc &&
         git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
-    - cargo login ${CRATESIO_TOKEN}
     - |
         [ $TRAVIS_BRANCH = master ] &&
         [ $TRAVIS_PULL_REQUEST = false ] &&
-        cargo publish
+        cargo publish --token ${CRATESIO_TOKEN}
     - |
         [ $TRAVIS_BRANCH = master ] &&
         [ $TRAVIS_PULL_REQUEST = false ] &&
-        cd alsa-sys && cargo publish && cd ..
+        cargo publish --token ${CRATESIO_TOKEN} --manifest-path alsa-sys/Cargo.toml
