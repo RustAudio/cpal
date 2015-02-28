@@ -66,7 +66,7 @@ mod cpal_impl;
 mod cpal_impl;
 
 #[cfg(target_os = "macos")]
-#[path="core_audio/mod.rs"]
+#[path="coreaudio/mod.rs"]
 mod cpal_impl;
 
 #[cfg(all(not(windows), not(unix)))]
