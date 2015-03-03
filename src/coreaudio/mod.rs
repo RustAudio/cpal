@@ -6,11 +6,12 @@ use std::mem;
 use std::sync::mpsc::{channel, Sender, Receiver};
 
 type NumChannels = usize;
+type NumFrames = usize;
 
 #[allow(dead_code)]
 pub struct Voice {
     audio_unit: AudioUnit,
-    ready_receiver: Receiver<()>,
+    ready_receiver: Receiver<(NumChannels, NumFrames)>,
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
 }
 
@@ -42,13 +43,18 @@ impl Voice {
         ::SampleFormat::F32
     }
 
-    pub fn append_data<'a, T>(&'a mut self, buffer_size: usize) -> Buffer<'a, T> where T: Clone {
-        while let None = self.ready_receiver.try_recv().ok() {}
-        Buffer {
-            samples_sender: self.samples_sender.clone(),
-            samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
-            num_channels: 2,
-            marker: ::std::marker::PhantomData,
+    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
+        // Block until the audio callback is ready for more data.
+        loop {
+            if let Ok((channels, frames)) = self.ready_receiver.try_recv() {
+                let buffer_size = ::std::cmp::min(channels * frames, max_elements);
+                return Buffer {
+                    samples_sender: self.samples_sender.clone(),
+                    samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
+                    num_channels: channels as usize,
+                    marker: ::std::marker::PhantomData,
+                }
+            }
         }
     }
 
@@ -88,25 +94,24 @@ fn new_voice() -> Result<Voice, String> {
 
     let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
         .render_callback(box move |channels, num_frames| {
-
-            let (samples, num_channels) = match samples_receiver.try_recv() {
-                Ok((samples, num_channels)) => (samples, num_channels),
-                _ => (vec![0.0; num_frames * channels.len()], channels.len()),
-            };
-
-            if let Err(_) = ready_sender.send(()) {
+            if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
                 return Err("Callback failed to send 'ready' message.".to_string());
             }
-
-            assert!(num_frames == (samples.len() / num_channels) as usize,
-                    "The number of input frames given differs from the number requested by the AudioUnit");
-
-            for (i, frame) in samples.chunks(num_channels).enumerate() {
-                for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
-                    channel[i] = *sample;
-                }
+            loop {
+                if let Ok((samples, num_channels)) = samples_receiver.try_recv() {
+                    let samples: Vec<f32> = samples;
+                    assert!(num_frames == (samples.len() / num_channels) as usize,
+                            "The number of input frames given differs from the number \
+                            requested by the AudioUnit: {:?} and {:?} respectively",
+                            (samples.len() / num_channels as usize), num_frames);
+                    for (i, frame) in samples.chunks(num_channels).enumerate() {
+                        for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
+                            channel[i] = *sample;
+                        }
+                    }
+                    break;
+                };
             }
-
             Ok(())
 
         })

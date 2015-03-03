@@ -192,8 +192,6 @@ impl Voice {
             let max_elements = max_elements * target_channels as usize / channels as usize;
             let max_elements = max_elements * target_samples_rate.0 as usize /
                                samples_rate.0 as usize;
-            let max_elements = max_elements * target_samples_format.get_sample_size() /
-                               source_samples_format.get_sample_size();
 
             let mut target_buffer = self.0.append_data(max_elements);
 
@@ -203,9 +201,6 @@ impl Voice {
                                              target_channels as usize;
             let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as usize /
                                              target_samples_rate.0 as usize;
-            let intermediate_buffer_length = intermediate_buffer_length *
-                                             source_samples_format.get_sample_size() /
-                                             target_samples_format.get_sample_size();
             let intermediate_buffer = std::iter::repeat(unsafe { std::mem::uninitialized() })
                                         .take(intermediate_buffer_length).collect();
 

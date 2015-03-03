@@ -1,3 +1,5 @@
+#![feature(core, old_io)]
+
 extern crate cpal;
 extern crate vorbis;
 
@@ -34,7 +36,7 @@ fn main() {
 
                     if let Some(output) = buffer.next() {
                         *output = next_sample as u16;
-                        data = data.slice_from(1);
+                        data = &data[1..];
                     } else {
                         break;
                     }
