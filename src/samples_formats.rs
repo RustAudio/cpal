@@ -83,7 +83,7 @@ impl Sample for i16 {
     fn to_vec_u16(input: &[i16]) -> Cow<[u16]> {
         Cow::Owned(input.iter().map(|&value| {
             if value < 0 {
-                (value + 32767) as u16 + 1
+                (value + 32767 + 1) as u16
             } else {
                 (value as u16) + 32768
             }

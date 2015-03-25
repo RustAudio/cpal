@@ -19,7 +19,7 @@ pub fn convert_samples_rate<T>(input: &[T], from: ::SamplesRate, to: ::SamplesRa
     if from % to == 0 {
         let mut result = Vec::new();
         for element in input.chunks(channels as usize * (from / to) as usize) {
-            for i in range(0, channels) {
+            for i in (0 .. channels) {
                 result.push(element[i as usize]);
             }
         }
@@ -74,13 +74,13 @@ pub fn convert_channels<T>(input: &[T], from: ::ChannelsCount, to: ::ChannelsCou
 
     for element in input.chunks(from as usize) {
         // copying the common channels
-        for i in range(0, ::std::cmp::min(from, to)) {
+        for i in (0 .. ::std::cmp::min(from, to)) {
             result.push(element[i as usize]);
         }
 
         // adding extra ones
         if to > from {
-            for i in range(0, to - from) {
+            for i in (0 .. to - from) {
                 result.push(element[i as usize % element.len()]);
             }
         }
@@ -113,7 +113,7 @@ mod test {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn convert_channels_wrong_data_len() {
         convert_channels(&[1u16, 2, 3], 2, 1);
     }

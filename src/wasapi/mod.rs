@@ -60,7 +60,7 @@ impl Voice {
 
                 if frames_available == 0 {
                     // TODO: 
-                    ::std::old_io::timer::sleep(::std::time::duration::Duration::milliseconds(1));
+                    ::std::thread::sleep(::std::time::duration::Duration::milliseconds(1));
                     continue;
                 }
 
@@ -267,7 +267,7 @@ fn init() -> Result<Voice, String> {
 
 fn check_result(result: winapi::HRESULT) -> Result<(), String> {
     if result < 0 {
-        return Err(::std::os::error_string(result));        // TODO: 
+        return Err(format!("Error in winapi call"));        // TODO: 
     }
 
     Ok(())
