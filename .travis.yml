@@ -20,8 +20,8 @@ after_success:
     - |
         [ $TRAVIS_BRANCH = master ] &&
         [ $TRAVIS_PULL_REQUEST = false ] &&
-        cargo publish --token ${CRATESIO_TOKEN}
+        cargo publish --token ${CRATESIO_TOKEN} --manifest-path alsa-sys/Cargo.toml
     - |
         [ $TRAVIS_BRANCH = master ] &&
         [ $TRAVIS_PULL_REQUEST = false ] &&
-        cargo publish --token ${CRATESIO_TOKEN} --manifest-path alsa-sys/Cargo.toml
+        cargo publish --token ${CRATESIO_TOKEN}
