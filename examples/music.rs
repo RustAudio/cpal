@@ -1,15 +1,13 @@
-#![feature(core, old_io)]
-
 extern crate cpal;
 extern crate vorbis;
 
-use std::old_io::BufReader;
+use std::io::Cursor;
 
 fn main() {
     let mut channel = cpal::Voice::new();
     channel.play();
 
-    let mut decoder = vorbis::Decoder::new(BufReader::new(include_bytes!("music.ogg")))
+    let mut decoder = vorbis::Decoder::new(Cursor::new(&include_bytes!("music.ogg")[..]))
         .unwrap();
 
     'main: for packet in decoder.packets() {
