@@ -63,7 +63,7 @@ impl Sample for u16 {
     }
 
     fn to_vec_f32(input: &[u16]) -> Cow<[f32]> {
-        Cow::Owned(Sample::to_vec_f32(Sample::to_vec_i16(input).as_slice()).to_vec())
+        Cow::Owned(Sample::to_vec_f32(&Sample::to_vec_i16(input)).to_vec())
     }
 }
 

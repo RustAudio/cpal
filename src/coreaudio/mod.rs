@@ -1,4 +1,4 @@
-extern crate "coreaudio-rs" as coreaudio;
+extern crate coreaudio_rs as coreaudio;
 extern crate libc;
 
 use self::coreaudio::audio_unit::{AudioUnit, Type, SubType};

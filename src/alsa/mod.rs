@@ -1,4 +1,4 @@
-extern crate "alsa-sys" as alsa;
+extern crate alsa_sys as alsa;
 extern crate libc;
 
 use std::{ffi, iter, mem};
