@@ -1,6 +1,6 @@
 extern crate libc;
 extern crate winapi;
-extern crate "ole32-sys" as ole32;
+extern crate ole32_sys as ole32;
 
 use std::{slice, mem, ptr};
 use std::marker::PhantomData;

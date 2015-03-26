@@ -14,7 +14,7 @@ fn main() {
         let packet = packet.unwrap();
         let vorbis::Packet { channels, rate, data, .. } = packet;
 
-        let mut data = data.as_slice();
+        let mut data = &data[..];
 
         loop {
             if data.len() == 0 {

@@ -47,7 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![feature(box_syntax, core, unsafe_destructor)]
+#![feature(box_syntax, core, unsafe_destructor, thread_sleep, std_misc)]
 #![unstable]
 
 pub use samples_formats::{SampleFormat, Sample};
@@ -269,14 +269,14 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
             let buffer = conversion.intermediate_buffer;
 
             let buffer = if conversion.from_channels != conversion.to_channels {
-                conversions::convert_channels(buffer.as_slice(), conversion.from_channels,
+                conversions::convert_channels(&buffer, conversion.from_channels,
                                               conversion.to_channels)
             } else {
                 buffer
             };
 
             let buffer = if conversion.from_sample_rate != conversion.to_sample_rate {
-                conversions::convert_samples_rate(buffer.as_slice(), conversion.from_sample_rate,
+                conversions::convert_samples_rate(&buffer, conversion.from_sample_rate,
                                                   conversion.to_sample_rate,
                                                   conversion.to_channels)
             } else {
@@ -309,15 +309,15 @@ impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
 
             match conversion.to_format {
                 SampleFormat::I16 => {
-                    let buffer = Sample::to_vec_i16(buffer.as_slice());
+                    let buffer = Sample::to_vec_i16(&buffer);
                     write_to_buf!(buffer, output, i16);
                 },
                 SampleFormat::U16 => {
-                    let buffer = Sample::to_vec_u16(buffer.as_slice());
+                    let buffer = Sample::to_vec_u16(&buffer);
                     write_to_buf!(buffer, output, u16);
                 },
                 SampleFormat::F32 => {
-                    let buffer = Sample::to_vec_f32(buffer.as_slice());
+                    let buffer = Sample::to_vec_f32(&buffer);
                     write_to_buf!(buffer, output, f32);
                 },
             }
