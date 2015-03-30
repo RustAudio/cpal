@@ -1,7 +1,7 @@
 [package]
 
 name = "cpal"
-version = "0.0.17"
+version = "0.0.18"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
@@ -19,10 +19,10 @@ version = "0"
 version = "0"
 
 [target.i686-pc-windows-gnu.dependencies.ole32-sys]
-version = "0"
+version = "0.1"
 
 [target.x86_64-pc-windows-gnu.dependencies.ole32-sys]
-version = "0"
+version = "0.1"
 
 [target.i686-unknown-linux-gnu.dependencies.alsa-sys]
 version = "0"
