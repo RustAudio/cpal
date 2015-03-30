@@ -87,7 +87,7 @@ impl Drop for Voice {
 
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
-        self.buffer.as_mut_slice()
+        &mut self.buffer
     }
 
     pub fn finish(self) {

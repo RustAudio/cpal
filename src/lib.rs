@@ -48,7 +48,6 @@ If you have the possibility, you should try to match the format of the voice.
 
 */
 #![feature(box_syntax, core, unsafe_destructor, thread_sleep, std_misc)]
-#![unstable]
 
 pub use samples_formats::{SampleFormat, Sample};
 
@@ -99,7 +98,7 @@ pub struct SamplesRate(pub u32);
 /// You should destroy this object as soon as possible. Data is only committed when it
 /// is destroyed.
 #[must_use]
-pub struct Buffer<'a, T: 'a> {
+pub struct Buffer<'a, T: 'a> where T: Sample {
     // also contains something, taken by `Drop`
     target: Option<cpal_impl::Buffer<'a, T>>, 
 
@@ -244,7 +243,7 @@ impl Voice {
     }
 }
 
-impl<'a, T> Deref for Buffer<'a, T> {
+impl<'a, T> Deref for Buffer<'a, T> where T: Sample {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -252,10 +251,10 @@ impl<'a, T> Deref for Buffer<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for Buffer<'a, T> {
+impl<'a, T> DerefMut for Buffer<'a, T> where T: Sample {
     fn deref_mut(&mut self) -> &mut [T] {
         if let Some(ref mut conversion) = self.conversion {
-            conversion.intermediate_buffer.as_mut_slice()
+            &mut conversion.intermediate_buffer
         } else {
             self.target.as_mut().unwrap().get_buffer()
         }
