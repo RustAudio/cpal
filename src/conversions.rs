@@ -97,19 +97,19 @@ mod test {
     #[test]
     fn remove_channels() {
         let result = convert_channels(&[1u16, 2, 3, 1, 2, 3], 3, 2);
-        assert_eq!(result.as_slice(), [1, 2, 1, 2]);
+        assert_eq!(result, [1, 2, 1, 2]);
 
         let result = convert_channels(&[1u16, 2, 3, 4, 1, 2, 3, 4], 4, 1);
-        assert_eq!(result.as_slice(), [1, 1]);
+        assert_eq!(result, [1, 1]);
     }
 
     #[test]
     fn add_channels() {
         let result = convert_channels(&[1u16, 2, 1, 2], 2, 3);
-        assert_eq!(result.as_slice(), [1, 2, 1, 1, 2, 1]);
+        assert_eq!(result, [1, 2, 1, 1, 2, 1]);
 
         let result = convert_channels(&[1u16, 2, 1, 2], 2, 4);
-        assert_eq!(result.as_slice(), [1, 2, 1, 2, 1, 2, 1, 2]);
+        assert_eq!(result, [1, 2, 1, 2, 1, 2, 1, 2]);
     }
 
     #[test]
@@ -123,7 +123,7 @@ mod test {
         let result = convert_samples_rate(&[1u16, 16, 2, 17, 3, 18, 4, 19],
                                           ::SamplesRate(44100), ::SamplesRate(22050), 2);
 
-        assert_eq!(result.as_slice(), [1, 16, 3, 18]);
+        assert_eq!(result, [1, 16, 3, 18]);
     }
 
     #[test]
@@ -131,6 +131,6 @@ mod test {
         let result = convert_samples_rate(&[2u16, 16, 4, 18, 6, 20, 8, 22],
                                           ::SamplesRate(22050), ::SamplesRate(44100), 2);
 
-        assert_eq!(result.as_slice(), [2, 16, 3, 17, 4, 18, 5, 19, 6, 20, 7, 21, 8, 22]);
+        assert_eq!(result, [2, 16, 3, 17, 4, 18, 5, 19, 6, 20, 7, 21, 8, 22]);
     }
 }

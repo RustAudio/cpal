@@ -1,20 +1,28 @@
-#![feature(core)]
-
 extern crate cpal;
+
+// TODO: manual replacement for unstable `std::iter::iterate`
+struct Iter {
+    value: f32,
+}
+
+impl Iterator for Iter {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        self.value += 0.03;
+        Some(self.value)
+    }
+}
 
 fn main() {
     let mut channel = cpal::Voice::new();
 
     // producing a sinusoid
-    let mut data_source =
-        std::iter::iterate(0.0f32, |f| f + 0.03)
+    let mut data_source = Iter { value: 0.0 }
             .map(|angle| {
-                use std::num::Float;
-                use std::num::Int;
-
                 let angle = angle.sin();
 
-                let max: u16 = Int::max_value();
+                let max: u16 = std::u16::MAX;
                 let value = (max as f32 / 2.0) + (angle * (max as f32 / 2.0));
                 value as u16
             });

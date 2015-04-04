@@ -47,8 +47,6 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![feature(box_syntax, core, unsafe_destructor, thread_sleep, std_misc)]
-
 pub use samples_formats::{SampleFormat, Sample};
 
 use std::ops::{Deref, DerefMut};
@@ -261,7 +259,6 @@ impl<'a, T> DerefMut for Buffer<'a, T> where T: Sample {
     }
 }
 
-#[unsafe_destructor]
 impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
     fn drop(&mut self) {
         if let Some(conversion) = self.conversion.take() {
