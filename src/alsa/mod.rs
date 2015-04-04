@@ -16,7 +16,7 @@ pub struct Buffer<'a, T> {
 impl Voice {
     pub fn new() -> Voice {
         unsafe {
-            let name = ffi::CString::from_slice(b"default");
+            let name = ffi::CString::new(b"default".to_vec()).unwrap();
 
             let mut playback_handle = mem::uninitialized();
             check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
@@ -110,8 +110,9 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
 
     if err < 0 {
         unsafe {
-            let s = String::from_utf8(ffi::c_str_to_bytes(&alsa::snd_strerror(err)).to_vec());
-            return Err(s.unwrap());
+            let s = ffi::CStr::from_ptr(alsa::snd_strerror(err)).to_bytes().to_vec();
+            let s = String::from_utf8(s).unwrap();
+            return Err(s);
         }
     }
 
