@@ -235,16 +235,16 @@ pub struct snd_pcm_channel_area_t {
 
 #[repr(C)]
 pub struct snd_pcm_sync_id_t {
-    pub data: [u32; 4us],
+    pub data: [u32; 4],
 }
 impl snd_pcm_sync_id_t {
-    pub fn id(&mut self) -> *mut [c_uchar; 16us] {
+    pub fn id(&mut self) -> *mut [c_uchar; 16] {
         unsafe { ::std::mem::transmute(self) }
     }
-    pub fn id16(&mut self) -> *mut [c_ushort; 8us] {
+    pub fn id16(&mut self) -> *mut [c_ushort; 8] {
         unsafe { ::std::mem::transmute(self) }
     }
-    pub fn id32(&mut self) -> *mut [c_uint; 4us] {
+    pub fn id32(&mut self) -> *mut [c_uint; 4] {
         unsafe { ::std::mem::transmute(self) }
     }
 }
@@ -301,7 +301,7 @@ pub const SND_CHMAP_LAST:    c_uint = 36;
 #[repr(C)]
 pub struct snd_pcm_chmap_t {
     pub channels: c_uint,
-    pub pos: [c_uint; 0us],
+    pub pos: [c_uint; 0],
 }
 
 #[repr(C)]
@@ -464,10 +464,10 @@ pub enum snd_hwdep_t { }
 
 #[repr(C)]
 pub struct snd_aes_iec958_t {
-    pub status: [c_uchar; 24us],
-    pub subcode: [c_uchar; 147us],
+    pub status: [c_uchar; 24],
+    pub subcode: [c_uchar; 147],
     pub pad: c_uchar,
-    pub dig_subframe: [c_uchar; 4us],
+    pub dig_subframe: [c_uchar; 4],
 }
 
 pub enum snd_ctl_card_info_t { }
@@ -660,7 +660,7 @@ pub type snd_seq_tick_time_t = c_uint;
 
 #[repr(C)]
 pub struct snd_seq_timestamp_t {
-    pub data: [u32; 2us],
+    pub data: [u32; 2],
 }
 impl snd_seq_timestamp_t {
     pub fn tick(&mut self) -> *mut snd_seq_tick_time_t {
@@ -683,19 +683,19 @@ pub struct snd_seq_ev_note_t {
 #[repr(C)]
 pub struct snd_seq_ev_ctrl_t {
     pub channel: c_uchar,
-    pub unused: [c_uchar; 3us],
+    pub unused: [c_uchar; 3],
     pub param: c_uint,
     pub value: c_int,
 }
 
 #[repr(C)]
 pub struct snd_seq_ev_raw8_t {
-    pub d: [c_uchar; 12us],
+    pub d: [c_uchar; 12],
 }
 
 #[repr(C)]
 pub struct snd_seq_ev_raw32_t {
-    pub d: [c_uint; 3us],
+    pub d: [c_uint; 3],
 }
 
 #[repr(C)]
@@ -719,13 +719,13 @@ pub struct snd_seq_queue_skew_t {
 #[repr(C)]
 pub struct snd_seq_ev_queue_control_t {
     pub queue: c_uchar,
-    pub unused: [c_uchar; 3us],
+    pub unused: [c_uchar; 3],
     pub param: Union_Unnamed9,
 }
 
 #[repr(C)]
 pub struct Union_Unnamed9 {
-    pub data: [u32; 2us],
+    pub data: [u32; 2],
 }
 impl Union_Unnamed9 {
     pub fn value(&mut self) -> *mut c_int {
@@ -740,10 +740,10 @@ impl Union_Unnamed9 {
     pub fn skew(&mut self) -> *mut snd_seq_queue_skew_t {
         unsafe { ::std::mem::transmute(self) }
     }
-    pub fn d32(&mut self) -> *mut [c_uint; 2us] {
+    pub fn d32(&mut self) -> *mut [c_uint; 2] {
         unsafe { ::std::mem::transmute(self) }
     }
-    pub fn d8(&mut self) -> *mut [c_uchar; 8us] {
+    pub fn d8(&mut self) -> *mut [c_uchar; 8] {
         unsafe { ::std::mem::transmute(self) }
     }
 }
@@ -762,7 +762,7 @@ pub struct snd_seq_event_t {
 
 #[repr(C)]
 pub struct Union_Unnamed10 {
-    pub data: [u32; 3us],
+    pub data: [u32; 3],
 }
 impl Union_Unnamed10 {
     pub fn note(&mut self) -> *mut snd_seq_ev_note_t {
