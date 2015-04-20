@@ -24,7 +24,6 @@ impl SampleFormat {
 }
 
 /// Trait for containers that contain PCM data.
-#[unstable = "Will be rewritten with associated types"]
 pub trait Sample: Copy + Clone {
     fn get_format(Option<Self>) -> SampleFormat;
 
