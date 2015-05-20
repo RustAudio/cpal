@@ -1,16 +1,21 @@
 install:
-  - ps: Start-FileDownload 'https://static.rust-lang.org/dist/rust-nightly-i686-pc-windows-gnu.exe'
-  - ps: Start-FileDownload 'https://static.rust-lang.org/cargo-dist/cargo-nightly-i686-pc-windows-gnu.tar.gz'
-  - rust-nightly-i686-pc-windows-gnu.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
-  - 7z e cargo-nightly-i686-pc-windows-gnu.tar.gz
-  - 7z x cargo-nightly-i686-pc-windows-gnu.tar
-  - SET PATH=%PATH%;C:\Program Files (x86)\Rust\bin
-  - SET PATH=%PATH%;%CD%\cargo-nightly-i686-pc-windows-gnu\bin
-  - rustc -V
+  - ps: |
+      if ($env:PLATFORM -eq "x86") {
+        Start-FileDownload 'https://static.rust-lang.org/dist/rust-1.0.0-i686-pc-windows-gnu.exe' -FileName rust.exe
+      } else {
+        Start-FileDownload 'https://static.rust-lang.org/dist/rust-1.0.0-x86_64-pc-windows-gnu.exe' -FileName rust.exe
+      }
+  - rust.exe /VERYSILENT /NORESTART /DIR="C:\Program Files\Rust"
+  - SET PATH=%PATH%;C:\Program Files\Rust\bin
+  - rustc -vV
   - cargo -V
+  - git submodule update --init --recursive
+
+platform:
+  - x86
+  - x64
 
 build: false
 
 test_script:
-  - cargo build --verbose
-#  - cargo test --verbose
+  - cargo test --verbose
