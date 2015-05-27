@@ -12,17 +12,13 @@ keywords = ["audio", "sound"]
 [dependencies]
 libc = "*"
 
-[target.i686-pc-windows-gnu.dependencies.winapi]
-version = "0"
+[target.i686-pc-windows-gnu.dependencies]
+winapi = "0.1.19"
+ole32-sys = "0.1"
 
-[target.x86_64-pc-windows-gnu.dependencies.winapi]
-version = "0"
-
-[target.i686-pc-windows-gnu.dependencies.ole32-sys]
-version = "0.1"
-
-[target.x86_64-pc-windows-gnu.dependencies.ole32-sys]
-version = "0.1"
+[target.x86_64-pc-windows-gnu.dependencies]
+winapi = "0.1.19"
+ole32-sys = "0.1"
 
 [target.i686-unknown-linux-gnu.dependencies.alsa-sys]
 version = "0"

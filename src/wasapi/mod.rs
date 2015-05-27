@@ -51,8 +51,7 @@ impl Voice {
                 // 
                 let frames_available = {
                     let mut padding = mem::uninitialized();
-                    let f = (&*(&mut *self.audio_client).lpVtbl).GetCurrentPadding;
-                    let hresult = f(self.audio_client, &mut padding);
+                    let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
                     check_result(hresult).unwrap();
                     self.max_frames_in_buffer - padding
                 };
@@ -71,8 +70,7 @@ impl Voice {
                 // loading buffer
                 let (buffer_data, buffer_len) = {
                     let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                    let f = (&*(&mut *self.render_client).lpVtbl).GetBuffer;
-                    let hresult = f(self.render_client, frames_available,
+                    let hresult = (*self.render_client).GetBuffer(frames_available,
                                     &mut buffer as *mut *mut libc::c_uchar);
                     check_result(hresult).unwrap();
                     assert!(!buffer.is_null());
@@ -98,8 +96,7 @@ impl Voice {
     pub fn play(&mut self) {
         if !self.playing {
             unsafe {
-                let f = (&*(&mut *self.audio_client).lpVtbl).Start;
-                let hresult = f(self.audio_client);
+                let hresult = (*self.audio_client).Start();
                 check_result(hresult).unwrap();
             }
         }
@@ -110,8 +107,7 @@ impl Voice {
     pub fn pause(&mut self) {
         if self.playing {
             unsafe {
-                let f = (&*(&mut *self.audio_client).lpVtbl).Stop;
-                let hresult = f(self.audio_client);
+                let hresult = (*self.audio_client).Stop();
                 check_result(hresult).unwrap();
             }
         }
@@ -126,15 +122,8 @@ unsafe impl Sync for Voice {}
 impl Drop for Voice {
     fn drop(&mut self) {
         unsafe {
-            {
-                let f = (&*(&mut *self.render_client).lpVtbl).Release;
-                f(self.render_client);
-            }
-
-            {
-                let f = (&*(&mut *self.audio_client).lpVtbl).Release;
-                f(self.audio_client);
-            }
+            (*self.render_client).Release();
+            (*self.audio_client).Release();
         }
     }
 }
@@ -149,8 +138,7 @@ impl<'a, T> Buffer<'a, T> {
     pub fn finish(self) {
         // releasing buffer
         unsafe {
-            let f = (&*(&mut *self.render_client).lpVtbl).ReleaseBuffer;
-            let hresult = f(self.render_client, self.frames as u32, 0);
+            let hresult = (*self.render_client).ReleaseBuffer(self.frames as u32, 0);
             check_result(hresult).unwrap();
         };
     }
@@ -177,8 +165,7 @@ fn init() -> Result<Voice, String> {
         // getting the default end-point
         let device = {
             let mut device: *mut winapi::IMMDevice = mem::uninitialized();
-            let f = (&*(&mut *enumerator).lpVtbl).GetDefaultAudioEndpoint;
-            let hresult = f(enumerator, winapi::EDataFlow::eRender, winapi::ERole::eConsole,
+            let hresult = enumerator.GetDefaultAudioEndpoint(winapi::EDataFlow::eRender, winapi::ERole::eConsole,
                             mem::transmute(&mut device));
             try!(check_result(hresult));
             &mut *device
@@ -187,8 +174,7 @@ fn init() -> Result<Voice, String> {
         // activating in order to get a `IAudioClient`
         let audio_client: &mut winapi::IAudioClient = {
             let mut audio_client: *mut winapi::IAudioClient = mem::uninitialized();
-            let f = (&*(&mut *device).lpVtbl).Activate;
-            let hresult = f(device, &winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
+            let hresult = device.Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
                             ptr::null_mut(), mem::transmute(&mut audio_client));
             try!(check_result(hresult));
             &mut *audio_client
@@ -207,8 +193,7 @@ fn init() -> Result<Voice, String> {
             };
 
             let mut format_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
-            let f = (&*(&mut *audio_client).lpVtbl).IsFormatSupported;
-            let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
+            let hresult = audio_client.IsFormatSupported(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
                             &format_attempt, &mut format_ptr);
             try!(check_result(hresult));
 
@@ -220,8 +205,7 @@ fn init() -> Result<Voice, String> {
 
             let format_copy = ptr::read(format);
 
-            let f = (&*(&mut *audio_client).lpVtbl).Initialize;
-            let hresult = f(audio_client, winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
+            let hresult = audio_client.Initialize(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
                             0, 10000000, 0, format, ptr::null());
 
             if !format_ptr.is_null() {
@@ -236,8 +220,7 @@ fn init() -> Result<Voice, String> {
         // 
         let max_frames_in_buffer = {
             let mut max_frames_in_buffer = mem::uninitialized();
-            let f = (&*(&mut *audio_client).lpVtbl).GetBufferSize;
-            let hresult = f(audio_client, &mut max_frames_in_buffer);
+            let hresult = audio_client.GetBufferSize(&mut max_frames_in_buffer);
             try!(check_result(hresult));
             max_frames_in_buffer
         };
@@ -245,8 +228,7 @@ fn init() -> Result<Voice, String> {
         // 
         let render_client = {
             let mut render_client: *mut winapi::IAudioRenderClient = mem::uninitialized();
-            let f = (&*(&mut *audio_client).lpVtbl).GetService;
-            let hresult = f(audio_client, &winapi::IID_IAudioRenderClient,
+            let hresult = audio_client.GetService(&winapi::IID_IAudioRenderClient,
                             mem::transmute(&mut render_client));
             try!(check_result(hresult));
             &mut *render_client
