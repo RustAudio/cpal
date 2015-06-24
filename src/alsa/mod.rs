@@ -2,9 +2,10 @@ extern crate alsa_sys as alsa;
 extern crate libc;
 
 use std::{ffi, iter, mem};
+use std::sync::Mutex;
 
 pub struct Voice {
-    channel: *mut alsa::snd_pcm_t,
+    channel: Mutex<*mut alsa::snd_pcm_t>,
     num_channels: u16,
 }
 
@@ -34,7 +35,7 @@ impl Voice {
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
             Voice {
-                channel: playback_handle,
+                channel: Mutex::new(playback_handle),
                 num_channels: 2,
             }
         }
@@ -53,8 +54,11 @@ impl Voice {
     }
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
-        let available = unsafe { alsa::snd_pcm_avail(self.channel) };
-        let available = available * self.num_channels as alsa::snd_pcm_sframes_t;
+        let available = {
+            let channel = self.channel.lock().unwrap();
+            let available = unsafe { alsa::snd_pcm_avail(*channel) };
+            available * self.num_channels as alsa::snd_pcm_sframes_t
+        };
 
         let elements = ::std::cmp::min(available as usize, max_elements);
 
@@ -80,7 +84,7 @@ unsafe impl Sync for Voice {}
 impl Drop for Voice {
     fn drop(&mut self) {
         unsafe {
-            alsa::snd_pcm_close(self.channel);
+            alsa::snd_pcm_close(*self.channel.lock().unwrap());
         }
     }
 }
@@ -91,10 +95,12 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self) {
-        let written = (self.buffer.len() / self.channel.num_channels as usize) as alsa::snd_pcm_uframes_t;
+        let written = (self.buffer.len() / self.channel.num_channels as usize)
+                      as alsa::snd_pcm_uframes_t;
+        let channel = self.channel.channel.lock().unwrap();
 
         unsafe {
-            let result = alsa::snd_pcm_writei(self.channel.channel,
+            let result = alsa::snd_pcm_writei(*channel,
                                               self.buffer.as_ptr() as *const libc::c_void,
                                               written);
 
