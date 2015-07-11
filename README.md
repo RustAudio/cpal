@@ -6,5 +6,5 @@ Audio player in pure Rust. Works only on win32 (WASAPI) and linux (ALSA) for the
 
 ```toml
 [dependencies]
-cpal = "^0.0.1"
+cpal = "0.1.0"
 ```
