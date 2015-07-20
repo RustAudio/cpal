@@ -209,7 +209,7 @@ fn init() -> Result<Voice, String> {
                             0, 10000000, 0, format, ptr::null());
 
             if !format_ptr.is_null() {
-                ole32::CoTaskMemFree(format_ptr as *mut libc::c_void);
+                ole32::CoTaskMemFree(format_ptr as *mut _);
             }
 
             try!(check_result(hresult));

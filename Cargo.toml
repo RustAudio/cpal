@@ -1,7 +1,7 @@
 [package]
 
 name = "cpal"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
@@ -13,19 +13,19 @@ keywords = ["audio", "sound"]
 libc = "*"
 
 [target.i686-pc-windows-gnu.dependencies]
-winapi = "0.1.19"
+winapi = "0.2.1"
 ole32-sys = "0.1"
 
 [target.x86_64-pc-windows-gnu.dependencies]
-winapi = "0.1.19"
+winapi = "0.2.1"
 ole32-sys = "0.1"
 
 [target.i686-pc-windows-msvc.dependencies]
-winapi = "0.1.19"
+winapi = "0.2.1"
 ole32-sys = "0.1"
 
 [target.x86_64-pc-windows-msvc.dependencies]
-winapi = "0.1.19"
+winapi = "0.2.1"
 ole32-sys = "0.1"
 
 [target.i686-unknown-linux-gnu.dependencies.alsa-sys]
