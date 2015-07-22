@@ -33,7 +33,7 @@ fn main() {
                     };
 
                     if let Some(output) = buffer.next() {
-                        *output = next_sample as u16;
+                        *output = next_sample;
                         data = &data[1..];
                     } else {
                         break;
