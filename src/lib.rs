@@ -47,7 +47,6 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
-#![feature(box_syntax)]
 
 pub use samples_formats::{SampleFormat, Sample};
 
