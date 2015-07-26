@@ -47,6 +47,7 @@ a conversion on your data.
 If you have the possibility, you should try to match the format of the voice.
 
 */
+
 pub use samples_formats::{SampleFormat, Sample};
 
 use std::ops::{Deref, DerefMut};
@@ -87,7 +88,7 @@ pub struct Voice(cpal_impl::Voice);
 /// Number of channels.
 pub type ChannelsCount = u16;
 
-/// 
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
 
@@ -98,7 +99,7 @@ pub struct SamplesRate(pub u32);
 #[must_use]
 pub struct Buffer<'a, T: 'a> where T: Sample {
     // also contains something, taken by `Drop`
-    target: Option<cpal_impl::Buffer<'a, T>>, 
+    target: Option<cpal_impl::Buffer<'a, T>>,
 
     // if this is non-none, then the data will be written to `conversion.intermediate_buffer`
     // instead of `target`, and the conversion will be done in buffer's destructor
@@ -215,7 +216,7 @@ impl Voice {
 
         } else {
             Buffer {
-                target: Some(self.0.append_data(max_elements)), 
+                target: Some(self.0.append_data(max_elements)),
                 conversion: None,
             }
         }

@@ -93,7 +93,7 @@ fn new_voice() -> Result<Voice, String> {
     let (samples_sender, samples_receiver) = channel();
 
     let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
-        .render_callback(box move |channels, num_frames| {
+        .render_callback(Box::new(move |channels, num_frames| {
             if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
                 return Err("Callback failed to send 'ready' message.".to_string());
             }
@@ -114,7 +114,7 @@ fn new_voice() -> Result<Voice, String> {
             }
             Ok(())
 
-        })
+        }))
         .start();
 
     match audio_unit_result {
@@ -130,4 +130,3 @@ fn new_voice() -> Result<Voice, String> {
     }
 
 }
-
