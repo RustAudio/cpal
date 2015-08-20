@@ -199,8 +199,11 @@ impl Voice {
                                              target_channels as usize;
             let intermediate_buffer_length = intermediate_buffer_length * samples_rate.0 as usize /
                                              target_samples_rate.0 as usize;
-            let intermediate_buffer = std::iter::repeat(unsafe { std::mem::uninitialized() })
-                                        .take(intermediate_buffer_length).collect();
+            let intermediate_buffer = unsafe { 
+                let b = Vec::with_capacity(intermediate_buffer_length);
+                b.set_len(intermediate_buffer_length);
+                b
+            };
 
             Buffer {
                 target: Some(target_buffer),
