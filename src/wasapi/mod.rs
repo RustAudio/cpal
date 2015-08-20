@@ -2,7 +2,7 @@ extern crate libc;
 extern crate winapi;
 extern crate ole32;
 
-use std::{slice, mem, ptr};
+use std::{cmp, slice, mem, ptr};
 use std::marker::PhantomData;
 
 // TODO: determine if should be NoSend or not
@@ -62,9 +62,9 @@ impl Voice {
                     continue;
                 }
 
-                let frames_available = ::std::cmp::min(frames_available,
-                                                       max_elements as u32 * mem::size_of::<T>() as u32 /
-                                                       self.bytes_per_frame as u32);
+                let frames_available = cmp::min(frames_available,
+                                                max_elements as u32 * mem::size_of::<T>() as u32 /
+                                                self.bytes_per_frame as u32);
                 assert!(frames_available != 0);
 
                 // loading buffer
@@ -147,11 +147,11 @@ impl<'a, T> Buffer<'a, T> {
 fn init() -> Result<Voice, String> {
     // FIXME: release everything
     unsafe {
-        try!(check_result(ole32::CoInitializeEx(::std::ptr::null_mut(), 0)));
+        try!(check_result(ole32::CoInitializeEx(ptr::null_mut(), 0)));
 
         // building the devices enumerator object
         let enumerator = {
-            let mut enumerator: *mut winapi::IMMDeviceEnumerator = ::std::mem::uninitialized();
+            let mut enumerator: *mut winapi::IMMDeviceEnumerator = mem::uninitialized();
             
             let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
                                                    ptr::null_mut(), winapi::CLSCTX_ALL,
