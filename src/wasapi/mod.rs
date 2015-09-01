@@ -113,13 +113,23 @@ impl Endpoint {
             check_result((*client).GetMixFormat(&mut format_ptr)).unwrap();        // FIXME: don't unwrap
 
             let format = {
-                assert!((*format_ptr).wFormatTag == winapi::WAVE_FORMAT_EXTENSIBLE);
+                let data_type = match (*format_ptr).wFormatTag {
+                    winapi::WAVE_FORMAT_PCM => SampleFormat::I16,
+                    winapi::WAVE_FORMAT_EXTENSIBLE => {
+                        let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
+                        match (*format_ptr).SubFormat {
+                            winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT => SampleFormat::F32,
+                            winapi::KSDATAFORMAT_SUBTYPE_PCM => SampleFormat::I16,
+                            g => panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}", g)
+                        }
+                    },
+                    f => panic!("Unknown data format returned by GetMixFormat: {:?}", f)
+                };
 
-                // FIXME: decode from the format
                 Format {
-                    channels: 2,
-                    samples_rate: SamplesRate(44100),
-                    data_type: SampleFormat::I16,
+                    channels: (*format_ptr).nChannels,
+                    samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
+                    data_type: data_type,
                 }
             };
 
