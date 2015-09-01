@@ -1,7 +1,7 @@
 extern crate cpal;
 
 fn main() {
-    let mut channel = cpal::Voice::new();
+    let mut channel = cpal::Voice::new(&cpal::get_default_endpoint().unwrap()).unwrap();
 
     // Produce a sinusoid of maximum amplitude.
     let mut data_source = (0u64..).map(|t| t as f32 * 0.03)

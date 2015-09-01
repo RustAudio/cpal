@@ -28,8 +28,12 @@ reaches the end of the data, it will stop playing. You must continuously fill th
 calling `append_data` repeatedly if you don't want the audio to stop playing.
 
 */
+#[macro_use]
+extern crate lazy_static;
+
 pub use samples_formats::{SampleFormat, Sample};
 
+use std::error::Error;
 use std::ops::{Deref, DerefMut};
 
 mod samples_formats;
@@ -56,6 +60,43 @@ pub type ChannelsCount = u16;
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
+
+/// Describes a format.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Format {
+    pub channels: ChannelsCount,
+    pub samples_rate: SamplesRate,
+    pub data_type: SampleFormat,
+}
+
+/// An iterator for the list of formats that are supported by the backend.
+pub struct EndpointsIterator(cpal_impl::EndpointsIterator);
+
+impl Iterator for EndpointsIterator {
+    type Item = Endpoint;
+
+    fn next(&mut self) -> Option<Endpoint> {
+        self.0.next().map(Endpoint)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+/// Return an iterator to the list of formats that are supported by the system.
+pub fn get_endpoints_list() -> EndpointsIterator {
+    EndpointsIterator(Default::default())
+}
+
+/// Return the default endpoint, or `None` if no device is available.
+pub fn get_default_endpoint() -> Option<Endpoint> {
+    cpal_impl::get_default_endpoint().map(Endpoint)
+}
+
+/// An opaque type that identifies an end point.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Endpoint(cpal_impl::Endpoint);
 
 /// Represents a buffer that must be filled with audio data.
 ///
@@ -95,9 +136,9 @@ pub struct Voice(cpal_impl::Voice);
 
 impl Voice {
     /// Builds a new channel.
-    pub fn new() -> Voice {
-        let channel = cpal_impl::Voice::new();
-        Voice(channel)
+    pub fn new(endpoint: &Endpoint) -> Result<Voice, Box<Error>> {
+        let channel = try!(cpal_impl::Voice::new(&endpoint.0));
+        Ok(Voice(channel))
     }
 
     /// Returns the number of channels.
