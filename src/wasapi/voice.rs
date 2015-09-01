@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 
 use CreationError;
 use Format;
+use SampleFormat;
 
 pub struct Voice {
     audio_client: *mut winapi::IAudioClient,
@@ -44,22 +45,44 @@ impl Voice {
 
             // computing the format and initializing the device
             let format = {
-                let format_attempt = winapi::WAVEFORMATEX {
-                    wFormatTag: winapi::WAVE_FORMAT_PCM,
-                    nChannels: format.channels as winapi::WORD,
-                    nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
-                    nAvgBytesPerSec: format.channels as winapi::DWORD *
-                                     format.samples_rate.0 as winapi::DWORD *
-                                     format.data_type.get_sample_size() as winapi::DWORD,
-                    nBlockAlign: format.channels as winapi::WORD *
-                                 format.data_type.get_sample_size() as winapi::WORD,
-                    wBitsPerSample: 8 * format.data_type.get_sample_size() as winapi::WORD,
-                    cbSize: 0,
+                let format_attempt = winapi::WAVEFORMATEXTENSIBLE {
+                    Format: winapi::WAVEFORMATEX {
+                        wFormatTag: match format.data_type {
+                            SampleFormat::I16 => winapi::WAVE_FORMAT_PCM,
+                            SampleFormat::F32 => winapi::WAVE_FORMAT_EXTENSIBLE,
+                            SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
+                        },
+                        nChannels: format.channels as winapi::WORD,
+                        nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
+                        nAvgBytesPerSec: format.channels as winapi::DWORD *
+                                         format.samples_rate.0 as winapi::DWORD *
+                                         format.data_type.get_sample_size() as winapi::DWORD,
+                        nBlockAlign: format.channels as winapi::WORD *
+                                     format.data_type.get_sample_size() as winapi::WORD,
+                        wBitsPerSample: 8 * format.data_type.get_sample_size() as winapi::WORD,
+                        cbSize: match format.data_type {
+                            SampleFormat::I16 => 0,
+                            SampleFormat::F32 => (mem::size_of::<winapi::WAVEFORMATEXTENSIBLE>() -
+                                                  mem::size_of::<winapi::WAVEFORMATEX>()) as winapi::WORD,
+                            SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
+                        },
+                    },
+                    Samples: 8 * format.data_type.get_sample_size() as winapi::WORD,
+                    dwChannelMask: 3,       // LEFT | RIGHT
+                    SubFormat: match format.data_type {
+                        SampleFormat::I16 => winapi::KSDATAFORMAT_SUBTYPE_PCM,
+                        SampleFormat::F32 => winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
+                        SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
+                    },
                 };
 
                 let mut format_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
                 let hresult = (*audio_client).IsFormatSupported(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                                                                &format_attempt, &mut format_ptr);
+                                                                &format_attempt.Format, &mut format_ptr);
+
+                if !format_ptr.is_null() {
+                    ole32::CoTaskMemFree(format_ptr as *mut _);
+                }
 
                 if hresult == winapi::S_FALSE {
                     return Err(CreationError::FormatNotSupported);
@@ -78,21 +101,8 @@ impl Voice {
                     Ok(()) => (),
                 };
 
-
-                let format = if format_ptr.is_null() {
-                    &format_attempt
-                } else {
-                    &*format_ptr
-                };
-
-                let format_copy = ptr::read(format);
-
                 let hresult = (*audio_client).Initialize(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                                                         0, 10000000, 0, format, ptr::null());
-
-                if !format_ptr.is_null() {
-                    ole32::CoTaskMemFree(format_ptr as *mut _);
-                }
+                                                         0, 10000000, 0, &format_attempt.Format, ptr::null());
 
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
@@ -107,7 +117,7 @@ impl Voice {
                     Ok(()) => (),
                 };
 
-                format_copy
+                format_attempt.Format
             };
 
             // 

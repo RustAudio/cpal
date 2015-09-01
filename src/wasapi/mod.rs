@@ -119,7 +119,7 @@ impl Endpoint {
                 Format {
                     channels: 2,
                     samples_rate: SamplesRate(44100),
-                    data_type: SampleFormat::U16,
+                    data_type: SampleFormat::I16,
                 }
             };
 
