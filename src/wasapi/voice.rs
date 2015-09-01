@@ -188,6 +188,7 @@ impl Voice {
     pub fn get_samples_format(&self) -> ::SampleFormat {
         match self.bits_per_sample {
             16 => ::SampleFormat::I16,
+            32 => ::SampleFormat::F32,
             _ => panic!("{}-bit format not yet supported", self.bits_per_sample),
         }
     }
