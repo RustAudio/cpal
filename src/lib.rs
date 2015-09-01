@@ -33,6 +33,7 @@ extern crate lazy_static;
 
 pub use samples_formats::{SampleFormat, Sample};
 
+use std::fmt;
 use std::error::Error;
 use std::ops::{Deref, DerefMut};
 
@@ -87,8 +88,10 @@ pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
-    pub fn get_supported_formats_list(&self) -> SupportedFormatsIterator {
-        SupportedFormatsIterator(self.0.get_supported_formats_list())
+    pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
+                                                       FormatsEnumerationError>
+    {
+        Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
     }
 }
 
@@ -146,6 +149,61 @@ pub enum UnknownTypeBuffer<'a> {
     F32(Buffer<'a, f32>),
 }
 
+/// Error that can happen when enumerating the list of supported formats.
+#[derive(Debug)]
+pub enum FormatsEnumerationError {
+    /// The device no longer exists. This can happen if the device is disconnected while the
+    /// program is running.
+    DeviceNotAvailable,
+}
+
+impl fmt::Display for FormatsEnumerationError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", self.description())
+    }
+}
+
+impl Error for FormatsEnumerationError {
+    fn description(&self) -> &str {
+        match self {
+            &FormatsEnumerationError::DeviceNotAvailable => {
+                "The requested device is no longer available (for example, it has been unplugged)."
+            },
+        }
+    }
+}
+
+/// Error that can happen when creating a `Voice`.
+#[derive(Debug)]
+pub enum CreationError {
+    /// The device no longer exists. This can happen if the device is disconnected while the
+    /// program is running.
+    DeviceNotAvailable,
+
+    /// The required format is not supported.
+    FormatNotSupported,
+}
+
+impl fmt::Display for CreationError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", self.description())
+    }
+}
+
+impl Error for CreationError {
+    fn description(&self) -> &str {
+        match self {
+            &CreationError::DeviceNotAvailable => {
+                "The requested device is no longer available (for example, it has been unplugged)."
+            },
+
+            &CreationError::FormatNotSupported => {
+                "The requested samples format is not supported by the device."
+            },
+        }
+    }
+}
+
 /// Controls a sound output. A typical application has one `Voice` for each sound
 /// it wants to output.
 ///
@@ -163,7 +221,7 @@ pub struct Voice(cpal_impl::Voice);
 impl Voice {
     /// Builds a new channel.
     #[inline]
-    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, Box<Error>> {
+    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
         let channel = try!(cpal_impl::Voice::new(&endpoint.0, format));
         Ok(Voice(channel))
     }

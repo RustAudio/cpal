@@ -8,6 +8,7 @@ use std::ptr;
 use std::mem;
 
 use Format;
+use FormatsEnumerationError;
 use SamplesRate;
 use SampleFormat;
 
@@ -58,27 +59,39 @@ impl Endpoint {
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
-    fn ensure_future_audio_client(&self) -> MutexGuard<Option<IAudioClientWrapper>> {
+    fn ensure_future_audio_client(&self) -> Result<MutexGuard<Option<IAudioClientWrapper>>, IoError> {
         let mut lock = self.future_audio_client.lock().unwrap();
         if lock.is_some() {
-            return lock;
+            return Ok(lock);
         }
 
         let audio_client: *mut winapi::IAudioClient = unsafe {
             let mut audio_client = mem::uninitialized();
             let hresult = (*self.device).Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
                                                   ptr::null_mut(), &mut audio_client);
+
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
-            check_result(hresult).unwrap();     // FIXME: don't unwrap
+            try!(check_result(hresult));
+            assert!(!audio_client.is_null());
             audio_client as *mut _
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
-        lock
+        Ok(lock)
     }
 
-    pub fn get_supported_formats_list(&self) -> SupportedFormatsIterator {
+    /// Returns an uninitialized `IAudioClient`.
+    fn build_audioclient(&self) -> Result<*mut winapi::IAudioClient, IoError> {
+        let mut lock = try!(self.ensure_future_audio_client());
+        let client = lock.unwrap().0;
+        *lock = None;
+        Ok(client)
+    }
+
+    pub fn get_supported_formats_list(&self)
+           -> Result<SupportedFormatsIterator, FormatsEnumerationError>
+    {
         // We always create voices in shared mode, therefore all samples go through an audio
         // processor to mix them together.
         // However there is no way to query the list of all formats that are supported by the
@@ -88,7 +101,11 @@ impl Endpoint {
         // initializing COM because we call `CoTaskMemFree`
         com::com_initialized();
 
-        let lock = self.ensure_future_audio_client();
+        let lock = match self.ensure_future_audio_client() {
+            Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
+                return Err(FormatsEnumerationError::DeviceNotAvailable),
+            e => e.unwrap(),
+        };
         let client = lock.unwrap().0;
 
         unsafe {
@@ -108,7 +125,7 @@ impl Endpoint {
 
             ole32::CoTaskMemFree(format_ptr as *mut _);
 
-            Some(format).into_iter()
+            Ok(Some(format).into_iter())
         }
     }
 }
