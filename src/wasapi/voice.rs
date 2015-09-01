@@ -45,24 +45,39 @@ impl Voice {
             // computing the format and initializing the device
             let format = {
                 let format_attempt = winapi::WAVEFORMATEX {
-                    wFormatTag: 1,      // WAVE_FORMAT_PCM ; TODO: replace by constant
-                    nChannels: 2,
-                    nSamplesPerSec: 44100,
-                    nAvgBytesPerSec: 2 * 44100 * 2,
-                    nBlockAlign: (2 * 16) / 8,
-                    wBitsPerSample: 16,
+                    wFormatTag: winapi::WAVE_FORMAT_PCM,
+                    nChannels: format.channels as winapi::WORD,
+                    nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
+                    nAvgBytesPerSec: format.channels as winapi::DWORD *
+                                     format.samples_rate.0 as winapi::DWORD *
+                                     format.data_type.get_sample_size() as winapi::DWORD,
+                    nBlockAlign: format.channels as winapi::WORD *
+                                 format.data_type.get_sample_size() as winapi::WORD,
+                    wBitsPerSample: 8 * format.data_type.get_sample_size() as winapi::WORD,
                     cbSize: 0,
                 };
 
                 let mut format_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
                 let hresult = (*audio_client).IsFormatSupported(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                                                             &format_attempt, &mut format_ptr);
+                                                                &format_attempt, &mut format_ptr);
+
+                if hresult == winapi::S_FALSE {
+                    return Err(CreationError::FormatNotSupported);
+                }
 
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
-                        return Err(CreationError::DeviceNotAvailable),
-                    e => e.unwrap(),
+                    {
+                        (*audio_client).Release();
+                        return Err(CreationError::DeviceNotAvailable);
+                    },
+                    Err(e) => {
+                        (*audio_client).Release();
+                        panic!("{:?}", e);
+                    },
+                    Ok(()) => (),
                 };
+
 
                 let format = if format_ptr.is_null() {
                     &format_attempt
@@ -73,7 +88,7 @@ impl Voice {
                 let format_copy = ptr::read(format);
 
                 let hresult = (*audio_client).Initialize(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                                0, 10000000, 0, format, ptr::null());
+                                                         0, 10000000, 0, format, ptr::null());
 
                 if !format_ptr.is_null() {
                     ole32::CoTaskMemFree(format_ptr as *mut _);
@@ -81,8 +96,15 @@ impl Voice {
 
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
-                        return Err(CreationError::DeviceNotAvailable),
-                    e => e.unwrap(),
+                    {
+                        (*audio_client).Release();
+                        return Err(CreationError::DeviceNotAvailable);
+                    },
+                    Err(e) => {
+                        (*audio_client).Release();
+                        panic!("{:?}", e);
+                    },
+                    Ok(()) => (),
                 };
 
                 format_copy
@@ -92,11 +114,20 @@ impl Voice {
             let max_frames_in_buffer = {
                 let mut max_frames_in_buffer = mem::uninitialized();
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
+
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
-                        return Err(CreationError::DeviceNotAvailable),
-                    e => e.unwrap(),
+                    {
+                        (*audio_client).Release();
+                        return Err(CreationError::DeviceNotAvailable);
+                    },
+                    Err(e) => {
+                        (*audio_client).Release();
+                        panic!("{:?}", e);
+                    },
+                    Ok(()) => (),
                 };
+
                 max_frames_in_buffer
             };
 
@@ -106,10 +137,18 @@ impl Voice {
                 let hresult = (*audio_client).GetService(&winapi::IID_IAudioRenderClient,
                                                          &mut render_client as *mut *mut winapi::IAudioRenderClient
                                                                             as *mut _);
+
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
-                        return Err(CreationError::DeviceNotAvailable),
-                    e => e.unwrap(),
+                    {
+                        (*audio_client).Release();
+                        return Err(CreationError::DeviceNotAvailable);
+                    },
+                    Err(e) => {
+                        (*audio_client).Release();
+                        panic!("{:?}", e);
+                    },
+                    Ok(()) => (),
                 };
 
                 &mut *render_client
