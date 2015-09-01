@@ -4,7 +4,16 @@
 In order to play a sound, first you need to create a `Voice`.
 
 ```no_run
-let mut voice = cpal::Voice::new();
+// getting the default sound output of the system (can return `None` if nothing is supported)
+let endpoint = cpal::get_default_endpoint().unwrap();
+
+// note that the user can at any moment disconnect the device, therefore all operations return
+// a `Result` to handle this situation
+
+// getting a format for the PCM
+let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
+
+let mut voice = cpal::Voice::new(&endpoint, &format).unwrap();
 ```
 
 Then you must send raw samples to it by calling `append_data`. You must take the number of channels
@@ -19,7 +28,7 @@ this is not some obscure situation that can be ignored.
 After you have submitted data for the first time, call `play`:
 
 ```no_run
-# let mut voice = cpal::Voice::new();
+# let mut voice: cpal::Voice = unsafe { std::mem::uninitialized() };
 voice.play();
 ```
 
