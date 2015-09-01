@@ -110,7 +110,13 @@ impl Endpoint {
 
         unsafe {
             let mut format_ptr = mem::uninitialized();
-            check_result((*client).GetMixFormat(&mut format_ptr)).unwrap();        // FIXME: don't unwrap
+            match check_result((*client).GetMixFormat(&mut format_ptr)) {
+                Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(FormatsEnumerationError::DeviceNotAvailable);
+                },
+                Err(e) => panic!("{:?}", e),
+                Ok(()) => (),
+            };
 
             let format = {
                 let data_type = match (*format_ptr).wFormatTag {
