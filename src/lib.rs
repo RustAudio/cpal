@@ -54,31 +54,18 @@ mod cpal_impl;
 #[path="null/mod.rs"]
 mod cpal_impl;
 
-/// Number of channels.
-pub type ChannelsCount = u16;
-
-///
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SamplesRate(pub u32);
-
-/// Describes a format.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Format {
-    pub channels: ChannelsCount,
-    pub samples_rate: SamplesRate,
-    pub data_type: SampleFormat,
-}
-
 /// An iterator for the list of formats that are supported by the backend.
 pub struct EndpointsIterator(cpal_impl::EndpointsIterator);
 
 impl Iterator for EndpointsIterator {
     type Item = Endpoint;
 
+    #[inline]
     fn next(&mut self) -> Option<Endpoint> {
         self.0.next().map(Endpoint)
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
@@ -97,6 +84,45 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
 /// An opaque type that identifies an end point.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint(cpal_impl::Endpoint);
+
+impl Endpoint {
+    /// Returns an iterator that produces the list of formats that are supported by the backend.
+    pub fn get_supported_formats_list(&self) -> SupportedFormatsIterator {
+        SupportedFormatsIterator(self.0.get_supported_formats_list())
+    }
+}
+
+/// Number of channels.
+pub type ChannelsCount = u16;
+
+///
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SamplesRate(pub u32);
+
+/// Describes a format.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Format {
+    pub channels: ChannelsCount,
+    pub samples_rate: SamplesRate,
+    pub data_type: SampleFormat,
+}
+
+/// An iterator that produces a list of formats supported by the endpoint.
+pub struct SupportedFormatsIterator(cpal_impl::SupportedFormatsIterator);
+
+impl Iterator for SupportedFormatsIterator {
+    type Item = Format;
+
+    #[inline]
+    fn next(&mut self) -> Option<Format> {
+        self.0.next()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
 
 /// Represents a buffer that must be filled with audio data.
 ///
@@ -136,8 +162,9 @@ pub struct Voice(cpal_impl::Voice);
 
 impl Voice {
     /// Builds a new channel.
-    pub fn new(endpoint: &Endpoint) -> Result<Voice, Box<Error>> {
-        let channel = try!(cpal_impl::Voice::new(&endpoint.0));
+    #[inline]
+    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, Box<Error>> {
+        let channel = try!(cpal_impl::Voice::new(&endpoint.0, format));
         Ok(Voice(channel))
     }
 
@@ -145,6 +172,7 @@ impl Voice {
     ///
     /// You can add data with any number of channels, but matching the voice's native format
     /// will lead to better performances.
+    #[inline]
     pub fn get_channels(&self) -> ChannelsCount {
         self.0.get_channels()
     }
@@ -153,6 +181,7 @@ impl Voice {
     ///
     /// You can add data with any samples rate, but matching the voice's native format
     /// will lead to better performances.
+    #[inline]
     pub fn get_samples_rate(&self) -> SamplesRate {
         self.0.get_samples_rate()
     }
@@ -161,6 +190,7 @@ impl Voice {
     ///
     /// You can add data of any format, but matching the voice's native format
     /// will lead to better performances.
+    #[inline]
     pub fn get_samples_format(&self) -> SampleFormat {
         self.0.get_samples_format()
     }
@@ -205,6 +235,7 @@ impl Voice {
     ///
     /// Only call this after you have submitted some data, otherwise you may hear
     /// some glitches.
+    #[inline]
     pub fn play(&mut self) {
         self.0.play()
     }
@@ -214,6 +245,7 @@ impl Voice {
     /// Has no effect is the voice was already paused.
     ///
     /// If you call `play` afterwards, the playback will resume exactly where it was.
+    #[inline]
     pub fn pause(&mut self) {
         self.0.pause()
     }
@@ -222,18 +254,21 @@ impl Voice {
 impl<'a, T> Deref for Buffer<'a, T> where T: Sample {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &[T] {
         panic!("It is forbidden to read from the audio buffer");
     }
 }
 
 impl<'a, T> DerefMut for Buffer<'a, T> where T: Sample {
+    #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.target.as_mut().unwrap().get_buffer()
     }
 }
 
 impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
+    #[inline]
     fn drop(&mut self) {
         self.target.take().unwrap().finish();
     }

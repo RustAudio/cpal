@@ -99,7 +99,7 @@ impl Iterator for EndpointsIterator {
             check_result((*self.collection).Item(self.next_item, &mut device)).unwrap();
 
             self.next_item += 1;
-            Some(Endpoint(device))
+            Some(Endpoint::from_immdevice(device))
         }
     }
 
@@ -121,6 +121,6 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
             return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
         }
 
-        Some(Endpoint(device))
+        Some(Endpoint::from_immdevice(device))
     }
 }

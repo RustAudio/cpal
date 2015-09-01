@@ -11,6 +11,8 @@ use std::mem;
 use std::ptr;
 use std::marker::PhantomData;
 
+use Format;
+
 pub struct Voice {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
@@ -26,7 +28,7 @@ unsafe impl Send for Voice {}
 unsafe impl Sync for Voice {}
 
 impl Voice {
-    pub fn new(end_point: &Endpoint) -> Result<Voice, IoError> {
+    pub fn new(end_point: &Endpoint, format: &Format) -> Result<Voice, IoError> {
         // FIXME: release everything
         unsafe {
             // making sure that COM is initialized
@@ -36,8 +38,8 @@ impl Voice {
             // activating the end point in order to get a `IAudioClient`
             let audio_client: *mut winapi::IAudioClient = {
                 let mut audio_client = mem::uninitialized();
-                let hresult = (*end_point.0).Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
-                                                      ptr::null_mut(), &mut audio_client);
+                let hresult = (*end_point.device).Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
+                                                           ptr::null_mut(), &mut audio_client);
                 // can fail if the device has been disconnected since we enumerated it, or if
                 // the device doesn't support playback for some reason
                 try!(check_result(hresult));
