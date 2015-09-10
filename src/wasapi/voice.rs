@@ -11,6 +11,7 @@ use std::ptr;
 use std::marker::PhantomData;
 
 use CreationError;
+use ChannelPosition;
 use Format;
 use SampleFormat;
 
@@ -52,12 +53,12 @@ impl Voice {
                             SampleFormat::F32 => winapi::WAVE_FORMAT_EXTENSIBLE,
                             SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                         },
-                        nChannels: format.channels as winapi::WORD,
+                        nChannels: format.channels.len() as winapi::WORD,
                         nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
-                        nAvgBytesPerSec: format.channels as winapi::DWORD *
+                        nAvgBytesPerSec: format.channels.len() as winapi::DWORD *
                                          format.samples_rate.0 as winapi::DWORD *
                                          format.data_type.get_sample_size() as winapi::DWORD,
-                        nBlockAlign: format.channels as winapi::WORD *
+                        nBlockAlign: format.channels.len() as winapi::WORD *
                                      format.data_type.get_sample_size() as winapi::WORD,
                         wBitsPerSample: 8 * format.data_type.get_sample_size() as winapi::WORD,
                         cbSize: match format.data_type {
@@ -68,7 +69,40 @@ impl Voice {
                         },
                     },
                     Samples: 8 * format.data_type.get_sample_size() as winapi::WORD,
-                    dwChannelMask: 3,       // LEFT | RIGHT
+                    dwChannelMask: {
+                        let mut mask = 0;
+                        for &channel in format.channels.iter() {
+                            let raw_value = match channel {
+                                ChannelPosition::FrontLeft => super::SPEAKER_FRONT_LEFT,
+                                ChannelPosition::FrontRight => super::SPEAKER_FRONT_RIGHT,
+                                ChannelPosition::FrontCenter => super::SPEAKER_FRONT_CENTER,
+                                ChannelPosition::LowFrequency => super::SPEAKER_LOW_FREQUENCY,
+                                ChannelPosition::BackLeft => super::SPEAKER_BACK_LEFT,
+                                ChannelPosition::BackRight => super::SPEAKER_BACK_RIGHT,
+                                ChannelPosition::FrontLeftOfCenter => super::SPEAKER_FRONT_LEFT_OF_CENTER,
+                                ChannelPosition::FrontRightOfCenter => super::SPEAKER_FRONT_RIGHT_OF_CENTER,
+                                ChannelPosition::BackCenter => super::SPEAKER_BACK_CENTER,
+                                ChannelPosition::SideLeft => super::SPEAKER_SIDE_LEFT,
+                                ChannelPosition::SideRight => super::SPEAKER_SIDE_RIGHT,
+                                ChannelPosition::TopCenter => super::SPEAKER_TOP_CENTER,
+                                ChannelPosition::TopFrontLeft => super::SPEAKER_TOP_FRONT_LEFT,
+                                ChannelPosition::TopFrontCenter => super::SPEAKER_TOP_FRONT_CENTER,
+                                ChannelPosition::TopFrontRight => super::SPEAKER_TOP_FRONT_RIGHT,
+                                ChannelPosition::TopBackLeft => super::SPEAKER_TOP_BACK_LEFT,
+                                ChannelPosition::TopBackCenter => super::SPEAKER_TOP_BACK_CENTER,
+                                ChannelPosition::TopBackRight => super::SPEAKER_TOP_BACK_RIGHT,
+                            };
+
+                            // channels must be in the right order
+                            if raw_value <= mask {
+                                return Err(CreationError::FormatNotSupported);
+                            }
+
+                            mask = mask | raw_value;
+                        }
+
+                        mask
+                    },
                     SubFormat: match format.data_type {
                         SampleFormat::I16 => winapi::KSDATAFORMAT_SUBTYPE_PCM,
                         SampleFormat::F32 => winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,

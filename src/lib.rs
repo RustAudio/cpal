@@ -107,14 +107,37 @@ impl Endpoint {
 /// Number of channels.
 pub type ChannelsCount = u16;
 
+/// Possible position of a channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ChannelPosition {
+    FrontLeft,
+    FrontRight,
+    FrontCenter,
+    LowFrequency,
+    BackLeft,
+    BackRight,
+    FrontLeftOfCenter,
+    FrontRightOfCenter,
+    BackCenter,
+    SideLeft,
+    SideRight,
+    TopCenter,
+    TopFrontLeft,
+    TopFrontCenter,
+    TopFrontRight,
+    TopBackLeft,
+    TopBackCenter,
+    TopBackRight,
+}
+
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
 
 /// Describes a format.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Format {
-    pub channels: ChannelsCount,
+    pub channels: Vec<ChannelPosition>,
     pub samples_rate: SamplesRate,
     pub data_type: SampleFormat,
 }
