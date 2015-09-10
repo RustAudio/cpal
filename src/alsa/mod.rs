@@ -10,11 +10,11 @@ use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
 
-use std::{ffi, iter, mem};
-use std::option::IntoIter as OptionIntoIter;
+use std::{ffi, iter, mem, ptr};
+use std::vec::IntoIter as VecIntoIter;
 use std::sync::Mutex;
 
-pub type SupportedFormatsIterator = OptionIntoIter<Format>;
+pub type SupportedFormatsIterator = VecIntoIter<Format>;
 
 mod enumerate;
 
@@ -25,13 +25,133 @@ impl Endpoint {
     pub fn get_supported_formats_list(&self)
             -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
-        let format = Format {
-            channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-            samples_rate: SamplesRate(44100),
-            data_type: SampleFormat::I16,
-        };
+        unsafe {
+            let mut playback_handle = mem::uninitialized();
+            check_errors(alsa::snd_pcm_open(&mut playback_handle, b"hw\0".as_ptr() as *const _,
+                                            alsa::SND_PCM_STREAM_PLAYBACK,
+                                            alsa::SND_PCM_NONBLOCK)).unwrap();
 
-        Ok(Some(format).into_iter())
+            let hw_params = HwParams::alloc();
+            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
+
+            const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] = [
+                //SND_PCM_FORMAT_S8,
+                //SND_PCM_FORMAT_U8,
+                (SampleFormat::I16, alsa::SND_PCM_FORMAT_S16_LE),
+                //SND_PCM_FORMAT_S16_BE,
+                (SampleFormat::U16, alsa::SND_PCM_FORMAT_U16_LE),
+                //SND_PCM_FORMAT_U16_BE,
+                /*SND_PCM_FORMAT_S24_LE,
+                SND_PCM_FORMAT_S24_BE,
+                SND_PCM_FORMAT_U24_LE,
+                SND_PCM_FORMAT_U24_BE,
+                SND_PCM_FORMAT_S32_LE,
+                SND_PCM_FORMAT_S32_BE,
+                SND_PCM_FORMAT_U32_LE,
+                SND_PCM_FORMAT_U32_BE,*/
+                (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE),
+                /*SND_PCM_FORMAT_FLOAT_BE,
+                SND_PCM_FORMAT_FLOAT64_LE,
+                SND_PCM_FORMAT_FLOAT64_BE,
+                SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
+                SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
+                SND_PCM_FORMAT_MU_LAW,
+                SND_PCM_FORMAT_A_LAW,
+                SND_PCM_FORMAT_IMA_ADPCM,
+                SND_PCM_FORMAT_MPEG,
+                SND_PCM_FORMAT_GSM,
+                SND_PCM_FORMAT_SPECIAL,
+                SND_PCM_FORMAT_S24_3LE,
+                SND_PCM_FORMAT_S24_3BE,
+                SND_PCM_FORMAT_U24_3LE,
+                SND_PCM_FORMAT_U24_3BE,
+                SND_PCM_FORMAT_S20_3LE,
+                SND_PCM_FORMAT_S20_3BE,
+                SND_PCM_FORMAT_U20_3LE,
+                SND_PCM_FORMAT_U20_3BE,
+                SND_PCM_FORMAT_S18_3LE,
+                SND_PCM_FORMAT_S18_3BE,
+                SND_PCM_FORMAT_U18_3LE,
+                SND_PCM_FORMAT_U18_3BE,*/
+            ];
+
+            let mut supported_formats = Vec::new();
+            for &(sample_format, alsa_format) in FORMATS.iter() {
+                if alsa::snd_pcm_hw_params_test_format(playback_handle, hw_params.0, alsa_format) == 0 {
+                    supported_formats.push(sample_format);
+                }
+            }
+
+            let mut min_rate = mem::uninitialized();
+            check_errors(alsa::snd_pcm_hw_params_get_rate_min(hw_params.0, &mut min_rate, ptr::null_mut())).unwrap();
+            let mut max_rate = mem::uninitialized();
+            check_errors(alsa::snd_pcm_hw_params_get_rate_max(hw_params.0, &mut max_rate, ptr::null_mut())).unwrap();
+
+            let samples_rates = if min_rate == max_rate {
+                vec![min_rate]
+            } else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
+                (min_rate .. max_rate + 1).collect()
+            } else {
+                const RATES: [libc::c_uint; 13] = [
+                    5512,
+                    8000,
+                    11025,
+                    16000,
+                    22050,
+                    32000,
+                    44100,
+                    48000,
+                    64000,
+                    88200,
+                    96000,
+                    176400,
+                    192000,
+                ];
+
+                let mut rates = Vec::new();                
+                for &rate in RATES.iter() {
+                    if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, rate, 0) == 0 {
+                        rates.push(rate);
+                    }
+                }
+
+                if rates.len() == 0 {
+                    (min_rate .. max_rate + 1).collect()
+                } else {
+                    rates
+                }
+            };
+
+            let mut min_channels = mem::uninitialized();
+            check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)).unwrap();
+            let mut max_channels = mem::uninitialized();
+            check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)).unwrap();
+            let supported_channels = (min_channels .. max_channels + 1).filter_map(|num| {
+                if alsa::snd_pcm_hw_params_test_channels(playback_handle, hw_params.0, num) == 0 {
+                    Some(iter::repeat(ChannelPosition::FrontLeft).take(num as usize).collect::<Vec<_>>())        // FIXME: 
+                } else {
+                    None
+                }
+            }).collect::<Vec<_>>();
+
+            let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
+                                                samples_rates.len());
+            for &data_type in supported_formats.iter() {
+                for channels in supported_channels.iter() {
+                    for &rate in samples_rates.iter() {
+                        output.push(Format {
+                            channels: channels.clone(),
+                            samples_rate: SamplesRate(rate as u32),
+                            data_type: data_type,
+                        });
+                    }
+                }
+            }
+
+            // TODO: RAII
+            alsa::snd_pcm_close(playback_handle);
+            Ok(output.into_iter())
+        }
     }
 }
 
@@ -45,23 +165,45 @@ pub struct Buffer<'a, T> {
     buffer: Vec<T>,
 }
 
+/// Wrapper around `hw_params`.
+struct HwParams(*mut alsa::snd_pcm_hw_params_t);
+
+impl HwParams {
+    pub fn alloc() -> HwParams {
+        unsafe {
+            let mut hw_params = mem::uninitialized();
+            check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).unwrap();
+            HwParams(hw_params)
+        }
+    }
+}
+
+impl Drop for HwParams {
+    fn drop(&mut self) {
+        unsafe {
+            alsa::snd_pcm_hw_params_free(self.0);
+        }
+    }
+}
+
 impl Voice {
     pub fn new(endpoint: &Endpoint, _format: &Format) -> Result<Voice, CreationError> {
         unsafe {
             let name = ffi::CString::new(endpoint.0.clone()).unwrap();
 
             let mut playback_handle = mem::uninitialized();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
+            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
+                                            alsa::SND_PCM_STREAM_PLAYBACK,
+                                            alsa::SND_PCM_NONBLOCK)).unwrap();
 
-            let mut hw_params = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_access(playback_handle, hw_params, alsa::SND_PCM_ACCESS_RW_INTERLEAVED)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params, alsa::SND_PCM_FORMAT_S16_LE)).unwrap(); // TODO: check endianess
-            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params, 44100, 0)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params, 2)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params)).unwrap();
-            alsa::snd_pcm_hw_params_free(hw_params);
+            let hw_params = HwParams::alloc();
+            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_access(playback_handle, hw_params.0, alsa::SND_PCM_ACCESS_RW_INTERLEAVED)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, alsa::SND_PCM_FORMAT_S16_LE)).unwrap(); // TODO: check endianess
+            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, 44100, 0)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, 2)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).unwrap();
+            
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
