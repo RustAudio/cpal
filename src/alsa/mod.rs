@@ -125,6 +125,10 @@ impl<'a, T> Buffer<'a, T> {
         &mut self.buffer
     }
 
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
     pub fn finish(self) {
         let written = (self.buffer.len() / self.channel.num_channels as usize)
                       as alsa::snd_pcm_uframes_t;

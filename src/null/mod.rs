@@ -81,6 +81,10 @@ impl<'a, T> Buffer<'a, T> {
         unreachable!()
     }
 
+    pub fn len(&self) -> usize {
+        0
+    }
+
     pub fn finish(self) {
     }
 }
