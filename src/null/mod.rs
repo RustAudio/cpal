@@ -1,25 +1,68 @@
+#![allow(dead_code)]
+
+use std::marker::PhantomData;
+
+use CreationError;
+use Format;
+use FormatsEnumerationError;
+
+#[derive(Default)]
+pub struct EndpointsIterator;
+
+impl Iterator for EndpointsIterator {
+    type Item = Endpoint;
+
+    fn next(&mut self) -> Option<Endpoint> {
+        None
+    }
+}
+
+pub fn get_default_endpoint() -> Option<Endpoint> {
+    None
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Endpoint;
+
+impl Endpoint {
+    pub fn get_supported_formats_list(&self)
+            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
+    {
+        unreachable!()
+    }
+}
+
+pub struct SupportedFormatsIterator;
+
+impl Iterator for SupportedFormatsIterator {
+    type Item = Format;
+
+    fn next(&mut self) -> Option<Format> {
+        None
+    }
+}
+
 pub struct Voice;
-pub struct Buffer<'a, T>;
 
 impl Voice {
-    pub fn new() -> Voice {
-        Voice
+    pub fn new(_: &Endpoint, _: &Format) -> Result<Voice, CreationError> {
+        Err(CreationError::DeviceNotAvailable)
     }
 
     pub fn get_channels(&self) -> ::ChannelsCount {
-        2
+        unreachable!()
     }
 
     pub fn get_samples_rate(&self) -> ::SamplesRate {
-        ::SamplesRate(44100)
+        unreachable!()
     }
 
     pub fn get_samples_format(&self) -> ::SampleFormat {
-        ::SampleFormat::U16
+        unreachable!()
     }
 
     pub fn append_data<'a, T>(&'a mut self, _: usize) -> Buffer<'a, T> {
-        Buffer
+        unreachable!()
     }
 
     pub fn play(&mut self) {
@@ -29,9 +72,13 @@ impl Voice {
     }
 }
 
+pub struct Buffer<'a, T: 'a> {
+    marker: PhantomData<&'a T>,
+}
+
 impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
-        [].as_mut_slice()
+        unreachable!()
     }
 
     pub fn finish(self) {

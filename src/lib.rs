@@ -42,10 +42,14 @@ extern crate lazy_static;
 
 pub use samples_formats::{SampleFormat, Sample};
 
+#[cfg(all(not(windows), not(unix)))]
+use null as cpal_impl;
+
 use std::fmt;
 use std::error::Error;
 use std::ops::{Deref, DerefMut};
 
+mod null;
 mod samples_formats;
 
 #[cfg(target_os = "linux")]
@@ -58,10 +62,6 @@ mod cpal_impl;
 
 #[cfg(target_os = "macos")]
 #[path="coreaudio/mod.rs"]
-mod cpal_impl;
-
-#[cfg(all(not(windows), not(unix)))]
-#[path="null/mod.rs"]
 mod cpal_impl;
 
 /// An iterator for the list of formats that are supported by the backend.
