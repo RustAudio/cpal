@@ -9,6 +9,7 @@ use std::mem;
 
 use Format;
 use FormatsEnumerationError;
+use ChannelPosition;
 use SamplesRate;
 use SampleFormat;
 
@@ -17,6 +18,26 @@ pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
 pub use self::voice::{Voice, Buffer};
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;
+
+// TODO: these constants should be moved to winapi
+const SPEAKER_FRONT_LEFT: winapi::DWORD = 0x1;
+const SPEAKER_FRONT_RIGHT: winapi::DWORD = 0x2;
+const SPEAKER_FRONT_CENTER: winapi::DWORD = 0x4;
+const SPEAKER_LOW_FREQUENCY: winapi::DWORD = 0x8;
+const SPEAKER_BACK_LEFT: winapi::DWORD = 0x10;
+const SPEAKER_BACK_RIGHT: winapi::DWORD = 0x20;
+const SPEAKER_FRONT_LEFT_OF_CENTER: winapi::DWORD = 0x40;
+const SPEAKER_FRONT_RIGHT_OF_CENTER: winapi::DWORD = 0x80;
+const SPEAKER_BACK_CENTER: winapi::DWORD = 0x100;
+const SPEAKER_SIDE_LEFT: winapi::DWORD = 0x200;
+const SPEAKER_SIDE_RIGHT: winapi::DWORD = 0x400;
+const SPEAKER_TOP_CENTER: winapi::DWORD = 0x800;
+const SPEAKER_TOP_FRONT_LEFT: winapi::DWORD = 0x1000;
+const SPEAKER_TOP_FRONT_CENTER: winapi::DWORD = 0x2000;
+const SPEAKER_TOP_FRONT_RIGHT: winapi::DWORD = 0x4000;
+const SPEAKER_TOP_BACK_LEFT: winapi::DWORD = 0x8000;
+const SPEAKER_TOP_BACK_CENTER: winapi::DWORD = 0x10000;
+const SPEAKER_TOP_BACK_RIGHT: winapi::DWORD = 0x20000;
 
 mod com;
 mod enumerate;
@@ -119,21 +140,57 @@ impl Endpoint {
             };
 
             let format = {
-                let data_type = match (*format_ptr).wFormatTag {
-                    winapi::WAVE_FORMAT_PCM => SampleFormat::I16,
+                let (channels, data_type) = match (*format_ptr).wFormatTag {
+                    winapi::WAVE_FORMAT_PCM => {
+                        (
+                            vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
+                            SampleFormat::I16
+                        )
+                    },
                     winapi::WAVE_FORMAT_EXTENSIBLE => {
                         let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
-                        match (*format_ptr).SubFormat {
+
+                        let channels = {
+                            let mut channels = Vec::new();
+
+                            let mask = (*format_ptr).dwChannelMask;
+                            if (mask & SPEAKER_FRONT_LEFT) != 0 { channels.push(ChannelPosition::FrontLeft); }
+                            if (mask & SPEAKER_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::FrontRight); }
+                            if (mask & SPEAKER_FRONT_CENTER) != 0 { channels.push(ChannelPosition::FrontCenter); }
+                            if (mask & SPEAKER_LOW_FREQUENCY) != 0 { channels.push(ChannelPosition::LowFrequency); }
+                            if (mask & SPEAKER_BACK_LEFT) != 0 { channels.push(ChannelPosition::BackLeft); }
+                            if (mask & SPEAKER_BACK_RIGHT) != 0 { channels.push(ChannelPosition::BackRight); }
+                            if (mask & SPEAKER_FRONT_LEFT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontLeftOfCenter); }
+                            if (mask & SPEAKER_FRONT_RIGHT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontRightOfCenter); }
+                            if (mask & SPEAKER_BACK_CENTER) != 0 { channels.push(ChannelPosition::BackCenter); }
+                            if (mask & SPEAKER_SIDE_LEFT) != 0 { channels.push(ChannelPosition::SideLeft); }
+                            if (mask & SPEAKER_SIDE_RIGHT) != 0 { channels.push(ChannelPosition::SideRight); }
+                            if (mask & SPEAKER_TOP_CENTER) != 0 { channels.push(ChannelPosition::TopCenter); }
+                            if (mask & SPEAKER_TOP_FRONT_LEFT) != 0 { channels.push(ChannelPosition::TopFrontLeft); }
+                            if (mask & SPEAKER_TOP_FRONT_CENTER) != 0 { channels.push(ChannelPosition::TopFrontCenter); }
+                            if (mask & SPEAKER_TOP_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::TopFrontRight); }
+                            if (mask & SPEAKER_TOP_BACK_LEFT) != 0 { channels.push(ChannelPosition::TopBackLeft); }
+                            if (mask & SPEAKER_TOP_BACK_CENTER) != 0 { channels.push(ChannelPosition::TopBackCenter); }
+                            if (mask & SPEAKER_TOP_BACK_RIGHT) != 0 { channels.push(ChannelPosition::TopBackRight); }
+
+                            assert_eq!((*format_ptr).Format.nChannels as usize, channels.len());
+                            channels
+                        };
+
+                        let format = match (*format_ptr).SubFormat {
                             winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT => SampleFormat::F32,
                             winapi::KSDATAFORMAT_SUBTYPE_PCM => SampleFormat::I16,
                             g => panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}", g)
-                        }
+                        };
+
+                        (channels, format)
                     },
+
                     f => panic!("Unknown data format returned by GetMixFormat: {:?}", f)
                 };
 
                 Format {
-                    channels: (*format_ptr).nChannels,
+                    channels: channels,
                     samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
                     data_type: data_type,
                 }
