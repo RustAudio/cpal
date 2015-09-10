@@ -2,255 +2,175 @@ extern crate libc;
 extern crate winapi;
 extern crate ole32;
 
-use std::{cmp, slice, mem, ptr};
-use std::marker::PhantomData;
+use std::io::Error as IoError;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::ptr;
+use std::mem;
 
-// TODO: determine if should be NoSend or not
-pub struct Voice {
-    audio_client: *mut winapi::IAudioClient,
-    render_client: *mut winapi::IAudioRenderClient,
-    max_frames_in_buffer: winapi::UINT32,
-    num_channels: winapi::WORD,
-    bytes_per_frame: winapi::WORD,
-    samples_per_second: winapi::DWORD,
-    bits_per_sample: winapi::WORD,
-    playing: bool,
-}
+use Format;
+use FormatsEnumerationError;
+use SamplesRate;
+use SampleFormat;
 
-pub struct Buffer<'a, T: 'a> {
-    render_client: *mut winapi::IAudioRenderClient,
-    buffer_data: *mut T,
-    buffer_len: usize,
-    frames: winapi::UINT32,
-    marker: PhantomData<&'a mut T>,
-}
+pub use std::option::IntoIter as OptionIntoIter;
+pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+pub use self::voice::{Voice, Buffer};
 
-impl Voice {
-    pub fn new() -> Voice {
-        init().unwrap()
-    }
+pub type SupportedFormatsIterator = OptionIntoIter<Format>;
 
-    pub fn get_channels(&self) -> ::ChannelsCount {
-        self.num_channels as ::ChannelsCount
-    }
+mod com;
+mod enumerate;
+mod voice;
 
-    pub fn get_samples_rate(&self) -> ::SamplesRate {
-        ::SamplesRate(self.samples_per_second as u32)
-    }
-
-    pub fn get_samples_format(&self) -> ::SampleFormat {
-        match self.bits_per_sample {
-            16 => ::SampleFormat::I16,
-            _ => panic!("{}-bit format not yet supported", self.bits_per_sample),
-        }
-    }
-
-    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> {
-        unsafe {
-            loop {
-                // 
-                let frames_available = {
-                    let mut padding = mem::uninitialized();
-                    let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
-                    check_result(hresult).unwrap();
-                    self.max_frames_in_buffer - padding
-                };
-
-                if frames_available == 0 {
-                    // TODO: 
-                    ::std::thread::sleep_ms(1);
-                    continue;
-                }
-
-                let frames_available = cmp::min(frames_available,
-                                                max_elements as u32 * mem::size_of::<T>() as u32 /
-                                                self.bytes_per_frame as u32);
-                assert!(frames_available != 0);
-
-                // loading buffer
-                let (buffer_data, buffer_len) = {
-                    let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                    let hresult = (*self.render_client).GetBuffer(frames_available,
-                                    &mut buffer as *mut *mut libc::c_uchar);
-                    check_result(hresult).unwrap();
-                    assert!(!buffer.is_null());
-
-                    (buffer as *mut T,
-                     frames_available as usize * self.bytes_per_frame as usize
-                          / mem::size_of::<T>())
-                };
-
-                let buffer = Buffer {
-                    render_client: self.render_client,
-                    buffer_data: buffer_data,
-                    buffer_len: buffer_len,
-                    frames: frames_available,
-                    marker: PhantomData,
-                };
-
-                return buffer;
-            }
-        }
-    }
-
-    pub fn play(&mut self) {
-        if !self.playing {
-            unsafe {
-                let hresult = (*self.audio_client).Start();
-                check_result(hresult).unwrap();
-            }
-        }
-
-        self.playing = true;
-    }
-
-    pub fn pause(&mut self) {
-        if self.playing {
-            unsafe {
-                let hresult = (*self.audio_client).Stop();
-                check_result(hresult).unwrap();
-            }
-        }
-
-        self.playing = false;
-    }
-}
-
-unsafe impl Send for Voice {}
-unsafe impl Sync for Voice {}
-
-impl Drop for Voice {
-    fn drop(&mut self) {
-        unsafe {
-            (*self.render_client).Release();
-            (*self.audio_client).Release();
-        }
-    }
-}
-
-impl<'a, T> Buffer<'a, T> {
-    pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
-        unsafe {
-            slice::from_raw_parts_mut(self.buffer_data, self.buffer_len)
-        }
-    }
-
-    pub fn finish(self) {
-        // releasing buffer
-        unsafe {
-            let hresult = (*self.render_client).ReleaseBuffer(self.frames as u32, 0);
-            check_result(hresult).unwrap();
-        };
-    }
-}
-
-fn init() -> Result<Voice, String> {
-    // FIXME: release everything
-    unsafe {
-        try!(check_result(ole32::CoInitializeEx(ptr::null_mut(), 0)));
-
-        // building the devices enumerator object
-        let enumerator = {
-            let mut enumerator: *mut winapi::IMMDeviceEnumerator = mem::uninitialized();
-            
-            let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
-                                                   ptr::null_mut(), winapi::CLSCTX_ALL,
-                                                   &winapi::IID_IMMDeviceEnumerator,
-                                                   mem::transmute(&mut enumerator));
-
-            try!(check_result(hresult));
-            &mut *enumerator
-        };
-
-        // getting the default end-point
-        let device = {
-            let mut device: *mut winapi::IMMDevice = mem::uninitialized();
-            let hresult = enumerator.GetDefaultAudioEndpoint(winapi::EDataFlow::eRender, winapi::ERole::eConsole,
-                            mem::transmute(&mut device));
-            try!(check_result(hresult));
-            &mut *device
-        };
-
-        // activating in order to get a `IAudioClient`
-        let audio_client: &mut winapi::IAudioClient = {
-            let mut audio_client: *mut winapi::IAudioClient = mem::uninitialized();
-            let hresult = device.Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
-                            ptr::null_mut(), mem::transmute(&mut audio_client));
-            try!(check_result(hresult));
-            &mut *audio_client
-        };
-
-        // computing the format and initializing the device
-        let format = {
-            let format_attempt = winapi::WAVEFORMATEX {
-                wFormatTag: 1,      // WAVE_FORMAT_PCM ; TODO: replace by constant
-                nChannels: 2,
-                nSamplesPerSec: 44100,
-                nAvgBytesPerSec: 2 * 44100 * 2,
-                nBlockAlign: (2 * 16) / 8,
-                wBitsPerSample: 16,
-                cbSize: 0,
-            };
-
-            let mut format_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
-            let hresult = audio_client.IsFormatSupported(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                            &format_attempt, &mut format_ptr);
-            try!(check_result(hresult));
-
-            let format = if format_ptr.is_null() {
-                &format_attempt
-            } else {
-                &*format_ptr
-            };
-
-            let format_copy = ptr::read(format);
-
-            let hresult = audio_client.Initialize(winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED,
-                            0, 10000000, 0, format, ptr::null());
-
-            if !format_ptr.is_null() {
-                ole32::CoTaskMemFree(format_ptr as *mut _);
-            }
-
-            try!(check_result(hresult));
-
-            format_copy
-        };
-
-        // 
-        let max_frames_in_buffer = {
-            let mut max_frames_in_buffer = mem::uninitialized();
-            let hresult = audio_client.GetBufferSize(&mut max_frames_in_buffer);
-            try!(check_result(hresult));
-            max_frames_in_buffer
-        };
-
-        // 
-        let render_client = {
-            let mut render_client: *mut winapi::IAudioRenderClient = mem::uninitialized();
-            let hresult = audio_client.GetService(&winapi::IID_IAudioRenderClient,
-                            mem::transmute(&mut render_client));
-            try!(check_result(hresult));
-            &mut *render_client
-        };
-
-        Ok(Voice {
-            audio_client: audio_client,
-            render_client: render_client,
-            max_frames_in_buffer: max_frames_in_buffer,
-            num_channels: format.nChannels,
-            bytes_per_frame: format.nBlockAlign,
-            samples_per_second: format.nSamplesPerSec,
-            bits_per_sample: format.wBitsPerSample,
-            playing: false,
-        })
-    }
-}
-
-fn check_result(result: winapi::HRESULT) -> Result<(), String> {
+fn check_result(result: winapi::HRESULT) -> Result<(), IoError> {
     if result < 0 {
-        return Err(format!("Error in winapi call"));        // TODO: 
+        Err(IoError::from_raw_os_error(result))
+    } else {
+        Ok(())
+    }
+}
+
+/// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
+#[derive(Copy, Clone)]
+#[allow(raw_pointer_derive)]
+struct IAudioClientWrapper(*mut winapi::IAudioClient);
+unsafe impl Send for IAudioClientWrapper {}
+unsafe impl Sync for IAudioClientWrapper {}
+
+/// An opaque type that identifies an end point.
+pub struct Endpoint {
+    device: *mut winapi::IMMDevice,
+
+    /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
+    /// having to create/destroy audio clients all the time.
+    future_audio_client: Arc<Mutex<Option<IAudioClientWrapper>>>,      // TODO: add NonZero around the ptr
+}
+
+unsafe impl Send for Endpoint {}
+unsafe impl Sync for Endpoint {}
+
+impl Endpoint {
+    #[inline]
+    fn from_immdevice(device: *mut winapi::IMMDevice) -> Endpoint {
+        Endpoint {
+            device: device,
+            future_audio_client: Arc::new(Mutex::new(None)),
+        }
     }
 
-    Ok(())
+    /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
+    fn ensure_future_audio_client(&self) -> Result<MutexGuard<Option<IAudioClientWrapper>>, IoError> {
+        let mut lock = self.future_audio_client.lock().unwrap();
+        if lock.is_some() {
+            return Ok(lock);
+        }
+
+        let audio_client: *mut winapi::IAudioClient = unsafe {
+            let mut audio_client = mem::uninitialized();
+            let hresult = (*self.device).Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
+                                                  ptr::null_mut(), &mut audio_client);
+
+            // can fail if the device has been disconnected since we enumerated it, or if
+            // the device doesn't support playback for some reason
+            try!(check_result(hresult));
+            assert!(!audio_client.is_null());
+            audio_client as *mut _
+        };
+
+        *lock = Some(IAudioClientWrapper(audio_client));
+        Ok(lock)
+    }
+
+    /// Returns an uninitialized `IAudioClient`.
+    fn build_audioclient(&self) -> Result<*mut winapi::IAudioClient, IoError> {
+        let mut lock = try!(self.ensure_future_audio_client());
+        let client = lock.unwrap().0;
+        *lock = None;
+        Ok(client)
+    }
+
+    pub fn get_supported_formats_list(&self)
+           -> Result<SupportedFormatsIterator, FormatsEnumerationError>
+    {
+        // We always create voices in shared mode, therefore all samples go through an audio
+        // processor to mix them together.
+        // However there is no way to query the list of all formats that are supported by the
+        // audio processor, but one format is guaranteed to be supported, the one returned by
+        // `GetMixFormat`.
+
+        // initializing COM because we call `CoTaskMemFree`
+        com::com_initialized();
+
+        let lock = match self.ensure_future_audio_client() {
+            Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
+                return Err(FormatsEnumerationError::DeviceNotAvailable),
+            e => e.unwrap(),
+        };
+        let client = lock.unwrap().0;
+
+        unsafe {
+            let mut format_ptr = mem::uninitialized();
+            match check_result((*client).GetMixFormat(&mut format_ptr)) {
+                Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(FormatsEnumerationError::DeviceNotAvailable);
+                },
+                Err(e) => panic!("{:?}", e),
+                Ok(()) => (),
+            };
+
+            let format = {
+                let data_type = match (*format_ptr).wFormatTag {
+                    winapi::WAVE_FORMAT_PCM => SampleFormat::I16,
+                    winapi::WAVE_FORMAT_EXTENSIBLE => {
+                        let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
+                        match (*format_ptr).SubFormat {
+                            winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT => SampleFormat::F32,
+                            winapi::KSDATAFORMAT_SUBTYPE_PCM => SampleFormat::I16,
+                            g => panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}", g)
+                        }
+                    },
+                    f => panic!("Unknown data format returned by GetMixFormat: {:?}", f)
+                };
+
+                Format {
+                    channels: (*format_ptr).nChannels,
+                    samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
+                    data_type: data_type,
+                }
+            };
+
+            ole32::CoTaskMemFree(format_ptr as *mut _);
+
+            Ok(Some(format).into_iter())
+        }
+    }
+}
+
+impl PartialEq for Endpoint {
+    fn eq(&self, other: &Endpoint) -> bool {
+        self.device == other.device
+    }
+}
+
+impl Eq for Endpoint {}
+
+impl Clone for Endpoint {
+    fn clone(&self) -> Endpoint {
+        unsafe { (*self.device).AddRef(); }
+
+        Endpoint {
+            device: self.device,
+            future_audio_client: self.future_audio_client.clone(),
+        }
+    }
+}
+
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        unsafe { (*self.device).Release(); }
+
+        if let Some(client) = self.future_audio_client.lock().unwrap().take() {
+            unsafe { (*client.0).Release(); }
+        }
+    }
 }

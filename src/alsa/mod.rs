@@ -1,8 +1,38 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
+pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+
+use CreationError;
+use Format;
+use FormatsEnumerationError;
+use SampleFormat;
+use SamplesRate;
+
 use std::{ffi, iter, mem};
+use std::option::IntoIter as OptionIntoIter;
 use std::sync::Mutex;
+
+pub type SupportedFormatsIterator = OptionIntoIter<Format>;
+
+mod enumerate;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Endpoint(String);
+
+impl Endpoint {
+    pub fn get_supported_formats_list(&self)
+            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
+    {
+        let format = Format {
+            channels: 2,
+            samples_rate: SamplesRate(44100),
+            data_type: SampleFormat::I16,
+        };
+
+        Ok(Some(format).into_iter())
+    }
+}
 
 pub struct Voice {
     channel: Mutex<*mut alsa::snd_pcm_t>,
@@ -15,9 +45,9 @@ pub struct Buffer<'a, T> {
 }
 
 impl Voice {
-    pub fn new() -> Voice {
+    pub fn new(endpoint: &Endpoint, _format: &Format) -> Result<Voice, CreationError> {
         unsafe {
-            let name = ffi::CString::new(b"default".to_vec()).unwrap();
+            let name = ffi::CString::new(endpoint.0.clone()).unwrap();
 
             let mut playback_handle = mem::uninitialized();
             check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(), alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)).unwrap();
@@ -34,10 +64,10 @@ impl Voice {
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
-            Voice {
+            Ok(Voice {
                 channel: Mutex::new(playback_handle),
                 num_channels: 2,
-            }
+            })
         }
     }
 

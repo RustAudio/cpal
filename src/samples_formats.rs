@@ -13,6 +13,7 @@ pub enum SampleFormat {
 
 impl SampleFormat {
     /// Returns the size in bytes of a sample of this format.
+    #[inline]
     pub fn get_sample_size(&self) -> usize {
         match self {
             &SampleFormat::I16 => mem::size_of::<i16>(),
@@ -29,18 +30,21 @@ pub unsafe trait Sample: Copy + Clone {
 }
 
 unsafe impl Sample for u16 {
+    #[inline]
     fn get_format() -> SampleFormat {
         SampleFormat::U16
     }
 }
 
 unsafe impl Sample for i16 {
+    #[inline]
     fn get_format() -> SampleFormat {
         SampleFormat::I16
     }
 }
 
 unsafe impl Sample for f32 {
+    #[inline]
     fn get_format() -> SampleFormat {
         SampleFormat::F32
     }
