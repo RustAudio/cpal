@@ -3,6 +3,7 @@ extern crate libc;
 
 pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
 
+use ChannelPosition;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -25,7 +26,7 @@ impl Endpoint {
             -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
         let format = Format {
-            channels: 2,
+            channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
             samples_rate: SamplesRate(44100),
             data_type: SampleFormat::I16,
         };
