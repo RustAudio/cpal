@@ -296,6 +296,16 @@ impl Voice {
 
         self.playing = false;
     }
+
+    pub fn underflowed(&self) -> bool {
+        unsafe {
+            let mut padding = mem::uninitialized();
+            let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
+            check_result(hresult).unwrap();
+            
+            padding == 0
+        }
+    }
 }
 
 impl Drop for Voice {

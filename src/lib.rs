@@ -339,6 +339,12 @@ impl Voice {
     pub fn pause(&mut self) {
         self.0.pause()
     }
+
+    /// Returns true if the voice has finished reading all the data you sent to it.
+    #[inline]
+    pub fn underflowed(&self) -> bool {
+        self.0.underflowed()
+    }
 }
 
 impl<'a, T> Deref for Buffer<'a, T> where T: Sample {
