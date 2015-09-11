@@ -21,12 +21,14 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
 struct ComInitialized(*mut ());
 
 impl Drop for ComInitialized {
+    #[inline]
     fn drop(&mut self) {
         unsafe { ole32::CoUninitialize() };
     }
 }
 
 /// Ensures that COM is initialized in this thread.
+#[inline]
 pub fn com_initialized() {
     COM_INITIALIZED.with(|_| {});
 }

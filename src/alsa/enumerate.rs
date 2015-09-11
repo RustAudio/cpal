@@ -18,6 +18,7 @@ unsafe impl Send for EndpointsIterator {}
 unsafe impl Sync for EndpointsIterator {}
 
 impl Drop for EndpointsIterator {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             alsa::snd_device_name_free_hint(self.global_list as *mut _);
@@ -72,6 +73,7 @@ impl Iterator for EndpointsIterator {
     }
 }
 
+#[inline]
 pub fn get_default_endpoint() -> Option<Endpoint> {
     // TODO: do in a different way?
     Some(Endpoint("default".to_owned()))

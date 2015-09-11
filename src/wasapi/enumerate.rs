@@ -37,6 +37,7 @@ unsafe impl Send for Enumerator {}
 unsafe impl Sync for Enumerator {}
 
 impl Drop for Enumerator {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             (*self.0).Release();
@@ -55,6 +56,7 @@ unsafe impl Send for EndpointsIterator {}
 unsafe impl Sync for EndpointsIterator {}
 
 impl Drop for EndpointsIterator {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             (*self.collection).Release();
