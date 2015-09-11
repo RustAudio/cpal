@@ -181,6 +181,17 @@ pub enum UnknownTypeBuffer<'a> {
     F32(Buffer<'a, f32>),
 }
 
+impl<'a> UnknownTypeBuffer<'a> {
+    /// Returns the length of the buffer in number of samples.
+    pub fn len(&self) -> usize {
+        match self {
+            &UnknownTypeBuffer::U16(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeBuffer::I16(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeBuffer::F32(ref buf) => buf.target.as_ref().unwrap().len(),
+        }
+    }
+}
+
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug)]
 pub enum FormatsEnumerationError {

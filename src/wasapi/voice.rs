@@ -322,6 +322,10 @@ impl<'a, T> Buffer<'a, T> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.buffer_len
+    }
+
     pub fn finish(self) {
         // releasing buffer
         unsafe {
