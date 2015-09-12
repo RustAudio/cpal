@@ -71,6 +71,11 @@ unsafe impl Send for Endpoint {}
 unsafe impl Sync for Endpoint {}
 
 impl Endpoint {
+
+    pub fn get_name(&self) -> String {
+        String::from("wasapi") // FIXME: placeholder,  self.device.GetId()
+    }
+
     #[inline]
     fn from_immdevice(device: *mut winapi::IMMDevice) -> Endpoint {
         Endpoint {

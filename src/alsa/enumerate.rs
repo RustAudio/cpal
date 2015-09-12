@@ -2,16 +2,65 @@ use super::alsa;
 use super::check_errors;
 use super::Endpoint;
 
-use std::ffi::CStr;
-use std::mem;
+use cpal_impl::libc::c_int;
+use std::ffi::{CString};
+use std::ptr::{null_mut};
 
 /// ALSA implementation for `EndpointsIterator`.
 pub struct EndpointsIterator {
-    // we keep the original list so that we can pass it to the free function
-    global_list: *const *const u8,
+    // current sound card number
+    card:   c_int,
 
-    // pointer to the next string ; contained within `global_list`
-    next_str: *const *const u8,
+    // current sound card name, e.g. hw:0
+    cardname:   String,
+
+    // current sound card handle
+    card_handle: *mut alsa::snd_ctl_t,
+
+    // current sound device number
+    dev:    c_int
+
+}
+
+impl EndpointsIterator {
+
+    unsafe fn close_card_handle(&mut self) {
+        if !self.card_handle.is_null() {
+            check_errors(alsa::snd_ctl_close(self.card_handle)).unwrap();
+            self.card_handle = null_mut();
+        }
+    }
+
+    unsafe fn open_card_handle(&mut self) {
+        self.cardname = format!("hw:{}", self.card);
+        check_errors(alsa::snd_ctl_open(&mut self.card_handle, 
+            CString::new(self.cardname.clone()).unwrap().as_ptr() as *const _, 0)).unwrap();
+    }
+    
+    fn next_card(&mut self) -> bool
+    {
+        unsafe {
+            self.close_card_handle();
+            check_errors(alsa::snd_card_next(&mut self.card)).unwrap();
+            if self.card >= 0 {
+                self.open_card_handle();
+                self.dev = -1;
+                self.next_dev()
+            } else
+            {
+                false
+            }
+        }
+    }
+
+    fn next_dev(&mut self) -> bool
+    {
+        unsafe {
+            check_errors(alsa::snd_ctl_pcm_next_device(self.card_handle, &mut self.dev)).unwrap();
+            self.dev >= 0
+        }
+    }
+
 }
 
 unsafe impl Send for EndpointsIterator {}
@@ -19,27 +68,23 @@ unsafe impl Sync for EndpointsIterator {}
 
 impl Drop for EndpointsIterator {
     fn drop(&mut self) {
-        unsafe {
-            alsa::snd_device_name_free_hint(self.global_list as *mut _);
+        unsafe { 
+            self.close_card_handle();
         }
     }
 }
 
 impl Default for EndpointsIterator {
     fn default() -> EndpointsIterator {
-        unsafe {
-            let mut hints = mem::uninitialized();
-            // TODO: check in which situation this can fail
-            check_errors(alsa::snd_device_name_hint(-1, b"pcm\0".as_ptr() as *const _,
-                                                    &mut hints)).unwrap();
-
-            let hints = hints as *const *const u8;
-
-            EndpointsIterator {
-                global_list: hints,
-                next_str: hints,
-            }
-        }
+        
+        let mut endpoint = EndpointsIterator {
+            card: -1,
+            cardname: String::new(),
+            card_handle: null_mut(),
+            dev: -1,
+        };
+        endpoint.next_card();
+        endpoint
     }
 }
 
@@ -47,32 +92,19 @@ impl Iterator for EndpointsIterator {
     type Item = Endpoint;
 
     fn next(&mut self) -> Option<Endpoint> {
-        loop {
-            unsafe {
-                if (*self.next_str).is_null() {
-                    return None;
-                }
-
-                let name = alsa::snd_device_name_get_hint(*self.next_str as *const _,
-                                                          b"NAME".as_ptr() as *const _);
-                self.next_str = self.next_str.offset(1);
-
-                if name.is_null() {
-                    continue;
-                }
-
-                let name = CStr::from_ptr(name).to_bytes().to_vec();
-                let name = String::from_utf8(name).unwrap();
-
-                if name != "null" {
-                    return Some(Endpoint(name));
-                }
+        let endpoint;
+        if self.card >= 0 {
+            endpoint = Some(Endpoint(format!("hw:{},{}", self.card,self.dev)));
+            if !self.next_dev() {
+                self.next_card();
             }
+        } else {
+            endpoint = None
         }
+        endpoint
     }
 }
 
 pub fn get_default_endpoint() -> Option<Endpoint> {
-    // TODO: do in a different way?
-    Some(Endpoint("default".to_owned()))
+    EndpointsIterator::default().next() // TODO: Find default device
 }

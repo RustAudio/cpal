@@ -96,6 +96,11 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
 pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
+    /// Returns name of the endpoint
+    pub fn get_name(&self) -> String {
+        self.0.get_name()
+    }
+
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
                                                        FormatsEnumerationError>

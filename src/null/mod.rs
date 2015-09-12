@@ -25,6 +25,11 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
 pub struct Endpoint;
 
 impl Endpoint {
+    
+    pub fn get_name(&self) -> String {
+        String::from("null")
+    }
+
     pub fn get_supported_formats_list(&self)
             -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
