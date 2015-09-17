@@ -1,4 +1,3 @@
-extern crate libc;
 extern crate winapi;
 extern crate ole32;
 
