@@ -18,26 +18,6 @@ pub use self::voice::{Voice, Buffer};
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;
 
-// TODO: these constants should be moved to winapi
-const SPEAKER_FRONT_LEFT: winapi::DWORD = 0x1;
-const SPEAKER_FRONT_RIGHT: winapi::DWORD = 0x2;
-const SPEAKER_FRONT_CENTER: winapi::DWORD = 0x4;
-const SPEAKER_LOW_FREQUENCY: winapi::DWORD = 0x8;
-const SPEAKER_BACK_LEFT: winapi::DWORD = 0x10;
-const SPEAKER_BACK_RIGHT: winapi::DWORD = 0x20;
-const SPEAKER_FRONT_LEFT_OF_CENTER: winapi::DWORD = 0x40;
-const SPEAKER_FRONT_RIGHT_OF_CENTER: winapi::DWORD = 0x80;
-const SPEAKER_BACK_CENTER: winapi::DWORD = 0x100;
-const SPEAKER_SIDE_LEFT: winapi::DWORD = 0x200;
-const SPEAKER_SIDE_RIGHT: winapi::DWORD = 0x400;
-const SPEAKER_TOP_CENTER: winapi::DWORD = 0x800;
-const SPEAKER_TOP_FRONT_LEFT: winapi::DWORD = 0x1000;
-const SPEAKER_TOP_FRONT_CENTER: winapi::DWORD = 0x2000;
-const SPEAKER_TOP_FRONT_RIGHT: winapi::DWORD = 0x4000;
-const SPEAKER_TOP_BACK_LEFT: winapi::DWORD = 0x8000;
-const SPEAKER_TOP_BACK_CENTER: winapi::DWORD = 0x10000;
-const SPEAKER_TOP_BACK_RIGHT: winapi::DWORD = 0x20000;
-
 mod com;
 mod enumerate;
 mod voice;
@@ -153,24 +133,24 @@ impl Endpoint {
                             let mut channels = Vec::new();
 
                             let mask = (*format_ptr).dwChannelMask;
-                            if (mask & SPEAKER_FRONT_LEFT) != 0 { channels.push(ChannelPosition::FrontLeft); }
-                            if (mask & SPEAKER_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::FrontRight); }
-                            if (mask & SPEAKER_FRONT_CENTER) != 0 { channels.push(ChannelPosition::FrontCenter); }
-                            if (mask & SPEAKER_LOW_FREQUENCY) != 0 { channels.push(ChannelPosition::LowFrequency); }
-                            if (mask & SPEAKER_BACK_LEFT) != 0 { channels.push(ChannelPosition::BackLeft); }
-                            if (mask & SPEAKER_BACK_RIGHT) != 0 { channels.push(ChannelPosition::BackRight); }
-                            if (mask & SPEAKER_FRONT_LEFT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontLeftOfCenter); }
-                            if (mask & SPEAKER_FRONT_RIGHT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontRightOfCenter); }
-                            if (mask & SPEAKER_BACK_CENTER) != 0 { channels.push(ChannelPosition::BackCenter); }
-                            if (mask & SPEAKER_SIDE_LEFT) != 0 { channels.push(ChannelPosition::SideLeft); }
-                            if (mask & SPEAKER_SIDE_RIGHT) != 0 { channels.push(ChannelPosition::SideRight); }
-                            if (mask & SPEAKER_TOP_CENTER) != 0 { channels.push(ChannelPosition::TopCenter); }
-                            if (mask & SPEAKER_TOP_FRONT_LEFT) != 0 { channels.push(ChannelPosition::TopFrontLeft); }
-                            if (mask & SPEAKER_TOP_FRONT_CENTER) != 0 { channels.push(ChannelPosition::TopFrontCenter); }
-                            if (mask & SPEAKER_TOP_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::TopFrontRight); }
-                            if (mask & SPEAKER_TOP_BACK_LEFT) != 0 { channels.push(ChannelPosition::TopBackLeft); }
-                            if (mask & SPEAKER_TOP_BACK_CENTER) != 0 { channels.push(ChannelPosition::TopBackCenter); }
-                            if (mask & SPEAKER_TOP_BACK_RIGHT) != 0 { channels.push(ChannelPosition::TopBackRight); }
+                            if (mask & winapi::SPEAKER_FRONT_LEFT) != 0 { channels.push(ChannelPosition::FrontLeft); }
+                            if (mask & winapi::SPEAKER_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::FrontRight); }
+                            if (mask & winapi::SPEAKER_FRONT_CENTER) != 0 { channels.push(ChannelPosition::FrontCenter); }
+                            if (mask & winapi::SPEAKER_LOW_FREQUENCY) != 0 { channels.push(ChannelPosition::LowFrequency); }
+                            if (mask & winapi::SPEAKER_BACK_LEFT) != 0 { channels.push(ChannelPosition::BackLeft); }
+                            if (mask & winapi::SPEAKER_BACK_RIGHT) != 0 { channels.push(ChannelPosition::BackRight); }
+                            if (mask & winapi::SPEAKER_FRONT_LEFT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontLeftOfCenter); }
+                            if (mask & winapi::SPEAKER_FRONT_RIGHT_OF_CENTER) != 0 { channels.push(ChannelPosition::FrontRightOfCenter); }
+                            if (mask & winapi::SPEAKER_BACK_CENTER) != 0 { channels.push(ChannelPosition::BackCenter); }
+                            if (mask & winapi::SPEAKER_SIDE_LEFT) != 0 { channels.push(ChannelPosition::SideLeft); }
+                            if (mask & winapi::SPEAKER_SIDE_RIGHT) != 0 { channels.push(ChannelPosition::SideRight); }
+                            if (mask & winapi::SPEAKER_TOP_CENTER) != 0 { channels.push(ChannelPosition::TopCenter); }
+                            if (mask & winapi::SPEAKER_TOP_FRONT_LEFT) != 0 { channels.push(ChannelPosition::TopFrontLeft); }
+                            if (mask & winapi::SPEAKER_TOP_FRONT_CENTER) != 0 { channels.push(ChannelPosition::TopFrontCenter); }
+                            if (mask & winapi::SPEAKER_TOP_FRONT_RIGHT) != 0 { channels.push(ChannelPosition::TopFrontRight); }
+                            if (mask & winapi::SPEAKER_TOP_BACK_LEFT) != 0 { channels.push(ChannelPosition::TopBackLeft); }
+                            if (mask & winapi::SPEAKER_TOP_BACK_CENTER) != 0 { channels.push(ChannelPosition::TopBackCenter); }
+                            if (mask & winapi::SPEAKER_TOP_BACK_RIGHT) != 0 { channels.push(ChannelPosition::TopBackRight); }
 
                             assert_eq!((*format_ptr).Format.nChannels as usize, channels.len());
                             channels
