@@ -33,6 +33,11 @@ impl Endpoint {
     {
         unreachable!()
     }
+
+    #[inline]
+    pub fn get_name(&self) -> String {
+        "null".to_owned()
+    }
 }
 
 pub struct SupportedFormatsIterator;

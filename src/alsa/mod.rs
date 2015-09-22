@@ -153,6 +153,11 @@ impl Endpoint {
             Ok(output.into_iter())
         }
     }
+
+    #[inline]
+    pub fn get_name(&self) -> String {
+        "unknown".to_owned()        // TODO: 
+    }
 }
 
 pub struct Voice {
