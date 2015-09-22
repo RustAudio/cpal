@@ -39,6 +39,7 @@ calling `append_data` repeatedly if you don't want the audio to stop playing.
 */
 #[macro_use]
 extern crate lazy_static;
+extern crate libc;
 
 pub use samples_formats::{SampleFormat, Sample};
 
