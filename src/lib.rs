@@ -380,6 +380,16 @@ impl Voice {
         self.voice.pause()
     }
 
+    /// Returns the number of samples in the buffer that are currently being processed by the
+    /// audio playback backend.
+    ///
+    /// This function is useful to determine how much time it will take to finish playing the
+    /// current sound.
+    #[inline]
+    pub fn get_pending_samples(&self) -> usize {
+        self.voice.get_pending_samples()
+    }
+
     /// Returns true if the voice has finished reading all the data you sent to it.
     #[inline]
     pub fn underflowed(&self) -> bool {

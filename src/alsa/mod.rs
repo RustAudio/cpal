@@ -173,6 +173,7 @@ impl Endpoint {
 pub struct Voice {
     channel: Mutex<*mut alsa::snd_pcm_t>,
     num_channels: u16,
+    buffer_len: usize,      // number of samples that can fit in the buffer
 }
 
 pub struct Buffer<'a, T> {
@@ -231,9 +232,18 @@ impl Voice {
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
+            let buffer_len = {
+                let obtained_params = HwParams::alloc();
+                check_errors(alsa::snd_pcm_hw_params_current(playback_handle, hw_params.0)).unwrap();
+                let mut val = mem::uninitialized();
+                check_errors(alsa::snd_pcm_hw_params_get_buffer_size(obtained_params.0, &mut val)).unwrap();
+                val as usize / format.data_type.get_sample_size()
+            };
+
             Ok(Voice {
                 channel: Mutex::new(playback_handle),
                 num_channels: format.channels.len() as u16,
+                buffer_len: buffer_len,
             })
         }
     }
@@ -262,6 +272,16 @@ impl Voice {
     #[inline]
     pub fn pause(&mut self) {
         unimplemented!()
+    }
+
+    pub fn get_pending_samples(&self) -> usize {
+        let available = {
+            let channel = self.channel.lock().unwrap();
+            let available = unsafe { alsa::snd_pcm_avail(*channel) };
+            available * self.num_channels as alsa::snd_pcm_sframes_t
+        };
+
+        self.buffer_len - available as usize
     }
 
     pub fn underflowed(&self) -> bool {
