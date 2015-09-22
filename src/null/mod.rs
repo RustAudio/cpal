@@ -81,6 +81,10 @@ impl Voice {
     #[inline]
     pub fn pause(&mut self) {
     }
+
+    pub fn underflowed(&self) -> bool {
+        false
+    }
 }
 
 pub struct Buffer<'a, T: 'a> {

@@ -112,6 +112,10 @@ impl Voice {
     pub fn pause(&mut self) {
         unimplemented!()
     }
+
+    pub fn underflowed(&self) -> bool {
+        false       // TODO: 
+    }
 }
 
 unsafe impl Send for Voice {}
