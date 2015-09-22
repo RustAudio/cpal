@@ -35,6 +35,7 @@ impl Endpoint {
             let hw_params = HwParams::alloc();
             check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
 
+            // TODO: check endianess
             const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] = [
                 //SND_PCM_FORMAT_S8,
                 //SND_PCM_FORMAT_U8,
@@ -193,7 +194,7 @@ impl Drop for HwParams {
 }
 
 impl Voice {
-    pub fn new(endpoint: &Endpoint, _format: &Format) -> Result<Voice, CreationError> {
+    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
         unsafe {
             let name = ffi::CString::new(endpoint.0.clone()).unwrap();
 
@@ -202,12 +203,19 @@ impl Voice {
                                             alsa::SND_PCM_STREAM_PLAYBACK,
                                             alsa::SND_PCM_NONBLOCK)).unwrap();
 
+            // TODO: check endianess
+            let data_type = match format.data_type {
+                SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_LE,
+                SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_LE,
+                SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_LE,
+            };
+
             let hw_params = HwParams::alloc();
             check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
             check_errors(alsa::snd_pcm_hw_params_set_access(playback_handle, hw_params.0, alsa::SND_PCM_ACCESS_RW_INTERLEAVED)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, alsa::SND_PCM_FORMAT_S16_LE)).unwrap(); // TODO: check endianess
-            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, 44100, 0)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, 2)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, data_type)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, format.samples_rate.0 as libc::c_uint, 0)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, format.channels.len() as libc::c_uint)).unwrap();
             check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).unwrap();
             
 
@@ -215,7 +223,7 @@ impl Voice {
 
             Ok(Voice {
                 channel: Mutex::new(playback_handle),
-                num_channels: 2,
+                num_channels: format.channels.len() as u16,
             })
         }
     }
