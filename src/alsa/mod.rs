@@ -233,11 +233,11 @@ impl Voice {
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
             let buffer_len = {
-                let obtained_params = HwParams::alloc();
-                check_errors(alsa::snd_pcm_hw_params_current(playback_handle, hw_params.0)).unwrap();
+                let mut dummy = mem::uninitialized();
                 let mut val = mem::uninitialized();
-                check_errors(alsa::snd_pcm_hw_params_get_buffer_size(obtained_params.0, &mut val)).unwrap();
-                val as usize / format.data_type.get_sample_size()
+                check_errors(alsa::snd_pcm_get_params(playback_handle, &mut val, &mut dummy)).unwrap();
+                assert!(val != 0);
+                val as usize * format.channels.len()
             };
 
             Ok(Voice {
@@ -252,10 +252,19 @@ impl Voice {
         let available = {
             let channel = self.channel.lock().unwrap();
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
-            available * self.num_channels as alsa::snd_pcm_sframes_t
+
+            if available == -32 {
+                // buffer underrun
+                self.buffer_len
+            } else if available < 0 {
+                check_errors(available as libc::c_int).unwrap();
+                unreachable!()
+            } else {
+                (available * self.num_channels as alsa::snd_pcm_sframes_t) as usize
+            }
         };
 
-        let elements = ::std::cmp::min(available as usize, max_elements);
+        let elements = cmp::min(available, max_elements);
 
         Buffer {
             channel: self,
@@ -278,14 +287,25 @@ impl Voice {
         let available = {
             let channel = self.channel.lock().unwrap();
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
-            available * self.num_channels as alsa::snd_pcm_sframes_t
+            
+            if available == -32 {
+                0       // buffer underrun
+            } else if available < 0 {
+                check_errors(available as libc::c_int).unwrap();
+                unreachable!()
+            } else {
+                available * self.num_channels as alsa::snd_pcm_sframes_t
+            }
         };
 
         self.buffer_len - available as usize
     }
 
     pub fn underflowed(&self) -> bool {
-        false       // TODO: 
+        let channel = self.channel.lock().unwrap();
+
+        let state = unsafe { alsa::snd_pcm_state(*channel) };
+        state == alsa::SND_PCM_STATE_XRUN
     }
 }
 
@@ -318,12 +338,19 @@ impl<'a, T> Buffer<'a, T> {
         let channel = self.channel.channel.lock().unwrap();
 
         unsafe {
-            let result = alsa::snd_pcm_writei(*channel,
-                                              self.buffer.as_ptr() as *const libc::c_void,
-                                              written);
+            loop {
+                let result = alsa::snd_pcm_writei(*channel,
+                                                  self.buffer.as_ptr() as *const libc::c_void,
+                                                  written);
 
-            if result < 0 {
-                check_errors(result as libc::c_int).unwrap();
+                if result == -32 {
+                    // buffer underrun
+                    alsa::snd_pcm_prepare(*channel);
+                } else if result < 0 {
+                    check_errors(result as libc::c_int).unwrap();
+                } else {
+                    break;
+                }
             }
         }
     }
