@@ -72,14 +72,17 @@ impl Voice {
         }
     }
 
+    #[inline]
     pub fn get_channels(&self) -> ::ChannelsCount {
         self.num_channels
     }
 
+    #[inline]
     pub fn get_samples_rate(&self) -> ::SamplesRate {
         ::SamplesRate(44100)
     }
 
+    #[inline]
     pub fn get_samples_format(&self) -> ::SampleFormat {
         ::SampleFormat::I16
     }
@@ -99,11 +102,13 @@ impl Voice {
         }
     }
 
+    #[inline]
     pub fn play(&mut self) {
         // already playing
         //unimplemented!()
     }
 
+    #[inline]
     pub fn pause(&mut self) {
         unimplemented!()
     }
@@ -113,6 +118,7 @@ unsafe impl Send for Voice {}
 unsafe impl Sync for Voice {}
 
 impl Drop for Voice {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             alsa::snd_pcm_close(*self.channel.lock().unwrap());
@@ -121,10 +127,12 @@ impl Drop for Voice {
 }
 
 impl<'a, T> Buffer<'a, T> {
+    #[inline]
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         &mut self.buffer
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
@@ -146,6 +154,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
+#[inline]
 fn check_errors(err: libc::c_int) -> Result<(), String> {
     use std::ffi;
 

@@ -211,14 +211,17 @@ impl Voice {
         }
     }
 
+    #[inline]
     pub fn get_channels(&self) -> ::ChannelsCount {
         self.num_channels as ::ChannelsCount
     }
 
+    #[inline]
     pub fn get_samples_rate(&self) -> ::SamplesRate {
         ::SamplesRate(self.samples_per_second as u32)
     }
 
+    #[inline]
     pub fn get_samples_format(&self) -> ::SampleFormat {
         match self.bits_per_sample {
             16 => ::SampleFormat::I16,
@@ -275,6 +278,7 @@ impl Voice {
         }
     }
 
+    #[inline]
     pub fn play(&mut self) {
         if !self.playing {
             unsafe {
@@ -286,6 +290,7 @@ impl Voice {
         self.playing = true;
     }
 
+    #[inline]
     pub fn pause(&mut self) {
         if self.playing {
             unsafe {
@@ -299,6 +304,7 @@ impl Voice {
 }
 
 impl Drop for Voice {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             (*self.render_client).Release();
@@ -316,16 +322,19 @@ pub struct Buffer<'a, T: 'a> {
 }
 
 impl<'a, T> Buffer<'a, T> {
+    #[inline]
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         unsafe {
             slice::from_raw_parts_mut(self.buffer_data, self.buffer_len)
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.buffer_len
     }
 
+    #[inline]
     pub fn finish(self) {
         // releasing buffer
         unsafe {

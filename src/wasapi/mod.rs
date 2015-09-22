@@ -22,6 +22,7 @@ mod com;
 mod enumerate;
 mod voice;
 
+#[inline]
 fn check_result(result: winapi::HRESULT) -> Result<(), IoError> {
     if result < 0 {
         Err(IoError::from_raw_os_error(result))
@@ -82,6 +83,7 @@ impl Endpoint {
     }
 
     /// Returns an uninitialized `IAudioClient`.
+    #[inline]
     fn build_audioclient(&self) -> Result<*mut winapi::IAudioClient, IoError> {
         let mut lock = try!(self.ensure_future_audio_client());
         let client = lock.unwrap().0;
@@ -183,6 +185,7 @@ impl Endpoint {
 }
 
 impl PartialEq for Endpoint {
+    #[inline]
     fn eq(&self, other: &Endpoint) -> bool {
         self.device == other.device
     }
@@ -191,6 +194,7 @@ impl PartialEq for Endpoint {
 impl Eq for Endpoint {}
 
 impl Clone for Endpoint {
+    #[inline]
     fn clone(&self) -> Endpoint {
         unsafe { (*self.device).AddRef(); }
 
@@ -202,6 +206,7 @@ impl Clone for Endpoint {
 }
 
 impl Drop for Endpoint {
+    #[inline]
     fn drop(&mut self) {
         unsafe { (*self.device).Release(); }
 

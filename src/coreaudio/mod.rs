@@ -24,20 +24,24 @@ pub struct Buffer<'a, T: 'a> {
 
 impl Voice {
 
+    #[inline]
     pub fn new() -> Voice {
         new_voice().unwrap()
     }
 
+    #[inline]
     pub fn get_channels(&self) -> ::ChannelsCount {
         // TODO: use AudioUnitGetProperty...
         2
     }
 
+    #[inline]
     pub fn get_samples_rate(&self) -> ::SamplesRate {
         // TODO: use AudioUnitGetProperty...
         ::SamplesRate(44100)
     }
 
+    #[inline]
     pub fn get_samples_format(&self) -> ::SampleFormat {
         // TODO: use AudioUnitGetProperty...
         ::SampleFormat::F32
@@ -58,16 +62,19 @@ impl Voice {
         }
     }
 
+    #[inline]
     pub fn play(&mut self) {
         // TODO
     }
 
+    #[inline]
     pub fn pause(&mut self) {
         // TODO
     }
 }
 
 impl<'a, T> Buffer<'a, T> {
+    #[inline]
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         &mut self.samples[..]
     }

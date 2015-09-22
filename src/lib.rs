@@ -82,11 +82,13 @@ impl Iterator for EndpointsIterator {
 }
 
 /// Return an iterator to the list of formats that are supported by the system.
+#[inline]
 pub fn get_endpoints_list() -> EndpointsIterator {
     EndpointsIterator(Default::default())
 }
 
 /// Return the default endpoint, or `None` if no device is available.
+#[inline]
 pub fn get_default_endpoint() -> Option<Endpoint> {
     cpal_impl::get_default_endpoint().map(Endpoint)
 }
@@ -97,6 +99,7 @@ pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
+    #[inline]
     pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
                                                        FormatsEnumerationError>
     {
@@ -183,6 +186,7 @@ pub enum UnknownTypeBuffer<'a> {
 
 impl<'a> UnknownTypeBuffer<'a> {
     /// Returns the length of the buffer in number of samples.
+    #[inline]
     pub fn len(&self) -> usize {
         match self {
             &UnknownTypeBuffer::U16(ref buf) => buf.target.as_ref().unwrap().len(),
@@ -201,12 +205,14 @@ pub enum FormatsEnumerationError {
 }
 
 impl fmt::Display for FormatsEnumerationError {
+    #[inline]
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(fmt, "{}", self.description())
     }
 }
 
 impl Error for FormatsEnumerationError {
+    #[inline]
     fn description(&self) -> &str {
         match self {
             &FormatsEnumerationError::DeviceNotAvailable => {
@@ -228,12 +234,14 @@ pub enum CreationError {
 }
 
 impl fmt::Display for CreationError {
+    #[inline]
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(fmt, "{}", self.description())
     }
 }
 
 impl Error for CreationError {
+    #[inline]
     fn description(&self) -> &str {
         match self {
             &CreationError::DeviceNotAvailable => {
@@ -314,6 +322,7 @@ impl Voice {
     ///
     /// Panics if `max_samples` is 0.
     ///
+    #[inline]
     pub fn append_data(&mut self, max_samples: usize) -> UnknownTypeBuffer {
         assert!(max_samples != 0);
 
