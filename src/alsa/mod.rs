@@ -27,7 +27,8 @@ impl Endpoint {
     {
         unsafe {
             let mut playback_handle = mem::uninitialized();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, b"hw\0".as_ptr() as *const _,
+            let device_name = ffi::CString::new(self.0.clone()).unwrap();
+            check_errors(alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
                                             alsa::SND_PCM_STREAM_PLAYBACK,
                                             alsa::SND_PCM_NONBLOCK)).unwrap();
 
@@ -89,8 +90,8 @@ impl Endpoint {
 
             let samples_rates = if min_rate == max_rate {
                 vec![min_rate]
-            } else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
-                (min_rate .. max_rate + 1).collect()
+            /*} else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
+                (min_rate .. max_rate + 1).collect()*/      // TODO: code is correct but returns lots of stuff
             } else {
                 const RATES: [libc::c_uint; 13] = [
                     5512,
@@ -115,11 +116,11 @@ impl Endpoint {
                     }
                 }
 
-                if rates.len() == 0 {
+                /*if rates.len() == 0 {
                     (min_rate .. max_rate + 1).collect()
-                } else {
-                    rates
-                }
+                } else {*/
+                    rates    // TODO: code is correct but returns lots of stuff
+                //}
             };
 
             let mut min_channels = mem::uninitialized();
