@@ -105,6 +105,12 @@ impl Endpoint {
     {
         Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
     }
+
+    /// Returns the name of the endpoint.
+    #[inline]
+    pub fn get_name(&self) -> String {
+        self.0.get_name()
+    }
 }
 
 /// Number of channels.

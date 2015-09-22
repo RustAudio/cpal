@@ -52,6 +52,11 @@ unsafe impl Sync for Endpoint {}
 
 impl Endpoint {
     #[inline]
+    pub fn get_name(&self) -> String {
+        "unknown".to_owned()        // TODO: 
+    }
+
+    #[inline]
     fn from_immdevice(device: *mut winapi::IMMDevice) -> Endpoint {
         Endpoint {
             device: device,
