@@ -55,21 +55,6 @@ impl Voice {
     }
 
     #[inline]
-    pub fn get_channels(&self) -> ::ChannelsCount {
-        unreachable!()
-    }
-
-    #[inline]
-    pub fn get_samples_rate(&self) -> ::SamplesRate {
-        unreachable!()
-    }
-
-    #[inline]
-    pub fn get_samples_format(&self) -> ::SampleFormat {
-        unreachable!()
-    }
-
-    #[inline]
     pub fn append_data<'a, T>(&'a mut self, _: usize) -> Buffer<'a, T> {
         unreachable!()
     }

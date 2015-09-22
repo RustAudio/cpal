@@ -19,10 +19,7 @@ pub struct Voice {
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
     max_frames_in_buffer: winapi::UINT32,
-    num_channels: winapi::WORD,
     bytes_per_frame: winapi::WORD,
-    samples_per_second: winapi::DWORD,
-    bits_per_sample: winapi::WORD,
     playing: bool,
 }
 
@@ -147,31 +144,9 @@ impl Voice {
                 audio_client: audio_client,
                 render_client: render_client,
                 max_frames_in_buffer: max_frames_in_buffer,
-                num_channels: format.nChannels,
                 bytes_per_frame: format.nBlockAlign,
-                samples_per_second: format.nSamplesPerSec,
-                bits_per_sample: format.wBitsPerSample,
                 playing: false,
             })
-        }
-    }
-
-    #[inline]
-    pub fn get_channels(&self) -> ::ChannelsCount {
-        self.num_channels as ::ChannelsCount
-    }
-
-    #[inline]
-    pub fn get_samples_rate(&self) -> ::SamplesRate {
-        ::SamplesRate(self.samples_per_second as u32)
-    }
-
-    #[inline]
-    pub fn get_samples_format(&self) -> ::SampleFormat {
-        match self.bits_per_sample {
-            16 => ::SampleFormat::I16,
-            32 => ::SampleFormat::F32,
-            _ => panic!("{}-bit format not yet supported", self.bits_per_sample),
         }
     }
 

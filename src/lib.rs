@@ -267,41 +267,54 @@ impl Error for CreationError {
 /// perform a conversion on your data.
 ///
 /// If you have the possibility, you should try to match the format of the voice.
-pub struct Voice(cpal_impl::Voice);
+pub struct Voice {
+    voice: cpal_impl::Voice,
+    format: Format,
+}
 
 impl Voice {
     /// Builds a new channel.
     #[inline]
     pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
         let channel = try!(cpal_impl::Voice::new(&endpoint.0, format));
-        Ok(Voice(channel))
+
+        Ok(Voice {
+            voice: channel,
+            format: format.clone(),
+        })
     }
 
-    /// Returns the number of channels.
+    /// Returns the format used by the voice.
+    #[inline]
+    pub fn format(&self) -> &Format {
+        &self.format
+    }
+
+    /// DEPRECATED: use `format` instead. Returns the number of channels.
     ///
     /// You can add data with any number of channels, but matching the voice's native format
     /// will lead to better performances.
     #[inline]
     pub fn get_channels(&self) -> ChannelsCount {
-        self.0.get_channels()
+        self.format().channels.len() as ChannelsCount
     }
 
-    /// Returns the number of samples that are played per second.
+    /// DEPRECATED: use `format` instead. Returns the number of samples that are played per second.
     ///
     /// You can add data with any samples rate, but matching the voice's native format
     /// will lead to better performances.
     #[inline]
     pub fn get_samples_rate(&self) -> SamplesRate {
-        self.0.get_samples_rate()
+        self.format().samples_rate
     }
 
-    /// Returns the format of the samples that are accepted by the backend.
+    /// DEPRECATED: use `format` instead. Returns the format of the samples that are accepted by the backend.
     ///
     /// You can add data of any format, but matching the voice's native format
     /// will lead to better performances.
     #[inline]
     pub fn get_samples_format(&self) -> SampleFormat {
-        self.0.get_samples_format()
+        self.format().data_type
     }
 
     /// Adds some PCM data to the voice's buffer.
@@ -328,13 +341,13 @@ impl Voice {
 
         match self.get_samples_format() {
             SampleFormat::U16 => UnknownTypeBuffer::U16(Buffer {
-                target: Some(self.0.append_data(max_samples))
+                target: Some(self.voice.append_data(max_samples))
             }),
             SampleFormat::I16 => UnknownTypeBuffer::I16(Buffer {
-                target: Some(self.0.append_data(max_samples))
+                target: Some(self.voice.append_data(max_samples))
             }),
             SampleFormat::F32 => UnknownTypeBuffer::F32(Buffer {
-                target: Some(self.0.append_data(max_samples))
+                target: Some(self.voice.append_data(max_samples))
             }),
         }
     }
@@ -347,7 +360,7 @@ impl Voice {
     /// some glitches.
     #[inline]
     pub fn play(&mut self) {
-        self.0.play()
+        self.voice.play()
     }
 
     /// Sends a command to the audio device that it should stop playing.
@@ -357,13 +370,13 @@ impl Voice {
     /// If you call `play` afterwards, the playback will resume exactly where it was.
     #[inline]
     pub fn pause(&mut self) {
-        self.0.pause()
+        self.voice.pause()
     }
 
     /// Returns true if the voice has finished reading all the data you sent to it.
     #[inline]
     pub fn underflowed(&self) -> bool {
-        self.0.underflowed()
+        self.voice.underflowed()
     }
 }
 

@@ -72,21 +72,6 @@ impl Voice {
         }
     }
 
-    #[inline]
-    pub fn get_channels(&self) -> ::ChannelsCount {
-        self.num_channels
-    }
-
-    #[inline]
-    pub fn get_samples_rate(&self) -> ::SamplesRate {
-        ::SamplesRate(44100)
-    }
-
-    #[inline]
-    pub fn get_samples_format(&self) -> ::SampleFormat {
-        ::SampleFormat::I16
-    }
-
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
         let available = {
             let channel = self.channel.lock().unwrap();
