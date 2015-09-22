@@ -72,6 +72,12 @@ impl Voice {
     pub fn pause(&mut self) {
     }
 
+    #[inline]
+    pub fn get_pending_samples(&self) -> usize {
+        unreachable!()
+    }
+
+    #[inline]
     pub fn underflowed(&self) -> bool {
         false
     }
