@@ -232,48 +232,41 @@ impl Voice {
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> {
         unsafe {
-            loop {
-                // 
-                let frames_available = {
-                    let mut padding = mem::uninitialized();
-                    let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
-                    check_result(hresult).unwrap();
-                    self.max_frames_in_buffer - padding
-                };
+            // 
+            let frames_available = {
+                let mut padding = mem::uninitialized();
+                let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
+                check_result(hresult).unwrap();
+                self.max_frames_in_buffer - padding
+            };
 
-                if frames_available == 0 {
-                    // TODO: 
-                    ::std::thread::sleep_ms(1);
-                    continue;
-                }
+            let frames_available = cmp::min(frames_available,
+                                            max_elements as u32 * mem::size_of::<T>() as u32 /
+                                            self.bytes_per_frame as u32);
 
-                let frames_available = cmp::min(frames_available,
-                                                max_elements as u32 * mem::size_of::<T>() as u32 /
-                                                self.bytes_per_frame as u32);
-                assert!(frames_available != 0);
+            if frames_available == 0 {
+                return Buffer::Empty;
+            }
 
-                // loading buffer
-                let (buffer_data, buffer_len) = {
-                    let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                    let hresult = (*self.render_client).GetBuffer(frames_available,
-                                    &mut buffer as *mut *mut _);
-                    check_result(hresult).unwrap();
-                    assert!(!buffer.is_null());
+            // loading buffer
+            let (buffer_data, buffer_len) = {
+                let mut buffer: *mut winapi::BYTE = mem::uninitialized();
+                let hresult = (*self.render_client).GetBuffer(frames_available,
+                                &mut buffer as *mut *mut _);
+                check_result(hresult).unwrap();
+                assert!(!buffer.is_null());
 
-                    (buffer as *mut T,
-                     frames_available as usize * self.bytes_per_frame as usize
-                          / mem::size_of::<T>())
-                };
+                (buffer as *mut T,
+                 frames_available as usize * self.bytes_per_frame as usize
+                      / mem::size_of::<T>())
+            };
 
-                let buffer = Buffer {
-                    render_client: self.render_client,
-                    buffer_data: buffer_data,
-                    buffer_len: buffer_len,
-                    frames: frames_available,
-                    marker: PhantomData,
-                };
-
-                return buffer;
+            Buffer::Buffer {
+                render_client: self.render_client,
+                buffer_data: buffer_data,
+                buffer_len: buffer_len,
+                frames: frames_available,
+                marker: PhantomData,
             }
         }
     }
@@ -323,33 +316,43 @@ impl Drop for Voice {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
-    render_client: *mut winapi::IAudioRenderClient,
-    buffer_data: *mut T,
-    buffer_len: usize,
-    frames: winapi::UINT32,
-    marker: PhantomData<&'a mut T>,
+pub enum Buffer<'a, T: 'a> {
+    Empty,
+    Buffer {
+        render_client: *mut winapi::IAudioRenderClient,
+        buffer_data: *mut T,
+        buffer_len: usize,
+        frames: winapi::UINT32,
+        marker: PhantomData<&'a mut T>,
+    },
 }
 
 impl<'a, T> Buffer<'a, T> {
     #[inline]
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
-        unsafe {
-            slice::from_raw_parts_mut(self.buffer_data, self.buffer_len)
+        match self {
+            &mut Buffer::Empty => &mut [],
+            &mut Buffer::Buffer { buffer_data, buffer_len, .. } => unsafe {
+                slice::from_raw_parts_mut(buffer_data, buffer_len)
+            },
         }
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.buffer_len
+        match self {
+            &Buffer::Empty => 0,
+            &Buffer::Buffer { buffer_len, .. } => buffer_len,
+        }
     }
 
     #[inline]
     pub fn finish(self) {
-        // releasing buffer
-        unsafe {
-            let hresult = (*self.render_client).ReleaseBuffer(self.frames as u32, 0);
-            check_result(hresult).unwrap();
-        };
+        if let Buffer::Buffer { render_client, frames, .. } = self {
+            unsafe {
+                let hresult = (*render_client).ReleaseBuffer(frames as u32, 0);
+                check_result(hresult).unwrap();
+            }
+        }
     }
 }
