@@ -2,9 +2,12 @@ extern crate winapi;
 extern crate ole32;
 
 use std::io::Error as IoError;
+use std::os::windows::ffi::OsStringExt;
+use std::ffi::OsString;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::ptr;
 use std::mem;
+use std::slice;
 
 use Format;
 use FormatsEnumerationError;
@@ -51,9 +54,28 @@ unsafe impl Send for Endpoint {}
 unsafe impl Sync for Endpoint {}
 
 impl Endpoint {
-    #[inline]
+    // TODO: this function returns a GUID of the endpoin
+    //       instead it should use the property store and return the friendly name
     pub fn get_name(&self) -> String {
-        "unknown".to_owned()        // TODO: 
+        unsafe {
+            let mut name_ptr = mem::uninitialized();
+            // can only fail if wrong params or out of memory
+            check_result((*self.device).GetId(&mut name_ptr)).unwrap();
+
+            // finding the length of the name
+            let mut len = 0;
+            while *name_ptr.offset(len) != 0 {
+                len += 1;
+            }
+
+            // building a slice containing the name
+            let name_slice = slice::from_raw_parts(name_ptr, len as usize);
+
+            // and turning it into a string
+            let name_string: OsString = OsStringExt::from_wide(name_slice);
+            ole32::CoTaskMemFree(name_ptr as *mut _);
+            name_string.into_string().unwrap()
+        }
     }
 
     #[inline]
