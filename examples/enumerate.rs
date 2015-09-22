@@ -9,7 +9,11 @@ fn main() {
     for (endpoint_index, endpoint) in endpoints.enumerate() {
         println!("{}. Endpoint \"{}\" Audio formats: ", endpoint_index + 1, endpoint.get_name());
 
-        let formats = endpoint.get_supported_formats_list().unwrap();
+        let formats = match endpoint.get_supported_formats_list() {
+            Ok(f) => f,
+            Err(e) => { println!("Error: {:?}", e); continue; }
+        };
+
         for (format_index, format) in formats.enumerate() {
             println!("{}.{}. {:?}", endpoint_index + 1, format_index + 1, format);
         }

@@ -10,7 +10,7 @@ use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
 
-use std::{ffi, iter, mem, ptr};
+use std::{ffi, cmp, iter, mem, ptr};
 use std::vec::IntoIter as VecIntoIter;
 use std::sync::Mutex;
 
@@ -28,12 +28,19 @@ impl Endpoint {
         unsafe {
             let mut playback_handle = mem::uninitialized();
             let device_name = ffi::CString::new(self.0.clone()).unwrap();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
-                                            alsa::SND_PCM_STREAM_PLAYBACK,
-                                            alsa::SND_PCM_NONBLOCK)).unwrap();
+
+            match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
+                                     alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
+            {   
+                -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
+                e => check_errors(e).unwrap()
+            }
 
             let hw_params = HwParams::alloc();
-            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
+            match check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)) {
+                Err(_) => return Ok(Vec::new().into_iter()),
+                Ok(_) => ()
+            };
 
             // TODO: check endianess
             const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] = [
@@ -128,6 +135,7 @@ impl Endpoint {
             check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)).unwrap();
             let mut max_channels = mem::uninitialized();
             check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)).unwrap();
+            let max_channels = cmp::min(max_channels, 32);      // TODO: limiting to 32 channels or too much stuff is returned
             let supported_channels = (min_channels .. max_channels + 1).filter_map(|num| {
                 if alsa::snd_pcm_hw_params_test_channels(playback_handle, hw_params.0, num) == 0 {
                     Some(iter::repeat(ChannelPosition::FrontLeft).take(num as usize).collect::<Vec<_>>())        // FIXME: 
@@ -158,7 +166,7 @@ impl Endpoint {
 
     #[inline]
     pub fn get_name(&self) -> String {
-        "unknown".to_owned()        // TODO: 
+        self.0.clone()
     }
 }
 
@@ -199,9 +207,12 @@ impl Voice {
             let name = ffi::CString::new(endpoint.0.clone()).unwrap();
 
             let mut playback_handle = mem::uninitialized();
-            check_errors(alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
-                                            alsa::SND_PCM_STREAM_PLAYBACK,
-                                            alsa::SND_PCM_NONBLOCK)).unwrap();
+            match alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
+                                     alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
+            {   
+                -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
+                e => check_errors(e).unwrap()
+            }
 
             // TODO: check endianess
             let data_type = match format.data_type {
@@ -217,7 +228,6 @@ impl Voice {
             check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, format.samples_rate.0 as libc::c_uint, 0)).unwrap();
             check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, format.channels.len() as libc::c_uint)).unwrap();
             check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).unwrap();
-            
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
