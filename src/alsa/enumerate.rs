@@ -5,6 +5,8 @@ use super::Endpoint;
 use std::ffi::CStr;
 use std::mem;
 
+use libc;
+
 /// ALSA implementation for `EndpointsIterator`.
 pub struct EndpointsIterator {
     // we keep the original list so that we can pass it to the free function
@@ -54,19 +56,44 @@ impl Iterator for EndpointsIterator {
                     return None;
                 }
 
-                let name = alsa::snd_device_name_get_hint(*self.next_str as *const _,
-                                                          b"NAME".as_ptr() as *const _);
+                let name = {
+                    let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
+                                                               b"NAME\0".as_ptr() as *const _);
+                    if !n_ptr.is_null() {
+                        let n = CStr::from_ptr(n_ptr).to_bytes().to_vec();
+                        let n = String::from_utf8(n).unwrap();
+                        libc::free(n_ptr as *mut _);
+                        Some(n)
+                    } else {
+                        None
+                    }
+                };
+
+                let io = {
+                    let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
+                                                               b"IOID\0".as_ptr() as *const _);
+                    if !n_ptr.is_null() {
+                        let n = CStr::from_ptr(n_ptr).to_bytes().to_vec();
+                        let n = String::from_utf8(n).unwrap();
+                        libc::free(n_ptr as *mut _);
+                        Some(n)
+                    } else {
+                        None
+                    }
+                };
+
                 self.next_str = self.next_str.offset(1);
 
-                if name.is_null() {
-                    continue;
+                if let Some(io) = io {
+                    if io != "Output" {
+                        continue;
+                    }
                 }
 
-                let name = CStr::from_ptr(name).to_bytes().to_vec();
-                let name = String::from_utf8(name).unwrap();
-
-                if name != "null" {
-                    return Some(Endpoint(name));
+                if let Some(name) = name {
+                    if name != "null" {
+                        return Some(Endpoint(name));
+                    }
                 }
             }
         }
