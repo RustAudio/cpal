@@ -333,15 +333,15 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self) {
-        let written = (self.buffer.len() / self.channel.num_channels as usize)
-                      as alsa::snd_pcm_uframes_t;
+        let to_write = (self.buffer.len() / self.channel.num_channels as usize)
+                       as alsa::snd_pcm_uframes_t;
         let channel = self.channel.channel.lock().unwrap();
 
         unsafe {
             loop {
                 let result = alsa::snd_pcm_writei(*channel,
                                                   self.buffer.as_ptr() as *const libc::c_void,
-                                                  written);
+                                                  to_write);
 
                 if result == -32 {
                     // buffer underrun
@@ -349,6 +349,7 @@ impl<'a, T> Buffer<'a, T> {
                 } else if result < 0 {
                     check_errors(result as libc::c_int).unwrap();
                 } else {
+                    assert_eq!(result as alsa::snd_pcm_uframes_t, to_write);
                     break;
                 }
             }
