@@ -3,6 +3,7 @@ use super::check_errors;
 use super::Endpoint;
 
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::mem;
 
 use libc;
@@ -91,6 +92,18 @@ impl Iterator for EndpointsIterator {
                 }
 
                 if let Some(name) = name {
+                    // trying to open the PCM device to see if it can be opened
+                    let name_zeroed = CString::new(name.clone()).unwrap();
+                    let mut playback_handle = mem::uninitialized();
+                    if alsa::snd_pcm_open(&mut playback_handle, name_zeroed.as_ptr() as *const _,
+                                          alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK) == 0
+                    {
+                        alsa::snd_pcm_close(playback_handle);
+                    } else {
+                        continue;
+                    }
+
+                    // ignoring the `null` device
                     if name != "null" {
                         return Some(Endpoint(name));
                     }
@@ -102,6 +115,5 @@ impl Iterator for EndpointsIterator {
 
 #[inline]
 pub fn get_default_endpoint() -> Option<Endpoint> {
-    // TODO: do in a different way?
     Some(Endpoint("default".to_owned()))
 }
