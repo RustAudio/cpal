@@ -10,6 +10,7 @@ use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
 use ChannelPosition;
+use Sample;
 
 mod enumerate;
 
@@ -26,11 +27,21 @@ impl Endpoint {
     pub fn get_supported_formats_list(&self)
             -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
-        Ok(vec!(Format {
-            channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-            samples_rate: SamplesRate(44100),
-            data_type: SampleFormat::F32
-        }).into_iter())
+        // AUHAL converts internally for simple PCM translations.
+        // However, an additional AudioConverter unit is needed in order to
+        // change sample rate.
+        // TODO support other sample rates.
+        let formats = [SampleFormat::F32, SampleFormat::I16, SampleFormat::U16]
+            .into_iter()
+            .map(|f| {
+                Format {
+                    channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
+                    samples_rate: SamplesRate(44100),
+                    data_type: *f
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(formats.into_iter())
     }
 
     pub fn get_name(&self) -> String {
@@ -46,7 +57,7 @@ pub struct Buffer<'a, T: 'a> {
     marker: ::std::marker::PhantomData<&'a T>,
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T: Sample> Buffer<'a, T> {
     #[inline]
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         &mut self.samples[..]
@@ -62,7 +73,8 @@ impl<'a, T> Buffer<'a, T> {
         let Buffer { samples_sender, samples, num_channels, .. } = self;
         // TODO: At the moment this assumes the Vec<T> is a Vec<f32>.
         // Need to add T: Sample and use Sample::to_vec_f32.
-        let samples = unsafe { mem::transmute(samples) };
+        //let samples = unsafe { mem::transmute(samples) };
+        let samples = samples.into_iter().map(|x| x.as_f32()).collect();
         match samples_sender.send((samples, num_channels)) {
             Err(_) => panic!("Failed to send samples to audio unit callback."),
             Ok(()) => (),
