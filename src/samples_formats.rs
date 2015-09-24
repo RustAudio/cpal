@@ -27,7 +27,6 @@ impl SampleFormat {
 pub unsafe trait Sample: Copy + Clone {
     /// Returns the `SampleFormat` corresponding to this data type.
     fn get_format() -> SampleFormat;
-    fn as_f32(&self) -> f32;
 }
 
 unsafe impl Sample for u16 {
@@ -35,8 +34,6 @@ unsafe impl Sample for u16 {
     fn get_format() -> SampleFormat {
         SampleFormat::U16
     }
-
-    fn as_f32(&self) -> f32 { (*self as f32 - 32768.0) / (32768.0) }
 }
 
 unsafe impl Sample for i16 {
@@ -44,8 +41,6 @@ unsafe impl Sample for i16 {
     fn get_format() -> SampleFormat {
         SampleFormat::I16
     }
-
-    fn as_f32(&self) -> f32 { (*self as f32) / (32768.0) }
 }
 
 unsafe impl Sample for f32 {
@@ -53,6 +48,4 @@ unsafe impl Sample for f32 {
     fn get_format() -> SampleFormat {
         SampleFormat::F32
     }
-
-    fn as_f32(&self) -> f32 { *self }
 }
