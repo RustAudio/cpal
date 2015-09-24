@@ -2,6 +2,8 @@ extern crate coreaudio_rs as coreaudio;
 extern crate libc;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 use std::mem;
 
 use CreationError;
@@ -72,21 +74,27 @@ impl<'a, T> Buffer<'a, T> {
 type NumChannels = usize;
 type NumFrames = usize;
 
+#[allow(dead_code)] // the audio_unit will be dropped if we don't hold it.
 pub struct Voice {
     audio_unit: AudioUnit,
     ready_receiver: Receiver<(NumChannels, NumFrames)>,
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
+    underflow: Arc<Mutex<RefCell<bool>>>,
+    last_ready: Arc<Mutex<RefCell<Option<(NumChannels, NumFrames)>>>>
 }
 
 unsafe impl Sync for Voice {}
 unsafe impl Send for Voice {}
 
 impl Voice {
-    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
+    pub fn new(_: &Endpoint, _: &Format) -> Result<Voice, CreationError> {
         // A channel for signalling that the audio unit is ready for data.
         let (ready_sender, ready_receiver) = channel();
         // A channel for sending the audio callback a pointer to the sample data.
         let (samples_sender, samples_receiver) = channel();
+
+        let underflow = Arc::new(Mutex::new(RefCell::new(false)));
+        let uf_clone = underflow.clone();
 
         let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
             .render_callback(Box::new(move |channels, num_frames| {
@@ -96,10 +104,10 @@ impl Voice {
                 loop {
                     if let Ok((samples, num_channels)) = samples_receiver.try_recv() {
                         let samples: Vec<f32> = samples;
-                        assert!(num_frames == (samples.len() / num_channels) as usize,
-                                "The number of input frames given differs from the number \
-                                requested by the AudioUnit: {:?} and {:?} respectively",
-                                (samples.len() / num_channels as usize), num_frames);
+                        if let Ok(uf) = uf_clone.lock() {
+                            *(uf.borrow_mut()) = num_frames > samples.len() / num_channels;
+                        } else { return Err("Couldn't lock underflow flag field.".to_string()) }
+
                         for (i, frame) in samples.chunks(num_channels).enumerate() {
                             for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
                                 channel[i] = *sample;
@@ -117,7 +125,9 @@ impl Voice {
             Ok(audio_unit) => Ok(Voice {
                 audio_unit: audio_unit,
                 ready_receiver: ready_receiver,
-                samples_sender: samples_sender
+                samples_sender: samples_sender,
+                underflow: underflow,
+                last_ready: Arc::new(Mutex::new(RefCell::new(None)))
             }),
             Err(_) => {
                 Err(CreationError::DeviceNotAvailable)
@@ -127,16 +137,13 @@ impl Voice {
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
         // Block until the audio callback is ready for more data.
-        loop {
-            if let Ok((channels, frames)) = self.ready_receiver.try_recv() {
-                let buffer_size = ::std::cmp::min(channels * frames, max_elements);
-                return Buffer {
-                    samples_sender: self.samples_sender.clone(),
-                    samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
-                    num_channels: channels as usize,
-                    marker: ::std::marker::PhantomData
-                }
-            }
+        let (channels, frames) = self.block_until_ready();
+        let buffer_size = ::std::cmp::min(channels * frames, max_elements);
+        Buffer {
+            samples_sender: self.samples_sender.clone(),
+            samples: vec![unsafe { mem::uninitialized() }; buffer_size],
+            num_channels: channels as usize,
+            marker: ::std::marker::PhantomData
         }
     }
 
@@ -152,11 +159,87 @@ impl Voice {
 
     #[inline]
     pub fn get_pending_samples(&self) -> usize {
-        unimplemented!()
+        if let Some(ready) = self.update_last_ready() {
+            (ready.0 * ready.1) as usize
+        } else {
+            0
+        }
+    }
+
+    /// Attempts to store the most recent ready message into the internal
+    /// ref cell, then return the last ready message. If the last ready hasn't
+    /// been reset with `clear_last_ready`, then it will not be set and the
+    /// current value will be returned. Else, the ready_receiver will be
+    /// try_recv'd and if it is ready, the last ready will be set and returned.
+    /// Finally, if the ready_receiver had no data at try_recv, None will be
+    /// returned.
+    #[inline]
+    fn update_last_ready(&self) -> Option<(NumChannels, NumFrames)> {
+        use std::ops::Deref;
+
+        if let Ok(lr) = self.last_ready.lock() {
+            let refcell = lr.deref();
+            {
+                let data = refcell.borrow();
+                if let Some(s) = *data {
+                    //
+                    return Some(s);
+                } else {
+                    drop(data);
+                    let mut data = refcell.borrow_mut();
+                    if let Ok(ready) = self.ready_receiver.try_recv() {
+                        // the audiounit is ready so we can set last_ready
+                        *data = Some(ready);
+                        return *data;
+                    }
+                }
+            }
+            drop(refcell);
+            None
+        } else {
+            panic!("could not lock last_ready mutex; the previous user must \
+                    have panicked.");
+        }
+    }
+
+    /// Block until ready to send data. This checks last_ready first. In any
+    /// case, last_ready will be set to None when this function returns.
+    fn block_until_ready(&self) -> (NumChannels, NumFrames) {
+        use std::ops::Deref;
+
+        if let Ok(lr) = self.last_ready.lock() {
+            let ret: (NumChannels, NumFrames);
+            let refcell = lr.deref();
+            {
+                let data = refcell.borrow();
+                if let Some(s) = *data {
+                    drop(data);
+                    let mut data = refcell.borrow_mut();
+                    *data = None;
+                    ret = s;
+                } else {
+                    match self.ready_receiver.recv() {
+                        Ok(ready) => {
+                            ret = ready;
+                        },
+                        Err(e) => panic!("Couldn't receive a ready message: \
+                                          {:?}", e)
+                    }
+                }
+            }
+            drop(refcell);
+
+            ret
+        } else {
+            panic!("could not lock last_ready mutex; the previous user must \
+                    have panicked.");
+        }
     }
 
     #[inline]
     pub fn underflowed(&self) -> bool {
-        unimplemented!()
+        let uf = self.underflow.lock().unwrap();
+        let v = uf.borrow();
+        *v
     }
 }
