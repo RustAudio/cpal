@@ -42,7 +42,6 @@ pub struct Buffer<'a, T: 'a> {
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
     samples: Vec<T>,
     num_channels: NumChannels,
-    len: usize,
     marker: ::std::marker::PhantomData<&'a T>,
 }
 
@@ -54,7 +53,7 @@ impl<'a, T> Buffer<'a, T> {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.samples.len()
     }
 
     #[inline]
@@ -135,8 +134,7 @@ impl Voice {
                     samples_sender: self.samples_sender.clone(),
                     samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
                     num_channels: channels as usize,
-                    marker: ::std::marker::PhantomData,
-                    len: 64
+                    marker: ::std::marker::PhantomData
                 }
             }
         }
@@ -152,11 +150,13 @@ impl Voice {
         unimplemented!()
     }
 
+    #[inline]
     pub fn get_pending_samples(&self) -> usize {
-        0
+        unimplemented!()
     }
 
+    #[inline]
     pub fn underflowed(&self) -> bool {
-        false
+        unimplemented!()
     }
 }
