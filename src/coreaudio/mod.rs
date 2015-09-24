@@ -1,58 +1,49 @@
 extern crate coreaudio_rs as coreaudio;
 extern crate libc;
 
-use self::coreaudio::audio_unit::{AudioUnit, Type, SubType};
-use std::mem;
 use std::sync::mpsc::{channel, Sender, Receiver};
+use std::mem;
 
-type NumChannels = usize;
-type NumFrames = usize;
+use CreationError;
+use Format;
+use FormatsEnumerationError;
+use SampleFormat;
+use SamplesRate;
+use ChannelPosition;
 
-#[allow(dead_code)]
-pub struct Voice {
-    audio_unit: AudioUnit,
-    ready_receiver: Receiver<(NumChannels, NumFrames)>,
-    samples_sender: Sender<(Vec<f32>, NumChannels)>,
+mod enumerate;
+
+pub use self::enumerate::{EndpointsIterator,
+                          SupportedFormatsIterator,
+                          get_default_endpoint};
+
+use self::coreaudio::audio_unit::{AudioUnit, Type, SubType};
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Endpoint;
+
+impl Endpoint {
+    pub fn get_supported_formats_list(&self)
+            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
+    {
+        Ok(vec!(Format {
+            channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
+            samples_rate: SamplesRate(512),
+            data_type: SampleFormat::F32
+        }).into_iter())
+    }
+
+    pub fn get_name(&self) -> String {
+        "Default AudioUnit Endpoint".to_string()
+    }
 }
 
 pub struct Buffer<'a, T: 'a> {
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
     samples: Vec<T>,
     num_channels: NumChannels,
+    len: usize,
     marker: ::std::marker::PhantomData<&'a T>,
-}
-
-impl Voice {
-
-    #[inline]
-    pub fn new() -> Voice {
-        new_voice().unwrap()
-    }
-
-    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
-        // Block until the audio callback is ready for more data.
-        loop {
-            if let Ok((channels, frames)) = self.ready_receiver.try_recv() {
-                let buffer_size = ::std::cmp::min(channels * frames, max_elements);
-                return Buffer {
-                    samples_sender: self.samples_sender.clone(),
-                    samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
-                    num_channels: channels as usize,
-                    marker: ::std::marker::PhantomData,
-                }
-            }
-        }
-    }
-
-    #[inline]
-    pub fn play(&mut self) {
-        // TODO
-    }
-
-    #[inline]
-    pub fn pause(&mut self) {
-        // TODO
-    }
 }
 
 impl<'a, T> Buffer<'a, T> {
@@ -60,6 +51,13 @@ impl<'a, T> Buffer<'a, T> {
     pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
         &mut self.samples[..]
     }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
     pub fn finish(self) {
         let Buffer { samples_sender, samples, num_channels, .. } = self;
         // TODO: At the moment this assumes the Vec<T> is a Vec<f32>.
@@ -72,50 +70,90 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
+type NumChannels = usize;
+type NumFrames = usize;
 
-/// Construct a new Voice.
-fn new_voice() -> Result<Voice, String> {
+pub struct Voice {
+    audio_unit: AudioUnit,
+    ready_receiver: Receiver<(NumChannels, NumFrames)>,
+    samples_sender: Sender<(Vec<f32>, NumChannels)>,
+}
 
-    // A channel for signalling that the audio unit is ready for data.
-    let (ready_sender, ready_receiver) = channel();
-    // A channel for sending the audio callback a pointer to the sample data.
-    let (samples_sender, samples_receiver) = channel();
+impl Voice {
+    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
+        // A channel for signalling that the audio unit is ready for data.
+        let (ready_sender, ready_receiver) = channel();
+        // A channel for sending the audio callback a pointer to the sample data.
+        let (samples_sender, samples_receiver) = channel();
 
-    let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
-        .render_callback(Box::new(move |channels, num_frames| {
-            if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
-                return Err("Callback failed to send 'ready' message.".to_string());
-            }
-            loop {
-                if let Ok((samples, num_channels)) = samples_receiver.try_recv() {
-                    let samples: Vec<f32> = samples;
-                    assert!(num_frames == (samples.len() / num_channels) as usize,
-                            "The number of input frames given differs from the number \
-                            requested by the AudioUnit: {:?} and {:?} respectively",
-                            (samples.len() / num_channels as usize), num_frames);
-                    for (i, frame) in samples.chunks(num_channels).enumerate() {
-                        for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
-                            channel[i] = *sample;
+        let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
+            .render_callback(Box::new(move |channels, num_frames| {
+                if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
+                    return Err("Callback failed to send 'ready' message.".to_string());
+                }
+                loop {
+                    if let Ok((samples, num_channels)) = samples_receiver.try_recv() {
+                        let samples: Vec<f32> = samples;
+                        assert!(num_frames == (samples.len() / num_channels) as usize,
+                                "The number of input frames given differs from the number \
+                                requested by the AudioUnit: {:?} and {:?} respectively",
+                                (samples.len() / num_channels as usize), num_frames);
+                        for (i, frame) in samples.chunks(num_channels).enumerate() {
+                            for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
+                                channel[i] = *sample;
+                            }
                         }
-                    }
-                    break;
-                };
-            }
-            Ok(())
+                        break;
+                    };
+                }
+                Ok(())
 
-        }))
-        .start();
+            }))
+            .start();
 
-    match audio_unit_result {
-        Ok(audio_unit) => Ok(Voice {
-            audio_unit: audio_unit,
-            ready_receiver: ready_receiver,
-            samples_sender: samples_sender
-        }),
-        Err(err) => {
-            use ::std::error::Error;
-            Err(err.description().to_string())
-        },
+        match audio_unit_result {
+            Ok(audio_unit) => Ok(Voice {
+                audio_unit: audio_unit,
+                ready_receiver: ready_receiver,
+                samples_sender: samples_sender
+            }),
+            Err(_) => {
+                Err(CreationError::DeviceNotAvailable)
+            },
+        }
     }
 
+    pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
+        // Block until the audio callback is ready for more data.
+        loop {
+            if let Ok((channels, frames)) = self.ready_receiver.try_recv() {
+                let buffer_size = ::std::cmp::min(channels * frames, max_elements);
+                return Buffer {
+                    samples_sender: self.samples_sender.clone(),
+                    samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
+                    num_channels: channels as usize,
+                    marker: ::std::marker::PhantomData,
+                    len: 512
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn play(&mut self) {
+        // implicitly playing
+    }
+
+    #[inline]
+    pub fn pause(&mut self) {
+        unimplemented!()
+    }
+
+    pub fn get_pending_samples(&self) -> usize {
+        0
+    }
+
+    pub fn underflowed(&self) -> bool {
+        false
+    }
 }
