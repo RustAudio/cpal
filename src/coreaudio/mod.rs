@@ -28,7 +28,7 @@ impl Endpoint {
     {
         Ok(vec!(Format {
             channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-            samples_rate: SamplesRate(512),
+            samples_rate: SamplesRate(64),
             data_type: SampleFormat::F32
         }).into_iter())
     }
@@ -78,6 +78,9 @@ pub struct Voice {
     ready_receiver: Receiver<(NumChannels, NumFrames)>,
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
 }
+
+unsafe impl Sync for Voice {}
+unsafe impl Send for Voice {}
 
 impl Voice {
     pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
@@ -133,7 +136,7 @@ impl Voice {
                     samples: vec![unsafe{ mem::uninitialized() }; buffer_size],
                     num_channels: channels as usize,
                     marker: ::std::marker::PhantomData,
-                    len: 512
+                    len: 64
                 }
             }
         }
