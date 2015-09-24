@@ -28,7 +28,7 @@ impl Endpoint {
     {
         Ok(vec!(Format {
             channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-            samples_rate: SamplesRate(64),
+            samples_rate: SamplesRate(44100),
             data_type: SampleFormat::F32
         }).into_iter())
     }
