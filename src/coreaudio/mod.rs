@@ -5,6 +5,8 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 use std::mem;
+use std::cmp;
+use std::marker::PhantomData;
 
 use CreationError;
 use Format;
@@ -44,7 +46,7 @@ pub struct Buffer<'a, T: 'a> {
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
     samples: Vec<T>,
     num_channels: NumChannels,
-    marker: ::std::marker::PhantomData<&'a T>,
+    marker: PhantomData<&'a T>,
 }
 
 impl<'a, T> Buffer<'a, T> {
@@ -138,12 +140,12 @@ impl Voice {
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
         // Block until the audio callback is ready for more data.
         let (channels, frames) = self.block_until_ready();
-        let buffer_size = ::std::cmp::min(channels * frames, max_elements);
+        let buffer_size = cmp::min(channels * frames, max_elements);
         Buffer {
             samples_sender: self.samples_sender.clone(),
             samples: vec![unsafe { mem::uninitialized() }; buffer_size],
             num_channels: channels as usize,
-            marker: ::std::marker::PhantomData
+            marker: PhantomData
         }
     }
 
@@ -175,64 +177,41 @@ impl Voice {
     /// returned.
     #[inline]
     fn update_last_ready(&self) -> Option<(NumChannels, NumFrames)> {
-        use std::ops::Deref;
-
-        if let Ok(lr) = self.last_ready.lock() {
-            let refcell = lr.deref();
-            {
-                let data = refcell.borrow();
-                if let Some(s) = *data {
-                    //
-                    return Some(s);
-                } else {
-                    drop(data);
-                    let mut data = refcell.borrow_mut();
-                    if let Ok(ready) = self.ready_receiver.try_recv() {
-                        // the audiounit is ready so we can set last_ready
-                        *data = Some(ready);
-                        return *data;
-                    }
-                }
-            }
-            drop(refcell);
-            None
+        let refcell = self.last_ready.lock().unwrap();
+        let data = refcell.borrow();
+        if let Some(s) = *data {
+            //
+            return Some(s);
         } else {
-            panic!("could not lock last_ready mutex; the previous user must \
-                    have panicked.");
+            drop(data);
+            let mut data = refcell.borrow_mut();
+            if let Ok(ready) = self.ready_receiver.try_recv() {
+                // the audiounit is ready so we can set last_ready
+                *data = Some(ready);
+                return *data;
+            }
         }
+        None
     }
 
     /// Block until ready to send data. This checks last_ready first. In any
     /// case, last_ready will be set to None when this function returns.
     fn block_until_ready(&self) -> (NumChannels, NumFrames) {
-        use std::ops::Deref;
-
-        if let Ok(lr) = self.last_ready.lock() {
-            let ret: (NumChannels, NumFrames);
-            let refcell = lr.deref();
-            {
-                let data = refcell.borrow();
-                if let Some(s) = *data {
-                    drop(data);
-                    let mut data = refcell.borrow_mut();
-                    *data = None;
-                    ret = s;
-                } else {
-                    match self.ready_receiver.recv() {
-                        Ok(ready) => {
-                            ret = ready;
-                        },
-                        Err(e) => panic!("Couldn't receive a ready message: \
-                                          {:?}", e)
-                    }
-                }
-            }
-            drop(refcell);
-
-            ret
+        let refcell = self.last_ready.lock().unwrap();
+        let data = refcell.borrow();
+        if let Some(s) = *data {
+            drop(data);
+            let mut data = refcell.borrow_mut();
+            *data = None;
+            return s;
         } else {
-            panic!("could not lock last_ready mutex; the previous user must \
-                    have panicked.");
+            match self.ready_receiver.recv() {
+                Ok(ready) => {
+                    return ready;
+                },
+                Err(e) => panic!("Couldn't receive a ready message: \
+                                  {:?}", e)
+            }
         }
     }
 
