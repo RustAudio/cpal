@@ -193,6 +193,11 @@ impl Voice {
         }
     }
 
+    #[inline]
+    pub fn get_period(&self) -> usize {
+        0
+    }
+
     pub fn get_pending_samples(&self) -> usize {
         unsafe {
             let mut padding = mem::uninitialized();
