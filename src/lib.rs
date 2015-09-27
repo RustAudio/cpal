@@ -324,6 +324,16 @@ impl Voice {
         self.format().data_type
     }
 
+    /// Returns the minimum number of samples that should be put in a buffer before it is
+    /// processable by the audio output.
+    ///
+    /// If you put less than this value in the buffer, the buffer will not be processed and you
+    /// risk an underrun.
+    #[inline]
+    pub fn get_period(&self) -> usize {
+        self.voice.get_period()
+    }
+
     /// Adds some PCM data to the voice's buffer.
     ///
     /// This function indirectly returns a `Buffer` object that must be filled with the audio data.

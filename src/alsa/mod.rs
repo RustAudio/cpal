@@ -174,6 +174,7 @@ pub struct Voice {
     channel: Mutex<*mut alsa::snd_pcm_t>,
     num_channels: u16,
     buffer_len: usize,      // number of samples that can fit in the buffer
+    period_len: usize,      // minimum number of samples to put in the buffer
 }
 
 pub struct Buffer<'a, T> {
@@ -232,18 +233,21 @@ impl Voice {
 
             check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
 
-            let buffer_len = {
-                let mut dummy = mem::uninitialized();
-                let mut val = mem::uninitialized();
-                check_errors(alsa::snd_pcm_get_params(playback_handle, &mut val, &mut dummy)).unwrap();
-                assert!(val != 0);
-                val as usize * format.channels.len()
+            let (buffer_len, period_len) = {
+                let mut buffer = mem::uninitialized();
+                let mut period = mem::uninitialized();
+                check_errors(alsa::snd_pcm_get_params(playback_handle, &mut buffer, &mut period)).unwrap();
+                assert!(buffer != 0);
+                let buffer = buffer as usize * format.channels.len();
+                let period = period as usize * format.channels.len();
+                (buffer, period)
             };
 
             Ok(Voice {
                 channel: Mutex::new(playback_handle),
                 num_channels: format.channels.len() as u16,
                 buffer_len: buffer_len,
+                period_len: period_len,
             })
         }
     }
@@ -281,6 +285,11 @@ impl Voice {
     #[inline]
     pub fn pause(&mut self) {
         unimplemented!()
+    }
+
+    #[inline]
+    pub fn get_period(&self) -> usize {
+        self.period_len
     }
 
     pub fn get_pending_samples(&self) -> usize {
