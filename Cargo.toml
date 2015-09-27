@@ -1,7 +1,7 @@
 [package]
 
 name = "cpal"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
