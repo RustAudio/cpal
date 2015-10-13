@@ -32,6 +32,7 @@ impl Endpoint {
             match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
             {   
+                -2 |
                 -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
                 e => check_errors(e).unwrap()
             }
