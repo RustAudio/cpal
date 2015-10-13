@@ -31,7 +31,7 @@ impl Endpoint {
 
             match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
-            {   
+            {
                 -2 |
                 -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
                 e => check_errors(e).unwrap()
@@ -118,7 +118,7 @@ impl Endpoint {
                     192000,
                 ];
 
-                let mut rates = Vec::new();                
+                let mut rates = Vec::new();
                 for &rate in RATES.iter() {
                     if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, rate, 0) == 0 {
                         rates.push(rate);
@@ -132,18 +132,71 @@ impl Endpoint {
                 //}
             };
 
-            let mut min_channels = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)).unwrap();
-            let mut max_channels = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)).unwrap();
-            let max_channels = cmp::min(max_channels, 32);      // TODO: limiting to 32 channels or too much stuff is returned
-            let supported_channels = (min_channels .. max_channels + 1).filter_map(|num| {
-                if alsa::snd_pcm_hw_params_test_channels(playback_handle, hw_params.0, num) == 0 {
-                    Some(iter::repeat(ChannelPosition::FrontLeft).take(num as usize).collect::<Vec<_>>())        // FIXME: 
-                } else {
-                    None
+            let mut supported_channels = Vec::new();
+            let query = alsa::snd_pcm_query_chmaps(playback_handle);
+            assert!(!query.is_null());
+
+            'supported_loop : for supported_counter in 0.. {
+                let chmap = query.offset(supported_counter);
+                if (*chmap).is_null() { break; }
+
+                let channel_count = (**chmap).map.channels as usize;
+                let channel_ptr = (**chmap).map.pos.as_ptr();
+                let channel_buf = ::std::slice::from_raw_parts(channel_ptr, channel_count);
+
+                let mut channel_map = Vec::with_capacity(channel_count);
+
+                for v in channel_buf {
+                    let position = match (v & 0xFFFF) as libc::c_uint {
+                        //alsa::SND_CHMAP_UNKNOWN =>
+                        //alsa::SND_CHMAP_NA =>
+                        alsa::SND_CHMAP_MONO => Some(ChannelPosition::FrontCenter),
+                        alsa::SND_CHMAP_FL => Some(ChannelPosition::FrontLeft),
+                        alsa::SND_CHMAP_FR => Some(ChannelPosition::FrontRight),
+                        alsa::SND_CHMAP_RL => Some(ChannelPosition::BackLeft),
+                        alsa::SND_CHMAP_RR => Some(ChannelPosition::BackRight),
+                        alsa::SND_CHMAP_FC => Some(ChannelPosition::FrontCenter),
+                        alsa::SND_CHMAP_LFE => Some(ChannelPosition::LowFrequency),
+                        alsa::SND_CHMAP_SL => Some(ChannelPosition::SideLeft),
+                        alsa::SND_CHMAP_SR => Some(ChannelPosition::SideRight),
+                        alsa::SND_CHMAP_RC => Some(ChannelPosition::BackCenter),
+                        alsa::SND_CHMAP_FLC => Some(ChannelPosition::FrontLeftOfCenter),
+                        alsa::SND_CHMAP_FRC => Some(ChannelPosition::FrontRightOfCenter),
+                        //alsa::SND_CHMAP_RLC =>
+                        //alsa::SND_CHMAP_RRC =>
+                        //alsa::SND_CHMAP_FLW =>
+                        //alsa::SND_CHMAP_FRW =>
+                        //alsa::SND_CHMAP_FLH =>
+                        //alsa::SND_CHMAP_FCH =>
+                        //alsa::SND_CHMAP_FRH =>
+                        alsa::SND_CHMAP_TC => Some(ChannelPosition::TopCenter),
+                        alsa::SND_CHMAP_TFL => Some(ChannelPosition::TopFrontLeft),
+                        alsa::SND_CHMAP_TFR => Some(ChannelPosition::TopFrontRight),
+                        alsa::SND_CHMAP_TFC => Some(ChannelPosition::TopFrontCenter),
+                        alsa::SND_CHMAP_TRL => Some(ChannelPosition::TopBackLeft),
+                        alsa::SND_CHMAP_TRR => Some(ChannelPosition::TopBackRight),
+                        alsa::SND_CHMAP_TRC => Some(ChannelPosition::TopBackCenter),
+                        //alsa::SND_CHMAP_TFLC =>
+                        //alsa::SND_CHMAP_TFRC =>
+                        //alsa::SND_CHMAP_TSL =>
+                        //alsa::SND_CHMAP_TSR =>
+                        //alsa::SND_CHMAP_LLFE =>
+                        //alsa::SND_CHMAP_RLFE =>
+                        //alsa::SND_CHMAP_BC =>
+                        //alsa::SND_CHMAP_BLC =>
+                        //alsa::SND_CHMAP_BRC =>
+                        _ => None,
+                    };
+                    match position {
+                        Some(p) => channel_map.push(p),
+                        None => continue 'supported_loop,
+                    }
                 }
-            }).collect::<Vec<_>>();
+
+                supported_channels.push(channel_map);
+            }
+
+            alsa::snd_pcm_free_chmaps(query);
 
             let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
                                                 samples_rates.len());
@@ -212,7 +265,7 @@ impl Voice {
             let mut playback_handle = mem::uninitialized();
             match alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
-            {   
+            {
                 -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
                 e => check_errors(e).unwrap()
             }
@@ -297,7 +350,7 @@ impl Voice {
         let available = {
             let channel = self.channel.lock().unwrap();
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
-            
+
             if available == -32 {
                 0       // buffer underrun
             } else if available < 0 {
