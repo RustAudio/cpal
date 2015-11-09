@@ -43,7 +43,7 @@ impl Voice {
             // computing the format and initializing the device
             let format = {
                 let format_attempt = try!(format_to_waveformatextensible(format));
-                let share_mode = winapi::AUDCLNT_SHAREMODE::AUDCLNT_SHAREMODE_SHARED;
+                let share_mode = winapi::AUDCLNT_SHAREMODE_SHARED;
 
                 // `IsFormatSupported` checks whether the format is supported and fills
                 // a `WAVEFORMATEX`
