@@ -69,7 +69,7 @@ impl Default for EndpointsIterator {
         unsafe {
             let mut collection: *mut winapi::IMMDeviceCollection = mem::uninitialized();
             // can fail because of wrong parameters (should never happen) or out of memory
-            check_result((*ENUMERATOR.0).EnumAudioEndpoints(winapi::EDataFlow::eRender,
+            check_result((*ENUMERATOR.0).EnumAudioEndpoints(winapi::eRender,
                                                             winapi::DEVICE_STATE_ACTIVE,
                                                             &mut collection))
                                                             .unwrap();
@@ -116,8 +116,8 @@ impl Iterator for EndpointsIterator {
 pub fn get_default_endpoint() -> Option<Endpoint> {
     unsafe {
         let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::EDataFlow::eRender,
-                                                           winapi::ERole::eConsole, &mut device);
+        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
+                                                           winapi::eConsole, &mut device);
 
         if let Err(_err) = check_result(hres) {
             return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
