@@ -139,7 +139,10 @@ impl Endpoint {
             let max_channels = cmp::min(max_channels, 32);      // TODO: limiting to 32 channels or too much stuff is returned
             let supported_channels = (min_channels .. max_channels + 1).filter_map(|num| {
                 if alsa::snd_pcm_hw_params_test_channels(playback_handle, hw_params.0, num) == 0 {
-                    Some(iter::repeat(ChannelPosition::FrontLeft).take(num as usize).collect::<Vec<_>>())        // FIXME: 
+                    Some([ChannelPosition::FrontLeft, ChannelPosition::FrontRight,
+                          ChannelPosition::BackLeft, ChannelPosition::BackRight,
+                          ChannelPosition::FrontCenter, ChannelPosition::LowFrequency]
+                                  .iter().take(num as usize).cloned().collect::<Vec<_>>())
                 } else {
                     None
                 }
