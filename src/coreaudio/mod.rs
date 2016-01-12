@@ -21,7 +21,7 @@ pub use self::enumerate::{EndpointsIterator,
                           SupportedFormatsIterator,
                           get_default_endpoint};
 
-use self::coreaudio::audio_unit::{AudioUnit, Type, SubType};
+use self::coreaudio::audio_unit::{AudioUnit, IOType};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint;
@@ -98,8 +98,10 @@ impl Voice {
         let underflow = Arc::new(Mutex::new(RefCell::new(false)));
         let uf_clone = underflow.clone();
 
-        let audio_unit_result = AudioUnit::new(Type::Output, SubType::HalOutput)
-            .render_callback(Box::new(move |channels, num_frames| {
+        let audio_unit_result = AudioUnit::new(IOType::HalOutput);
+
+        if let Ok(mut audio_unit) = audio_unit_result {
+            if let Ok(()) = audio_unit.set_render_callback(Some(Box::new(move |channels: &mut[&mut[f32]], num_frames: NumFrames| {
                 if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
                     return Err("Callback failed to send 'ready' message.".to_string());
                 }
@@ -120,21 +122,20 @@ impl Voice {
                 }
                 Ok(())
 
-            }))
-            .start();
-
-        match audio_unit_result {
-            Ok(audio_unit) => Ok(Voice {
-                audio_unit: audio_unit,
-                ready_receiver: ready_receiver,
-                samples_sender: samples_sender,
-                underflow: underflow,
-                last_ready: Arc::new(Mutex::new(RefCell::new(None)))
-            }),
-            Err(_) => {
-                Err(CreationError::DeviceNotAvailable)
-            },
+            }))) {
+                if let Ok(()) = audio_unit.start() {
+                    return Ok(Voice {
+                        audio_unit: audio_unit,
+                        ready_receiver: ready_receiver,
+                        samples_sender: samples_sender,
+                        underflow: underflow,
+                        last_ready: Arc::new(Mutex::new(RefCell::new(None)))
+                    })
+                }
+            }
         }
+
+        Err(CreationError::DeviceNotAvailable)
     }
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
