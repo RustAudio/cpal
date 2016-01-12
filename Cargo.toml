@@ -24,7 +24,7 @@ version = "0"
 path = "alsa-sys"
 
 [target.x86_64-apple-darwin.dependencies]
-coreaudio-rs = "*"
+coreaudio-rs = "~0.4.0"
 
 [dev-dependencies]
 vorbis = "0"
