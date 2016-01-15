@@ -1,9 +1,9 @@
 extern crate cpal;
 
 fn main() {
-    let endpoint = cpal::get_default_endpoint().unwrap();
-    let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
-    let mut channel = cpal::Voice::new(&endpoint, &format).unwrap();
+    let endpoint = cpal::get_default_endpoint().expect("Failed to get default endpoint");
+    let format = endpoint.get_supported_formats_list().unwrap().next().expect("Failed to get endpoint format");
+    let mut channel = cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel");
 
     // Produce a sinusoid of maximum amplitude.
     let mut data_source = (0u64..).map(|t| t as f32 * 440.0 * 2.0 * 3.141592 / format.samples_rate.0 as f32)     // 440 Hz
