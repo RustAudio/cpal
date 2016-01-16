@@ -27,14 +27,14 @@ impl Endpoint {
     {
         unsafe {
             let mut playback_handle = mem::uninitialized();
-            let device_name = ffi::CString::new(self.0.clone()).unwrap();
+            let device_name = ffi::CString::new(self.0.clone()).expect("Unable to get device name");
 
             match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
             {   
                 -2 |
                 -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-                e => check_errors(e).unwrap()
+                e => check_errors(e).expect("device not available")
             }
 
             let hw_params = HwParams::alloc();
@@ -93,9 +93,9 @@ impl Endpoint {
             }
 
             let mut min_rate = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_rate_min(hw_params.0, &mut min_rate, ptr::null_mut())).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_get_rate_min(hw_params.0, &mut min_rate, ptr::null_mut())).expect("unable to get minimum supported rete");
             let mut max_rate = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_rate_max(hw_params.0, &mut max_rate, ptr::null_mut())).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_get_rate_max(hw_params.0, &mut max_rate, ptr::null_mut())).expect("unable to get maximum supported rate");
 
             let samples_rates = if min_rate == max_rate {
                 vec![min_rate]
@@ -133,9 +133,9 @@ impl Endpoint {
             };
 
             let mut min_channels = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)).expect("unable to get minimum supported channel count");
             let mut max_channels = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)).expect("unable to get maximum supported channel count");
             let max_channels = cmp::min(max_channels, 32);      // TODO: limiting to 32 channels or too much stuff is returned
             let supported_channels = (min_channels .. max_channels + 1).filter_map(|num| {
                 if alsa::snd_pcm_hw_params_test_channels(playback_handle, hw_params.0, num) == 0 {
@@ -193,7 +193,7 @@ impl HwParams {
     pub fn alloc() -> HwParams {
         unsafe {
             let mut hw_params = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params)).expect("unable to get hardware parameters");
             HwParams(hw_params)
         }
     }
@@ -210,14 +210,14 @@ impl Drop for HwParams {
 impl Voice {
     pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
         unsafe {
-            let name = ffi::CString::new(endpoint.0.clone()).unwrap();
+            let name = ffi::CString::new(endpoint.0.clone()).expect("unable to clone endpoint");
 
             let mut playback_handle = mem::uninitialized();
             match alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
             {   
                 -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                e => check_errors(e).unwrap()
+                e => check_errors(e).expect("Device unavailable")
             }
 
             // TODO: check endianess
@@ -228,19 +228,19 @@ impl Voice {
             };
 
             let hw_params = HwParams::alloc();
-            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_access(playback_handle, hw_params.0, alsa::SND_PCM_ACCESS_RW_INTERLEAVED)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, data_type)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, format.samples_rate.0 as libc::c_uint, 0)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, format.channels.len() as libc::c_uint)).unwrap();
-            check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).unwrap();
+            check_errors(alsa::snd_pcm_hw_params_any(playback_handle, hw_params.0)).expect("Errors on playback handle");
+            check_errors(alsa::snd_pcm_hw_params_set_access(playback_handle, hw_params.0, alsa::SND_PCM_ACCESS_RW_INTERLEAVED)).expect("handle not acessible");
+            check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, data_type)).expect("format could not be set");
+            check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, format.samples_rate.0 as libc::c_uint, 0)).expect("sample rate could not be set");
+            check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, format.channels.len() as libc::c_uint)).expect("channel count could not be set");
+            check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).expect("hardware params could not be set");
 
-            check_errors(alsa::snd_pcm_prepare(playback_handle)).unwrap();
+            check_errors(alsa::snd_pcm_prepare(playback_handle)).expect("could not get playback handle");
 
             let (buffer_len, period_len) = {
                 let mut buffer = mem::uninitialized();
                 let mut period = mem::uninitialized();
-                check_errors(alsa::snd_pcm_get_params(playback_handle, &mut buffer, &mut period)).unwrap();
+                check_errors(alsa::snd_pcm_get_params(playback_handle, &mut buffer, &mut period)).expect("could not initialize buffer");
                 assert!(buffer != 0);
                 let buffer = buffer as usize * format.channels.len();
                 let period = period as usize * format.channels.len();
@@ -258,14 +258,14 @@ impl Voice {
 
     pub fn append_data<'a, T>(&'a mut self, max_elements: usize) -> Buffer<'a, T> where T: Clone {
         let available = {
-            let channel = self.channel.lock().unwrap();
+            let channel = self.channel.lock().expect("could not lock channel");
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
 
             if available == -32 {
                 // buffer underrun
                 self.buffer_len
             } else if available < 0 {
-                check_errors(available as libc::c_int).unwrap();
+                check_errors(available as libc::c_int).expect("buffer is not available");
                 unreachable!()
             } else {
                 (available * self.num_channels as alsa::snd_pcm_sframes_t) as usize
@@ -298,13 +298,13 @@ impl Voice {
 
     pub fn get_pending_samples(&self) -> usize {
         let available = {
-            let channel = self.channel.lock().unwrap();
+            let channel = self.channel.lock().expect("could not lock channel");
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
             
             if available == -32 {
                 0       // buffer underrun
             } else if available < 0 {
-                check_errors(available as libc::c_int).unwrap();
+                check_errors(available as libc::c_int).expect("could not write to buffer");
                 unreachable!()
             } else {
                 available * self.num_channels as alsa::snd_pcm_sframes_t
@@ -315,7 +315,7 @@ impl Voice {
     }
 
     pub fn underflowed(&self) -> bool {
-        let channel = self.channel.lock().unwrap();
+        let channel = self.channel.lock().expect("channel underflow");
 
         let state = unsafe { alsa::snd_pcm_state(*channel) };
         state == alsa::SND_PCM_STATE_XRUN
@@ -329,7 +329,7 @@ impl Drop for Voice {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            alsa::snd_pcm_close(*self.channel.lock().unwrap());
+            alsa::snd_pcm_close(*self.channel.lock().expect("drop for voice"));
         }
     }
 }
@@ -348,7 +348,7 @@ impl<'a, T> Buffer<'a, T> {
     pub fn finish(self) {
         let to_write = (self.buffer.len() / self.channel.num_channels as usize)
                        as alsa::snd_pcm_uframes_t;
-        let channel = self.channel.channel.lock().unwrap();
+        let channel = self.channel.channel.lock().expect("Buffer channel lock failed");
 
         unsafe {
             loop {
@@ -360,7 +360,7 @@ impl<'a, T> Buffer<'a, T> {
                     // buffer underrun
                     alsa::snd_pcm_prepare(*channel);
                 } else if result < 0 {
-                    check_errors(result as libc::c_int).unwrap();
+                    check_errors(result as libc::c_int).expect("could not write pcm");
                 } else {
                     assert_eq!(result as alsa::snd_pcm_uframes_t, to_write);
                     break;
@@ -377,7 +377,7 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
     if err < 0 {
         unsafe {
             let s = ffi::CStr::from_ptr(alsa::snd_strerror(err)).to_bytes().to_vec();
-            let s = String::from_utf8(s).unwrap();
+            let s = String::from_utf8(s).expect("Streaming error occured");
             return Err(s);
         }
     }
