@@ -31,7 +31,7 @@ impl Endpoint {
 
             match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
-            {   
+            {
                 -2 |
                 -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
                 e => check_errors(e).expect("device not available")
@@ -118,7 +118,7 @@ impl Endpoint {
                     192000,
                 ];
 
-                let mut rates = Vec::new();                
+                let mut rates = Vec::new();
                 for &rate in RATES.iter() {
                     if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, rate, 0) == 0 {
                         rates.push(rate);
@@ -215,7 +215,7 @@ impl Voice {
             let mut playback_handle = mem::uninitialized();
             match alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
                                      alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
-            {   
+            {
                 -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
                 e => check_errors(e).expect("Device unavailable")
             }
@@ -300,9 +300,9 @@ impl Voice {
         let available = {
             let channel = self.channel.lock().expect("could not lock channel");
             let available = unsafe { alsa::snd_pcm_avail(*channel) };
-            
+
             if available == -32 {
-                0       // buffer underrun
+                self.buffer_len as alsa::snd_pcm_sframes_t       // buffer underrun
             } else if available < 0 {
                 check_errors(available as libc::c_int).expect("could not write to buffer");
                 unreachable!()
