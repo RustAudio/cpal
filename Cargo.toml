@@ -14,6 +14,7 @@ libc = "0.2"
 lazy_static = "0.1"
 winapi = "0.2.5"
 ole32-sys = "0.1"
+wio = "0.1.1"
 
 [target.mipsel-unknown-linux-gnu.dependencies.alsa-sys]
 version = "0"

@@ -1,5 +1,6 @@
 extern crate winapi;
 extern crate ole32;
+extern crate wio;
 
 use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
@@ -8,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::ptr;
 use std::mem;
 use std::slice;
+use self::wio::com::ComPtr;
 
 use Format;
 use FormatsEnumerationError;
@@ -35,15 +37,15 @@ fn check_result(result: winapi::HRESULT) -> Result<(), IoError> {
 }
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
-#[derive(Copy, Clone)]
-#[allow(raw_pointer_derive)]
-struct IAudioClientWrapper(*mut winapi::IAudioClient);
+#[derive(Clone)]
+struct IAudioClientWrapper(ComPtr<winapi::IAudioClient>);
 unsafe impl Send for IAudioClientWrapper {}
 unsafe impl Sync for IAudioClientWrapper {}
 
 /// An opaque type that identifies an end point.
+#[derive(Clone)]
 pub struct Endpoint {
-    device: *mut winapi::IMMDevice,
+    device: ComPtr<winapi::IMMDevice>,
 
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
@@ -60,7 +62,7 @@ impl Endpoint {
         unsafe {
             let mut name_ptr = mem::uninitialized();
             // can only fail if wrong params or out of memory
-            check_result((*self.device).GetId(&mut name_ptr)).unwrap();
+            check_result(self.device.as_mut().GetId(&mut name_ptr)).unwrap();
 
             // finding the length of the name
             let mut len = 0;
@@ -79,7 +81,7 @@ impl Endpoint {
     }
 
     #[inline]
-    fn from_immdevice(device: *mut winapi::IMMDevice) -> Endpoint {
+    fn from_immdevice(device: ComPtr<winapi::IMMDevice>) -> Endpoint {
         Endpoint {
             device: device,
             future_audio_client: Arc::new(Mutex::new(None)),
@@ -93,16 +95,16 @@ impl Endpoint {
             return Ok(lock);
         }
 
-        let audio_client: *mut winapi::IAudioClient = unsafe {
+        let audio_client: ComPtr<winapi::IAudioClient> = unsafe {
             let mut audio_client = mem::uninitialized();
-            let hresult = (*self.device).Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
+            let hresult = self.device.as_mut().Activate(&winapi::IID_IAudioClient, winapi::CLSCTX_ALL,
                                                   ptr::null_mut(), &mut audio_client);
 
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
             try!(check_result(hresult));
             assert!(!audio_client.is_null());
-            audio_client as *mut _
+            ComPtr::new(audio_client as *mut _)
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
@@ -111,9 +113,9 @@ impl Endpoint {
 
     /// Returns an uninitialized `IAudioClient`.
     #[inline]
-    fn build_audioclient(&self) -> Result<*mut winapi::IAudioClient, IoError> {
+    fn build_audioclient(&self) -> Result<ComPtr<winapi::IAudioClient>, IoError> {
         let mut lock = try!(self.ensure_future_audio_client());
-        let client = lock.unwrap().0;
+        let client = lock.as_ref().unwrap().0.clone();
         *lock = None;
         Ok(client)
     }
@@ -135,11 +137,11 @@ impl Endpoint {
                 return Err(FormatsEnumerationError::DeviceNotAvailable),
             e => e.unwrap(),
         };
-        let client = lock.unwrap().0;
+        let mut client = lock.as_ref().unwrap().0.clone();
 
         unsafe {
             let mut format_ptr = mem::uninitialized();
-            match check_result((*client).GetMixFormat(&mut format_ptr)) {
+            match check_result(client.GetMixFormat(&mut format_ptr)) {
                 Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(FormatsEnumerationError::DeviceNotAvailable);
                 },
@@ -217,28 +219,4 @@ impl PartialEq for Endpoint {
         self.device == other.device
     }
 }
-
 impl Eq for Endpoint {}
-
-impl Clone for Endpoint {
-    #[inline]
-    fn clone(&self) -> Endpoint {
-        unsafe { (*self.device).AddRef(); }
-
-        Endpoint {
-            device: self.device,
-            future_audio_client: self.future_audio_client.clone(),
-        }
-    }
-}
-
-impl Drop for Endpoint {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe { (*self.device).Release(); }
-
-        if let Some(client) = self.future_audio_client.lock().unwrap().take() {
-            unsafe { (*client.0).Release(); }
-        }
-    }
-}

@@ -3,6 +3,7 @@ use super::ole32;
 use super::com;
 use super::Endpoint;
 use super::check_result;
+use super::wio::com::ComPtr;
 
 use std::mem;
 use std::ptr;
@@ -15,39 +16,28 @@ lazy_static! {
 
         // building the devices enumerator object
         unsafe {
-            let mut enumerator: *mut winapi::IMMDeviceEnumerator = mem::uninitialized();
+            let mut enumerator = mem::uninitialized();
             
             let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
                                                   ptr::null_mut(), winapi::CLSCTX_ALL,
                                                   &winapi::IID_IMMDeviceEnumerator,
-                                                  &mut enumerator
-                                                           as *mut *mut winapi::IMMDeviceEnumerator
-                                                           as *mut _);
+                                                  &mut enumerator);
 
             check_result(hresult).unwrap();
-            Enumerator(enumerator)
+            Enumerator(ComPtr::new(enumerator as *mut _))
         }
     };
 }
 
 /// RAII object around `winapi::IMMDeviceEnumerator`.
-struct Enumerator(*mut winapi::IMMDeviceEnumerator);
+struct Enumerator(ComPtr<winapi::IMMDeviceEnumerator>);
 
 unsafe impl Send for Enumerator {}
 unsafe impl Sync for Enumerator {}
 
-impl Drop for Enumerator {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            (*self.0).Release();
-        }
-    }
-}
-
 /// WASAPI implementation for `EndpointsIterator`.
 pub struct EndpointsIterator {
-    collection: *mut winapi::IMMDeviceCollection,
+    collection: ComPtr<winapi::IMMDeviceCollection>,
     total_count: u32,
     next_item: u32,
 }
@@ -55,28 +45,21 @@ pub struct EndpointsIterator {
 unsafe impl Send for EndpointsIterator {}
 unsafe impl Sync for EndpointsIterator {}
 
-impl Drop for EndpointsIterator {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            (*self.collection).Release();
-        }
-    }
-}
 
 impl Default for EndpointsIterator {
     fn default() -> EndpointsIterator {
         unsafe {
             let mut collection: *mut winapi::IMMDeviceCollection = mem::uninitialized();
             // can fail because of wrong parameters (should never happen) or out of memory
-            check_result((*ENUMERATOR.0).EnumAudioEndpoints(winapi::eRender,
+            check_result(ENUMERATOR.0.as_mut().EnumAudioEndpoints(winapi::eRender,
                                                             winapi::DEVICE_STATE_ACTIVE,
                                                             &mut collection))
                                                             .unwrap();
 
+            let mut collection = ComPtr::new(collection);
             let mut count = mem::uninitialized();
             // can fail if the parameter is null, which should never happen
-            check_result((*collection).GetCount(&mut count)).unwrap();
+            check_result(collection.GetCount(&mut count)).unwrap();
 
             EndpointsIterator {
                 collection: collection,
@@ -98,10 +81,10 @@ impl Iterator for EndpointsIterator {
         unsafe {
             let mut device = mem::uninitialized();
             // can fail if out of range, which we just checked above
-            check_result((*self.collection).Item(self.next_item, &mut device)).unwrap();
+            check_result(self.collection.Item(self.next_item, &mut device)).unwrap();
 
             self.next_item += 1;
-            Some(Endpoint::from_immdevice(device))
+            Some(Endpoint::from_immdevice(ComPtr::new(device)))
         }
     }
 
@@ -116,13 +99,13 @@ impl Iterator for EndpointsIterator {
 pub fn get_default_endpoint() -> Option<Endpoint> {
     unsafe {
         let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
+        let hres = ENUMERATOR.0.as_mut().GetDefaultAudioEndpoint(winapi::eRender,
                                                            winapi::eConsole, &mut device);
 
         if let Err(_err) = check_result(hres) {
             return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
         }
 
-        Some(Endpoint::from_immdevice(device))
+        Some(Endpoint::from_immdevice(ComPtr::new(device)))
     }
 }

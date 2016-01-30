@@ -3,6 +3,7 @@ use super::ole32;
 use super::winapi;
 use super::Endpoint;
 use super::check_result;
+use super::wio::com::ComPtr;
 
 use std::cmp;
 use std::slice;
@@ -16,8 +17,8 @@ use Format;
 use SampleFormat;
 
 pub struct Voice {
-    audio_client: *mut winapi::IAudioClient,
-    render_client: *mut winapi::IAudioRenderClient,
+    audio_client: ComPtr<winapi::IAudioClient>,
+    render_client: ComPtr<winapi::IAudioRenderClient>,
     max_frames_in_buffer: winapi::UINT32,
     bytes_per_frame: winapi::WORD,
     playing: bool,
@@ -34,7 +35,7 @@ impl Voice {
             com::com_initialized();
 
             // obtaining a `IAudioClient`
-            let audio_client = match end_point.build_audioclient() {
+            let mut audio_client = match end_point.build_audioclient() {
                 Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(CreationError::DeviceNotAvailable),
                 e => e.unwrap(),
@@ -48,7 +49,7 @@ impl Voice {
                 // `IsFormatSupported` checks whether the format is supported and fills
                 // a `WAVEFORMATEX`
                 let mut dummy_fmt_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
-                let hresult = (*audio_client).IsFormatSupported(share_mode, &format_attempt.Format,
+                let hresult = audio_client.IsFormatSupported(share_mode, &format_attempt.Format,
                                                                 &mut dummy_fmt_ptr);
                 // we free that `WAVEFORMATEX` immediately after because we don't need it
                 if !dummy_fmt_ptr.is_null() {
@@ -61,31 +62,26 @@ impl Voice {
                     (_, Err(ref e))
                             if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     {
-                        (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
                     (_, Err(e)) => {
-                        (*audio_client).Release();
                         panic!("{:?}", e);
                     },
                     (winapi::S_FALSE, _) => {
-                        (*audio_client).Release();
                         return Err(CreationError::FormatNotSupported);
                     },
                     (_, Ok(())) => (),
                 };
 
                 // finally initializing the audio client
-                let hresult = (*audio_client).Initialize(share_mode, 0, 10000000, 0,
+                let hresult = audio_client.Initialize(share_mode, 0, 10000000, 0,
                                                          &format_attempt.Format, ptr::null());
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     {
-                        (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
                     Err(e) => {
-                        (*audio_client).Release();
                         panic!("{:?}", e);
                     },
                     Ok(()) => (),
@@ -97,16 +93,14 @@ impl Voice {
             // obtaining the size of the samples buffer in number of frames
             let max_frames_in_buffer = {
                 let mut max_frames_in_buffer = mem::uninitialized();
-                let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
+                let hresult = audio_client.GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     {
-                        (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
                     Err(e) => {
-                        (*audio_client).Release();
                         panic!("{:?}", e);
                     },
                     Ok(()) => (),
@@ -117,26 +111,21 @@ impl Voice {
 
             // building a `IAudioRenderClient` that will be used to fill the samples buffer
             let render_client = {
-                let mut render_client: *mut winapi::IAudioRenderClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(&winapi::IID_IAudioRenderClient,
-                                                         &mut render_client
-                                                            as *mut *mut winapi::IAudioRenderClient
-                                                            as *mut _);
+                let mut render_client = mem::uninitialized();
+                let hresult = audio_client.GetService(&winapi::IID_IAudioRenderClient,
+                                                         &mut render_client);
 
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     {
-                        (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
                     Err(e) => {
-                        (*audio_client).Release();
                         panic!("{:?}", e);
                     },
                     Ok(()) => (),
                 };
-
-                &mut *render_client
+                ComPtr::new(render_client as *mut _)
             };
 
             // everything went fine
@@ -155,7 +144,7 @@ impl Voice {
             // obtaining the number of frames that are available to be written
             let frames_available = {
                 let mut padding = mem::uninitialized();
-                let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
+                let hresult = self.audio_client.GetCurrentPadding(&mut padding);
                 check_result(hresult).unwrap();
                 self.max_frames_in_buffer - padding
             };
@@ -174,8 +163,8 @@ impl Voice {
             // obtaining a pointer to the buffer
             let (buffer_data, buffer_len) = {
                 let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                let hresult = (*self.render_client).GetBuffer(frames_available,
-                                                              &mut buffer as *mut *mut _);
+                let hresult = self.render_client.GetBuffer(frames_available,
+                                                           &mut buffer as *mut *mut _);
                 check_result(hresult).unwrap();     // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
                 debug_assert!(!buffer.is_null());
 
@@ -184,7 +173,7 @@ impl Voice {
             };
 
             Buffer::Buffer {
-                render_client: self.render_client,
+                render_client: self.render_client.clone(),
                 buffer_data: buffer_data,
                 buffer_len: buffer_len,
                 frames: frames_available,
@@ -201,7 +190,7 @@ impl Voice {
     pub fn get_pending_samples(&self) -> usize {
         unsafe {
             let mut padding = mem::uninitialized();
-            let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
+            let hresult = self.audio_client.as_mut().GetCurrentPadding(&mut padding);
             check_result(hresult).unwrap();
             padding as usize
         }
@@ -211,7 +200,7 @@ impl Voice {
     pub fn play(&mut self) {
         if !self.playing {
             unsafe {
-                let hresult = (*self.audio_client).Start();
+                let hresult = self.audio_client.Start();
                 check_result(hresult).unwrap();
             }
         }
@@ -223,7 +212,7 @@ impl Voice {
     pub fn pause(&mut self) {
         if self.playing {
             unsafe {
-                let hresult = (*self.audio_client).Stop();
+                let hresult = self.audio_client.Stop();
                 check_result(hresult).unwrap();
             }
         }
@@ -234,7 +223,7 @@ impl Voice {
     pub fn underflowed(&self) -> bool {
         unsafe {
             let mut padding = mem::uninitialized();
-            let hresult = (*self.audio_client).GetCurrentPadding(&mut padding);
+            let hresult = self.audio_client.as_mut().GetCurrentPadding(&mut padding);
             check_result(hresult).unwrap();
             
             padding == 0
@@ -242,20 +231,10 @@ impl Voice {
     }
 }
 
-impl Drop for Voice {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            (*self.render_client).Release();
-            (*self.audio_client).Release();
-        }
-    }
-}
-
 pub enum Buffer<'a, T: 'a> {
     Empty,
     Buffer {
-        render_client: *mut winapi::IAudioRenderClient,
+        render_client: ComPtr<winapi::IAudioRenderClient>,
         buffer_data: *mut T,
         buffer_len: usize,
         frames: winapi::UINT32,
@@ -284,9 +263,9 @@ impl<'a, T> Buffer<'a, T> {
 
     #[inline]
     pub fn finish(self) {
-        if let Buffer::Buffer { render_client, frames, .. } = self {
+        if let Buffer::Buffer { mut render_client, frames, .. } = self {
             unsafe {
-                let hresult = (*render_client).ReleaseBuffer(frames as u32, 0);
+                let hresult = render_client.ReleaseBuffer(frames as u32, 0);
                 match check_result(hresult) {
                     // ignoring the error that is produced if the device has been disconnected
                     Err(ref e)
