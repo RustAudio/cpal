@@ -317,8 +317,8 @@ impl Voice {
     pub fn underflowed(&self) -> bool {
         let channel = self.channel.lock().expect("channel underflow");
 
-        let state = unsafe { alsa::snd_pcm_state(*channel) };
-        state == alsa::SND_PCM_STATE_XRUN
+        let available = unsafe { alsa::snd_pcm_avail(*channel) };
+        available == -32
     }
 }
 
