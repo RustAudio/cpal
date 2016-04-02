@@ -3,7 +3,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-use libc::{c_int, c_uint, c_long, c_longlong, size_t, ssize_t, c_void, c_char, c_uchar, c_ulong, c_double, FILE, c_ushort, c_short, pid_t, timeval, timespec};
+use libc::{c_int, c_uint, c_long, c_longlong, size_t, ssize_t, c_void, c_char, c_uchar, c_ulong, c_double, FILE, c_ushort, c_short, pid_t, timeval, timespec, pollfd};
 use std::{mem};
 
 extern crate libc;
@@ -969,8 +969,8 @@ extern "C" {
     pub fn snd_pcm_type(pcm: *mut snd_pcm_t) -> snd_pcm_type_t;
     pub fn snd_pcm_stream(pcm: *mut snd_pcm_t) -> snd_pcm_stream_t;
     pub fn snd_pcm_poll_descriptors_count(pcm: *mut snd_pcm_t) -> c_int;
-    //pub fn snd_pcm_poll_descriptors(pcm: *mut snd_pcm_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_pcm_poll_descriptors_revents(pcm: *mut snd_pcm_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_pcm_poll_descriptors(pcm: *mut snd_pcm_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_pcm_poll_descriptors_revents(pcm: *mut snd_pcm_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_pcm_nonblock(pcm: *mut snd_pcm_t, nonblock: c_int) -> c_int;
     pub fn snd_async_add_pcm_handler(handler: *mut *mut snd_async_handler_t, pcm: *mut snd_pcm_t, callback: snd_async_callback_t, private_data: *mut c_void) -> c_int;
     pub fn snd_async_handler_get_pcm(handler: *mut snd_async_handler_t) -> *mut snd_pcm_t;
@@ -1325,8 +1325,8 @@ extern "C" {
     pub fn snd_rawmidi_open_lconf(in_rmidi: *mut *mut snd_rawmidi_t, out_rmidi: *mut *mut snd_rawmidi_t, name: *const c_char, mode: c_int, lconf: *mut snd_config_t) -> c_int;
     pub fn snd_rawmidi_close(rmidi: *mut snd_rawmidi_t) -> c_int;
     pub fn snd_rawmidi_poll_descriptors_count(rmidi: *mut snd_rawmidi_t) -> c_int;
-    //pub fn snd_rawmidi_poll_descriptors(rmidi: *mut snd_rawmidi_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_rawmidi_poll_descriptors_revents(rawmidi: *mut snd_rawmidi_t, pfds: *mut Struct_pollfd, nfds: c_uint, revent: *mut c_ushort) -> c_int;
+    pub fn snd_rawmidi_poll_descriptors(rmidi: *mut snd_rawmidi_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_rawmidi_poll_descriptors_revents(rawmidi: *mut snd_rawmidi_t, pfds: *mut pollfd, nfds: c_uint, revent: *mut c_ushort) -> c_int;
     pub fn snd_rawmidi_nonblock(rmidi: *mut snd_rawmidi_t, nonblock: c_int) -> c_int;
     pub fn snd_rawmidi_info_sizeof() -> size_t;
     pub fn snd_rawmidi_info_malloc(ptr: *mut *mut snd_rawmidi_info_t) -> c_int;
@@ -1386,8 +1386,8 @@ extern "C" {
     pub fn snd_async_add_timer_handler(handler: *mut *mut snd_async_handler_t, timer: *mut snd_timer_t, callback: snd_async_callback_t, private_data: *mut c_void) -> c_int;
     pub fn snd_async_handler_get_timer(handler: *mut snd_async_handler_t) -> *mut snd_timer_t;
     pub fn snd_timer_poll_descriptors_count(handle: *mut snd_timer_t) -> c_int;
-    //pub fn snd_timer_poll_descriptors(handle: *mut snd_timer_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_timer_poll_descriptors_revents(timer: *mut snd_timer_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_timer_poll_descriptors(handle: *mut snd_timer_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_timer_poll_descriptors_revents(timer: *mut snd_timer_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_timer_info(handle: *mut snd_timer_t, timer: *mut snd_timer_info_t) -> c_int;
     pub fn snd_timer_params(handle: *mut snd_timer_t, params: *mut snd_timer_params_t) -> c_int;
     pub fn snd_timer_status(handle: *mut snd_timer_t, status: *mut snd_timer_status_t) -> c_int;
@@ -1460,8 +1460,8 @@ extern "C" {
     pub fn snd_timer_info_get_ticks(info: *mut snd_timer_info_t) -> c_long;
     pub fn snd_hwdep_open(hwdep: *mut *mut snd_hwdep_t, name: *const c_char, mode: c_int) -> c_int;
     pub fn snd_hwdep_close(hwdep: *mut snd_hwdep_t) -> c_int;
-    //pub fn snd_hwdep_poll_descriptors(hwdep: *mut snd_hwdep_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_hwdep_poll_descriptors_revents(hwdep: *mut snd_hwdep_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_hwdep_poll_descriptors(hwdep: *mut snd_hwdep_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_hwdep_poll_descriptors_revents(hwdep: *mut snd_hwdep_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_hwdep_nonblock(hwdep: *mut snd_hwdep_t, nonblock: c_int) -> c_int;
     pub fn snd_hwdep_info(hwdep: *mut snd_hwdep_t, info: *mut snd_hwdep_info_t) -> c_int;
     pub fn snd_hwdep_dsp_status(hwdep: *mut snd_hwdep_t, status: *mut snd_hwdep_dsp_status_t) -> c_int;
@@ -1516,8 +1516,8 @@ extern "C" {
     pub fn snd_async_add_ctl_handler(handler: *mut *mut snd_async_handler_t, ctl: *mut snd_ctl_t, callback: snd_async_callback_t, private_data: *mut c_void) -> c_int;
     pub fn snd_async_handler_get_ctl(handler: *mut snd_async_handler_t) -> *mut snd_ctl_t;
     pub fn snd_ctl_poll_descriptors_count(ctl: *mut snd_ctl_t) -> c_int;
-    //pub fn snd_ctl_poll_descriptors(ctl: *mut snd_ctl_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_ctl_poll_descriptors_revents(ctl: *mut snd_ctl_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_ctl_poll_descriptors(ctl: *mut snd_ctl_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_ctl_poll_descriptors_revents(ctl: *mut snd_ctl_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_ctl_subscribe_events(ctl: *mut snd_ctl_t, subscribe: c_int) -> c_int;
     pub fn snd_ctl_card_info(ctl: *mut snd_ctl_t, info: *mut snd_ctl_card_info_t) -> c_int;
     pub fn snd_ctl_elem_list(ctl: *mut snd_ctl_t, list: *mut snd_ctl_elem_list_t) -> c_int;
@@ -1705,8 +1705,8 @@ extern "C" {
     pub fn snd_hctl_close(hctl: *mut snd_hctl_t) -> c_int;
     pub fn snd_hctl_nonblock(hctl: *mut snd_hctl_t, nonblock: c_int) -> c_int;
     pub fn snd_hctl_poll_descriptors_count(hctl: *mut snd_hctl_t) -> c_int;
-    //pub fn snd_hctl_poll_descriptors(hctl: *mut snd_hctl_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_hctl_poll_descriptors_revents(ctl: *mut snd_hctl_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_hctl_poll_descriptors(hctl: *mut snd_hctl_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_hctl_poll_descriptors_revents(ctl: *mut snd_hctl_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_hctl_get_count(hctl: *mut snd_hctl_t) -> c_uint;
     pub fn snd_hctl_set_compare(hctl: *mut snd_hctl_t, hsort: snd_hctl_compare_t) -> c_int;
     pub fn snd_hctl_first_elem(hctl: *mut snd_hctl_t) -> *mut snd_hctl_elem_t;
@@ -1755,8 +1755,8 @@ extern "C" {
     pub fn snd_mixer_detach_hctl(mixer: *mut snd_mixer_t, hctl: *mut snd_hctl_t) -> c_int;
     pub fn snd_mixer_get_hctl(mixer: *mut snd_mixer_t, name: *const c_char, hctl: *mut *mut snd_hctl_t) -> c_int;
     pub fn snd_mixer_poll_descriptors_count(mixer: *mut snd_mixer_t) -> c_int;
-    //pub fn snd_mixer_poll_descriptors(mixer: *mut snd_mixer_t, pfds: *mut Struct_pollfd, space: c_uint) -> c_int;
-    //pub fn snd_mixer_poll_descriptors_revents(mixer: *mut snd_mixer_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_mixer_poll_descriptors(mixer: *mut snd_mixer_t, pfds: *mut pollfd, space: c_uint) -> c_int;
+    pub fn snd_mixer_poll_descriptors_revents(mixer: *mut snd_mixer_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_mixer_load(mixer: *mut snd_mixer_t) -> c_int;
     pub fn snd_mixer_free(mixer: *mut snd_mixer_t);
     pub fn snd_mixer_wait(mixer: *mut snd_mixer_t, timeout: c_int) -> c_int;
@@ -1867,8 +1867,8 @@ extern "C" {
     pub fn snd_seq_type(seq: *mut snd_seq_t) -> snd_seq_type_t;
     pub fn snd_seq_close(handle: *mut snd_seq_t) -> c_int;
     pub fn snd_seq_poll_descriptors_count(handle: *mut snd_seq_t, events: c_short) -> c_int;
-    //pub fn snd_seq_poll_descriptors(handle: *mut snd_seq_t, pfds: *mut Struct_pollfd, space: c_uint, events: c_short) -> c_int;
-    //pub fn snd_seq_poll_descriptors_revents(seq: *mut snd_seq_t, pfds: *mut Struct_pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
+    pub fn snd_seq_poll_descriptors(handle: *mut snd_seq_t, pfds: *mut pollfd, space: c_uint, events: c_short) -> c_int;
+    pub fn snd_seq_poll_descriptors_revents(seq: *mut snd_seq_t, pfds: *mut pollfd, nfds: c_uint, revents: *mut c_ushort) -> c_int;
     pub fn snd_seq_nonblock(handle: *mut snd_seq_t, nonblock: c_int) -> c_int;
     pub fn snd_seq_client_id(handle: *mut snd_seq_t) -> c_int;
     pub fn snd_seq_get_output_buffer_size(handle: *mut snd_seq_t) -> size_t;
