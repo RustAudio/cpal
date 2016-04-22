@@ -43,7 +43,7 @@ extern crate libc;
 
 pub use samples_formats::{SampleFormat, Sample};
 
-#[cfg(all(not(windows), not(unix)))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 use null as cpal_impl;
 
 use std::fmt;
