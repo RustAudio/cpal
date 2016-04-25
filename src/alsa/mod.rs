@@ -353,7 +353,7 @@ impl<'a, T> Buffer<'a, T> {
         unsafe {
             loop {
                 let result = alsa::snd_pcm_writei(*channel,
-                                                  self.buffer.as_ptr() as *const libc::c_void,
+                                                  self.buffer.as_ptr() as *const _,
                                                   to_write);
 
                 if result == -32 {
