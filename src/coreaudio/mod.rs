@@ -161,6 +161,11 @@ impl Voice {
     }
 
     #[inline]
+    pub fn get_period(&self) -> usize {
+        0
+    }
+
+    #[inline]
     pub fn get_pending_samples(&self) -> usize {
         if let Some(ready) = self.update_last_ready() {
             (ready.0 * ready.1) as usize
