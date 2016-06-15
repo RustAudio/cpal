@@ -162,7 +162,7 @@ impl Voice {
 
     #[inline]
     pub fn get_period(&self) -> usize {
-        0
+        self.get_pending_samples()
     }
 
     #[inline]
