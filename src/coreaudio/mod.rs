@@ -3,6 +3,7 @@ extern crate libc;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::cell::RefCell;
 use std::mem;
 use std::cmp;
@@ -47,6 +48,7 @@ pub struct Buffer<'a, T: 'a> {
     samples: Vec<T>,
     num_channels: NumChannels,
     marker: PhantomData<&'a T>,
+    pending_samples: Arc<AtomicUsize>
 }
 
 impl<'a, T> Buffer<'a, T> {
@@ -62,10 +64,12 @@ impl<'a, T> Buffer<'a, T> {
 
     #[inline]
     pub fn finish(self) {
-        let Buffer { samples_sender, samples, num_channels, .. } = self;
+        let Buffer { samples_sender, samples, num_channels, pending_samples, .. } = self;
         // TODO: At the moment this assumes the Vec<T> is a Vec<f32>.
         // Need to add T: Sample and use Sample::to_vec_f32.
+        let num_samples = samples.len();
         let samples = unsafe { mem::transmute(samples) };
+        pending_samples.fetch_add(num_samples, Ordering::SeqCst);
         match samples_sender.send((samples, num_channels)) {
             Err(_) => panic!("Failed to send samples to audio unit callback."),
             Ok(()) => (),
@@ -82,7 +86,8 @@ pub struct Voice {
     ready_receiver: Receiver<(NumChannels, NumFrames)>,
     samples_sender: Sender<(Vec<f32>, NumChannels)>,
     underflow: Arc<Mutex<RefCell<bool>>>,
-    last_ready: Arc<Mutex<RefCell<Option<(NumChannels, NumFrames)>>>>
+    last_ready: Arc<Mutex<RefCell<Option<(NumChannels, NumFrames)>>>>,
+    pending_samples: Arc<AtomicUsize>
 }
 
 unsafe impl Sync for Voice {}
@@ -98,6 +103,10 @@ impl Voice {
         let underflow = Arc::new(Mutex::new(RefCell::new(false)));
         let uf_clone = underflow.clone();
 
+        let pending_samples: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+
+        let pending_samples_c = pending_samples.clone();
+
         let audio_unit_result = AudioUnit::new(IOType::HalOutput);
 
         if let Ok(mut audio_unit) = audio_unit_result {
@@ -112,11 +121,14 @@ impl Voice {
                             *(uf.borrow_mut()) = num_frames > samples.len() / num_channels;
                         } else { return Err("Couldn't lock underflow flag field.".to_string()) }
 
+                        pending_samples_c.fetch_sub(samples.len(), Ordering::SeqCst);
+
                         for (i, frame) in samples.chunks(num_channels).enumerate() {
                             for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
                                 channel[i] = *sample;
                             }
                         }
+
                         break;
                     };
                 }
@@ -129,7 +141,8 @@ impl Voice {
                         ready_receiver: ready_receiver,
                         samples_sender: samples_sender,
                         underflow: underflow,
-                        last_ready: Arc::new(Mutex::new(RefCell::new(None)))
+                        last_ready: Arc::new(Mutex::new(RefCell::new(None))),
+                        pending_samples: pending_samples
                     })
                 }
             }
@@ -146,7 +159,8 @@ impl Voice {
             samples_sender: self.samples_sender.clone(),
             samples: vec![unsafe { mem::uninitialized() }; buffer_size],
             num_channels: channels as usize,
-            marker: PhantomData
+            marker: PhantomData,
+            pending_samples: self.pending_samples.clone()
         }
     }
 
@@ -161,12 +175,17 @@ impl Voice {
     }
 
     #[inline]
-    pub fn get_pending_samples(&self) -> usize {
+    pub fn get_period(&self) -> usize {
         if let Some(ready) = self.update_last_ready() {
             (ready.0 * ready.1) as usize
         } else {
             0
         }
+    }
+
+    #[inline]
+    pub fn get_pending_samples(&self) -> usize {
+        self.pending_samples.load(Ordering::Relaxed)
     }
 
     /// Attempts to store the most recent ready message into the internal
