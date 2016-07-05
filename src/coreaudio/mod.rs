@@ -1,4 +1,4 @@
-extern crate coreaudio_rs as coreaudio;
+extern crate coreaudio;
 extern crate libc;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -23,6 +23,7 @@ pub use self::enumerate::{EndpointsIterator,
                           get_default_endpoint};
 
 use self::coreaudio::audio_unit::{AudioUnit, IOType};
+use self::coreaudio::audio_unit::render_callback::{self, data};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint;
@@ -110,21 +111,24 @@ impl Voice {
         let audio_unit_result = AudioUnit::new(IOType::HalOutput);
 
         if let Ok(mut audio_unit) = audio_unit_result {
-            if let Ok(()) = audio_unit.set_render_callback(Some(Box::new(move |channels: &mut[&mut[f32]], num_frames: NumFrames| {
-                if let Err(_) = ready_sender.send((channels.len(), num_frames)) {
-                    return Err("Callback failed to send 'ready' message.".to_string());
+            // TODO: iOS uses integer and fixed-point data
+            if let Ok(()) = audio_unit.set_render_callback(move |args: render_callback::Args<data::NonInterleaved<f32>>| {
+                let render_callback::Args { num_frames, mut data, .. } = args;
+                let num_channels = data.channels().count();
+                if let Err(_) = ready_sender.send((num_channels, num_frames)) {
+                    return Err(());
                 }
                 loop {
                     if let Ok((samples, num_channels)) = samples_receiver.try_recv() {
                         let samples: Vec<f32> = samples;
                         if let Ok(uf) = uf_clone.lock() {
                             *(uf.borrow_mut()) = num_frames > samples.len() / num_channels;
-                        } else { return Err("Couldn't lock underflow flag field.".to_string()) }
+                        } else { return Err(()) }
 
                         pending_samples_c.fetch_sub(samples.len(), Ordering::SeqCst);
 
                         for (i, frame) in samples.chunks(num_channels).enumerate() {
-                            for (channel, sample) in channels.iter_mut().zip(frame.iter()) {
+                            for (channel, sample) in data.channels_mut().zip(frame.iter()) {
                                 channel[i] = *sample;
                             }
                         }
@@ -134,7 +138,7 @@ impl Voice {
                 }
                 Ok(())
 
-            }))) {
+            }) {
                 if let Ok(()) = audio_unit.start() {
                     return Ok(Voice {
                         audio_unit: audio_unit,
