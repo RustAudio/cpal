@@ -10,10 +10,12 @@ license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
 [dependencies]
+futures = { git = "https://github.com/alexcrichton/futures-rs" }
 libc = "0.2"
 lazy_static = "0.2"
 winapi = "0.2.8"
 ole32-sys = "0.2"
+kernel32-sys = "0.2"
 
 [target.arm-unknown-linux-gnueabihf.dependencies.alsa-sys]
 version = "0"
