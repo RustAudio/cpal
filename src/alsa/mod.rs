@@ -380,9 +380,6 @@ impl Stream for SamplesStream {
             return Poll::NotReady;
         }
 
-        // Add an upper bound to the available space.
-        let available = if available > 8192 { 8192 } else { available };
-
         // We now sure that we're ready to write data.
         match self.inner.sample_format {
             SampleFormat::I16 => {
@@ -496,6 +493,8 @@ impl Voice {
             check_errors(alsa::snd_pcm_hw_params_set_format(playback_handle, hw_params.0, data_type)).expect("format could not be set");
             check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle, hw_params.0, format.samples_rate.0 as libc::c_uint, 0)).expect("sample rate could not be set");
             check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle, hw_params.0, format.channels.len() as libc::c_uint)).expect("channel count could not be set");
+            let mut max_buffer_size = format.samples_rate.0 as alsa::snd_pcm_uframes_t / format.channels.len() as alsa::snd_pcm_uframes_t / 5;  // 200ms of buffer
+            check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(playback_handle, hw_params.0, &mut max_buffer_size)).unwrap();
             check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0)).expect("hardware params could not be set");
 
             let mut sw_params = mem::uninitialized();       // TODO: RAII
