@@ -1,7 +1,7 @@
 /*!
 # How to use cpal
 
-In order to play a sound, first you need to create a `Voice`.
+In order to play a sound, first you need to create an `EventLoop` and a `Voice`.
 
 ```no_run
 // getting the default sound output of the system (can return `None` if nothing is supported)
@@ -13,28 +13,46 @@ let endpoint = cpal::get_default_endpoint().unwrap();
 // getting a format for the PCM
 let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
 
-let mut voice = cpal::Voice::new(&endpoint, &format).unwrap();
+let event_loop = cpal::EventLoop::new();
+
+let (voice, mut samples_stream) = cpal::Voice::new(&endpoint, &format, &event_loop).unwrap();
 ```
 
-Then you must send raw samples to it by calling `append_data`. You must take the number of channels
-and samples rate into account when writing the data.
+The `voice` can be used to control the play/pause of the output, while the `samples_stream` can
+be used to register a callback that will be called whenever the backend is ready to get data.
+See the documentation of `futures-rs` for more info about how to use streams.
+
+```ignore       // TODO: unignore
+# let mut samples_stream: cpal::SamplesStream = unsafe { std::mem::uninitialized() };
+use futures::stream::Stream;
+
+samples_stream.for_each(move |buffer| -> Result<_, ()> {
+    // write data to `buffer` here
+
+    Ok(())
+}).forget();
+```
 
 TODO: add example
 
-**Important**: the `append_data` function can return a buffer shorter than what you requested.
-This is the case if the device doesn't have enough space available. **It happens very often**,
-this is not some obscure situation that can be ignored.
-
-After you have submitted data for the first time, call `play`:
+After you have registered a callback, call `play`:
 
 ```no_run
 # let mut voice: cpal::Voice = unsafe { std::mem::uninitialized() };
 voice.play();
 ```
 
-The audio device of the user will read the buffer that you sent, and play it. If the audio device
-reaches the end of the data, it will stop playing. You must continuously fill the buffer by
-calling `append_data` repeatedly if you don't want the audio to stop playing.
+And finally, run the event loop:
+
+```no_run
+# let mut event_loop: cpal::EventLoop = unsafe { std::mem::uninitialized() };
+event_loop.run();
+```
+
+Calling `run()` will block the thread forever, so it's usually best done in a separate thread.
+
+While `run()` is running, the audio device of the user will call the callbacks you registered
+from time to time.
 
 */
 
