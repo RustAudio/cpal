@@ -1,7 +1,5 @@
 extern crate cpal;
 
-use cpal::*;
-
 fn main() {
     let endpoints = cpal::get_endpoints_list();
     

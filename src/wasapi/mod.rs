@@ -1,5 +1,6 @@
 extern crate winapi;
 extern crate ole32;
+extern crate kernel32;
 
 use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
@@ -17,7 +18,7 @@ use SampleFormat;
 
 pub use std::option::IntoIter as OptionIntoIter;
 pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
-pub use self::voice::{Voice, Buffer};
+pub use self::voice::{Voice, Buffer, EventLoop, SamplesStream};
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;
 
@@ -36,7 +37,6 @@ fn check_result(result: winapi::HRESULT) -> Result<(), IoError> {
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
-#[allow(raw_pointer_derive)]
 struct IAudioClientWrapper(*mut winapi::IAudioClient);
 unsafe impl Send for IAudioClientWrapper {}
 unsafe impl Sync for IAudioClientWrapper {}

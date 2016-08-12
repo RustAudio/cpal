@@ -2,9 +2,22 @@
 
 use std::marker::PhantomData;
 
+use futures::Poll;
+use futures::Task;
+use futures::stream::Stream;
+
 use CreationError;
 use Format;
 use FormatsEnumerationError;
+use UnknownTypeBuffer;
+
+pub struct EventLoop;
+impl EventLoop {
+    #[inline]
+    pub fn new() -> EventLoop { EventLoop }
+    #[inline]
+    pub fn run(&self) { loop { /* TODO: don't spin */ } }
+}
 
 #[derive(Default)]
 pub struct EndpointsIterator;
@@ -52,16 +65,14 @@ impl Iterator for SupportedFormatsIterator {
 }
 
 pub struct Voice;
+pub struct SamplesStream;
 
 impl Voice {
     #[inline]
-    pub fn new(_: &Endpoint, _: &Format) -> Result<Voice, CreationError> {
+    pub fn new(_: &Endpoint, _: &Format, _: &EventLoop)
+               -> Result<(Voice, SamplesStream), CreationError>
+    {
         Err(CreationError::DeviceNotAvailable)
-    }
-
-    #[inline]
-    pub fn append_data<'a, T>(&'a mut self, _: usize) -> Buffer<'a, T> {
-        unreachable!()
     }
 
     #[inline]
@@ -71,30 +82,29 @@ impl Voice {
     #[inline]
     pub fn pause(&mut self) {
     }
+}
+
+impl Stream for SamplesStream {
+    type Item = UnknownTypeBuffer;
+    type Error = ();
 
     #[inline]
-    pub fn get_period(&self) -> usize {
-        0
+    fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
+        Poll::NotReady
     }
 
     #[inline]
-    pub fn get_pending_samples(&self) -> usize {
-        unreachable!()
-    }
-
-    #[inline]
-    pub fn underflowed(&self) -> bool {
-        false
+    fn schedule(&mut self, _: &mut Task) {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
-    marker: PhantomData<&'a T>,
+pub struct Buffer<T> {
+    marker: PhantomData<T>,
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<T> Buffer<T> {
     #[inline]
-    pub fn get_buffer<'b>(&'b mut self) -> &'b mut [T] {
+    pub fn get_buffer(&mut self) -> &mut [T] {
         unreachable!()
     }
 
