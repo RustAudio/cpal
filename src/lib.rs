@@ -1,7 +1,7 @@
 /*!
 # How to use cpal
 
-In order to play a sound, first you need to create a `Voice`.
+In order to play a sound, first you need to create an `EventLoop` and a `Voice`.
 
 ```no_run
 // getting the default sound output of the system (can return `None` if nothing is supported)
@@ -13,30 +13,50 @@ let endpoint = cpal::get_default_endpoint().unwrap();
 // getting a format for the PCM
 let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
 
-let mut voice = cpal::Voice::new(&endpoint, &format).unwrap();
+let event_loop = cpal::EventLoop::new();
+
+let (voice, mut samples_stream) = cpal::Voice::new(&endpoint, &format, &event_loop).unwrap();
 ```
 
-Then you must send raw samples to it by calling `append_data`. You must take the number of channels
-and samples rate into account when writing the data.
+The `voice` can be used to control the play/pause of the output, while the `samples_stream` can
+be used to register a callback that will be called whenever the backend is ready to get data.
+See the documentation of `futures-rs` for more info about how to use streams.
+
+```ignore       // TODO: unignore
+# let mut samples_stream: cpal::SamplesStream = unsafe { std::mem::uninitialized() };
+use futures::stream::Stream;
+
+samples_stream.for_each(move |buffer| -> Result<_, ()> {
+    // write data to `buffer` here
+
+    Ok(())
+}).forget();
+```
 
 TODO: add example
 
-**Important**: the `append_data` function can return a buffer shorter than what you requested.
-This is the case if the device doesn't have enough space available. **It happens very often**,
-this is not some obscure situation that can be ignored.
-
-After you have submitted data for the first time, call `play`:
+After you have registered a callback, call `play`:
 
 ```no_run
 # let mut voice: cpal::Voice = unsafe { std::mem::uninitialized() };
 voice.play();
 ```
 
-The audio device of the user will read the buffer that you sent, and play it. If the audio device
-reaches the end of the data, it will stop playing. You must continuously fill the buffer by
-calling `append_data` repeatedly if you don't want the audio to stop playing.
+And finally, run the event loop:
+
+```no_run
+# let mut event_loop: cpal::EventLoop = unsafe { std::mem::uninitialized() };
+event_loop.run();
+```
+
+Calling `run()` will block the thread forever, so it's usually best done in a separate thread.
+
+While `run()` is running, the audio device of the user will call the callbacks you registered
+from time to time.
 
 */
+
+extern crate futures;
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
@@ -49,6 +69,10 @@ use null as cpal_impl;
 use std::fmt;
 use std::error::Error;
 use std::ops::{Deref, DerefMut};
+
+use futures::stream::Stream;
+use futures::Poll;
+use futures::Task;
 
 mod null;
 mod samples_formats;
@@ -169,29 +193,43 @@ impl Iterator for SupportedFormatsIterator {
     }
 }
 
+pub struct EventLoop(cpal_impl::EventLoop);
+
+impl EventLoop {
+    #[inline]
+    pub fn new() -> EventLoop {
+        EventLoop(cpal_impl::EventLoop::new())
+    }
+
+    #[inline]
+    pub fn run(&self) {
+        self.0.run()
+    }
+}
+
 /// Represents a buffer that must be filled with audio data.
 ///
 /// You should destroy this object as soon as possible. Data is only committed when it
 /// is destroyed.
 #[must_use]
-pub struct Buffer<'a, T: 'a> where T: Sample {
+pub struct Buffer<T> where T: Sample {
     // also contains something, taken by `Drop`
-    target: Option<cpal_impl::Buffer<'a, T>>,
+    target: Option<cpal_impl::Buffer<T>>,
 }
 
 /// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to fill the right buffer.
-pub enum UnknownTypeBuffer<'a> {
+pub enum UnknownTypeBuffer {
     /// Samples whose format is `u16`.
-    U16(Buffer<'a, u16>),
+    U16(Buffer<u16>),
     /// Samples whose format is `i16`.
-    I16(Buffer<'a, i16>),
+    I16(Buffer<i16>),
     /// Samples whose format is `f32`.
-    F32(Buffer<'a, f32>),
+    F32(Buffer<f32>),
 }
 
-impl<'a> UnknownTypeBuffer<'a> {
+impl UnknownTypeBuffer {
     /// Returns the length of the buffer in number of samples.
     #[inline]
     pub fn len(&self) -> usize {
@@ -282,13 +320,19 @@ pub struct Voice {
 impl Voice {
     /// Builds a new channel.
     #[inline]
-    pub fn new(endpoint: &Endpoint, format: &Format) -> Result<Voice, CreationError> {
-        let channel = try!(cpal_impl::Voice::new(&endpoint.0, format));
+    pub fn new(endpoint: &Endpoint, format: &Format, event_loop: &EventLoop)
+               -> Result<(Voice, SamplesStream), CreationError>
+    {
+        let (voice, stream) = try!(cpal_impl::Voice::new(&endpoint.0, format, &event_loop.0));
 
-        Ok(Voice {
-            voice: channel,
+        let voice = Voice {
+            voice: voice,
             format: format.clone(),
-        })
+        };
+
+        let stream = SamplesStream(stream);
+
+        Ok((voice, stream))
     }
 
     /// Returns the format used by the voice.
@@ -324,51 +368,6 @@ impl Voice {
         self.format().data_type
     }
 
-    /// Returns the minimum number of samples that should be put in a buffer before it is
-    /// processable by the audio output.
-    ///
-    /// If you put less than this value in the buffer, the buffer will not be processed and you
-    /// risk an underrun.
-    #[inline]
-    pub fn get_period(&self) -> usize {
-        self.voice.get_period()
-    }
-
-    /// Adds some PCM data to the voice's buffer.
-    ///
-    /// This function indirectly returns a `Buffer` object that must be filled with the audio data.
-    /// The size of the buffer being returned depends on the current state of the backend
-    /// and can't be known in advance. However it is never greater than `max_samples`.
-    ///
-    /// You must fill the buffer *entirely*, so do not set `max_samples` to a value greater
-    /// than the amount of data available to you.
-    ///
-    /// Channels are interleaved. For example if you have two channels, you must write
-    /// the first sample of the first channel, then the first sample of the second channel,
-    /// then the second sample of the first channel, then the second sample of the second
-    /// channel, etc.
-    ///
-    /// ## Panic
-    ///
-    /// Panics if `max_samples` is 0.
-    ///
-    #[inline]
-    pub fn append_data(&mut self, max_samples: usize) -> UnknownTypeBuffer {
-        assert!(max_samples != 0);
-
-        match self.get_samples_format() {
-            SampleFormat::U16 => UnknownTypeBuffer::U16(Buffer {
-                target: Some(self.voice.append_data(max_samples))
-            }),
-            SampleFormat::I16 => UnknownTypeBuffer::I16(Buffer {
-                target: Some(self.voice.append_data(max_samples))
-            }),
-            SampleFormat::F32 => UnknownTypeBuffer::F32(Buffer {
-                target: Some(self.voice.append_data(max_samples))
-            }),
-        }
-    }
-
     /// Sends a command to the audio device that it should start playing.
     ///
     /// Has no effect is the voice was already playing.
@@ -389,25 +388,26 @@ impl Voice {
     pub fn pause(&mut self) {
         self.voice.pause()
     }
+}
 
-    /// Returns the number of samples in the buffer that are currently being processed by the
-    /// audio playback backend.
-    ///
-    /// This function is useful to determine how much time it will take to finish playing the
-    /// current sound.
+pub struct SamplesStream(cpal_impl::SamplesStream);
+
+impl Stream for SamplesStream {
+    type Item = UnknownTypeBuffer;
+    type Error = ();
+
     #[inline]
-    pub fn get_pending_samples(&self) -> usize {
-        self.voice.get_pending_samples()
+    fn poll(&mut self, task: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
+        self.0.poll(task)
     }
 
-    /// Returns true if the voice has finished reading all the data you sent to it.
     #[inline]
-    pub fn underflowed(&self) -> bool {
-        self.voice.underflowed()
+    fn schedule(&mut self, task: &mut Task) {
+        self.0.schedule(task)
     }
 }
 
-impl<'a, T> Deref for Buffer<'a, T> where T: Sample {
+impl<T> Deref for Buffer<T> where T: Sample {
     type Target = [T];
 
     #[inline]
@@ -416,14 +416,14 @@ impl<'a, T> Deref for Buffer<'a, T> where T: Sample {
     }
 }
 
-impl<'a, T> DerefMut for Buffer<'a, T> where T: Sample {
+impl<T> DerefMut for Buffer<T> where T: Sample {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.target.as_mut().unwrap().get_buffer()
     }
 }
 
-impl<'a, T> Drop for Buffer<'a, T> where T: Sample {
+impl<T> Drop for Buffer<T> where T: Sample {
     #[inline]
     fn drop(&mut self) {
         self.target.take().unwrap().finish();

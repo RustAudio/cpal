@@ -1,5 +1,6 @@
 extern crate winapi;
 extern crate ole32;
+extern crate kernel32;
 
 use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
@@ -17,7 +18,7 @@ use SampleFormat;
 
 pub use std::option::IntoIter as OptionIntoIter;
 pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
-pub use self::voice::{Voice, Buffer};
+pub use self::voice::{Voice, Buffer, EventLoop, SamplesStream};
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;
 
