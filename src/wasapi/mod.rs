@@ -37,7 +37,6 @@ fn check_result(result: winapi::HRESULT) -> Result<(), IoError> {
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
-#[allow(raw_pointer_derive)]
 struct IAudioClientWrapper(*mut winapi::IAudioClient);
 unsafe impl Send for IAudioClientWrapper {}
 unsafe impl Sync for IAudioClientWrapper {}

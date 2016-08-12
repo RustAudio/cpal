@@ -5,11 +5,9 @@ use super::winapi;
 use super::Endpoint;
 use super::check_result;
 
-use std::cmp;
 use std::slice;
 use std::mem;
 use std::ptr;
-use std::marker::PhantomData;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -221,7 +219,7 @@ impl Voice {
                 }
 
                 match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(e) => {
+                    Err(_) => {
                         (*audio_client).Release();
                         panic!("Failed to call SetEventHandle")
                     },
@@ -333,7 +331,7 @@ impl Stream for SamplesStream {
     type Item = UnknownTypeBuffer;
     type Error = ();
 
-    fn poll(&mut self, task: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
         unsafe {
             if self.ready.swap(false, Ordering::Relaxed) == false {
                 let result = kernel32::WaitForSingleObject(self.event, 0);
@@ -355,8 +353,6 @@ impl Stream for SamplesStream {
                 check_result(hresult).unwrap();
                 self.max_frames_in_buffer - padding
             };
-
-            assert!(frames_available >= 0);
 
             // Obtaining a pointer to the buffer.
             let (buffer_data, buffer_len) = {
