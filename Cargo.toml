@@ -1,16 +1,15 @@
 [package]
-
 name = "cpal"
-version = "0.2.12"
-authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
-description = "Cross-platform audio playing library in pure Rust."
+version = "0.3.0"
+authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
+description = "Low-level cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
 documentation = "http://tomaka.github.io/cpal/"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
 [dependencies]
-futures = { git = "https://github.com/alexcrichton/futures-rs" }
+futures = "0.1.0"
 libc = "0.2"
 lazy_static = "0.2"
 winapi = "0.2.8"
@@ -35,6 +34,3 @@ path = "alsa-sys"
 
 [target.x86_64-apple-darwin.dependencies]
 coreaudio-rs = "0.6"
-
-[dev-dependencies]
-vorbis = "0"
