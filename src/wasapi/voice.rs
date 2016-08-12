@@ -32,10 +32,25 @@ unsafe impl Send for EventLoop {}
 unsafe impl Sync for EventLoop {}
 
 struct EventLoopInner {
-    // This event is signalled after elements have been added to `pending_scheduled`.
-    pending_scheduled_event: winapi::HANDLE,
+    // List of handles that are currently being polled or that are going to be polled. This mutex
+    // is locked for as long as the event loop is running.
+    //
+    // In the `EventLoopScheduled`, the first handle in the list of handles is always
+    // `pending_scheduled_event`. This means that the length of `handles` is always 1 + the length
+    // of `task_handles`.
+    // FIXME: no way to remove elements from that list?
     scheduled: Mutex<EventLoopScheduled>,
+
+    // Since the above mutex is locked most of the time, we add new handles to this list instead.
+    // After a new element is added to this list, you should notify `pending_scheduled_event`
+    // so that they get transferred to `scheduled`.
+    //
+    // The length of `handles` and `task_handles` should always be equal.
     pending_scheduled: Mutex<EventLoopScheduled>,
+
+    // This event is signalled after elements have been added to `pending_scheduled` in order to
+    // notify that they should be picked up.
+    pending_scheduled_event: winapi::HANDLE,
 }
 
 struct EventLoopScheduled {
@@ -44,7 +59,8 @@ struct EventLoopScheduled {
     // `WaitForMultipleObjectsEx` on the array without having to perform any conversion.
     handles: Vec<winapi::HANDLE>,
 
-    // List of task handles corresponding to `handles`.
+    // List of task handles corresponding to `handles`. The second element is used to signal
+    // the voice that it has been signaled.
     task_handles: Vec<(TaskHandle, Arc<AtomicBool>)>,
 }
 
@@ -74,7 +90,10 @@ impl EventLoop {
             let mut scheduled = self.inner.scheduled.lock().unwrap();
 
             loop {
+                debug_assert!(scheduled.handles.len() == 1 + scheduled.task_handles.len());
+
                 // Creating a voice checks for the MAXIMUM_WAIT_OBJECTS limit.
+                // FIXME: this is not the case ^
                 debug_assert!(scheduled.handles.len() <= winapi::MAXIMUM_WAIT_OBJECTS as usize);
 
                 // Wait for any of the handles to be signalled, which means that the corresponding
@@ -89,6 +108,8 @@ impl EventLoop {
                 let handle_id = (result - winapi::WAIT_OBJECT_0) as usize;
 
                 if handle_id == 0 {
+                    // The `pending_scheduled_event` handle has been notified, which means that we
+                    // should pick up the content of `pending_scheduled`.
                     let mut pending = self.inner.pending_scheduled.lock().unwrap();
                     scheduled.handles.append(&mut pending.handles);
                     scheduled.task_handles.append(&mut pending.task_handles);
@@ -144,18 +165,18 @@ impl Voice {
                -> Result<(Voice, SamplesStream), CreationError>
     {
         unsafe {
-            // making sure that COM is initialized
-            // it's not actually sure that this is required, but when in doubt do it
+            // Making sure that COM is initialized.
+            // It's not actually sure that this is required, but when in doubt do it.
             com::com_initialized();
 
-            // obtaining a `IAudioClient`
+            // Obtaining a `IAudioClient`.
             let audio_client = match end_point.build_audioclient() {
                 Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(CreationError::DeviceNotAvailable),
                 e => e.unwrap(),
             };
 
-            // computing the format and initializing the device
+            // Computing the format and initializing the device.
             let format = {
                 let format_attempt = try!(format_to_waveformatextensible(format));
                 let share_mode = winapi::AUDCLNT_SHAREMODE_SHARED;
@@ -334,15 +355,18 @@ impl Stream for SamplesStream {
     fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
         unsafe {
             if self.ready.swap(false, Ordering::Relaxed) == false {
+                // Despite its name this function does not block, because we pass `0`.
                 let result = kernel32::WaitForSingleObject(self.event, 0);
 
-                // Returning if timeout.
+                // Returning if the event is not ready.
                 match result {
                     winapi::WAIT_OBJECT_0 => (),
                     winapi::WAIT_TIMEOUT => return Poll::NotReady,
                     _ => unreachable!()
                 };
             }
+
+            // If we reach here, that means we're ready to accept new samples.
 
             let mut inner = self.inner.lock().unwrap();
 
