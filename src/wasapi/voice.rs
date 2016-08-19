@@ -378,6 +378,8 @@ impl Stream for SamplesStream {
                 self.max_frames_in_buffer - padding
             };
 
+            if frames_available == 0 { return Poll::NotReady; }
+
             // Obtaining a pointer to the buffer.
             let (buffer_data, buffer_len) = {
                 let mut buffer: *mut winapi::BYTE = mem::uninitialized();
