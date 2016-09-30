@@ -22,15 +22,28 @@ The `voice` can be used to control the play/pause of the output, while the `samp
 be used to register a callback that will be called whenever the backend is ready to get data.
 See the documentation of `futures-rs` for more info about how to use streams.
 
-```ignore       // TODO: unignore
-# let mut samples_stream: cpal::SamplesStream = unsafe { std::mem::uninitialized() };
+```no_run
+# extern crate futures;
+# extern crate cpal;
+# use std::sync::Arc;
 use futures::stream::Stream;
+use futures::task;
+# struct MyExecutor;
+# impl task::Executor for MyExecutor {
+#     fn execute(&self, r: task::Run) {
+#         r.run();
+#     }
+# }
+# fn main() {
+# let mut samples_stream: cpal::SamplesStream = unsafe { std::mem::uninitialized() };
+# let my_executor = Arc::new(MyExecutor);
 
-samples_stream.for_each(move |buffer| -> Result<_, ()> {
+task::spawn(samples_stream.for_each(move |buffer| -> Result<_, ()> {
     // write data to `buffer` here
 
     Ok(())
-}).forget();
+})).execute(my_executor);
+# }
 ```
 
 TODO: add example
@@ -72,7 +85,6 @@ use std::ops::{Deref, DerefMut};
 
 use futures::stream::Stream;
 use futures::Poll;
-use futures::Task;
 
 mod null;
 mod samples_formats;
@@ -397,13 +409,8 @@ impl Stream for SamplesStream {
     type Error = ();
 
     #[inline]
-    fn poll(&mut self, task: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
-        self.0.poll(task)
-    }
-
-    #[inline]
-    fn schedule(&mut self, task: &mut Task) {
-        self.0.schedule(task)
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.0.poll()
     }
 }
 

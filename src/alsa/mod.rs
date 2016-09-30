@@ -16,9 +16,10 @@ use std::vec::IntoIter as VecIntoIter;
 use std::sync::{Arc, Mutex};
 
 use futures::Poll;
-use futures::Task;
-use futures::TaskHandle;
+use futures::task::Task;
+use futures::task;
 use futures::stream::Stream;
+use futures::Async;
 
 pub type SupportedFormatsIterator = VecIntoIter<Format>;
 
@@ -295,7 +296,7 @@ impl EventLoop {
                     if (revent as libc::c_short & libc::POLLOUT) != 0 {
                         let scheduled = current_wait.voices[i_voice].scheduled.lock().unwrap().take();
                         if let Some(scheduled) = scheduled {
-                            scheduled.notify();
+                            scheduled.unpark();
                         }
 
                         for _ in 0 .. current_wait.voices[i_voice].num_descriptors {
@@ -342,80 +343,26 @@ struct VoiceInner {
     num_channels: u16,
 
     // Number of samples that can fit in the buffer.
-    buffer_len: usize,      
+    buffer_len: usize,
 
     // Minimum number of samples to put in the buffer.
     period_len: usize,
 
     // If `Some`, something previously called `schedule` on the stream.
-    scheduled: Mutex<Option<TaskHandle>>,
+    scheduled: Mutex<Option<Task>>,
 }
 
 unsafe impl Send for VoiceInner {}
 unsafe impl Sync for VoiceInner {}
 
-impl Stream for SamplesStream {
-    type Item = UnknownTypeBuffer;
-    type Error = ();
-
-    fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
-        // Determine the number of samples that are available to write.
-        let available = {
-            let channel = self.inner.channel.lock().expect("could not lock channel");
-            let available = unsafe { alsa::snd_pcm_avail(*channel) };       // TODO: what about snd_pcm_avail_update?
-
-            if available == -32 {
-                // buffer underrun
-                self.inner.buffer_len
-            } else if available < 0 {
-                check_errors(available as libc::c_int).expect("buffer is not available");
-                unreachable!()
-            } else {
-                (available * self.inner.num_channels as alsa::snd_pcm_sframes_t) as usize
-            }
-        };
-
-        // If we don't have one period ready, return `NotReady`.
-        if available < self.inner.period_len {
-            return Poll::NotReady;
-        }
-
-        // We now sure that we're ready to write data.
-        match self.inner.sample_format {
-            SampleFormat::I16 => {
-                let buffer = Buffer {
-                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
-                    inner: self.inner.clone(),
-                };
-
-                Poll::Ok(Some(UnknownTypeBuffer::I16(::Buffer { target: Some(buffer) })))
-            },
-            SampleFormat::U16 => {
-                let buffer = Buffer {
-                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
-                    inner: self.inner.clone(),
-                };
-
-                Poll::Ok(Some(UnknownTypeBuffer::U16(::Buffer { target: Some(buffer) })))
-            },
-            SampleFormat::F32 => {
-                let buffer = Buffer {
-                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
-                    inner: self.inner.clone(),
-                };
-
-                Poll::Ok(Some(UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })))
-            },
-        }
-    }
-
+impl SamplesStream {
     #[inline]
-    fn schedule(&mut self, task: &mut Task) {
+    fn schedule(&mut self) {
         unsafe {
             let channel = self.inner.channel.lock().unwrap();
 
             // We start by filling `scheduled`.
-            *self.inner.scheduled.lock().unwrap() = Some(task.handle().clone());
+            *self.inner.scheduled.lock().unwrap() = Some(task::park());
 
             // In this function we turn the `snd_pcm_t` into a collection of file descriptors.
             // And we add these descriptors to `event_loop.pending_wait.descriptors`.
@@ -440,6 +387,63 @@ impl Stream for SamplesStream {
             let wret = libc::write(self.inner.event_loop.pending_wait_signal,
                                    &buf as *const u64 as *const _, 8);
             assert!(wret == 8);
+        }
+    }
+}
+
+impl Stream for SamplesStream {
+    type Item = UnknownTypeBuffer;
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        // Determine the number of samples that are available to write.
+        let available = {
+            let channel = self.inner.channel.lock().expect("could not lock channel");
+            let available = unsafe { alsa::snd_pcm_avail(*channel) };       // TODO: what about snd_pcm_avail_update?
+
+            if available == -32 {
+                // buffer underrun
+                self.inner.buffer_len
+            } else if available < 0 {
+                check_errors(available as libc::c_int).expect("buffer is not available");
+                unreachable!()
+            } else {
+                (available * self.inner.num_channels as alsa::snd_pcm_sframes_t) as usize
+            }
+        };
+
+        // If we don't have one period ready, return `NotReady`.
+        if available < self.inner.period_len {
+            self.schedule();
+            return Ok(Async::NotReady);
+        }
+
+        // We now sure that we're ready to write data.
+        match self.inner.sample_format {
+            SampleFormat::I16 => {
+                let buffer = Buffer {
+                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
+                    inner: self.inner.clone(),
+                };
+
+                Ok(Async::Ready((Some(UnknownTypeBuffer::I16(::Buffer { target: Some(buffer) })))))
+            },
+            SampleFormat::U16 => {
+                let buffer = Buffer {
+                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
+                    inner: self.inner.clone(),
+                };
+
+                Ok(Async::Ready((Some(UnknownTypeBuffer::U16(::Buffer { target: Some(buffer) })))))
+            },
+            SampleFormat::F32 => {
+                let buffer = Buffer {
+                    buffer: iter::repeat(unsafe { mem::uninitialized() }).take(available).collect(),
+                    inner: self.inner.clone(),
+                };
+
+                Ok(Async::Ready((Some(UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })))))
+            },
         }
     }
 }

@@ -14,9 +14,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use futures::Poll;
-use futures::Task;
-use futures::TaskHandle;
+use futures::task::Task;
+use futures::task;
 use futures::stream::Stream;
+use futures::Async;
 
 use CreationError;
 use ChannelPosition;
@@ -61,7 +62,7 @@ struct EventLoopScheduled {
 
     // List of task handles corresponding to `handles`. The second element is used to signal
     // the voice that it has been signaled.
-    task_handles: Vec<(TaskHandle, Arc<AtomicBool>)>,
+    task_handles: Vec<(Task, Arc<AtomicBool>)>,
 }
 
 impl EventLoop {
@@ -118,7 +119,7 @@ impl EventLoop {
                     scheduled.handles.remove(handle_id);
                     let (task_handle, ready) = scheduled.task_handles.remove(handle_id - 1);
                     ready.store(true, Ordering::Relaxed);
-                    task_handle.notify();
+                    task_handle.unpark();
                 }
             }
         }
@@ -348,69 +349,86 @@ impl Voice {
     }
 }
 
+impl SamplesStream {
+    #[inline]
+    fn schedule(&mut self) {
+        let mut pending = self.event_loop.pending_scheduled.lock().unwrap();
+        pending.handles.push(self.event);
+        pending.task_handles.push((task::park(), self.ready.clone()));
+        drop(pending);
+
+        let result = unsafe { kernel32::SetEvent(self.event_loop.pending_scheduled_event) };
+        assert!(result != 0);
+    }
+}
+
 impl Stream for SamplesStream {
     type Item = UnknownTypeBuffer;
     type Error = ();
 
-    fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         unsafe {
             if self.ready.swap(false, Ordering::Relaxed) == false {
                 // Despite its name this function does not block, because we pass `0`.
                 let result = kernel32::WaitForSingleObject(self.event, 0);
 
-                // Returning if the event is not ready.
+                // Park the task and returning if the event is not ready.
                 match result {
                     winapi::WAIT_OBJECT_0 => (),
-                    winapi::WAIT_TIMEOUT => return Poll::NotReady,
+                    winapi::WAIT_TIMEOUT => {
+                        self.schedule();
+                        return Ok(Async::NotReady);
+                    },
                     _ => unreachable!()
                 };
             }
 
             // If we reach here, that means we're ready to accept new samples.
 
-            let mut inner = self.inner.lock().unwrap();
+            let poll = {
+                let mut inner = self.inner.lock().unwrap();
 
-            // Obtaining the number of frames that are available to be written.
-            let frames_available = {
-                let mut padding = mem::uninitialized();
-                let hresult = (*inner.audio_client).GetCurrentPadding(&mut padding);
-                check_result(hresult).unwrap();
-                self.max_frames_in_buffer - padding
+                // Obtaining the number of frames that are available to be written.
+                let frames_available = {
+                    let mut padding = mem::uninitialized();
+                    let hresult = (*inner.audio_client).GetCurrentPadding(&mut padding);
+                    check_result(hresult).unwrap();
+                    self.max_frames_in_buffer - padding
+                };
+
+                if frames_available == 0 {
+                    Ok(Async::NotReady)
+                } else {
+
+                    // Obtaining a pointer to the buffer.
+                    let (buffer_data, buffer_len) = {
+                        let mut buffer: *mut winapi::BYTE = mem::uninitialized();
+                        let hresult = (*inner.render_client).GetBuffer(frames_available,
+                                                                       &mut buffer as *mut *mut _);
+                        check_result(hresult).unwrap();     // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
+                        debug_assert!(!buffer.is_null());
+
+                        (buffer as *mut _,
+                         frames_available as usize * self.bytes_per_frame as usize / mem::size_of::<f32>())     // FIXME: correct size
+                    };
+
+                    let buffer = Buffer {
+                        voice: self.inner.clone(),
+                        buffer_data: buffer_data,
+                        buffer_len: buffer_len,
+                        frames: frames_available,
+                    };
+
+                    Ok(Async::Ready(Some(UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }))))        // FIXME: not necessarily F32
+                }
             };
 
-            if frames_available == 0 { return Poll::NotReady; }
+            if let Ok(Async::NotReady) = poll {
+                self.schedule();
+            }
 
-            // Obtaining a pointer to the buffer.
-            let (buffer_data, buffer_len) = {
-                let mut buffer: *mut winapi::BYTE = mem::uninitialized();
-                let hresult = (*inner.render_client).GetBuffer(frames_available,
-                                                              &mut buffer as *mut *mut _);
-                check_result(hresult).unwrap();     // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
-                debug_assert!(!buffer.is_null());
-
-                (buffer as *mut _,
-                 frames_available as usize * self.bytes_per_frame as usize / mem::size_of::<f32>())     // FIXME: correct size
-            };
-
-            let buffer = Buffer {
-                voice: self.inner.clone(),
-                buffer_data: buffer_data,
-                buffer_len: buffer_len,
-                frames: frames_available,
-            };
-
-            Poll::Ok(Some(UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })))        // FIXME: not necessarily F32
+            poll
         }
-    }
-
-    fn schedule(&mut self, task: &mut Task) {
-        let mut pending = self.event_loop.pending_scheduled.lock().unwrap();
-        pending.handles.push(self.event);
-        pending.task_handles.push((task.handle().clone(), self.ready.clone()));
-        drop(pending);
-
-        let result = unsafe { kernel32::SetEvent(self.event_loop.pending_scheduled_event) };
-        assert!(result != 0);
     }
 }
 

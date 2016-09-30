@@ -3,8 +3,8 @@
 use std::marker::PhantomData;
 
 use futures::Poll;
-use futures::Task;
 use futures::stream::Stream;
+use futures::Async;
 
 use CreationError;
 use Format;
@@ -89,12 +89,8 @@ impl Stream for SamplesStream {
     type Error = ();
 
     #[inline]
-    fn poll(&mut self, _: &mut Task) -> Poll<Option<Self::Item>, Self::Error> {
-        Poll::NotReady
-    }
-
-    #[inline]
-    fn schedule(&mut self, _: &mut Task) {
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        Ok(Async::NotReady)
     }
 }
 
