@@ -1,10 +1,10 @@
 # CPAL - Cross-platform audio library
 
-[Documentation](http://tomaka.github.io/cpal/)
+[Documentation](https://docs.rs/cpal)
 
 ```toml
 [dependencies]
-cpal = "0.3.0"
+cpal = "0.4.0"
 ```
 
 Low-level library for audio playback in pure Rust.
