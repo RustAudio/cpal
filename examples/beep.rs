@@ -1,14 +1,27 @@
 extern crate cpal;
 extern crate futures;
 
-use futures::Future;
 use futures::stream::Stream;
+use futures::task;
+use futures::task::Executor;
+use futures::task::Run;
+
+use std::sync::Arc;
+
+struct MyExecutor;
+
+impl Executor for MyExecutor {
+    fn execute(&self, r: Run) {
+        r.run();
+    }
+}
 
 fn main() {
     let endpoint = cpal::get_default_endpoint().expect("Failed to get default endpoint");
     let format = endpoint.get_supported_formats_list().unwrap().next().expect("Failed to get endpoint format");
 
     let event_loop = cpal::EventLoop::new();
+    let executor = Arc::new(MyExecutor);
 
     let (mut voice, stream) = cpal::Voice::new(&endpoint, &format, &event_loop).expect("Failed to create a voice");
 
@@ -18,7 +31,7 @@ fn main() {
                                   .map(move |t| t.sin());
 
     voice.play();
-    stream.for_each(move |buffer| -> Result<_, ()> {
+    task::spawn(stream.for_each(move |buffer| -> Result<_, ()> {
         match buffer {
             cpal::UnknownTypeBuffer::U16(mut buffer) => {
                 for (sample, value) in buffer.chunks_mut(format.channels.len()).zip(&mut data_source) {
@@ -42,7 +55,7 @@ fn main() {
         };
 
         Ok(())
-    }).forget();
+    })).execute(executor);
 
     event_loop.run();
 }
