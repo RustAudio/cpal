@@ -6,6 +6,10 @@ addons:
     packages:
     - libasound2-dev
 
+os:
+  - linux
+  - osx
+
 env:
   global:
     - secure: "ZGNi7bKoxNIziWzdNP1QbH6ZbeWDInq42yq1rzWY71I/pi8yA4zjVAYdgXKElc0saB0d2TxJCwpeGVyXwuXXeNoud8HWsqQxhNVMM8K27a2jeezza8UCCJ7kAS6E/+gQj7w+HFtgWiUHZ0KEjGONqXJM+cWqH5oprTEuNBOPqDA="
