@@ -114,7 +114,7 @@ impl Stream for SamplesStream {
         let current_callback = match inner.current_callback.take() {
             Some(c) => c,
             None => {
-                self.inner.lock().unwrap().scheduled_task = Some(task::park());
+                inner.scheduled_task = Some(task::park());
                 return Ok(Async::NotReady);
             }
         };
