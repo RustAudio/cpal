@@ -7,6 +7,8 @@ use futures::task::Executor;
 use futures::task::Run;
 
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 struct MyExecutor;
 
@@ -56,6 +58,15 @@ fn main() {
 
         Ok(())
     })).execute(executor);
+
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(500));
+            voice.pause();
+            thread::sleep(Duration::from_millis(500));
+            voice.play();
+        }
+    });
 
     event_loop.run();
 }
