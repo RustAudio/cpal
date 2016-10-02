@@ -601,9 +601,6 @@ impl Voice {
                 num_descriptors as usize
             };
 
-            // The voice is initialized as paused
-            let is_paused = Arc::new(AtomicBool::new(true));
-
             let samples_stream_inner = Arc::new(VoiceInner {
                 event_loop: event_loop.inner.clone(),
                 channel: Mutex::new(playback_handle),
@@ -613,7 +610,7 @@ impl Voice {
                 buffer_len: buffer_len,
                 period_len: period_len,
                 scheduled: Mutex::new(None),
-                is_paused: is_paused.clone(),
+                is_paused: Arc::new(AtomicBool::new(true)),
                 resume_signal: libc::eventfd(0, 0),
             });
 
