@@ -629,7 +629,7 @@ impl Voice {
     pub fn play(&mut self) {
         // If it was paused then we resume and signal
         // FIXME: the signal is send even if the event loop wasn't waiting for resume, is that an issue ?
-        if self.inner.is_paused.swap(false,Ordering::Relaxed) {
+        if self.inner.is_paused.swap(false, Ordering::Relaxed) {
             unsafe {
                 let buf = 1u64;
                 let wret = libc::write(self.inner.resume_signal,
@@ -641,7 +641,7 @@ impl Voice {
 
     #[inline]
     pub fn pause(&mut self) {
-        self.inner.is_paused.store(true,Ordering::Relaxed);
+        self.inner.is_paused.store(true, Ordering::Relaxed);
     }
 }
 
