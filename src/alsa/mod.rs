@@ -398,7 +398,7 @@ struct VoiceInner {
     scheduled: Mutex<Option<Scheduled>>,
 
     // Wherease the sample stream is paused
-    is_paused: Arc<AtomicBool>,
+    is_paused: AtomicBool,
 
     // A file descriptor opened with `eventfd`.
     // It is used to wait for resume signal.
@@ -610,7 +610,7 @@ impl Voice {
                 buffer_len: buffer_len,
                 period_len: period_len,
                 scheduled: Mutex::new(None),
-                is_paused: Arc::new(AtomicBool::new(true)),
+                is_paused: AtomicBool::new(true),
                 resume_signal: libc::eventfd(0, 0),
             });
 
