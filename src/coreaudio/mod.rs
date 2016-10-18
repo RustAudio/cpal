@@ -87,11 +87,13 @@ impl<T> Buffer<T> where T: Sample {
 type NumChannels = usize;
 type NumFrames = usize;
 
-pub struct Voice;
+pub struct Voice {
+    playing: bool,
+    audio_unit: AudioUnit
+}
 
 #[allow(dead_code)] // the audio_unit will be dropped if we don't hold it.
 pub struct SamplesStream {
-    audio_unit: AudioUnit,
     inner: Arc<Mutex<SamplesStreamInner>>,
 }
 
@@ -191,20 +193,28 @@ impl Voice {
         try!(audio_unit.start().map_err(convert_error));
 
         let samples_stream = SamplesStream {
-            audio_unit: audio_unit,
             inner: inner,
         };
 
-        Ok((Voice, samples_stream))
+        Ok((Voice {
+            playing: true,
+            audio_unit: audio_unit
+        }, samples_stream))
     }
 
     #[inline]
     pub fn play(&mut self) {
-        // implicitly playing
+        if !self.playing {
+            self.audio_unit.start().unwrap();
+            self.playing = true;
+        }
     }
 
     #[inline]
     pub fn pause(&mut self) {
-        unimplemented!()
+        if self.playing {
+            self.audio_unit.stop().unwrap();
+            self.playing = false;
+        }
     }
 }
