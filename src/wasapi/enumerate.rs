@@ -8,7 +8,7 @@ use std::mem;
 use std::ptr;
 
 lazy_static! {
-    static ref ENUMERATOR: Enumerator = {
+    pub static ref ENUMERATOR: Enumerator = {
         // COM initialization is thread local, but we only need to have COM initialized in the
         // thread we create the objects in
         com::com_initialized();

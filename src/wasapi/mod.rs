@@ -57,7 +57,7 @@ impl Endpoint {
     pub fn default_endpoint() -> Option<Endpoint> {
         unsafe {
             let mut device = mem::uninitialized();
-            let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
+            let hres = (*self::enumerate::ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
                                                                winapi::eConsole, &mut device);
 
             if let Err(_err) = check_result(hres) {
