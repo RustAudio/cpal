@@ -19,8 +19,8 @@ impl Executor for MyExecutor {
 }
 
 fn main() {
-    let endpoint = cpal::get_default_endpoint().expect("Failed to get default endpoint");
-    let format = endpoint.get_supported_formats_list().unwrap().next().expect("Failed to get endpoint format");
+    let endpoint = cpal::Endpoint::default_endpoint().expect("Failed to get default endpoint");
+    let format = endpoint.supported_formats().unwrap().next().expect("Failed to get endpoint format");
 
     let event_loop = cpal::EventLoop::new();
     let executor = Arc::new(MyExecutor);
