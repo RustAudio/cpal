@@ -5,13 +5,13 @@ In order to play a sound, first you need to create an `EventLoop` and a `Voice`.
 
 ```no_run
 // getting the default sound output of the system (can return `None` if nothing is supported)
-let endpoint = cpal::get_default_endpoint().unwrap();
+let endpoint = cpal::Endpoint::default_endpoint().unwrap();
 
 // note that the user can at any moment disconnect the device, therefore all operations return
 // a `Result` to handle this situation
 
 // getting a format for the PCM
-let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
+let format = endpoint.supported_formats().unwrap().next().unwrap();
 
 let event_loop = cpal::EventLoop::new();
 
@@ -118,35 +118,35 @@ impl Iterator for EndpointsIterator {
     }
 }
 
-/// Return an iterator to the list of formats that are supported by the system.
-#[inline]
-pub fn get_endpoints_list() -> EndpointsIterator {
-    EndpointsIterator(Default::default())
-}
-
-/// Return the default endpoint, or `None` if no device is available.
-#[inline]
-pub fn get_default_endpoint() -> Option<Endpoint> {
-    cpal_impl::get_default_endpoint().map(Endpoint)
-}
-
 /// An opaque type that identifies an end point.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
+    /// Return an iterator to the list of formats that are supported by the system.
+    #[inline]
+    pub fn endpoints() -> EndpointsIterator {
+        EndpointsIterator(Default::default())
+    }
+
+    /// Return the default endpoint, or `None` if no device is available.
+    #[inline]
+    pub fn default_endpoint() -> Option<Endpoint> {
+        cpal_impl::Endpoint::default_endpoint().map(Endpoint)
+    }
+
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     #[inline]
-    pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator,
                                                        FormatsEnumerationError>
     {
-        Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
+        Ok(SupportedFormatsIterator(try!(self.0.supported_formats())))
     }
 
     /// Returns the name of the endpoint.
     #[inline]
-    pub fn get_name(&self) -> String {
-        self.0.get_name()
+    pub fn name(&self) -> String {
+        self.0.name()
     }
 }
 
@@ -426,7 +426,7 @@ impl<T> Deref for Buffer<T> where T: Sample {
 impl<T> DerefMut for Buffer<T> where T: Sample {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
-        self.target.as_mut().unwrap().get_buffer()
+        self.target.as_mut().unwrap().buffer()
     }
 }
 

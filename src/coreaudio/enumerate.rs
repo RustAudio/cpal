@@ -22,8 +22,4 @@ impl Iterator for EndpointsIterator {
     }
 }
 
-pub fn get_default_endpoint() -> Option<Endpoint> {
-    Some(Endpoint)
-}
-
 pub type SupportedFormatsIterator = VecIntoIter<Format>;

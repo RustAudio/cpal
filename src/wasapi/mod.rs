@@ -17,7 +17,7 @@ use SamplesRate;
 use SampleFormat;
 
 pub use std::option::IntoIter as OptionIntoIter;
-pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator};
 pub use self::voice::{Voice, Buffer, EventLoop, SamplesStream};
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;
@@ -54,9 +54,23 @@ unsafe impl Send for Endpoint {}
 unsafe impl Sync for Endpoint {}
 
 impl Endpoint {
+    pub fn default_endpoint() -> Option<Endpoint> {
+        unsafe {
+            let mut device = mem::uninitialized();
+            let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
+                                                               winapi::eConsole, &mut device);
+
+            if let Err(_err) = check_result(hres) {
+                return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
+            }
+
+            Some(Endpoint::from_immdevice(device))
+        }
+    }
+
     // TODO: this function returns a GUID of the endpoin
     //       instead it should use the property store and return the friendly name
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         unsafe {
             let mut name_ptr = mem::uninitialized();
             // can only fail if wrong params or out of memory
@@ -118,7 +132,7 @@ impl Endpoint {
         Ok(client)
     }
 
-    pub fn get_supported_formats_list(&self)
+    pub fn supported_formats(&self)
            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
         // We always create voices in shared mode, therefore all samples go through an audio

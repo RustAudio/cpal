@@ -112,17 +112,3 @@ impl Iterator for EndpointsIterator {
         (num, Some(num))
     }
 }
-
-pub fn get_default_endpoint() -> Option<Endpoint> {
-    unsafe {
-        let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
-                                                           winapi::eConsole, &mut device);
-
-        if let Err(_err) = check_result(hres) {
-            return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
-        }
-
-        Some(Endpoint::from_immdevice(device))
-    }
-}
