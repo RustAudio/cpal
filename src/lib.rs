@@ -357,6 +357,7 @@ impl Voice {
     ///
     /// You can add data with any number of channels, but matching the voice's native format
     /// will lead to better performances.
+    #[deprecated]
     #[inline]
     pub fn get_channels(&self) -> ChannelsCount {
         self.format().channels.len() as ChannelsCount
@@ -366,6 +367,7 @@ impl Voice {
     ///
     /// You can add data with any samples rate, but matching the voice's native format
     /// will lead to better performances.
+    #[deprecated]
     #[inline]
     pub fn get_samples_rate(&self) -> SamplesRate {
         self.format().samples_rate
@@ -375,6 +377,7 @@ impl Voice {
     ///
     /// You can add data of any format, but matching the voice's native format
     /// will lead to better performances.
+    #[deprecated]
     #[inline]
     pub fn get_samples_format(&self) -> SampleFormat {
         self.format().data_type
