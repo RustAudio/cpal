@@ -185,10 +185,23 @@ impl Endpoint {
                             channels
                         };
 
-                        let format = match (*format_ptr).SubFormat {
-                            winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT => SampleFormat::F32,
-                            winapi::KSDATAFORMAT_SUBTYPE_PCM => SampleFormat::I16,
-                            g => panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}", g)
+                        let format = {
+                            fn cmp_guid(a: &winapi::GUID, b: &winapi::GUID) -> bool {
+                                a.Data1 == b.Data1 && a.Data2 == b.Data2 &&
+                                a.Data3 == b.Data3 && a.Data4 == b.Data4
+                            }
+                            if cmp_guid(&(*format_ptr).SubFormat,
+                                        &winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)
+                            {
+                                SampleFormat::F32
+                            } else if cmp_guid(&(*format_ptr).SubFormat,
+                                               &winapi::KSDATAFORMAT_SUBTYPE_PCM)
+                            {
+                                SampleFormat::I16
+                            } else {
+                                panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}",
+                                       (*format_ptr).SubFormat)
+                            }
                         };
 
                         (channels, format)
