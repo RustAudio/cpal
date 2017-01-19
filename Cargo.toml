@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Low-level cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
@@ -31,6 +31,9 @@ path = "alsa-sys"
 [target.x86_64-unknown-linux-gnu.dependencies.alsa-sys]
 version = "0.1"
 path = "alsa-sys"
+
+[target.i686-apple-darwin.dependencies]
+coreaudio-rs = "0.6"
 
 [target.x86_64-apple-darwin.dependencies]
 coreaudio-rs = "0.6"
