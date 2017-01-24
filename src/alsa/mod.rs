@@ -579,21 +579,21 @@ impl Voice {
             let mut sw_params = mem::uninitialized();       // TODO: RAII
             check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)).unwrap();
             check_errors(alsa::snd_pcm_sw_params_current(playback_handle, sw_params)).unwrap();
-            check_errors(alsa::snd_pcm_sw_params_set_avail_min(playback_handle, sw_params, 4096)).unwrap();
             check_errors(alsa::snd_pcm_sw_params_set_start_threshold(playback_handle, sw_params, 0)).unwrap();
-            check_errors(alsa::snd_pcm_sw_params(playback_handle, sw_params)).unwrap();
-
-            check_errors(alsa::snd_pcm_prepare(playback_handle)).expect("could not get playback handle");
 
             let (buffer_len, period_len) = {
                 let mut buffer = mem::uninitialized();
                 let mut period = mem::uninitialized();
                 check_errors(alsa::snd_pcm_get_params(playback_handle, &mut buffer, &mut period)).expect("could not initialize buffer");
                 assert!(buffer != 0);
+                check_errors(alsa::snd_pcm_sw_params_set_avail_min(playback_handle, sw_params, buffer)).unwrap();
                 let buffer = buffer as usize * format.channels.len();
                 let period = period as usize * format.channels.len();
                 (buffer, period)
             };
+
+            check_errors(alsa::snd_pcm_sw_params(playback_handle, sw_params)).unwrap();
+            check_errors(alsa::snd_pcm_prepare(playback_handle)).expect("could not get playback handle");
 
             let num_descriptors = {
                 let num_descriptors = alsa::snd_pcm_poll_descriptors_count(playback_handle);
