@@ -586,7 +586,7 @@ impl Voice {
                 let mut period = mem::uninitialized();
                 check_errors(alsa::snd_pcm_get_params(playback_handle, &mut buffer, &mut period)).expect("could not initialize buffer");
                 assert!(buffer != 0);
-                check_errors(alsa::snd_pcm_sw_params_set_avail_min(playback_handle, sw_params, buffer)).unwrap();
+                check_errors(alsa::snd_pcm_sw_params_set_avail_min(playback_handle, sw_params, period)).unwrap();
                 let buffer = buffer as usize * format.channels.len();
                 let period = period as usize * format.channels.len();
                 (buffer, period)
