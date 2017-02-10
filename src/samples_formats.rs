@@ -14,18 +14,26 @@ pub enum SampleFormat {
 impl SampleFormat {
     /// Returns the size in bytes of a sample of this format.
     #[inline]
-    pub fn get_sample_size(&self) -> usize {
+    pub fn sample_size(&self) -> usize {
         match self {
             &SampleFormat::I16 => mem::size_of::<i16>(),
             &SampleFormat::U16 => mem::size_of::<u16>(),
             &SampleFormat::F32 => mem::size_of::<f32>(),
         }
     }
+
+    /// Deprecated. Use `sample_size` instead.
+    #[inline]
+    #[deprecated]
+    pub fn get_sample_size(&self) -> usize {
+        self.sample_size()
+    }
 }
 
 /// Trait for containers that contain PCM data.
 pub unsafe trait Sample: Copy + Clone {
     /// Returns the `SampleFormat` corresponding to this data type.
+    // TODO: rename to `format()`. Requires a breaking change.
     fn get_format() -> SampleFormat;
 }
 

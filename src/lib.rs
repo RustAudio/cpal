@@ -120,14 +120,28 @@ impl Iterator for EndpointsIterator {
 
 /// Return an iterator to the list of formats that are supported by the system.
 #[inline]
+pub fn endpoints() -> EndpointsIterator {
+    EndpointsIterator(Default::default())
+}
+
+/// Deprecated. Use `endpoints()` instead.
+#[inline]
+#[deprecated]
 pub fn get_endpoints_list() -> EndpointsIterator {
     EndpointsIterator(Default::default())
 }
 
 /// Return the default endpoint, or `None` if no device is available.
 #[inline]
-pub fn get_default_endpoint() -> Option<Endpoint> {
+pub fn default_endpoint() -> Option<Endpoint> {
     cpal_impl::get_default_endpoint().map(Endpoint)
+}
+
+/// Deprecated. Use `default_endpoint()` instead.
+#[inline]
+#[deprecated]
+pub fn get_default_endpoint() -> Option<Endpoint> {
+    default_endpoint()
 }
 
 /// An opaque type that identifies an end point.
@@ -137,10 +151,19 @@ pub struct Endpoint(cpal_impl::Endpoint);
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     #[inline]
+    pub fn supported_formats_list(&self) -> Result<SupportedFormatsIterator,
+                                                   FormatsEnumerationError>
+    {
+        Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
+    }
+
+    /// Deprecated. Use `supported_formats_list` instead.
+    #[inline]
+    #[deprecated]
     pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
                                                        FormatsEnumerationError>
     {
-        Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
+        self.supported_formats_list()
     }
 
     /// Returns the name of the endpoint.
