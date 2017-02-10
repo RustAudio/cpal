@@ -12,28 +12,14 @@ keywords = ["audio", "sound"]
 futures = "0.1.1"
 libc = "0.2"
 lazy_static = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
 winapi = "0.2.8"
 ole32-sys = "0.2"
 kernel32-sys = "0.2"
 
-[target.arm-unknown-linux-gnueabihf.dependencies.alsa-sys]
-version = "0.1"
-path = "alsa-sys"
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+alsa-sys = { version = "0.1", path = "alsa-sys" }
 
-[target.mipsel-unknown-linux-gnu.dependencies.alsa-sys]
-version = "0.1"
-path = "alsa-sys"
-
-[target.i686-unknown-linux-gnu.dependencies.alsa-sys]
-version = "0.1"
-path = "alsa-sys"
-
-[target.x86_64-unknown-linux-gnu.dependencies.alsa-sys]
-version = "0.1"
-path = "alsa-sys"
-
-[target.i686-apple-darwin.dependencies]
-coreaudio-rs = "0.6"
-
-[target.x86_64-apple-darwin.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 coreaudio-rs = "0.6"
