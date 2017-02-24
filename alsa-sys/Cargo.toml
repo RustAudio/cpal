@@ -5,6 +5,7 @@ authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 build = "build.rs"
 description = "Bindings for the ALSA project (Advanced Linux Sound Architecture)"
 license = "MIT"
+links = "alsa"
 
 [dependencies]
 libc = "0.2.7"
