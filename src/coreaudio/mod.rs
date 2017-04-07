@@ -16,6 +16,8 @@ use futures::task::Task;
 use futures::task;
 use futures::stream::Stream;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use self::coreaudio::audio_unit::AudioUnit;
 use self::coreaudio::audio_unit::render_callback::{self, data};
@@ -50,7 +52,12 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop { EventLoop }
     #[inline]
-    pub fn run(&self) { loop {} }
+    pub fn run(&self) { 
+        loop {
+            // So the loop does not get optimised out in --release
+            thread::sleep(Duration::new(1u64, 0u32));
+        }
+    }
 }
 
 pub struct Buffer<T> {
@@ -83,9 +90,6 @@ impl<T> Buffer<T> where T: Sample {
         }
     }
 }
-
-type NumChannels = usize;
-type NumFrames = usize;
 
 pub struct Voice {
     playing: bool,
