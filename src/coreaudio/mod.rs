@@ -16,6 +16,8 @@ use futures::task::Task;
 use futures::task;
 use futures::stream::Stream;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use self::coreaudio::audio_unit::AudioUnit;
 use self::coreaudio::audio_unit::render_callback::{self, data};
@@ -50,7 +52,12 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop { EventLoop }
     #[inline]
-    pub fn run(&self) { loop {} }
+    pub fn run(&self) { 
+        loop {
+            // So the loop does not get optimised out in --release
+            thread::sleep(Duration::new(1u64, 0u32));
+        }
+    }
 }
 
 pub struct Buffer<T> {
@@ -84,17 +91,15 @@ impl<T> Buffer<T> where T: Sample {
     }
 }
 
-type NumChannels = usize;
-type NumFrames = usize;
-
 pub struct Voice {
     playing: bool,
-    audio_unit: AudioUnit
+    audio_unit: Arc<Mutex<AudioUnit>>,
 }
 
 #[allow(dead_code)] // the audio_unit will be dropped if we don't hold it.
 pub struct SamplesStream {
     inner: Arc<Mutex<SamplesStreamInner>>,
+    audio_unit: Arc<Mutex<AudioUnit>>,
 }
 
 
@@ -192,20 +197,24 @@ impl Voice {
 
         try!(audio_unit.start().map_err(convert_error));
 
+        let au_arc = Arc::new(Mutex::new(audio_unit));
+
         let samples_stream = SamplesStream {
             inner: inner,
+            audio_unit: au_arc.clone(),
         };
 
         Ok((Voice {
             playing: true,
-            audio_unit: audio_unit
+            audio_unit: au_arc.clone(), 
         }, samples_stream))
     }
 
     #[inline]
     pub fn play(&mut self) {
         if !self.playing {
-            self.audio_unit.start().unwrap();
+            let mut unit = self.audio_unit.lock().unwrap();
+            unit.start().unwrap();
             self.playing = true;
         }
     }
@@ -213,7 +222,8 @@ impl Voice {
     #[inline]
     pub fn pause(&mut self) {
         if self.playing {
-            self.audio_unit.stop().unwrap();
+            let mut unit = self.audio_unit.lock().unwrap();
+            unit.stop().unwrap();
             self.playing = false;
         }
     }
