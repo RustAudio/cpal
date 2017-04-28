@@ -1,7 +1,7 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
-pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator};
 
 use ChannelPosition;
 use CreationError;
@@ -30,7 +30,12 @@ mod enumerate;
 pub struct Endpoint(String);
 
 impl Endpoint {
-    pub fn get_supported_formats_list(&self)
+    #[inline]
+    pub fn default_endpoint() -> Option<Endpoint> {
+        Some(Endpoint("default".to_owned()))
+    }
+
+    pub fn supported_formats(&self)
             -> Result<SupportedFormatsIterator, FormatsEnumerationError>
     {
         unsafe {
@@ -51,7 +56,7 @@ impl Endpoint {
                 Ok(_) => ()
             };
 
-            // TODO: check endianess
+            // TODO: check endianness
             const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] = [
                 //SND_PCM_FORMAT_S8,
                 //SND_PCM_FORMAT_U8,
@@ -177,7 +182,7 @@ impl Endpoint {
     }
 
     #[inline]
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         self.0.clone()
     }
 }
@@ -653,7 +658,7 @@ impl Drop for VoiceInner {
 
 impl<T> Buffer<T> {
     #[inline]
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn buffer(&mut self) -> &mut [T] {
         &mut self.buffer
     }
 
@@ -694,7 +699,7 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
     if err < 0 {
         unsafe {
             let s = ffi::CStr::from_ptr(alsa::snd_strerror(err)).to_bytes().to_vec();
-            let s = String::from_utf8(s).expect("Streaming error occured");
+            let s = String::from_utf8(s).expect("Streaming error occurred");
             return Err(s);
         }
     }

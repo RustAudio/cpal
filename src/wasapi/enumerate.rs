@@ -8,7 +8,7 @@ use std::mem;
 use std::ptr;
 
 lazy_static! {
-    static ref ENUMERATOR: Enumerator = {
+    pub static ref ENUMERATOR: Enumerator = {
         // COM initialization is thread local, but we only need to have COM initialized in the
         // thread we create the objects in
         com::com_initialized();
@@ -110,19 +110,5 @@ impl Iterator for EndpointsIterator {
         let num = self.total_count - self.next_item;
         let num = num as usize;
         (num, Some(num))
-    }
-}
-
-pub fn get_default_endpoint() -> Option<Endpoint> {
-    unsafe {
-        let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
-                                                           winapi::eConsole, &mut device);
-
-        if let Err(_err) = check_result(hres) {
-            return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
-        }
-
-        Some(Endpoint::from_immdevice(device))
     }
 }
