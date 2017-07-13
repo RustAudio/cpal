@@ -26,6 +26,48 @@ pub type SupportedFormatsIterator = VecIntoIter<Format>;
 
 mod enumerate;
 
+
+struct Trigger {
+    // [read fd, write fd]
+    fds: [libc::c_int; 2],
+}
+
+impl Trigger {
+    fn new() -> Self {
+        let mut fds = [0,0];
+        match unsafe { libc::pipe(fds.as_mut_ptr()) } {
+            0 => Trigger { fds: fds },
+            _ => panic!("Could not create pipe")
+        }
+    }
+    fn read_fd(&self) -> libc::c_int {
+        self.fds[0]
+    }
+    fn write_fd(&self) -> libc::c_int {
+        self.fds[1]
+    }
+    fn wakeup(&self) {
+        let buf = 1u64;
+        let ret = unsafe { libc::write(self.write_fd(), &buf as *const u64 as *const _, 8) };
+        assert!(ret == 8);
+    }
+    fn clear_pipe(&self) {
+        let mut out = 0u64;
+        let ret = unsafe { libc::read(self.read_fd(), &mut out as *mut u64 as *mut _, 8) };
+        assert_eq!(ret, 8);
+    }
+}
+
+impl Drop for Trigger {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fds[0]);
+            libc::close(self.fds[1]);
+        }
+    }
+}
+
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Endpoint(String);
 
@@ -200,11 +242,11 @@ struct EventLoopInner {
     // function can pause and add the content of `pending_wait` to `current_wait`.
     pending_wait: Mutex<PollDescriptors>,
 
-    // A file descriptor opened with `eventfd`. Always the first element
+    // A trigger that uses a `pipe` as backend. Always the first element
     // of `current_wait.descriptors`. Should be notified when an element is added
     // to `pending_wait` so that the current wait can stop and take the pending wait into
     // account.
-    pending_wait_signal: libc::c_int,
+    pending_trigger: Trigger,
 }
 
 struct PollDescriptors {
@@ -217,24 +259,16 @@ struct PollDescriptors {
 unsafe impl Send for EventLoopInner {}
 unsafe impl Sync for EventLoopInner {}
 
-impl Drop for EventLoopInner {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.pending_wait_signal);
-        }
-    }
-}
-
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
-        let pending_wait_signal = unsafe { libc::eventfd(0, 0) };
+        let pending_trigger = Trigger::new();
 
         EventLoop {
             inner: Arc::new(EventLoopInner {
                 current_wait: Mutex::new(PollDescriptors {
                     descriptors: vec![libc::pollfd {
-                        fd: pending_wait_signal,
+                        fd: pending_trigger.read_fd(),
                         events: libc::POLLIN,
                         revents: 0,
                     }],
@@ -244,7 +278,7 @@ impl EventLoop {
                     descriptors: Vec::new(),
                     voices: Vec::new(),
                 }),
-                pending_wait_signal: pending_wait_signal,
+                pending_trigger: pending_trigger,
             })
         }
     }
@@ -274,10 +308,7 @@ impl EventLoop {
                     current_wait.voices.append(&mut pending.voices);
 
                     // Emptying the signal.
-                    let mut out = 0u64;
-                    let ret = libc::read(self.inner.pending_wait_signal,
-                                         &mut out as *mut u64 as *mut _, 8);
-                    assert_eq!(ret, 8);
+                    self.inner.pending_trigger.clear_pipe();
                 }
 
                 // Check each individual descriptor for events.
@@ -402,7 +433,7 @@ struct VoiceInner {
 
     // A file descriptor opened with `eventfd`.
     // It is used to wait for resume signal.
-    resume_signal: libc::c_int,
+    resume_trigger: Trigger,
 }
 
 unsafe impl Send for VoiceInner {}
@@ -439,7 +470,7 @@ impl SamplesStream {
                     // And we add the descriptor corresponding to the resume signal
                     // to `event_loop.pending_wait.descriptors`.
                     pending_wait.descriptors.push(libc::pollfd {
-                        fd: self.inner.resume_signal,
+                        fd: self.inner.resume_trigger.read_fd(),
                         events: libc::POLLIN,
                         revents: 0,
                     });
@@ -452,10 +483,7 @@ impl SamplesStream {
             // Now that `pending_wait` received additional descriptors, we signal the event
             // so that our event loops can pick it up.
             drop(pending_wait);
-            let buf = 1u64;
-            let wret = libc::write(self.inner.event_loop.pending_wait_signal,
-                                   &buf as *const u64 as *const _, 8);
-            assert!(wret == 8);
+            self.inner.event_loop.pending_trigger.wakeup();
         }
     }
 }
@@ -611,7 +639,7 @@ impl Voice {
                 period_len: period_len,
                 scheduled: Mutex::new(None),
                 is_paused: AtomicBool::new(true),
-                resume_signal: libc::eventfd(0, 0),
+                resume_trigger: Trigger::new(),
             });
 
             Ok((Voice {
@@ -627,12 +655,7 @@ impl Voice {
         // If it was paused then we resume and signal
         // FIXME: the signal is send even if the event loop wasn't waiting for resume, is that an issue ?
         if self.inner.is_paused.swap(false, Ordering::Relaxed) {
-            unsafe {
-                let buf = 1u64;
-                let wret = libc::write(self.inner.resume_signal,
-                                       &buf as *const u64 as *const _, 8);
-                assert!(wret == 8);
-            }
+            self.inner.resume_trigger.wakeup();
         }
     }
 

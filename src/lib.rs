@@ -76,7 +76,7 @@ extern crate libc;
 
 pub use samples_formats::{SampleFormat, Sample};
 
-#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"), not(target_os = "macos")))]
 use null as cpal_impl;
 
 use std::fmt;
@@ -89,7 +89,7 @@ use futures::Poll;
 mod null;
 mod samples_formats;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[path="alsa/mod.rs"]
 mod cpal_impl;
 
