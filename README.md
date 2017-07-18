@@ -4,7 +4,7 @@
 
 ```toml
 [dependencies]
-cpal = "0.4.0"
+cpal = "0.4.5"
 ```
 
 Low-level library for audio playback in pure Rust.
