@@ -157,7 +157,11 @@ impl Voice {
             }
         }
 
-        let au_type = coreaudio::audio_unit::IOType::DefaultOutput;
+        let au_type = if cfg!(target_os = "ios") {
+            coreaudio::audio_unit::IOType::RemoteIO
+        } else {
+            coreaudio::audio_unit::IOType::DefaultOutput
+        };
         let mut audio_unit = try!(AudioUnit::new(au_type).map_err(convert_error));
 
         // TODO: iOS uses integer and fixed-point data
