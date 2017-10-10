@@ -158,6 +158,9 @@ impl Voice {
         }
 
         let au_type = if cfg!(target_os = "ios") {
+        	// The DefaultOutput unit isn't available in iOS unfortunately. RemoteIO is a sensible replacement.
+        	// See 
+        	// https://developer.apple.com/library/content/documentation/MusicAudio/Conceptual/AudioUnitHostingGuide_iOS/UsingSpecificAudioUnits/UsingSpecificAudioUnits.html
             coreaudio::audio_unit::IOType::RemoteIO
         } else {
             coreaudio::audio_unit::IOType::DefaultOutput
