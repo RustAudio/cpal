@@ -1,6 +1,7 @@
+
+use super::Endpoint;
 use super::alsa;
 use super::check_errors;
-use super::Endpoint;
 
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -17,8 +18,10 @@ pub struct EndpointsIterator {
     next_str: *const *const u8,
 }
 
-unsafe impl Send for EndpointsIterator {}
-unsafe impl Sync for EndpointsIterator {}
+unsafe impl Send for EndpointsIterator {
+}
+unsafe impl Sync for EndpointsIterator {
+}
 
 impl Drop for EndpointsIterator {
     #[inline]
@@ -34,8 +37,8 @@ impl Default for EndpointsIterator {
         unsafe {
             let mut hints = mem::uninitialized();
             // TODO: check in which situation this can fail
-            check_errors(alsa::snd_device_name_hint(-1, b"pcm\0".as_ptr() as *const _,
-                                                    &mut hints)).unwrap();
+            check_errors(alsa::snd_device_name_hint(-1, b"pcm\0".as_ptr() as *const _, &mut hints))
+                .unwrap();
 
             let hints = hints as *const *const u8;
 
@@ -95,8 +98,10 @@ impl Iterator for EndpointsIterator {
                     // trying to open the PCM device to see if it can be opened
                     let name_zeroed = CString::new(name.clone()).unwrap();
                     let mut playback_handle = mem::uninitialized();
-                    if alsa::snd_pcm_open(&mut playback_handle, name_zeroed.as_ptr() as *const _,
-                                          alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK) == 0
+                    if alsa::snd_pcm_open(&mut playback_handle,
+                                          name_zeroed.as_ptr() as *const _,
+                                          alsa::SND_PCM_STREAM_PLAYBACK,
+                                          alsa::SND_PCM_NONBLOCK) == 0
                     {
                         alsa::snd_pcm_close(playback_handle);
                     } else {

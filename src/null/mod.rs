@@ -2,9 +2,9 @@
 
 use std::marker::PhantomData;
 
+use futures::Async;
 use futures::Poll;
 use futures::stream::Stream;
-use futures::Async;
 
 use CreationError;
 use Format;
@@ -14,9 +14,13 @@ use UnknownTypeBuffer;
 pub struct EventLoop;
 impl EventLoop {
     #[inline]
-    pub fn new() -> EventLoop { EventLoop }
+    pub fn new() -> EventLoop {
+        EventLoop
+    }
     #[inline]
-    pub fn run(&self) { loop { /* TODO: don't spin */ } }
+    pub fn run(&self) {
+        loop { /* TODO: don't spin */ }
+    }
 }
 
 #[derive(Default)]
@@ -41,9 +45,9 @@ pub struct Endpoint;
 
 impl Endpoint {
     #[inline]
-    pub fn get_supported_formats_list(&self)
-            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
-    {
+    pub fn get_supported_formats_list(
+        &self)
+        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         unreachable!()
     }
 
@@ -70,8 +74,7 @@ pub struct SamplesStream;
 impl Voice {
     #[inline]
     pub fn new(_: &Endpoint, _: &Format, _: &EventLoop)
-               -> Result<(Voice, SamplesStream), CreationError>
-    {
+               -> Result<(Voice, SamplesStream), CreationError> {
         Err(CreationError::DeviceNotAvailable)
     }
 

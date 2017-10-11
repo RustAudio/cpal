@@ -1,20 +1,20 @@
 extern crate coreaudio;
 extern crate libc;
 
+use ChannelPosition;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
 use Sample;
 use SampleFormat;
 use SamplesRate;
-use ChannelPosition;
 use UnknownTypeBuffer;
 
-use futures::Poll;
 use futures::Async;
-use futures::task::Task;
-use futures::task;
+use futures::Poll;
 use futures::stream::Stream;
+use futures::task;
+use futures::task::Task;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -24,22 +24,24 @@ use self::coreaudio::audio_unit::render_callback::{self, data};
 
 mod enumerate;
 
-pub use self::enumerate::{EndpointsIterator,
-                          SupportedFormatsIterator,
-                          get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, get_default_endpoint};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint;
 
 impl Endpoint {
-    pub fn get_supported_formats_list(&self)
-            -> Result<SupportedFormatsIterator, FormatsEnumerationError>
-    {
-        Ok(vec!(Format {
-            channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-            samples_rate: SamplesRate(44100),
-            data_type: SampleFormat::F32
-        }).into_iter())
+    pub fn get_supported_formats_list(
+        &self)
+        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+        Ok(
+            vec![
+                Format {
+                    channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
+                    samples_rate: SamplesRate(44100),
+                    data_type: SampleFormat::F32,
+                },
+            ].into_iter(),
+        )
     }
 
     pub fn get_name(&self) -> String {
@@ -50,9 +52,11 @@ impl Endpoint {
 pub struct EventLoop;
 impl EventLoop {
     #[inline]
-    pub fn new() -> EventLoop { EventLoop }
+    pub fn new() -> EventLoop {
+        EventLoop
+    }
     #[inline]
-    pub fn run(&self) { 
+    pub fn run(&self) {
         loop {
             // So the loop does not get optimised out in --release
             thread::sleep(Duration::new(1u64, 0u32));
@@ -65,7 +69,9 @@ pub struct Buffer<T> {
     buffer: Vec<T>,
 }
 
-impl<T> Buffer<T> where T: Sample {
+impl<T> Buffer<T>
+    where T: Sample
+{
     #[inline]
     pub fn get_buffer(&mut self) -> &mut [T] {
         &mut self.buffer[..]
@@ -123,7 +129,7 @@ impl Stream for SamplesStream {
             None => {
                 inner.scheduled_task = Some(task::park());
                 return Ok(Async::NotReady);
-            }
+            },
         };
 
         let buffer_len = current_callback.num_frames * current_callback.data.channels().count();
@@ -139,12 +145,11 @@ impl Stream for SamplesStream {
 
 impl Voice {
     pub fn new(_: &Endpoint, _: &Format, _: &EventLoop)
-               -> Result<(Voice, SamplesStream), CreationError>
-    {
+               -> Result<(Voice, SamplesStream), CreationError> {
         let inner = Arc::new(Mutex::new(SamplesStreamInner {
-            scheduled_task: None,
-            current_callback: None,
-        }));
+                                            scheduled_task: None,
+                                            current_callback: None,
+                                        }));
 
         fn convert_error(err: coreaudio::Error) -> CreationError {
             match err {
@@ -158,14 +163,14 @@ impl Voice {
         }
 
         let au_type = if cfg!(target_os = "ios") {
-        	// The DefaultOutput unit isn't available in iOS unfortunately. RemoteIO is a sensible replacement.
-        	// See 
-        	// https://developer.apple.com/library/content/documentation/MusicAudio/Conceptual/AudioUnitHostingGuide_iOS/UsingSpecificAudioUnits/UsingSpecificAudioUnits.html
+            // The DefaultOutput unit isn't available in iOS unfortunately. RemoteIO is a sensible replacement.
+            // See
+            // https://developer.apple.com/library/content/documentation/MusicAudio/Conceptual/AudioUnitHostingGuide_iOS/UsingSpecificAudioUnits/UsingSpecificAudioUnits.html
             coreaudio::audio_unit::IOType::RemoteIO
         } else {
             coreaudio::audio_unit::IOType::DefaultOutput
         };
-        let mut audio_unit = try!(AudioUnit::new(au_type).map_err(convert_error));
+        let mut audio_unit = AudioUnit::new(au_type).map_err(convert_error)?;
 
         // TODO: iOS uses integer and fixed-point data
 
@@ -199,10 +204,10 @@ impl Voice {
                 Ok(())
             });
 
-            try!(result.map_err(convert_error));
+            result.map_err(convert_error)?;
         }
 
-        try!(audio_unit.start().map_err(convert_error));
+        audio_unit.start().map_err(convert_error)?;
 
         let au_arc = Arc::new(Mutex::new(audio_unit));
 
@@ -212,9 +217,10 @@ impl Voice {
         };
 
         Ok((Voice {
-            playing: true,
-            audio_unit: au_arc.clone(), 
-        }, samples_stream))
+                playing: true,
+                audio_unit: au_arc.clone(),
+            },
+            samples_stream))
     }
 
     #[inline]
