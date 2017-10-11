@@ -151,25 +151,32 @@ pub struct Endpoint(cpal_impl::Endpoint);
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     #[inline]
-    pub fn supported_formats_list(&self) -> Result<SupportedFormatsIterator,
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator,
                                                    FormatsEnumerationError>
     {
         Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
     }
 
-    /// Deprecated. Use `supported_formats_list` instead.
+    /// Deprecated. Use `supported_formats` instead.
     #[inline]
     #[deprecated]
     pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
                                                        FormatsEnumerationError>
     {
-        self.supported_formats_list()
+        self.supported_formats()
     }
 
     /// Returns the name of the endpoint.
     #[inline]
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         self.0.get_name()
+    }
+
+    /// Deprecated. Use `name()` instead.
+    #[deprecated]
+    #[inline]
+    pub fn get_name(&self) -> String {
+        self.name()
     }
 }
 
