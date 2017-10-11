@@ -21,5 +21,5 @@ kernel32-sys = "0.2"
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = "0.6"
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+coreaudio-rs = "0.7.0"

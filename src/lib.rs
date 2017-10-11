@@ -76,7 +76,7 @@ extern crate libc;
 
 pub use samples_formats::{SampleFormat, Sample};
 
-#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"), not(target_os = "macos")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"), not(target_os = "macos"), not(target_os = "ios")))]
 use null as cpal_impl;
 
 use std::fmt;
@@ -97,7 +97,7 @@ mod cpal_impl;
 #[path="wasapi/mod.rs"]
 mod cpal_impl;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path="coreaudio/mod.rs"]
 mod cpal_impl;
 
