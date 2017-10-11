@@ -1,13 +1,13 @@
 extern crate cpal;
 
 fn main() {
-    let endpoints = cpal::get_endpoints_list();
+    let endpoints = cpal::endpoints();
     
     println!("Endpoints: ");
     for (endpoint_index, endpoint) in endpoints.enumerate() {
-        println!("{}. Endpoint \"{}\" Audio formats: ", endpoint_index + 1, endpoint.get_name());
+        println!("{}. Endpoint \"{}\" Audio formats: ", endpoint_index + 1, endpoint.name());
 
-        let formats = match endpoint.get_supported_formats_list() {
+        let formats = match endpoint.supported_formats() {
             Ok(f) => f,
             Err(e) => { println!("Error: {:?}", e); continue; }
         };
