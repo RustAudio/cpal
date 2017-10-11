@@ -1,8 +1,9 @@
-use super::winapi;
-use super::ole32;
-use super::com;
+
 use super::Endpoint;
 use super::check_result;
+use super::com;
+use super::ole32;
+use super::winapi;
 
 use std::mem;
 use std::ptr;
@@ -33,8 +34,10 @@ lazy_static! {
 /// RAII object around `winapi::IMMDeviceEnumerator`.
 struct Enumerator(*mut winapi::IMMDeviceEnumerator);
 
-unsafe impl Send for Enumerator {}
-unsafe impl Sync for Enumerator {}
+unsafe impl Send for Enumerator {
+}
+unsafe impl Sync for Enumerator {
+}
 
 impl Drop for Enumerator {
     #[inline]
@@ -52,8 +55,10 @@ pub struct EndpointsIterator {
     next_item: u32,
 }
 
-unsafe impl Send for EndpointsIterator {}
-unsafe impl Sync for EndpointsIterator {}
+unsafe impl Send for EndpointsIterator {
+}
+unsafe impl Sync for EndpointsIterator {
+}
 
 impl Drop for EndpointsIterator {
     #[inline]
@@ -72,7 +77,7 @@ impl Default for EndpointsIterator {
             check_result((*ENUMERATOR.0).EnumAudioEndpoints(winapi::eRender,
                                                             winapi::DEVICE_STATE_ACTIVE,
                                                             &mut collection))
-                                                            .unwrap();
+                .unwrap();
 
             let mut count = mem::uninitialized();
             // can fail if the parameter is null, which should never happen
@@ -116,11 +121,11 @@ impl Iterator for EndpointsIterator {
 pub fn get_default_endpoint() -> Option<Endpoint> {
     unsafe {
         let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(winapi::eRender,
-                                                           winapi::eConsole, &mut device);
+        let hres = (*ENUMERATOR.0)
+            .GetDefaultAudioEndpoint(winapi::eRender, winapi::eConsole, &mut device);
 
         if let Err(_err) = check_result(hres) {
-            return None;        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
+            return None; // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
         }
 
         Some(Endpoint::from_immdevice(device))

@@ -1,9 +1,9 @@
 //! Handles COM initialization and cleanup.
 
-use std::ptr;
-use super::winapi;
-use super::ole32;
 use super::check_result;
+use super::ole32;
+use super::winapi;
+use std::ptr;
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {

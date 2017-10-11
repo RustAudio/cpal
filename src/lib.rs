@@ -74,31 +74,32 @@ extern crate futures;
 extern crate lazy_static;
 extern crate libc;
 
-pub use samples_formats::{SampleFormat, Sample};
+pub use samples_formats::{Sample, SampleFormat};
 
-#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"), not(target_os = "macos"), not(target_os = "ios")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"),
+            not(target_os = "macos"), not(target_os = "ios")))]
 use null as cpal_impl;
 
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use futures::stream::Stream;
 use futures::Poll;
+use futures::stream::Stream;
 
 mod null;
 mod samples_formats;
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-#[path="alsa/mod.rs"]
+#[path = "alsa/mod.rs"]
 mod cpal_impl;
 
 #[cfg(windows)]
-#[path="wasapi/mod.rs"]
+#[path = "wasapi/mod.rs"]
 mod cpal_impl;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-#[path="coreaudio/mod.rs"]
+#[path = "coreaudio/mod.rs"]
 mod cpal_impl;
 
 /// An iterator for the list of formats that are supported by the backend.
@@ -151,18 +152,16 @@ pub struct Endpoint(cpal_impl::Endpoint);
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     #[inline]
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator,
-                                                   FormatsEnumerationError>
-    {
-        Ok(SupportedFormatsIterator(try!(self.0.get_supported_formats_list())))
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+        Ok(SupportedFormatsIterator(self.0.get_supported_formats_list()?))
     }
 
     /// Deprecated. Use `supported_formats` instead.
     #[inline]
     #[deprecated]
-    pub fn get_supported_formats_list(&self) -> Result<SupportedFormatsIterator,
-                                                       FormatsEnumerationError>
-    {
+    pub fn get_supported_formats_list(
+        &self)
+        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         self.supported_formats()
     }
 
@@ -254,7 +253,9 @@ impl EventLoop {
 /// You should destroy this object as soon as possible. Data is only committed when it
 /// is destroyed.
 #[must_use]
-pub struct Buffer<T> where T: Sample {
+pub struct Buffer<T>
+    where T: Sample
+{
     // also contains something, taken by `Drop`
     target: Option<cpal_impl::Buffer<T>>,
 }
@@ -363,9 +364,8 @@ impl Voice {
     /// Builds a new channel.
     #[inline]
     pub fn new(endpoint: &Endpoint, format: &Format, event_loop: &EventLoop)
-               -> Result<(Voice, SamplesStream), CreationError>
-    {
-        let (voice, stream) = try!(cpal_impl::Voice::new(&endpoint.0, format, &event_loop.0));
+               -> Result<(Voice, SamplesStream), CreationError> {
+        let (voice, stream) = cpal_impl::Voice::new(&endpoint.0, format, &event_loop.0)?;
 
         let voice = Voice {
             voice: voice,
@@ -447,7 +447,9 @@ impl Stream for SamplesStream {
     }
 }
 
-impl<T> Deref for Buffer<T> where T: Sample {
+impl<T> Deref for Buffer<T>
+    where T: Sample
+{
     type Target = [T];
 
     #[inline]
@@ -456,14 +458,18 @@ impl<T> Deref for Buffer<T> where T: Sample {
     }
 }
 
-impl<T> DerefMut for Buffer<T> where T: Sample {
+impl<T> DerefMut for Buffer<T>
+    where T: Sample
+{
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.target.as_mut().unwrap().get_buffer()
     }
 }
 
-impl<T> Drop for Buffer<T> where T: Sample {
+impl<T> Drop for Buffer<T>
+    where T: Sample
+{
     #[inline]
     fn drop(&mut self) {
         self.target.take().unwrap().finish();
