@@ -119,6 +119,6 @@ impl Iterator for EndpointsIterator {
 }
 
 #[inline]
-pub fn get_default_endpoint() -> Option<Endpoint> {
+pub fn default_endpoint() -> Option<Endpoint> {
     Some(Endpoint("default".to_owned()))
 }

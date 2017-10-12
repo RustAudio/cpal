@@ -24,13 +24,13 @@ use self::coreaudio::audio_unit::render_callback::{self, data};
 
 mod enumerate;
 
-pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, default_endpoint};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint;
 
 impl Endpoint {
-    pub fn get_supported_formats_list(
+    pub fn supported_formats(
         &self)
         -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         Ok(
@@ -44,7 +44,7 @@ impl Endpoint {
         )
     }
 
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         "Default AudioUnit Endpoint".to_string()
     }
 }
@@ -73,7 +73,7 @@ impl<T> Buffer<T>
     where T: Sample
 {
     #[inline]
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn buffer(&mut self) -> &mut [T] {
         &mut self.buffer[..]
     }
 

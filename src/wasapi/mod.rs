@@ -16,7 +16,7 @@ use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
 
-pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator, default_endpoint};
 pub use self::voice::{Buffer, EventLoop, SamplesStream, Voice};
 pub use std::option::IntoIter as OptionIntoIter;
 
@@ -60,7 +60,7 @@ unsafe impl Sync for Endpoint {
 impl Endpoint {
     // TODO: this function returns a GUID of the endpoin
     //       instead it should use the property store and return the friendly name
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         unsafe {
             let mut name_ptr = mem::uninitialized();
             // can only fail if wrong params or out of memory
@@ -125,7 +125,7 @@ impl Endpoint {
         Ok(client)
     }
 
-    pub fn get_supported_formats_list(
+    pub fn supported_formats(
         &self)
         -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         // We always create voices in shared mode, therefore all samples go through an audio

@@ -469,7 +469,7 @@ unsafe impl<T> Send for Buffer<T> {
 
 impl<T> Buffer<T> {
     #[inline]
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn buffer(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.buffer_data, self.buffer_len) }
     }
 

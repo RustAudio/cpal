@@ -1,7 +1,7 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
-pub use self::enumerate::{EndpointsIterator, get_default_endpoint};
+pub use self::enumerate::{EndpointsIterator, default_endpoint};
 
 use ChannelPosition;
 use CreationError;
@@ -72,7 +72,7 @@ impl Drop for Trigger {
 pub struct Endpoint(String);
 
 impl Endpoint {
-    pub fn get_supported_formats_list(
+    pub fn supported_formats(
         &self)
         -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         unsafe {
@@ -250,7 +250,7 @@ impl Endpoint {
     }
 
     #[inline]
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         self.0.clone()
     }
 }
@@ -762,7 +762,7 @@ impl Drop for VoiceInner {
 
 impl<T> Buffer<T> {
     #[inline]
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn buffer(&mut self) -> &mut [T] {
         &mut self.buffer
     }
 

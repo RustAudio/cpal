@@ -36,7 +36,7 @@ impl Iterator for EndpointsIterator {
 }
 
 #[inline]
-pub fn get_default_endpoint() -> Option<Endpoint> {
+pub fn default_endpoint() -> Option<Endpoint> {
     None
 }
 
@@ -45,14 +45,14 @@ pub struct Endpoint;
 
 impl Endpoint {
     #[inline]
-    pub fn get_supported_formats_list(
+    pub fn supported_formats(
         &self)
         -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         unreachable!()
     }
 
     #[inline]
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> String {
         "null".to_owned()
     }
 }
@@ -103,7 +103,7 @@ pub struct Buffer<T> {
 
 impl<T> Buffer<T> {
     #[inline]
-    pub fn get_buffer(&mut self) -> &mut [T] {
+    pub fn buffer(&mut self) -> &mut [T] {
         unreachable!()
     }
 
