@@ -135,7 +135,7 @@ pub fn get_endpoints_list() -> EndpointsIterator {
 /// Return the default endpoint, or `None` if no device is available.
 #[inline]
 pub fn default_endpoint() -> Option<Endpoint> {
-    cpal_impl::get_default_endpoint().map(Endpoint)
+    cpal_impl::default_endpoint().map(Endpoint)
 }
 
 /// Deprecated. Use `default_endpoint()` instead.
@@ -153,7 +153,7 @@ impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
     #[inline]
     pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
-        Ok(SupportedFormatsIterator(self.0.get_supported_formats_list()?))
+        Ok(SupportedFormatsIterator(self.0.supported_formats()?))
     }
 
     /// Deprecated. Use `supported_formats` instead.
@@ -168,7 +168,7 @@ impl Endpoint {
     /// Returns the name of the endpoint.
     #[inline]
     pub fn name(&self) -> String {
-        self.0.get_name()
+        self.0.name()
     }
 
     /// Deprecated. Use `name()` instead.
@@ -463,7 +463,7 @@ impl<T> DerefMut for Buffer<T>
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
-        self.target.as_mut().unwrap().get_buffer()
+        self.target.as_mut().unwrap().buffer()
     }
 }
 

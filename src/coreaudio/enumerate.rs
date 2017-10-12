@@ -29,7 +29,7 @@ impl Iterator for EndpointsIterator {
     }
 }
 
-pub fn get_default_endpoint() -> Option<Endpoint> {
+pub fn default_endpoint() -> Option<Endpoint> {
     Some(Endpoint)
 }
 
