@@ -260,6 +260,11 @@ impl EventLoop {
         self.0.destroy_voice(voice_id.0)
     }
 
+    /// Takes control of the current thread and processes the sounds.
+    ///
+    /// Whenever a voice needs to be fed some data, the closure passed as parameter is called.
+    /// **Note**: Calling other methods of the events loop from the callback will most likely
+    /// deadlock. Don't do that. Maybe this will change in the future.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
@@ -273,6 +278,11 @@ impl EventLoop {
     ///
     /// Only call this after you have submitted some data, otherwise you may hear
     /// some glitches.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the voice doesn't exist.
+    ///
     #[inline]
     pub fn play(&self, voice: VoiceId) {
         self.0.play(voice.0)
@@ -283,12 +293,18 @@ impl EventLoop {
     /// Has no effect is the voice was already paused.
     ///
     /// If you call `play` afterwards, the playback will resume exactly where it was.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the voice doesn't exist.
+    ///
     #[inline]
     pub fn pause(&self, voice: VoiceId) {
         self.0.pause(voice.0)
     }
 }
 
+/// Identifier of a voice in an events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VoiceId(cpal_impl::VoiceId);
 
@@ -383,8 +399,8 @@ impl Error for CreationError {
 pub struct Buffer<'a, T: 'a>
     where T: Sample
 {
-    // also contains something, taken by `Drop`
-
+    // Always contains something, taken by `Drop`
+    // TODO: change that
     target: Option<cpal_impl::Buffer<'a, T>>,
 }
 
