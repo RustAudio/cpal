@@ -17,7 +17,7 @@ use SampleFormat;
 use SamplesRate;
 
 pub use self::enumerate::{EndpointsIterator, default_endpoint};
-pub use self::voice::{Buffer, EventLoop, SamplesStream, Voice};
+pub use self::voice::{Buffer, EventLoop, VoiceId};
 pub use std::option::IntoIter as OptionIntoIter;
 
 pub type SupportedFormatsIterator = OptionIntoIter<Format>;

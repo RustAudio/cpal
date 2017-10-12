@@ -69,7 +69,6 @@ from time to time.
 
 */
 
-extern crate futures;
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
@@ -84,10 +83,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use futures::Poll;
-use futures::stream::Stream;
-
-mod null;
+//mod null;     // TODO: restore
 mod samples_formats;
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -237,42 +233,78 @@ impl Iterator for SupportedFormatsIterator {
 pub struct EventLoop(cpal_impl::EventLoop);
 
 impl EventLoop {
+    /// Initializes a new events loop.
     #[inline]
     pub fn new() -> EventLoop {
         EventLoop(cpal_impl::EventLoop::new())
     }
 
+    /// Creates a new voice that will play on the given endpoint and with the given format.
+    ///
+    /// On success, returns an identifier for the voice.
     #[inline]
-    pub fn run(&self) {
-        self.0.run()
+    pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
+                       -> Result<VoiceId, CreationError>
+    {
+        self.0.build_voice(&endpoint.0, format).map(VoiceId)
+    }
+
+    /// Destroys an existing voice.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the voice doesn't exist.
+    ///
+    #[inline]
+    pub fn destroy_voice(&self, voice_id: VoiceId) {
+        self.0.destroy_voice(voice_id.0)
+    }
+
+    #[inline]
+    pub fn run<F>(&self, mut callback: F) -> !
+        where F: FnMut(VoiceId, UnknownTypeBuffer)
+    {
+        self.0.run(move |id, buf| callback(VoiceId(id), buf))
+    }
+
+    /// Sends a command to the audio device that it should start playing.
+    ///
+    /// Has no effect is the voice was already playing.
+    ///
+    /// Only call this after you have submitted some data, otherwise you may hear
+    /// some glitches.
+    #[inline]
+    pub fn play(&self, voice: VoiceId) {
+        self.0.play(voice.0)
+    }
+
+    /// Sends a command to the audio device that it should stop playing.
+    ///
+    /// Has no effect is the voice was already paused.
+    ///
+    /// If you call `play` afterwards, the playback will resume exactly where it was.
+    #[inline]
+    pub fn pause(&self, voice: VoiceId) {
+        self.0.pause(voice.0)
     }
 }
 
-/// Represents a buffer that must be filled with audio data.
-///
-/// You should destroy this object as soon as possible. Data is only committed when it
-/// is destroyed.
-#[must_use]
-pub struct Buffer<T>
-    where T: Sample
-{
-    // also contains something, taken by `Drop`
-    target: Option<cpal_impl::Buffer<T>>,
-}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VoiceId(cpal_impl::VoiceId);
 
 /// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to fill the right buffer.
-pub enum UnknownTypeBuffer {
+pub enum UnknownTypeBuffer<'a> {
     /// Samples whose format is `u16`.
-    U16(Buffer<u16>),
+    U16(Buffer<'a, u16>),
     /// Samples whose format is `i16`.
-    I16(Buffer<i16>),
+    I16(Buffer<'a, i16>),
     /// Samples whose format is `f32`.
-    F32(Buffer<f32>),
+    F32(Buffer<'a, f32>),
 }
 
-impl UnknownTypeBuffer {
+impl<'a> UnknownTypeBuffer<'a> {
     /// Returns the length of the buffer in number of samples.
     #[inline]
     pub fn len(&self) -> usize {
@@ -343,111 +375,20 @@ impl Error for CreationError {
     }
 }
 
-/// Controls a sound output. A typical application has one `Voice` for each sound
-/// it wants to output.
+/// Represents a buffer that must be filled with audio data.
 ///
-/// A voice must be periodically filled with new data by calling `append_data`, or the sound
-/// will stop playing.
-///
-/// Each `Voice` is bound to a specific number of channels, samples rate, and samples format,
-/// which can be retreived by calling `get_channels`, `get_samples_rate` and `get_samples_format`.
-/// If you call `append_data` with values different than these, then cpal will automatically
-/// perform a conversion on your data.
-///
-/// If you have the possibility, you should try to match the format of the voice.
-pub struct Voice {
-    voice: cpal_impl::Voice,
-    format: Format,
+/// You should destroy this object as soon as possible. Data is only committed when it
+/// is destroyed.
+#[must_use]
+pub struct Buffer<'a, T: 'a>
+    where T: Sample
+{
+    // also contains something, taken by `Drop`
+
+    target: Option<cpal_impl::Buffer<'a, T>>,
 }
 
-impl Voice {
-    /// Builds a new channel.
-    #[inline]
-    pub fn new(endpoint: &Endpoint, format: &Format, event_loop: &EventLoop)
-               -> Result<(Voice, SamplesStream), CreationError> {
-        let (voice, stream) = cpal_impl::Voice::new(&endpoint.0, format, &event_loop.0)?;
-
-        let voice = Voice {
-            voice: voice,
-            format: format.clone(),
-        };
-
-        let stream = SamplesStream(stream);
-
-        Ok((voice, stream))
-    }
-
-    /// Returns the format used by the voice.
-    #[inline]
-    pub fn format(&self) -> &Format {
-        &self.format
-    }
-
-    /// DEPRECATED: use `format` instead. Returns the number of channels.
-    ///
-    /// You can add data with any number of channels, but matching the voice's native format
-    /// will lead to better performances.
-    #[deprecated]
-    #[inline]
-    pub fn get_channels(&self) -> ChannelsCount {
-        self.format().channels.len() as ChannelsCount
-    }
-
-    /// DEPRECATED: use `format` instead. Returns the number of samples that are played per second.
-    ///
-    /// You can add data with any samples rate, but matching the voice's native format
-    /// will lead to better performances.
-    #[deprecated]
-    #[inline]
-    pub fn get_samples_rate(&self) -> SamplesRate {
-        self.format().samples_rate
-    }
-
-    /// DEPRECATED: use `format` instead. Returns the format of the samples that are accepted by the backend.
-    ///
-    /// You can add data of any format, but matching the voice's native format
-    /// will lead to better performances.
-    #[deprecated]
-    #[inline]
-    pub fn get_samples_format(&self) -> SampleFormat {
-        self.format().data_type
-    }
-
-    /// Sends a command to the audio device that it should start playing.
-    ///
-    /// Has no effect is the voice was already playing.
-    ///
-    /// Only call this after you have submitted some data, otherwise you may hear
-    /// some glitches.
-    #[inline]
-    pub fn play(&mut self) {
-        self.voice.play()
-    }
-
-    /// Sends a command to the audio device that it should stop playing.
-    ///
-    /// Has no effect is the voice was already paused.
-    ///
-    /// If you call `play` afterwards, the playback will resume exactly where it was.
-    #[inline]
-    pub fn pause(&mut self) {
-        self.voice.pause()
-    }
-}
-
-pub struct SamplesStream(cpal_impl::SamplesStream);
-
-impl Stream for SamplesStream {
-    type Item = UnknownTypeBuffer;
-    type Error = ();
-
-    #[inline]
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.0.poll()
-    }
-}
-
-impl<T> Deref for Buffer<T>
+impl<'a, T> Deref for Buffer<'a, T>
     where T: Sample
 {
     type Target = [T];
@@ -458,7 +399,7 @@ impl<T> Deref for Buffer<T>
     }
 }
 
-impl<T> DerefMut for Buffer<T>
+impl<'a, T> DerefMut for Buffer<'a, T>
     where T: Sample
 {
     #[inline]
@@ -467,7 +408,7 @@ impl<T> DerefMut for Buffer<T>
     }
 }
 
-impl<T> Drop for Buffer<T>
+impl<'a, T> Drop for Buffer<'a, T>
     where T: Sample
 {
     #[inline]
