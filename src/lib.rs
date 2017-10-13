@@ -69,6 +69,8 @@ from time to time.
 
 */
 
+#![feature(link_args)]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
@@ -76,7 +78,7 @@ extern crate libc;
 pub use samples_formats::{Sample, SampleFormat};
 
 #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"),
-            not(target_os = "macos"), not(target_os = "ios")))]
+            not(target_os = "macos"), not(target_os = "ios"), not(target_os = "emscripten")))]
 use null as cpal_impl;
 
 use std::error::Error;
@@ -96,6 +98,10 @@ mod cpal_impl;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "coreaudio/mod.rs"]
+mod cpal_impl;
+
+#[cfg(target_os = "emscripten")]
+#[path = "emscripten/mod.rs"]
 mod cpal_impl;
 
 /// An iterator for the list of formats that are supported by the backend.
