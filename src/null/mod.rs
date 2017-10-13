@@ -2,10 +2,6 @@
 
 use std::marker::PhantomData;
 
-use futures::Async;
-use futures::Poll;
-use futures::stream::Stream;
-
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -17,11 +13,39 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         EventLoop
     }
+
     #[inline]
-    pub fn run(&self) {
+    pub fn run<F>(&self, _callback: F) -> !
+        where F: FnMut(VoiceId, UnknownTypeBuffer)
+    {
         loop { /* TODO: don't spin */ }
     }
+
+    #[inline]
+    pub fn build_voice(&self, _: &Endpoint, _: &Format)
+                       -> Result<VoiceId, CreationError>
+    {
+        Err(CreationError::DeviceNotAvailable)
+    }
+
+    #[inline]
+    pub fn destroy_voice(&self, _: VoiceId) {
+        unreachable!()
+    }
+
+    #[inline]
+    pub fn play(&self, _: VoiceId) {
+        panic!()
+    }
+
+    #[inline]
+    pub fn pause(&self, _: VoiceId) {
+        panic!()
+    }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VoiceId;
 
 #[derive(Default)]
 pub struct EndpointsIterator;
@@ -68,40 +92,11 @@ impl Iterator for SupportedFormatsIterator {
     }
 }
 
-pub struct Voice;
-pub struct SamplesStream;
-
-impl Voice {
-    #[inline]
-    pub fn new(_: &Endpoint, _: &Format, _: &EventLoop)
-               -> Result<(Voice, SamplesStream), CreationError> {
-        Err(CreationError::DeviceNotAvailable)
-    }
-
-    #[inline]
-    pub fn play(&mut self) {
-    }
-
-    #[inline]
-    pub fn pause(&mut self) {
-    }
+pub struct Buffer<'a, T: 'a> {
+    marker: PhantomData<&'a mut T>,
 }
 
-impl Stream for SamplesStream {
-    type Item = UnknownTypeBuffer;
-    type Error = ();
-
-    #[inline]
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        Ok(Async::NotReady)
-    }
-}
-
-pub struct Buffer<T> {
-    marker: PhantomData<T>,
-}
-
-impl<T> Buffer<T> {
+impl<'a, T> Buffer<'a, T> {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
         unreachable!()

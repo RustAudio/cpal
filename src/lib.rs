@@ -83,7 +83,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-//mod null;     // TODO: restore
+mod null;
 mod samples_formats;
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
