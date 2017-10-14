@@ -69,8 +69,6 @@ from time to time.
 
 */
 
-#![feature(link_args)]
-
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
