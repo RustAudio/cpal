@@ -1,65 +1,33 @@
 /*!
 # How to use cpal
 
-In order to play a sound, first you need to create an `EventLoop` and a `Voice`.
+In order to play a sound, first you need to create an `EventLoop` and a voice.
 
 ```no_run
 // getting the default sound output of the system (can return `None` if nothing is supported)
-let endpoint = cpal::get_default_endpoint().unwrap();
+let endpoint = cpal::default_endpoint().unwrap();
 
 // note that the user can at any moment disconnect the device, therefore all operations return
 // a `Result` to handle this situation
 
 // getting a format for the PCM
-let format = endpoint.get_supported_formats_list().unwrap().next().unwrap();
+let format = endpoint.supported_formats().unwrap().next().unwrap();
 
 let event_loop = cpal::EventLoop::new();
 
-let (voice, mut samples_stream) = cpal::Voice::new(&endpoint, &format, &event_loop).unwrap();
+let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();
+event_loop.play(voice_id);
 ```
 
-The `voice` can be used to control the play/pause of the output, while the `samples_stream` can
-be used to register a callback that will be called whenever the backend is ready to get data.
-See the documentation of `futures-rs` for more info about how to use streams.
+`voice_id` is an identifier for the voice can be used to control the play/pause of the output.
+
+Once that's done, you can call `run()` on the `event_loop`.
 
 ```no_run
-# extern crate futures;
-# extern crate cpal;
-# use std::sync::Arc;
-use futures::stream::Stream;
-use futures::task;
-# struct MyExecutor;
-# impl task::Executor for MyExecutor {
-#     fn execute(&self, r: task::Run) {
-#         r.run();
-#     }
-# }
-# fn main() {
-# let mut samples_stream: cpal::SamplesStream = unsafe { std::mem::uninitialized() };
-# let my_executor = Arc::new(MyExecutor);
-
-task::spawn(samples_stream.for_each(move |buffer| -> Result<_, ()> {
+# let event_loop = cpal::EventLoop::new();
+event_loop.run(move |_voice_id, _buffer| {
     // write data to `buffer` here
-
-    Ok(())
-})).execute(my_executor);
-# }
-```
-
-TODO: add example
-
-After you have registered a callback, call `play`:
-
-```no_run
-# let mut voice: cpal::Voice = unsafe { std::mem::uninitialized() };
-voice.play();
-```
-
-And finally, run the event loop:
-
-```no_run
-# let mut event_loop: cpal::EventLoop = unsafe { std::mem::uninitialized() };
-event_loop.run();
+});
 ```
 
 Calling `run()` will block the thread forever, so it's usually best done in a separate thread.
