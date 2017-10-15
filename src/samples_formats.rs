@@ -48,7 +48,7 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        ((*self as f32 / u16::max_value() as f32) - 0.5) * 2.0
+        ((*self as f32 / u16::max_value() as f32) - 0.5) * 2.0      // TODO: maybe wrong
     }
 }
 
@@ -60,7 +60,11 @@ unsafe impl Sample for i16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        (*self as f32 / i16::max_value() as f32) + 0.5
+        if *self < 0 {
+            *self as f32 / -(::std::i16::MIN as f32)
+        } else {
+            *self as f32 / ::std::i16::MAX as f32
+        }
     }
 }
 
