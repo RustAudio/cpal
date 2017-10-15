@@ -324,13 +324,7 @@ impl EventLoop {
         let pending_trigger = Trigger::new();
 
         let run_context = Mutex::new(RunContext {
-            descriptors: vec![
-                libc::pollfd {
-                    fd: pending_trigger.read_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                }
-            ],
+            descriptors: Vec::new(),        // TODO: clearify in doc initial value not necessary
             voices: Vec::new(),
         });
 
@@ -369,7 +363,13 @@ impl EventLoop {
                             }
                         }
 
-                        run_context.descriptors = Vec::new();
+                        run_context.descriptors = vec![
+                            libc::pollfd {
+                                fd: self.pending_trigger.read_fd(),
+                                events: libc::POLLIN,
+                                revents: 0,
+                            }
+                        ];
                         for voice in run_context.voices.iter() {
                             run_context.descriptors.reserve(voice.num_descriptors);
                             let len = run_context.descriptors.len();
@@ -593,6 +593,7 @@ impl EventLoop {
             };
 
             self.commands.lock().unwrap().push(Command::NewVoice(voice_inner));
+            self.pending_trigger.wakeup();
             Ok(new_voice_id)
         }
     }
@@ -600,6 +601,7 @@ impl EventLoop {
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
         self.commands.lock().unwrap().push(Command::DestroyVoice(voice_id));
+        self.pending_trigger.wakeup();
     }
 
     #[inline]
