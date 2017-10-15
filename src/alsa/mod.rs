@@ -13,7 +13,7 @@ use UnknownTypeBuffer;
 
 use std::{cmp, ffi, iter, mem, ptr};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
 pub type SupportedFormatsIterator = VecIntoIter<Format>;
@@ -250,6 +250,13 @@ impl Endpoint {
 }
 
 pub struct EventLoop {
+    // Each newly-created voice gets a new ID from this counter. The counter is then incremented.
+    next_voice_id: AtomicUsize,     // TODO: use AtomicU64 when stable?
+
+    // A trigger that uses a `pipe()` as backend. Signalled whenever a new command is ready, so
+    // that `poll()` can wake up and pick the changes.
+    pending_trigger: Trigger,
+
     // This field is locked by the `run()` method.
     // The mutex also ensures that only one thread at a time has `run()` running.
     run_context: Mutex<RunContext>,
@@ -266,22 +273,23 @@ unsafe impl Sync for EventLoop {
 }
 
 enum Command {
-    NewVoice(VoiceId, VoiceInner),
+    NewVoice(VoiceInner),
     DestroyVoice(VoiceId),
 }
 
 struct RunContext {
-    // A trigger that uses a `pipe()` as backend.
-    pending_trigger: Trigger,
     // Descriptors to wait for. Always contains `pending_trigger.read_fd()` as first element.
     descriptors: Vec<libc::pollfd>,
     // List of voices that are written in `descriptors`.
-    voices: Vec<Option<VoiceInner>>,
+    voices: Vec<VoiceInner>,
 }
 
 struct VoiceInner {
+    // The id of the voice.
+    id: VoiceId,
+
     // The ALSA channel.
-    channel: Mutex<*mut alsa::snd_pcm_t>,
+    channel: *mut alsa::snd_pcm_t,
 
     // When converting between file descriptors and `snd_pcm_t`, this is the number of
     // file descriptors that this `snd_pcm_t` uses.
@@ -307,34 +315,78 @@ struct VoiceInner {
     resume_trigger: Trigger,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VoiceId(usize);
+
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
+        let pending_trigger = Trigger::new();
+
+        let run_context = Mutex::new(RunContext {
+            descriptors: vec![
+                libc::pollfd {
+                    fd: pending_trigger.read_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                }
+            ],
+            voices: Vec::new(),
+        });
+
         EventLoop {
-            voices: Mutex::new(Vec::new()),
-            pending_trigger: Trigger::new(),
+            next_voice_id: AtomicUsize::new(0),
+            pending_trigger: pending_trigger,
+            run_context,
+            commands: Mutex::new(Vec::new()),
         }
     }
 
     #[inline]
-    pub fn run(&self, mut callback: F) -> !
+    pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
     {
         self.run_inner(&mut callback)
     }
 
-    fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> !
+    fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> ! {
         unsafe {
-            let mut current_wait: Vec<libc::pollfd> = Vec::with_capacity(8);
-            current_wait.push(libc::pollfd {
-                fd: self.pending_trigger.read_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            });
+            let mut run_context = self.run_context.lock().unwrap();
+            let run_context = &mut *run_context;
 
             loop {
-                let ret = libc::poll(current_wait.as_mut_ptr(),
-                                     current_wait.len() as libc::nfds_t,
+                {
+                    let mut commands_lock = self.commands.lock().unwrap();
+                    if !commands_lock.is_empty() {
+                        for command in commands_lock.drain(..) {
+                            match command {
+                                Command::DestroyVoice(voice_id) => {
+                                    run_context.voices.retain(|v| v.id != voice_id);
+                                },
+                                Command::NewVoice(voice_inner) => {
+                                    run_context.voices.push(voice_inner);
+                                },
+                            }
+                        }
+
+                        run_context.descriptors = Vec::new();
+                        for voice in run_context.voices.iter() {
+                            run_context.descriptors.reserve(voice.num_descriptors);
+                            let len = run_context.descriptors.len();
+                            let filled = alsa::snd_pcm_poll_descriptors(voice.channel,
+                                                                        run_context.descriptors
+                                                                            .as_mut_ptr()
+                                                                            .offset(len as isize),
+                                                                        voice.num_descriptors as
+                                                                            libc::c_uint);
+                            debug_assert_eq!(filled, voice.num_descriptors as libc::c_int);
+                            run_context.descriptors.set_len(len + voice.num_descriptors);
+                        }
+                    }
+                }
+
+                let ret = libc::poll(run_context.descriptors.as_mut_ptr(),
+                                     run_context.descriptors.len() as libc::nfds_t,
                                      -1 /* infinite */);
                 assert!(ret >= 0, "poll() failed");
 
@@ -342,38 +394,31 @@ impl EventLoop {
                     continue;
                 }
 
-                // If the `pending_wait_signal` was signaled, add the pending waits to
-                // the current waits.
-                if current_wait[0].revents != 0 {
-                    current_wait[0].revents = 0;
-
-                    let mut pending = self.inner.pending_wait.lock().unwrap();
-                    current_wait.append(&mut pending);
-
-                    // Emptying the signal.
-                    self.inner.pending_trigger.clear_pipe();
+                // If the `pending_trigger` was signaled, we need to process the comands.
+                if run_context.descriptors[0].revents != 0 {
+                    run_context.descriptors[0].revents = 0;
+                    self.pending_trigger.clear_pipe();
                 }
 
-                // Iterate over each individual descriptor.
-                let mut voices = self.inner.voices.lock().unwrap();
+                // Iterate over each individual voice/descriptor.
                 let mut i_voice = 0;
                 let mut i_descriptor = 1;
-                while i_voice < current_wait.len() {
+                while (i_descriptor as usize) < run_context.descriptors.len() {
+                    let voice_inner = run_context.voices.get_mut(i_voice).unwrap();
+
                     // Check whether the event is `POLLOUT`. If not, `continue`.
                     {
                         let mut revent = mem::uninitialized();
 
                         {
-                            let channel = voices[i_voice].channel.lock().unwrap();
-                            let num_descriptors =
-                                voices[i_voice].num_descriptors as libc::c_uint;
-                            check_errors(alsa::snd_pcm_poll_descriptors_revents(channel, current_wait.descriptors
+                            let num_descriptors = voice_inner.num_descriptors as libc::c_uint;
+                            check_errors(alsa::snd_pcm_poll_descriptors_revents(voice_inner.channel, run_context.descriptors
                                                                                 .as_mut_ptr().offset(i_descriptor),
                                                                                 num_descriptors, &mut revent)).unwrap();
                         }
 
                         if (revent as libc::c_short & libc::POLLOUT) == 0 {
-                            i_descriptor += voices[i_voice].num_descriptors as isize;
+                            i_descriptor += voice_inner.num_descriptors as isize;
                             i_voice += 1;
                             continue;
                         }
@@ -381,61 +426,62 @@ impl EventLoop {
 
                     // Determine the number of samples that are available to write.
                     let available = {
-                        let channel = self.inner.channel.lock().expect("could not lock channel");
-                        let available = unsafe { alsa::snd_pcm_avail(*channel) }; // TODO: what about snd_pcm_avail_update?
+                        let available = alsa::snd_pcm_avail(voice_inner.channel); // TODO: what about snd_pcm_avail_update?
 
                         if available == -32 {
                             // buffer underrun
-                            self.inner.buffer_len
+                            voice_inner.buffer_len
                         } else if available < 0 {
                             check_errors(available as libc::c_int).expect("buffer is not available");
                             unreachable!()
                         } else {
-                            (available * self.inner.num_channels as alsa::snd_pcm_sframes_t) as usize
+                            (available * voice_inner.num_channels as alsa::snd_pcm_sframes_t) as usize
                         }
                     };
 
-                    if available < self.inner.period_len {
-                        i_descriptor += voices[i_voice].num_descriptors as isize;
+                    if available < voice_inner.period_len {
+                        i_descriptor += voice_inner.num_descriptors as isize;
                         i_voice += 1;
                         continue;
                     }
 
+                    let voice_id = voice_inner.id.clone();
+
                     // We're now sure that we're ready to write data.
-                    match self.inner.sample_format {
+                    let buffer = match voice_inner.sample_format {
                         SampleFormat::I16 => {
                             let buffer = Buffer {
-                                buffer: iter::repeat(unsafe { mem::uninitialized() })
+                                voice_inner: voice_inner,
+                                buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
-                                inner: self.inner.clone(),
                             };
 
                             UnknownTypeBuffer::I16(::Buffer { target: Some(buffer) })
                         },
                         SampleFormat::U16 => {
                             let buffer = Buffer {
-                                buffer: iter::repeat(unsafe { mem::uninitialized() })
+                                voice_inner: voice_inner,
+                                buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
-                                inner: self.inner.clone(),
                             };
 
                             UnknownTypeBuffer::U16(::Buffer { target: Some(buffer) })
                         },
                         SampleFormat::F32 => {
                             let buffer = Buffer {
-                                buffer: iter::repeat(unsafe { mem::uninitialized() })
+                                voice_inner: voice_inner,
+                                buffer: iter::repeat(0.0)       // we don't use mem::uninitialized in case of sNaN
                                     .take(available)
                                     .collect(),
-                                inner: self.inner.clone(),
                             };
 
                             UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })
                         },
                     };
 
-                    callback(VoiceId(0), buffer);
+                    callback(voice_id, buffer);
                 }
             }
         }
@@ -532,8 +578,11 @@ impl EventLoop {
                 num_descriptors as usize
             };
 
+            let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
+
             let voice_inner = VoiceInner {
-                channel: Mutex::new(playback_handle),
+                id: new_voice_id.clone(),
+                channel: playback_handle,
                 sample_format: format.data_type,
                 num_descriptors: num_descriptors,
                 num_channels: format.channels.len() as u16,
@@ -544,7 +593,7 @@ impl EventLoop {
             };
 
             self.commands.lock().unwrap().push(Command::NewVoice(voice_inner));
-            Ok()
+            Ok(new_voice_id)
         }
     }
 
@@ -555,7 +604,7 @@ impl EventLoop {
 
     #[inline]
     pub fn play(&self, _: VoiceId) {
-        unimplemented!()
+        //unimplemented!()
     }
 
     #[inline]
@@ -565,62 +614,8 @@ impl EventLoop {
 }
 
 pub struct Buffer<'a, T: 'a> {
-    inner: Arc<VoiceInner>,
+    voice_inner: &'a mut VoiceInner,
     buffer: Vec<T>,
-}
-
-impl SamplesStream {
-    #[inline]
-    fn schedule(&mut self, kind: ScheduledKind) {
-        unsafe {
-            let channel = self.inner.channel.lock().unwrap();
-
-            // We start by filling `scheduled`.
-            *self.inner.scheduled.lock().unwrap() = Some(Scheduled {
-                                                             task: task::park(),
-                                                             kind: kind,
-                                                         });
-
-            let mut pending_wait = self.inner.event_loop.pending_wait.lock().unwrap();
-            match kind {
-                ScheduledKind::WaitPCM => {
-                    // In this function we turn the `snd_pcm_t` into a collection of file descriptors.
-                    // And we add these descriptors to `event_loop.pending_wait.descriptors`.
-                    pending_wait.descriptors.reserve(self.inner.num_descriptors);
-
-                    let len = pending_wait.descriptors.len();
-                    let filled = alsa::snd_pcm_poll_descriptors(*channel,
-                                                                pending_wait
-                                                                    .descriptors
-                                                                    .as_mut_ptr()
-                                                                    .offset(len as isize),
-                                                                self.inner.num_descriptors as
-                                                                    libc::c_uint);
-                    debug_assert_eq!(filled, self.inner.num_descriptors as libc::c_int);
-                    pending_wait
-                        .descriptors
-                        .set_len(len + self.inner.num_descriptors);
-                },
-                ScheduledKind::WaitResume => {
-                    // And we add the descriptor corresponding to the resume signal
-                    // to `event_loop.pending_wait.descriptors`.
-                    pending_wait.descriptors.push(libc::pollfd {
-                                                      fd: self.inner.resume_trigger.read_fd(),
-                                                      events: libc::POLLIN,
-                                                      revents: 0,
-                                                  });
-                },
-            }
-
-            // We also fill `voices`.
-            pending_wait.voices.push(self.inner.clone());
-
-            // Now that `pending_wait` received additional descriptors, we signal the event
-            // so that our event loops can pick it up.
-            drop(pending_wait);
-            self.inner.event_loop.pending_trigger.wakeup();
-        }
-    }
 }
 
 /// Wrapper around `hw_params`.
@@ -649,7 +644,7 @@ impl Drop for VoiceInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            alsa::snd_pcm_close(*self.channel.lock().expect("drop for voice"));
+            alsa::snd_pcm_close(self.channel);
         }
     }
 }
@@ -666,21 +661,17 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self) {
-        let to_write = (self.buffer.len() / self.inner.num_channels as usize) as
+        let to_write = (self.buffer.len() / self.voice_inner.num_channels as usize) as
             alsa::snd_pcm_uframes_t;
-        let channel = self.inner
-            .channel
-            .lock()
-            .expect("Buffer channel lock failed");
 
         unsafe {
             loop {
                 let result =
-                    alsa::snd_pcm_writei(*channel, self.buffer.as_ptr() as *const _, to_write);
+                    alsa::snd_pcm_writei(self.voice_inner.channel, self.buffer.as_ptr() as *const _, to_write);
 
                 if result == -32 {
                     // buffer underrun
-                    alsa::snd_pcm_prepare(*channel);
+                    alsa::snd_pcm_prepare(self.voice_inner.channel);
                 } else if result < 0 {
                     check_errors(result as libc::c_int).expect("could not write pcm");
                 } else {

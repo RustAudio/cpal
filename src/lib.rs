@@ -257,7 +257,7 @@ impl EventLoop {
     ///
     /// # Panic
     ///
-    /// Panics if the voice doesn't exist.
+    /// If the voice doesn't exist, this function can either panic or be a no-op.
     ///
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
@@ -285,7 +285,7 @@ impl EventLoop {
     ///
     /// # Panic
     ///
-    /// Panics if the voice doesn't exist.
+    /// If the voice doesn't exist, this function can either panic or be a no-op.
     ///
     #[inline]
     pub fn play(&self, voice: VoiceId) {
@@ -300,7 +300,7 @@ impl EventLoop {
     ///
     /// # Panic
     ///
-    /// Panics if the voice doesn't exist.
+    /// If the voice doesn't exist, this function can either panic or be a no-op.
     ///
     #[inline]
     pub fn pause(&self, voice: VoiceId) {
