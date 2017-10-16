@@ -13,7 +13,6 @@ use std::ptr;
 use std::slice;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
 
 use ChannelPosition;
 use CreationError;
@@ -224,7 +223,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
+    pub fn destroy_voice(&self, _voice_id: VoiceId) {
         unimplemented!()
     }
 
@@ -424,10 +423,10 @@ fn format_to_waveformatextensible(format: &Format)
                nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
                nAvgBytesPerSec: format.channels.len() as winapi::DWORD *
                    format.samples_rate.0 as winapi::DWORD *
-                   format.data_type.get_sample_size() as winapi::DWORD,
+                   format.data_type.sample_size() as winapi::DWORD,
                nBlockAlign: format.channels.len() as winapi::WORD *
-                   format.data_type.get_sample_size() as winapi::WORD,
-               wBitsPerSample: 8 * format.data_type.get_sample_size() as winapi::WORD,
+                   format.data_type.sample_size() as winapi::WORD,
+               wBitsPerSample: 8 * format.data_type.sample_size() as winapi::WORD,
                cbSize: match format.data_type {
                    SampleFormat::I16 => 0,
                    SampleFormat::F32 => (mem::size_of::<winapi::WAVEFORMATEXTENSIBLE>() -
@@ -436,7 +435,7 @@ fn format_to_waveformatextensible(format: &Format)
                    SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                },
            },
-           Samples: 8 * format.data_type.get_sample_size() as winapi::WORD,
+           Samples: 8 * format.data_type.sample_size() as winapi::WORD,
            dwChannelMask: {
                let mut mask = 0;
                for &channel in format.channels.iter() {
