@@ -11,6 +11,8 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::slice;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -21,20 +23,41 @@ use SampleFormat;
 use UnknownTypeBuffer;
 
 pub struct EventLoop {
-    inner: Arc<EventLoopInner>,
-}
-
-struct EventLoopInner {
     // This event is signalled after new voices have been created or destroyed, so that the `run()`
     // method can be notified.
     pending_scheduled_event: winapi::HANDLE,
 
+    // Data used by the `run()` function implementation.
+    run_context: Mutex<RunContext>,
+
+    // Identifier of the next voice to create. Each new voice increases this counter. If the
+    // counter overflows, there's a panic.
+    // TODO: use AtomicU64 instead
+    next_voice_id: AtomicUsize,
+
+    // Commands processed by the `run()` method that is currently running.
+    // TODO: use a lock-free container
+    commands: Mutex<Vec<Command>>,
+}
+
+struct RunContext {
     // Voices that have been created in this event loop.
-    // The ID of the voice is the index within the `Vec`.
-    voices: Mutex<Vec<Option<VoiceInner>>>,
+    voices: Vec<VoiceInner>,
+
+    // Handles corresponding to the `event` field of each element of `voices`. Must always be in
+    // sync with `voices`, except that the first element is always `pending_scheduled_event`.
+    handles: Vec<winapi::HANDLE>,
+}
+
+enum Command {
+    NewVoice(VoiceInner),
+    DestroyVoice(VoiceId),
+    Play(VoiceId),
+    Pause(VoiceId),
 }
 
 struct VoiceInner {
+    id: VoiceId,
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
     event: winapi::HANDLE,
@@ -49,10 +72,13 @@ impl EventLoop {
             unsafe { kernel32::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
 
         EventLoop {
-            inner: Arc::new(EventLoopInner {
-                                pending_scheduled_event: pending_scheduled_event,
-                                voices: Mutex::new(Vec::new()),
-                            }),
+            pending_scheduled_event: pending_scheduled_event,
+            run_context: Mutex::new(RunContext {
+                voices: Vec::new(),
+                handles: vec![pending_scheduled_event],
+            }),
+            next_voice_id: AtomicUsize::new(0),
+            commands: Mutex::new(Vec::new()),
         }
     }
 
@@ -192,9 +218,12 @@ impl EventLoop {
                 &mut *render_client
             };
 
+            let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
+
             // Everything went fine. Adding the voice to the list of voices.
-            let voice_id = {
+            {
                 let inner = VoiceInner {
+                                id: new_voice_id.clone(),
                                 audio_client: audio_client,
                                 render_client: render_client,
                                 event: event,
@@ -203,28 +232,24 @@ impl EventLoop {
                                 bytes_per_frame: format.nBlockAlign,
                             };
 
-                let mut voices_lock = self.inner.voices.lock().unwrap();
-                if let Some(id) = voices_lock.iter().position(|n| n.is_none()) {
-                    voices_lock[id] = Some(inner);
-                    id
-                } else {
-                    let len = voices_lock.len();
-                    voices_lock.push(Some(inner));
-                    len
-                }
+                self.commands.lock().unwrap().push(Command::NewVoice(inner))
             };
 
             // We signal the event, so that if `run()` is running, it will pick up the changes.
-            let result = kernel32::SetEvent(self.inner.pending_scheduled_event);
+            let result = kernel32::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
 
-            Ok(VoiceId(voice_id))
+            Ok(new_voice_id)
         }
     }
 
     #[inline]
-    pub fn destroy_voice(&self, _voice_id: VoiceId) {
-        unimplemented!()
+    pub fn destroy_voice(&self, voice_id: VoiceId) {
+        unsafe {
+            self.commands.lock().unwrap().push(Command::DestroyVoice(voice_id));
+            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            assert!(result != 0);
+        }
     }
 
     #[inline]
@@ -236,21 +261,53 @@ impl EventLoop {
 
     fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> ! {
         unsafe {
-            let mut handles: Vec<winapi::HANDLE> = Vec::new();      // TODO: SmallVec instead
-            let mut handles_need_refresh = true;
+            let mut run_context = self.run_context.lock().unwrap();
 
             loop {
-                if handles_need_refresh {
-                    let voices_lock = self.inner.voices.lock().unwrap();
-                    handles = iter::once(self.inner.pending_scheduled_event).chain(voices_lock.iter().filter_map(|v| v.as_ref()).map(|v| v.event)).collect();
-                    handles_need_refresh = false;
+                let mut commands_lock = self.commands.lock().unwrap();
+                for command in commands_lock.drain(..) {
+                    match command {
+                        Command::NewVoice(voice_inner) => {
+                            let event = voice_inner.event;
+                            run_context.voices.push(voice_inner);
+                            run_context.handles.push(event);
+                        },
+                        Command::DestroyVoice(voice_id) => {
+                            match run_context.voices.iter().position(|v| v.id == voice_id) {
+                                None => continue,
+                                Some(p) => {
+                                    run_context.handles.remove(p + 1);
+                                    run_context.voices.remove(p);
+                                },
+                            }
+                        },
+                        Command::Play(voice_id) => {
+                            if let Some(v) = run_context.voices.get_mut(voice_id.0) {
+                                if !v.playing {
+                                    let hresult = (*v.audio_client).Start();
+                                    check_result(hresult).unwrap();
+                                    v.playing = true;
+                                }
+                            }
+                        },
+                        Command::Pause(voice_id) => {
+                            if let Some(v) = run_context.voices.get_mut(voice_id.0) {
+                                if v.playing {
+                                    let hresult = (*v.audio_client).Stop();
+                                    check_result(hresult).unwrap();
+                                    v.playing = true;
+                                }
+                            }
+                        },
+                    }
                 }
+                drop(commands_lock);
 
                 // Wait for any of the handles to be signalled, which means that the corresponding
                 // sound needs a buffer.
-                debug_assert!(handles.len() <= winapi::MAXIMUM_WAIT_OBJECTS as usize);
-                let result = kernel32::WaitForMultipleObjectsEx(handles.len() as u32,
-                                                                handles.as_ptr(),
+                debug_assert!(run_context.handles.len() <= winapi::MAXIMUM_WAIT_OBJECTS as usize);
+                let result = kernel32::WaitForMultipleObjectsEx(run_context.handles.len() as u32,
+                                                                run_context.handles.as_ptr(),
                                                                 winapi::FALSE,
                                                                 winapi::INFINITE, /* TODO: allow setting a timeout */
                                                                 winapi::FALSE /* irrelevant parameter here */);
@@ -259,18 +316,9 @@ impl EventLoop {
                 assert!(result >= winapi::WAIT_OBJECT_0);
                 let handle_id = (result - winapi::WAIT_OBJECT_0) as usize;
 
-                if handle_id == 0 {
-                    // The `pending_scheduled_event` handle has been notified, which means that the
-                    // content of `self.voices` has been modified.
-                    handles_need_refresh = true;
-
-                } else {
-                    let voice_id = VoiceId(handle_id - 1);
-                    let mut voices_lock = self.inner.voices.lock().unwrap();
-                    let voice = match voices_lock.get_mut(voice_id.0).and_then(|v| v.as_mut()) {
-                        Some(v) => v,
-                        None => continue,
-                    };
+                if handle_id > 0 {
+                    let voice = &mut run_context.voices[handle_id - 1];
+                    let voice_id = voice.id.clone();
 
                     // Obtaining the number of frames that are available to be written.
                     let frames_available = {
@@ -315,36 +363,24 @@ impl EventLoop {
 
     #[inline]
     pub fn play(&self, voice: VoiceId) {
-        let mut voices_lock = self.inner.voices.lock().unwrap();
-        let voice = &mut voices_lock[voice.0].as_mut().unwrap();        // TODO: better error
-
-        if !voice.playing {
-            unsafe {
-                let hresult = (*voice.audio_client).Start();
-                check_result(hresult).unwrap();
-            }
-    
-            voice.playing = true;
+        unsafe {
+            self.commands.lock().unwrap().push(Command::Play(voice));
+            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            assert!(result != 0);
         }
     }
 
     #[inline]
     pub fn pause(&self, voice: VoiceId) {
-        let mut voices_lock = self.inner.voices.lock().unwrap();
-        let voice = &mut voices_lock[voice.0].as_mut().unwrap();        // TODO: better error
-
-        if voice.playing {
-            unsafe {
-                let hresult = (*voice.audio_client).Stop();
-                check_result(hresult).unwrap();
-            }
-    
-            voice.playing = false;
+        unsafe {
+            self.commands.lock().unwrap().push(Command::Pause(voice));
+            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            assert!(result != 0);
         }
     }
 }
 
-impl Drop for EventLoopInner {
+impl Drop for EventLoop {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -358,7 +394,6 @@ unsafe impl Send for EventLoop {
 unsafe impl Sync for EventLoop {
 }
 
-// The ID of a voice is its index within the `voices` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VoiceId(usize);
 
@@ -368,7 +403,7 @@ impl Drop for VoiceInner {
         unsafe {
             (*self.render_client).Release();
             (*self.audio_client).Release();
-            kernel32::CloseHandle(self.event);      // TODO: no, may be dangling
+            kernel32::CloseHandle(self.event);
         }
     }
 }
