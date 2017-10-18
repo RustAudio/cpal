@@ -579,6 +579,7 @@ impl EventLoop {
             };
 
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
+            assert_ne!(new_voice_id.0, usize::max_value());     // check for overflows
 
             let voice_inner = VoiceInner {
                 id: new_voice_id.clone(),
