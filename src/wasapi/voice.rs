@@ -23,11 +23,9 @@ use SampleFormat;
 use UnknownTypeBuffer;
 
 pub struct EventLoop {
-    // This event is signalled after new voices have been created or destroyed, so that the `run()`
-    // method can be notified.
-    pending_scheduled_event: winapi::HANDLE,
-
-    // Data used by the `run()` function implementation.
+    // Data used by the `run()` function implementation. The mutex is kept lock permanently by
+    // `run()`. This ensures that two `run()` invocations can't run at the same time, and also
+    // means that we shouldn't try to lock this field from anywhere else but `run()`.
     run_context: Mutex<RunContext>,
 
     // Identifier of the next voice to create. Each new voice increases this counter. If the
@@ -36,8 +34,14 @@ pub struct EventLoop {
     next_voice_id: AtomicUsize,
 
     // Commands processed by the `run()` method that is currently running.
+    // `pending_scheduled_event` must be signalled whenever a command is added here, so that it
+    // will get picked up.
     // TODO: use a lock-free container
     commands: Mutex<Vec<Command>>,
+
+    // This event is signalled after a new entry is added to `commands`, so that the `run()`
+    // method can be notified.
+    pending_scheduled_event: winapi::HANDLE,
 }
 
 struct RunContext {
@@ -60,9 +64,14 @@ struct VoiceInner {
     id: VoiceId,
     audio_client: *mut winapi::IAudioClient,
     render_client: *mut winapi::IAudioRenderClient,
+    // Event that is signalled by WASAPI whenever audio data must be written.
     event: winapi::HANDLE,
+    // True if the voice is currently playing. False if paused.
     playing: bool,
+
+    // Number of frames of audio data in the underlying buffer allocated by WASAPI.
     max_frames_in_buffer: winapi::UINT32,
+    // Number of bytes that each frame occupies.
     bytes_per_frame: winapi::WORD,
 }
 
@@ -221,7 +230,8 @@ impl EventLoop {
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
             assert_ne!(new_voice_id.0, usize::max_value());     // check for overflows
 
-            // Everything went fine. Adding the voice to the list of voices.
+            // Once we built the `VoiceInner`, we add a command that will be picked up by the
+            // `run()` method and added to the `RunContext`.
             {
                 let inner = VoiceInner {
                                 id: new_voice_id.clone(),
@@ -233,12 +243,11 @@ impl EventLoop {
                                 bytes_per_frame: format.nBlockAlign,
                             };
 
-                self.commands.lock().unwrap().push(Command::NewVoice(inner))
-            };
+                self.commands.lock().unwrap().push(Command::NewVoice(inner));
 
-            // We signal the event, so that if `run()` is running, it will pick up the changes.
-            let result = kernel32::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
+                let result = kernel32::SetEvent(self.pending_scheduled_event);
+                assert!(result != 0);
+            };
 
             Ok(new_voice_id)
         }
@@ -262,9 +271,12 @@ impl EventLoop {
 
     fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> ! {
         unsafe {
+            // We keep `run_context` locked forever, which guarantees that two invocations of
+            // `run()` cannot run simultaneously.
             let mut run_context = self.run_context.lock().unwrap();
 
             loop {
+                // Process the pending commands.
                 let mut commands_lock = self.commands.lock().unwrap();
                 for command in commands_lock.drain(..) {
                     match command {
@@ -314,10 +326,13 @@ impl EventLoop {
                                                                 winapi::FALSE /* irrelevant parameter here */);
 
                 // Notifying the corresponding task handler.
-                assert!(result >= winapi::WAIT_OBJECT_0);
+                debug_assert!(result >= winapi::WAIT_OBJECT_0);
                 let handle_id = (result - winapi::WAIT_OBJECT_0) as usize;
 
-                if handle_id > 0 {
+                // If `handle_id` is 0, then it's `pending_scheduled_event` that was signalled in
+                // order for us to pick up the pending commands.
+                // Otherwise, a voice needs data.
+                if handle_id >= 1 {
                     let voice = &mut run_context.voices[handle_id - 1];
                     let voice_id = voice.id.clone();
 
@@ -344,7 +359,7 @@ impl EventLoop {
 
                         (buffer as *mut _,
                         frames_available as usize * voice.bytes_per_frame as usize /
-                            mem::size_of::<f32>()) // FIXME: correct size
+                            mem::size_of::<f32>()) // FIXME: correct size when not f32
                     };
 
                     let buffer = Buffer {
@@ -395,6 +410,7 @@ unsafe impl Send for EventLoop {
 unsafe impl Sync for EventLoop {
 }
 
+// The content of a voice ID is a number that was fetched from `next_voice_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VoiceId(usize);
 
@@ -438,7 +454,7 @@ impl<'a, T> Buffer<'a, T> {
         unsafe {
             let hresult = (*self.voice.render_client).ReleaseBuffer(self.frames as u32, 0);
             match check_result(hresult) {
-                // ignoring the error that is produced if the device has been disconnected
+                // Ignoring the error that is produced if the device has been disconnected.
                 Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => (),
                 e => e.unwrap(),
             };
@@ -446,6 +462,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
+// Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 fn format_to_waveformatextensible(format: &Format)
                                   -> Result<winapi::WAVEFORMATEXTENSIBLE, CreationError> {
     Ok(winapi::WAVEFORMATEXTENSIBLE {
