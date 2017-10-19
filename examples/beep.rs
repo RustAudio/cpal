@@ -1,9 +1,5 @@
 extern crate cpal;
 
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-
 fn main() {
     let endpoint = cpal::default_endpoint().expect("Failed to get default endpoint");
     let format = endpoint

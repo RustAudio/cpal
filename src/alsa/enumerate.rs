@@ -1,13 +1,11 @@
-
 use super::Endpoint;
 use super::alsa;
+use super::libc;
 use super::check_errors;
 
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::mem;
-
-use libc;
 
 /// ALSA implementation for `EndpointsIterator`.
 pub struct EndpointsIterator {

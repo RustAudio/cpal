@@ -39,7 +39,6 @@ from time to time.
 
 #[macro_use]
 extern crate lazy_static;
-extern crate libc;
 
 pub use samples_formats::{Sample, SampleFormat};
 
