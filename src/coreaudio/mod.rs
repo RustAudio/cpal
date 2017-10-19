@@ -1,5 +1,4 @@
 extern crate coreaudio;
-extern crate libc;
 
 use ChannelPosition;
 use CreationError;

@@ -6,14 +6,12 @@ use super::kernel32;
 use super::ole32;
 use super::winapi;
 
-use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::slice;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::sync::Mutex;
 
 use ChannelPosition;
