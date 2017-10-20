@@ -11,7 +11,8 @@ let endpoint = cpal::default_endpoint().unwrap();
 // a `Result` to handle this situation
 
 // getting a format for the PCM
-let format = endpoint.supported_formats().unwrap().next().unwrap();
+let supported_formats_range = endpoint.supported_formats().unwrap().next().unwrap();
+let format = supported_formats_range.with_max_samples_rate();
 
 let event_loop = cpal::EventLoop::new();
 
@@ -188,16 +189,49 @@ pub struct Format {
 pub struct SupportedFormatsIterator(cpal_impl::SupportedFormatsIterator);
 
 impl Iterator for SupportedFormatsIterator {
-    type Item = Format;
+    type Item = SupportedFormat;
 
     #[inline]
-    fn next(&mut self) -> Option<Format> {
+    fn next(&mut self) -> Option<SupportedFormat> {
         self.0.next()
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
+    }
+}
+
+/// Describes a format.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedFormat {
+    pub channels: Vec<ChannelPosition>,
+    pub min_samples_rate: SamplesRate,
+    pub max_samples_rate: SamplesRate,
+    pub data_type: SampleFormat,
+}
+
+impl SupportedFormat {
+    /// Builds a corresponding `Format` corresponding to the maximum samples rate.
+    #[inline]
+    pub fn with_max_samples_rate(self) -> Format {
+        Format {
+            channels: self.channels,
+            samples_rate: self.max_samples_rate,
+            data_type: self.data_type,
+        }
+    }
+}
+
+impl From<Format> for SupportedFormat {
+    #[inline]
+    fn from(format: Format) -> SupportedFormat {
+        SupportedFormat {
+            channels: format.channels,
+            min_samples_rate: format.samples_rate,
+            max_samples_rate: format.samples_rate,
+            data_type: format.data_type,
+        }
     }
 }
 

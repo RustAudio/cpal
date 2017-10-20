@@ -1,6 +1,7 @@
 use super::Endpoint;
 
 use Format;
+use SupportedFormat;
 
 use std::vec::IntoIter as VecIntoIter;
 
@@ -33,4 +34,4 @@ pub fn default_endpoint() -> Option<Endpoint> {
     Some(Endpoint)
 }
 
-pub type SupportedFormatsIterator = VecIntoIter<Format>;
+pub type SupportedFormatsIterator = VecIntoIter<SupportedFormat>;

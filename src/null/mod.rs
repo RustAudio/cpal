@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
+use SupportedFormat;
 use UnknownTypeBuffer;
 
 pub struct EventLoop;
@@ -84,10 +85,10 @@ impl Endpoint {
 pub struct SupportedFormatsIterator;
 
 impl Iterator for SupportedFormatsIterator {
-    type Item = Format;
+    type Item = SupportedFormat;
 
     #[inline]
-    fn next(&mut self) -> Option<Format> {
+    fn next(&mut self) -> Option<SupportedFormat> {
         None
     }
 }
