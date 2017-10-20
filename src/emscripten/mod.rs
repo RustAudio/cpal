@@ -7,6 +7,7 @@ use CreationError;
 use Format;
 use FormatsEnumerationError;
 use Sample;
+use SupportedFormat;
 use UnknownTypeBuffer;
 
 extern {
@@ -182,9 +183,10 @@ impl Endpoint {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
-        Ok(vec![Format {
+        Ok(vec![SupportedFormat {
             channels: vec![::ChannelPosition::BackLeft, ::ChannelPosition::BackRight],
-            samples_rate: ::SamplesRate(44100),
+            min_samples_rate: ::SamplesRate(44100),
+            max_samples_rate: ::SamplesRate(44100),
             data_type: ::SampleFormat::F32,
         }].into_iter())
     }
@@ -195,7 +197,7 @@ impl Endpoint {
     }
 }
 
-pub type SupportedFormatsIterator = ::std::vec::IntoIter<Format>;
+pub type SupportedFormatsIterator = ::std::vec::IntoIter<SupportedFormat>;
 
 pub struct Buffer<'a, T: 'a> where T: Sample {
     temporary_buffer: Vec<T>,

@@ -7,6 +7,7 @@ use FormatsEnumerationError;
 use Sample;
 use SampleFormat;
 use SamplesRate;
+use SupportedFormat;
 use UnknownTypeBuffer;
 
 use std::mem;
@@ -30,9 +31,10 @@ impl Endpoint {
         -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         Ok(
             vec![
-                Format {
+                SupportedFormat {
                     channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-                    samples_rate: SamplesRate(44100),
+                    min_samples_rate: SamplesRate(44100),
+                    max_samples_rate: SamplesRate(44100),
                     data_type: SampleFormat::F32,
                 },
             ].into_iter(),

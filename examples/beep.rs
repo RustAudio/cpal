@@ -6,7 +6,8 @@ fn main() {
         .supported_formats()
         .unwrap()
         .next()
-        .expect("Failed to get endpoint format");
+        .expect("Failed to get endpoint format")
+        .with_max_samples_rate();
 
     let event_loop = cpal::EventLoop::new();
     let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();

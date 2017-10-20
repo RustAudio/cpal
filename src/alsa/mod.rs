@@ -9,6 +9,7 @@ use Format;
 use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
+use SupportedFormat;
 use UnknownTypeBuffer;
 
 use std::{cmp, ffi, iter, mem, ptr};
@@ -16,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
-pub type SupportedFormatsIterator = VecIntoIter<Format>;
+pub type SupportedFormatsIterator = VecIntoIter<SupportedFormat>;
 
 mod enumerate;
 
@@ -152,10 +153,9 @@ impl Endpoint {
                 .expect("unable to get maximum supported rate");
 
             let samples_rates = if min_rate == max_rate {
-                vec![min_rate]
-            /*} else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
-                (min_rate .. max_rate + 1).collect()*/
- // TODO: code is correct but returns lots of stuff
+                vec![(min_rate, max_rate)]
+            } else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
+                vec![(min_rate, max_rate)]
             } else {
                 const RATES: [libc::c_uint; 13] = [
                     5512,
@@ -180,15 +180,15 @@ impl Endpoint {
                                                          rate,
                                                          0) == 0
                     {
-                        rates.push(rate);
+                        rates.push((rate, rate));
                     }
                 }
 
-                /*if rates.len() == 0 {
-                    (min_rate .. max_rate + 1).collect()
-                } else {*/
-                rates // TODO: code is correct but returns lots of stuff
-                //}
+                if rates.len() == 0 {
+                    vec![(min_rate, max_rate)]
+                } else {
+                    rates
+                }
             };
 
             let mut min_channels = mem::uninitialized();
@@ -227,10 +227,11 @@ impl Endpoint {
                                                     samples_rates.len());
             for &data_type in supported_formats.iter() {
                 for channels in supported_channels.iter() {
-                    for &rate in samples_rates.iter() {
-                        output.push(Format {
+                    for &(min_rate, max_rate) in samples_rates.iter() {
+                        output.push(SupportedFormat {
                                         channels: channels.clone(),
-                                        samples_rate: SamplesRate(rate as u32),
+                                        min_samples_rate: SamplesRate(min_rate as u32),
+                                        max_samples_rate: SamplesRate(max_rate as u32),
                                         data_type: data_type,
                                     });
                     }

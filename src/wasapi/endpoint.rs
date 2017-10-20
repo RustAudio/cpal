@@ -8,17 +8,17 @@ use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ChannelPosition;
-use Format;
 use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
+use SupportedFormat;
 
 use super::check_result;
 use super::com;
 use super::ole32;
 use super::winapi;
 
-pub type SupportedFormatsIterator = OptionIntoIter<Format>;
+pub type SupportedFormatsIterator = OptionIntoIter<SupportedFormat>;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
@@ -236,9 +236,10 @@ impl Endpoint {
                     f => panic!("Unknown data format returned by GetMixFormat: {:?}", f),
                 };
 
-                Format {
+                SupportedFormat {
                     channels: channels,
-                    samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
+                    min_samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
+                    max_samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
                     data_type: data_type,
                 }
             };
