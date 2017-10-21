@@ -11,7 +11,7 @@ jobs:
       - checkout
       - restore_cache:
           key: android-test-cache-{{ checksum "Cargo.toml" }}
-      - run: cargo apk build --example window
+      - run: cargo apk build --example beep
       - save_cache:
           key: android-test-cache-{{ checksum "Cargo.toml" }}
           paths:
@@ -26,7 +26,7 @@ jobs:
       - checkout
       - restore_cache:
           key: asmjs-test-cache-{{ checksum "Cargo.toml" }}
-      - run: cargo build --example window --target asmjs-unknown-emscripten
+      - run: cargo build --example beep --target asmjs-unknown-emscripten
       - save_cache:
           key: asmjs-test-cache-{{ checksum "Cargo.toml" }}
           paths:
@@ -41,7 +41,7 @@ jobs:
       - checkout
       - restore_cache:
           key: wasm-test-cache-{{ checksum "Cargo.toml" }}
-      - run: cargo build --example window --target wasm32-unknown-emscripten
+      - run: cargo build --example beep --target wasm32-unknown-emscripten
       - save_cache:
           key: wasm-test-cache-{{ checksum "Cargo.toml" }}
           paths:
