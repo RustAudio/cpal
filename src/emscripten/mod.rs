@@ -1,11 +1,11 @@
 use std::mem;
-use std::os::raw::c_int;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
 use std::sync::Mutex;
 use stdweb;
 use stdweb::Reference;
 use stdweb::unstable::TryInto;
+use stdweb::web::set_timeout;
 use stdweb::web::TypedArray;
 
 use CreationError;
@@ -14,10 +14,6 @@ use FormatsEnumerationError;
 use Sample;
 use SupportedFormat;
 use UnknownTypeBuffer;
-
-extern {
-    fn emscripten_set_main_loop_arg(_: extern fn(*mut c_void), _: *mut c_void, _: c_int, _: c_int);
-}
 
 // The emscripten backend works by having a global variable named `_cpal_audio_contexts`, which
 // is an array of `AudioContext` objects. A voice ID corresponds to an entry in this array.
@@ -46,44 +42,45 @@ impl EventLoop {
     pub fn run<F>(&self, callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
     {
-        unsafe {
-            // The `run` function uses `emscripten_set_main_loop_arg` to invoke a Rust callback
-            // repeatidely. The job of this callback is to fill the content of the audio buffers.
+        // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
+        // of this callback is to fill the content of the audio buffers.
 
-            // The first argument of the callback function (a `void*`) is a casted pointer to the
-            // `callback` parameter that was passed to `run`.
+        // The first argument of the callback function (a `void*`) is a casted pointer to `self`
+        // and to the `callback` parameter that was passed to `run`.
 
-            extern "C" fn callback_fn<F>(user_data_ptr: *mut c_void)
-                where F: FnMut(VoiceId, UnknownTypeBuffer)
-            {
-                unsafe {
-                    let user_data_ptr = user_data_ptr as *mut (&EventLoop, F);
-                    let user_data = &mut *user_data_ptr;
-                    let callback_fn = &mut user_data.1;
+        fn callback_fn<F>(user_data_ptr: *mut c_void)
+            where F: FnMut(VoiceId, UnknownTypeBuffer)
+        {
+            unsafe {
+                let user_data_ptr2 = user_data_ptr as *mut (&EventLoop, F);
+                let user_data = &mut *user_data_ptr2;
+                let user_cb = &mut user_data.1;
 
-                    let voices = user_data.0.voices.lock().unwrap().clone();
-                    for (voice_id, voice) in voices.iter().enumerate() {
-                        let voice = match voice.as_ref() {
-                            Some(v) => v,
-                            None => continue,
-                        };
+                let voices = user_data.0.voices.lock().unwrap().clone();
+                for (voice_id, voice) in voices.iter().enumerate() {
+                    let voice = match voice.as_ref() {
+                        Some(v) => v,
+                        None => continue,
+                    };
 
-                        let buffer = Buffer {
-                            temporary_buffer: vec![0.0; 44100 * 2 / 3],
-                            voice: &voice,
-                        };
+                    let buffer = Buffer {
+                        temporary_buffer: vec![0.0; 44100 * 2 / 3],
+                        voice: &voice,
+                    };
 
-                        callback_fn(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
-                    }
+                    user_cb(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
                 }
-            }
 
-            let mut user_data = (self, callback);
-            let user_data_ptr = &mut user_data as *mut (_, _);
-            emscripten_set_main_loop_arg(callback_fn::<F>, user_data_ptr as *mut _, 3, 1);
-            
-            unreachable!()
+                set_timeout(|| callback_fn::<F>(user_data_ptr), 300);
+            }
         }
+
+        let mut user_data = (self, callback);
+        let user_data_ptr = &mut user_data as *mut (_, _);
+
+        set_timeout(|| callback_fn::<F>(user_data_ptr as *mut _), 300);
+
+        stdweb::event_loop();
     }
 
     #[inline]
