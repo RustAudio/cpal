@@ -1,4 +1,6 @@
-# Unreleased (major)
+# Unreleased
+
+# Version 0.5.0 (2017-10-21)
 
 - Removed the dependency on the `futures` library.
 - Removed the `Voice` and `SamplesStream` types.
