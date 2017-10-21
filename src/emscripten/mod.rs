@@ -1,6 +1,4 @@
-use std::marker::PhantomData;
 use std::mem;
-use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
@@ -19,8 +17,6 @@ use UnknownTypeBuffer;
 
 extern {
     fn emscripten_set_main_loop_arg(_: extern fn(*mut c_void), _: *mut c_void, _: c_int, _: c_int);
-    fn emscripten_run_script(script: *const c_char);
-    fn emscripten_run_script_int(script: *const c_char) -> c_int;
 }
 
 // The emscripten backend works by having a global variable named `_cpal_audio_contexts`, which
@@ -91,7 +87,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _: &Endpoint, format: &Format)
+    pub fn build_voice(&self, _: &Endpoint, _format: &Format)
                        -> Result<VoiceId, CreationError>
     {
         let voice = js!(return new AudioContext()).into_reference().unwrap();
@@ -217,38 +213,36 @@ impl<'a, T> Buffer<'a, T> where T: Sample {
 
     #[inline]
     pub fn finish(self) {
-        unsafe {
-            // TODO: directly use a TypedArray<f32> once this is supported by stdweb
+        // TODO: directly use a TypedArray<f32> once this is supported by stdweb
 
-            let typed_array = {
-                let t_slice: &[T] = self.temporary_buffer.as_slice();
-                let u8_slice: &[u8] = unsafe { from_raw_parts(t_slice.as_ptr() as *const _, t_slice.len() * mem::size_of::<T>()) };
-                let typed_array: TypedArray<u8> = u8_slice.into();
-                typed_array
-            };
+        let typed_array = {
+            let t_slice: &[T] = self.temporary_buffer.as_slice();
+            let u8_slice: &[u8] = unsafe { from_raw_parts(t_slice.as_ptr() as *const _, t_slice.len() * mem::size_of::<T>()) };
+            let typed_array: TypedArray<u8> = u8_slice.into();
+            typed_array
+        };
 
-            let num_channels = 2u32;       // TODO: correct value
-            debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
+        let num_channels = 2u32;       // TODO: correct value
+        debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
 
-            js!(
-                var src_buffer = new Float32Array(@{typed_array}.buffer);
-                var context = @{self.voice};
-                var buf_len = @{self.temporary_buffer.len() as u32};
-                var num_channels = @{num_channels};
+        js!(
+            var src_buffer = new Float32Array(@{typed_array}.buffer);
+            var context = @{self.voice};
+            var buf_len = @{self.temporary_buffer.len() as u32};
+            var num_channels = @{num_channels};
 
-                var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
-                for (var channel = 0; channel < num_channels; ++channel) {
-                    var buffer_content = buffer.getChannelData(channel);
-                    for (var i = 0; i < buf_len / num_channels; ++i) {
-                        buffer_content[i] = src_buffer[i * num_channels + channel];
-                    }
+            var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
+            for (var channel = 0; channel < num_channels; ++channel) {
+                var buffer_content = buffer.getChannelData(channel);
+                for (var i = 0; i < buf_len / num_channels; ++i) {
+                    buffer_content[i] = src_buffer[i * num_channels + channel];
                 }
+            }
 
-                var node = context.createBufferSource();
-                node.buffer = buffer;
-                node.connect(context.destination);
-                node.start();
-            );
-        }
+            var node = context.createBufferSource();
+            node.buffer = buffer;
+            node.connect(context.destination);
+            node.start();
+        );
     }
 }
