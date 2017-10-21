@@ -1,9 +1,12 @@
 use std::marker::PhantomData;
+use std::mem;
 use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::os::raw::c_void;
+use std::slice::from_raw_parts;
 use stdweb;
 use stdweb::unstable::TryInto;
+use stdweb::web::TypedArray;
 
 use CreationError;
 use Format;
@@ -217,36 +220,51 @@ impl<'a, T> Buffer<'a, T> where T: Sample {
     #[inline]
     pub fn finish(self) {
         unsafe {
-            // TODO: **very** slow
-            let src_data = self.temporary_buffer.iter().map(|&b| b.to_f32().to_string() + ", ").fold(String::new(), |mut a, b| { a.push_str(&b); a });
+            // TODO: directly use a TypedArray<f32> once this is supported by stdweb
 
-            debug_assert_eq!(self.temporary_buffer.len() % 2, 0);       // TODO: num channels
+            let typed_array = {
+                let t_slice: &[T] = self.temporary_buffer.as_slice();
+                let u8_slice: &[u8] = unsafe { from_raw_parts(t_slice.as_ptr() as *const _, t_slice.len() * mem::size_of::<T>()) };
+                let typed_array: TypedArray<u8> = u8_slice.into();
+                typed_array
+            };
 
-            let script = format!("(function() {{
-                    if (!window._cpal_audio_contexts)
-                        return;
-                    var context = window._cpal_audio_contexts[{voice_id}];
-                    if (!context)
-                        return;
-                    var buffer = context.createBuffer({num_channels}, {buf_len} / {num_channels}, 44100);
-                    var src = [{src_data}];
-                    for (var channel = 0; channel < {num_channels}; ++channel) {{
-                        var buffer_content = buffer.getChannelData(channel);
-                        for (var i = 0; i < {buf_len} / {num_channels}; ++i) {{
-                            buffer_content[i] = src[i * {num_channels} + channel];
-                        }}
-                    }}
-                    var node = context.createBufferSource();
-                    node.buffer = buffer;
-                    node.connect(context.destination);
-                    node.start();
-                }})()\0",
-                    num_channels = 2,
-                    voice_id = self.voice_id,
-                    buf_len = self.temporary_buffer.len(),
-                    src_data = src_data);
+            let num_channels = 2u32;       // TODO: correct value
+            debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
 
-            emscripten_run_script(script.as_ptr() as *const _)
+            let context = js!(
+                if (!window._cpal_audio_contexts)
+                    return;
+                var context = window._cpal_audio_contexts[@{self.voice_id}];
+                if (!context)
+                    return;
+                return context;
+            ).into_reference();
+
+            let context = match context {
+                Some(c) => c,
+                None => return,
+            };
+
+            js!(
+                var src_buffer = new Float32Array(@{typed_array}.buffer);
+                var context = @{context};
+                var buf_len = @{self.temporary_buffer.len() as u32};
+                var num_channels = @{num_channels};
+
+                var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
+                for (var channel = 0; channel < num_channels; ++channel) {
+                    var buffer_content = buffer.getChannelData(channel);
+                    for (var i = 0; i < buf_len / num_channels; ++i) {
+                        buffer_content[i] = src_buffer[i * num_channels + channel];
+                    }
+                }
+
+                var node = context.createBufferSource();
+                node.buffer = buffer;
+                node.connect(context.destination);
+                node.start();
+            );
         }
     }
 }
