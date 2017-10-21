@@ -41,6 +41,11 @@ from time to time.
 #[macro_use]
 extern crate lazy_static;
 
+// Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
+#[cfg(target_os = "emscripten")]
+#[macro_use]
+extern crate stdweb;
+
 pub use samples_formats::{Sample, SampleFormat};
 
 #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "freebsd"),

@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::os::raw::c_void;
+use stdweb;
+use stdweb::unstable::TryInto;
 
 use CreationError;
 use Format;
@@ -29,6 +31,7 @@ pub struct EventLoop;
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
+        stdweb::initialize();
         EventLoop
     }
 
@@ -47,12 +50,12 @@ impl EventLoop {
                 where F: FnMut(VoiceId, UnknownTypeBuffer)
             {
                 unsafe {
-                    let num_contexts = emscripten_run_script_int("(function() {
+                    let num_contexts = js!(
                         if (window._cpal_audio_contexts)
                             return window._cpal_audio_contexts.length;
                         else
                             return 0;
-                        })()\0".as_ptr() as *const _);
+                    ).try_into().unwrap();
 
                     // TODO: this processes all the voices, even those from maybe other event loops
                     // this is not a problem yet, but may become one in the future?
@@ -84,48 +87,43 @@ impl EventLoop {
         // TODO: find an empty element in the array first, instead of pushing at the end, in case
         // the user creates and destroys lots of voices?
 
-        let num = unsafe {
-            emscripten_run_script_int(concat!(r#"(function() {
-                if (!window._cpal_audio_contexts)
-                    window._cpal_audio_contexts = new Array();
-                window._cpal_audio_contexts.push(new AudioContext());
-                return window._cpal_audio_contexts.length - 1;
-                })()"#, "\0").as_ptr() as *const _)
-        };
+        let num = js!(
+            if (!window._cpal_audio_contexts)
+                window._cpal_audio_contexts = new Array();
+            window._cpal_audio_contexts.push(new AudioContext());
+            return window._cpal_audio_contexts.length - 1;
+        ).try_into().unwrap();
 
         Ok(VoiceId(num))
     }
 
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
-        unsafe {
-            let script = format!("
-                if (window._cpal_audio_contexts)
-                    window._cpal_audio_contexts[{}] = null;\0", voice_id.0);
-            emscripten_run_script(script.as_ptr() as *const _)
-        }
+        let v = voice_id.0;
+        js!(
+            if (window._cpal_audio_contexts)
+                window._cpal_audio_contexts[@{v}] = null;
+        );
     }
 
     #[inline]
     pub fn play(&self, voice_id: VoiceId) {
-        unsafe {
-            let script = format!("
-                if (window._cpal_audio_contexts)
-                    if (window._cpal_audio_contexts[{v}])
-                        window._cpal_audio_contexts[{v}].resume();\0", v = voice_id.0);
-            emscripten_run_script(script.as_ptr() as *const _)
-        }
+        let v = voice_id.0;
+        js!(
+            if (window._cpal_audio_contexts)
+                if (window._cpal_audio_contexts[@{v}])
+                    window._cpal_audio_contexts[@{v}].resume();
+        );
     }
 
     #[inline]
     pub fn pause(&self, voice_id: VoiceId) {
-        unsafe {
-            let script = format!("
-                if (window._cpal_audio_contexts)
-                    if (window._cpal_audio_contexts[{v}])
-                        window._cpal_audio_contexts[{v}].suspend();\0", v = voice_id.0);
-            emscripten_run_script(script.as_ptr() as *const _)
-        }
+        let v = voice_id.0;
+        js!(
+            if (window._cpal_audio_contexts)
+                if (window._cpal_audio_contexts[@{v}])
+                    window._cpal_audio_contexts[@{v}].suspend();
+        );
     }
 }
 
@@ -135,11 +133,11 @@ pub struct VoiceId(c_int);
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
-    unsafe {
-        emscripten_run_script_int(concat!(r#"(function() {
-                if (!AudioContext) { return 0; } else { return 1; }
-            })()"#, "\0").as_ptr() as *const _) != 0
-    }
+    stdweb::initialize();
+
+    js!(
+        if (!AudioContext) { return false; } else { return true; }
+    ).try_into().unwrap()
 }
 
 // Content is false if the iterator is empty.
