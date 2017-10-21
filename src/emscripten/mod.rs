@@ -71,14 +71,14 @@ impl EventLoop {
                     user_cb(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
                 }
 
-                set_timeout(|| callback_fn::<F>(user_data_ptr), 300);
+                set_timeout(|| callback_fn::<F>(user_data_ptr), 330);
             }
         }
 
         let mut user_data = (self, callback);
         let user_data_ptr = &mut user_data as *mut (_, _);
 
-        set_timeout(|| callback_fn::<F>(user_data_ptr as *mut _), 300);
+        set_timeout(|| callback_fn::<F>(user_data_ptr as *mut _), 10);
 
         stdweb::event_loop();
     }
