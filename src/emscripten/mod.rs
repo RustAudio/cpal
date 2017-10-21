@@ -4,7 +4,9 @@ use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
+use std::sync::Mutex;
 use stdweb;
+use stdweb::Reference;
 use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 
@@ -30,16 +32,22 @@ extern {
 // that is in each buffer ; this is obviously bad, and also the schedule is too tight and there may
 // be underflows
 
-pub struct EventLoop;
+pub struct EventLoop {
+    voices: Mutex<Vec<Option<Reference>>>,
+}
+
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
         stdweb::initialize();
-        EventLoop
+
+        EventLoop {
+            voices: Mutex::new(Vec::new()),
+        }
     }
 
     #[inline]
-    pub fn run<F>(&self, mut callback: F) -> !
+    pub fn run<F>(&self, callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
     {
         unsafe {
@@ -49,35 +57,34 @@ impl EventLoop {
             // The first argument of the callback function (a `void*`) is a casted pointer to the
             // `callback` parameter that was passed to `run`.
 
-            extern "C" fn callback_fn<F>(callback_ptr: *mut c_void)
+            extern "C" fn callback_fn<F>(user_data_ptr: *mut c_void)
                 where F: FnMut(VoiceId, UnknownTypeBuffer)
             {
                 unsafe {
-                    let num_contexts = js!(
-                        if (window._cpal_audio_contexts)
-                            return window._cpal_audio_contexts.length;
-                        else
-                            return 0;
-                    ).try_into().unwrap();
+                    let user_data_ptr = user_data_ptr as *mut (&EventLoop, F);
+                    let user_data = &mut *user_data_ptr;
+                    let callback_fn = &mut user_data.1;
 
-                    // TODO: this processes all the voices, even those from maybe other event loops
-                    // this is not a problem yet, but may become one in the future?
-                    for voice_id in 0 .. num_contexts {
-                        let callback_ptr = &mut *(callback_ptr as *mut F);
+                    let voices = user_data.0.voices.lock().unwrap().clone();
+                    for (voice_id, voice) in voices.iter().enumerate() {
+                        let voice = match voice.as_ref() {
+                            Some(v) => v,
+                            None => continue,
+                        };
 
                         let buffer = Buffer {
                             temporary_buffer: vec![0.0; 44100 * 2 / 3],
-                            voice_id: voice_id,
-                            marker: PhantomData,
+                            voice: &voice,
                         };
 
-                        callback_ptr(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
+                        callback_fn(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
                     }
                 }
             }
 
-            let callback_ptr = &mut callback as *mut F as *mut c_void;
-            emscripten_set_main_loop_arg(callback_fn::<F>, callback_ptr, 3, 1);
+            let mut user_data = (self, callback);
+            let user_data_ptr = &mut user_data as *mut (_, _);
+            emscripten_set_main_loop_arg(callback_fn::<F>, user_data_ptr as *mut _, 3, 1);
             
             unreachable!()
         }
@@ -87,52 +94,44 @@ impl EventLoop {
     pub fn build_voice(&self, _: &Endpoint, format: &Format)
                        -> Result<VoiceId, CreationError>
     {
-        // TODO: find an empty element in the array first, instead of pushing at the end, in case
-        // the user creates and destroys lots of voices?
+        let voice = js!(return new AudioContext()).into_reference().unwrap();
 
-        let num = js!(
-            if (!window._cpal_audio_contexts)
-                window._cpal_audio_contexts = new Array();
-            window._cpal_audio_contexts.push(new AudioContext());
-            return window._cpal_audio_contexts.length - 1;
-        ).try_into().unwrap();
+        let mut voices = self.voices.lock().unwrap();
+        let voice_id = if let Some(pos) = voices.iter().position(|v| v.is_none()) {
+            voices[pos] = Some(voice);
+            pos
+        } else {
+            let l = voices.len();
+            voices.push(Some(voice));
+            l
+        };
 
-        Ok(VoiceId(num))
+        Ok(VoiceId(voice_id))
     }
 
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
-        let v = voice_id.0;
-        js!(
-            if (window._cpal_audio_contexts)
-                window._cpal_audio_contexts[@{v}] = null;
-        );
+        self.voices.lock().unwrap()[voice_id.0] = None;
     }
 
     #[inline]
     pub fn play(&self, voice_id: VoiceId) {
-        let v = voice_id.0;
-        js!(
-            if (window._cpal_audio_contexts)
-                if (window._cpal_audio_contexts[@{v}])
-                    window._cpal_audio_contexts[@{v}].resume();
-        );
+        let voices = self.voices.lock().unwrap();
+        let voice = voices.get(voice_id.0).and_then(|v| v.as_ref()).expect("invalid voice ID");
+        js!(@{voice}.resume());
     }
 
     #[inline]
     pub fn pause(&self, voice_id: VoiceId) {
-        let v = voice_id.0;
-        js!(
-            if (window._cpal_audio_contexts)
-                if (window._cpal_audio_contexts[@{v}])
-                    window._cpal_audio_contexts[@{v}].suspend();
-        );
+        let voices = self.voices.lock().unwrap();
+        let voice = voices.get(voice_id.0).and_then(|v| v.as_ref()).expect("invalid voice ID");
+        js!(@{voice}.suspend());
     }
 }
 
-// Index within the `_cpal_audio_contexts` global variable in Javascript.
+// Index within the `voices` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId(c_int);
+pub struct VoiceId(usize);
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
@@ -202,8 +201,7 @@ pub type SupportedFormatsIterator = ::std::vec::IntoIter<SupportedFormat>;
 
 pub struct Buffer<'a, T: 'a> where T: Sample {
     temporary_buffer: Vec<T>,
-    voice_id: c_int,
-    marker: PhantomData<&'a mut T>,
+    voice: &'a Reference,
 }
 
 impl<'a, T> Buffer<'a, T> where T: Sample {
@@ -232,23 +230,9 @@ impl<'a, T> Buffer<'a, T> where T: Sample {
             let num_channels = 2u32;       // TODO: correct value
             debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
 
-            let context = js!(
-                if (!window._cpal_audio_contexts)
-                    return;
-                var context = window._cpal_audio_contexts[@{self.voice_id}];
-                if (!context)
-                    return;
-                return context;
-            ).into_reference();
-
-            let context = match context {
-                Some(c) => c,
-                None => return,
-            };
-
             js!(
                 var src_buffer = new Float32Array(@{typed_array}.buffer);
-                var context = @{context};
+                var context = @{self.voice};
                 var buf_len = @{self.temporary_buffer.len() as u32};
                 var num_channels = @{num_channels};
 
