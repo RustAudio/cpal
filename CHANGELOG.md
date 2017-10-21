@@ -1,5 +1,9 @@
 # Unreleased
 
+# Version 0.5.1 (2017-10-21)
+
+- Added `Sample::to_i16()`, `Sample::to_u16()` and `Sample::from`.
+
 # Version 0.5.0 (2017-10-21)
 
 - Removed the dependency on the `futures` library.
