@@ -1,5 +1,7 @@
 # Unreleased
 
+- Changed the emscripten backend to consume less CPU.
+
 # Version 0.5.1 (2017-10-21)
 
 - Added `Sample::to_i16()`, `Sample::to_u16()` and `Sample::from`.
