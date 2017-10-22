@@ -1,7 +1,7 @@
 use super::Endpoint;
 use super::alsa;
-use super::libc;
 use super::check_errors;
+use super::libc;
 
 use std::ffi::CStr;
 use std::ffi::CString;

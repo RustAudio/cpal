@@ -26,9 +26,7 @@ pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, default_e
 pub struct Endpoint;
 
 impl Endpoint {
-    pub fn supported_formats(
-        &self)
-        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         Ok(
             vec![
                 SupportedFormat {
@@ -70,9 +68,7 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
         EventLoop {
-            active_callbacks: Arc::new(ActiveCallbacks {
-                callbacks: Mutex::new(Vec::new()),
-            }),
+            active_callbacks: Arc::new(ActiveCallbacks { callbacks: Mutex::new(Vec::new()) }),
             voices: Mutex::new(Vec::new()),
         }
     }
@@ -82,7 +78,11 @@ impl EventLoop {
         where F: FnMut(VoiceId, UnknownTypeBuffer)
     {
         let callback: &mut FnMut(VoiceId, UnknownTypeBuffer) = &mut callback;
-        self.active_callbacks.callbacks.lock().unwrap().push(unsafe { mem::transmute(callback) });
+        self.active_callbacks
+            .callbacks
+            .lock()
+            .unwrap()
+            .push(unsafe { mem::transmute(callback) });
 
         loop {
             // So the loop does not get optimised out in --release
@@ -95,8 +95,7 @@ impl EventLoop {
 
     #[inline]
     pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError>
-    {
+                       -> Result<VoiceId, CreationError> {
         fn convert_error(err: coreaudio::Error) -> CreationError {
             match err {
                 coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
@@ -110,9 +109,9 @@ impl EventLoop {
 
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
-                // The DefaultOutput unit isn't available in iOS unfortunately. RemoteIO is a sensible replacement.
-                // See
-                // https://developer.apple.com/library/content/documentation/MusicAudio/Conceptual/AudioUnitHostingGuide_iOS/UsingSpecificAudioUnits/UsingSpecificAudioUnits.html
+                // The DefaultOutput unit isn't available in iOS unfortunately.
+                // RemoteIO is a sensible replacement.
+                // See https://goo.gl/CWwRTx
                 coreaudio::audio_unit::IOType::RemoteIO
             } else {
                 coreaudio::audio_unit::IOType::DefaultOutput
@@ -123,7 +122,10 @@ impl EventLoop {
 
         // Determine the future ID of the voice.
         let mut voices_lock = self.voices.lock().unwrap();
-        let voice_id = voices_lock.iter().position(|n| n.is_none()).unwrap_or(voices_lock.len());
+        let voice_id = voices_lock
+            .iter()
+            .position(|n| n.is_none())
+            .unwrap_or(voices_lock.len());
 
         // TODO: iOS uses integer and fixed-point data
 

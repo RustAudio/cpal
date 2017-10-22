@@ -23,9 +23,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _: &Endpoint, _: &Format)
-                       -> Result<VoiceId, CreationError>
-    {
+    pub fn build_voice(&self, _: &Endpoint, _: &Format) -> Result<VoiceId, CreationError> {
         Err(CreationError::DeviceNotAvailable)
     }
 
@@ -70,9 +68,7 @@ pub struct Endpoint;
 
 impl Endpoint {
     #[inline]
-    pub fn supported_formats(
-        &self)
-        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         unreachable!()
     }
 

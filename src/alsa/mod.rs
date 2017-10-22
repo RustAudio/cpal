@@ -67,9 +67,7 @@ impl Drop for Trigger {
 pub struct Endpoint(String);
 
 impl Endpoint {
-    pub fn supported_formats(
-        &self)
-        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         unsafe {
             let mut playback_handle = mem::uninitialized();
             let device_name = ffi::CString::new(self.0.clone()).expect("Unable to get device name");
@@ -105,8 +103,7 @@ impl Endpoint {
                 SND_PCM_FORMAT_S32_BE,
                 SND_PCM_FORMAT_U32_LE,
                 SND_PCM_FORMAT_U32_BE,*/
-                    (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE)
-                /*SND_PCM_FORMAT_FLOAT_BE,
+                    (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE) /*SND_PCM_FORMAT_FLOAT_BE,
                 SND_PCM_FORMAT_FLOAT64_LE,
                 SND_PCM_FORMAT_FLOAT64_BE,
                 SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
@@ -154,7 +151,11 @@ impl Endpoint {
 
             let samples_rates = if min_rate == max_rate {
                 vec![(min_rate, max_rate)]
-            } else if alsa::snd_pcm_hw_params_test_rate(playback_handle, hw_params.0, min_rate + 1, 0) == 0 {
+            } else if alsa::snd_pcm_hw_params_test_rate(playback_handle,
+                                                        hw_params.0,
+                                                        min_rate + 1,
+                                                        0) == 0
+            {
                 vec![(min_rate, max_rate)]
             } else {
                 const RATES: [libc::c_uint; 13] = [
@@ -252,7 +253,7 @@ impl Endpoint {
 
 pub struct EventLoop {
     // Each newly-created voice gets a new ID from this counter. The counter is then incremented.
-    next_voice_id: AtomicUsize,     // TODO: use AtomicU64 when stable?
+    next_voice_id: AtomicUsize, // TODO: use AtomicU64 when stable?
 
     // A trigger that uses a `pipe()` as backend. Signalled whenever a new command is ready, so
     // that `poll()` can wake up and pick the changes.
@@ -325,9 +326,9 @@ impl EventLoop {
         let pending_trigger = Trigger::new();
 
         let run_context = Mutex::new(RunContext {
-            descriptors: Vec::new(),        // TODO: clearify in doc initial value not necessary
-            voices: Vec::new(),
-        });
+                                         descriptors: Vec::new(), // TODO: clearify in doc initial value not necessary
+                                         voices: Vec::new(),
+                                     });
 
         EventLoop {
             next_voice_id: AtomicUsize::new(0),
@@ -369,13 +370,14 @@ impl EventLoop {
                                 fd: self.pending_trigger.read_fd(),
                                 events: libc::POLLIN,
                                 revents: 0,
-                            }
+                            },
                         ];
                         for voice in run_context.voices.iter() {
                             run_context.descriptors.reserve(voice.num_descriptors);
                             let len = run_context.descriptors.len();
                             let filled = alsa::snd_pcm_poll_descriptors(voice.channel,
-                                                                        run_context.descriptors
+                                                                        run_context
+                                                                            .descriptors
                                                                             .as_mut_ptr()
                                                                             .offset(len as isize),
                                                                         voice.num_descriptors as
@@ -413,9 +415,13 @@ impl EventLoop {
 
                         {
                             let num_descriptors = voice_inner.num_descriptors as libc::c_uint;
-                            check_errors(alsa::snd_pcm_poll_descriptors_revents(voice_inner.channel, run_context.descriptors
-                                                                                .as_mut_ptr().offset(i_descriptor),
-                                                                                num_descriptors, &mut revent)).unwrap();
+                            let desc_ptr =
+                                run_context.descriptors.as_mut_ptr().offset(i_descriptor);
+                            let res = alsa::snd_pcm_poll_descriptors_revents(voice_inner.channel,
+                                                                             desc_ptr,
+                                                                             num_descriptors,
+                                                                             &mut revent);
+                            check_errors(res).unwrap();
                         }
 
                         if (revent as libc::c_short & libc::POLLOUT) == 0 {
@@ -433,10 +439,12 @@ impl EventLoop {
                             // buffer underrun
                             voice_inner.buffer_len
                         } else if available < 0 {
-                            check_errors(available as libc::c_int).expect("buffer is not available");
+                            check_errors(available as libc::c_int)
+                                .expect("buffer is not available");
                             unreachable!()
                         } else {
-                            (available * voice_inner.num_channels as alsa::snd_pcm_sframes_t) as usize
+                            (available * voice_inner.num_channels as alsa::snd_pcm_sframes_t) as
+                                usize
                         }
                     };
 
@@ -473,9 +481,8 @@ impl EventLoop {
                         SampleFormat::F32 => {
                             let buffer = Buffer {
                                 voice_inner: voice_inner,
-                                buffer: iter::repeat(0.0)       // we don't use mem::uninitialized in case of sNaN
-                                    .take(available)
-                                    .collect(),
+                                // Note that we don't use `mem::uninitialized` because of sNaN.
+                                buffer: iter::repeat(0.0).take(available).collect(),
                             };
 
                             UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })
@@ -580,7 +587,7 @@ impl EventLoop {
             };
 
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_voice_id.0, usize::max_value());     // check for overflows
+            assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
 
             let voice_inner = VoiceInner {
                 id: new_voice_id.clone(),
@@ -594,7 +601,10 @@ impl EventLoop {
                 resume_trigger: Trigger::new(),
             };
 
-            self.commands.lock().unwrap().push(Command::NewVoice(voice_inner));
+            self.commands
+                .lock()
+                .unwrap()
+                .push(Command::NewVoice(voice_inner));
             self.pending_trigger.wakeup();
             Ok(new_voice_id)
         }
@@ -602,7 +612,10 @@ impl EventLoop {
 
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
-        self.commands.lock().unwrap().push(Command::DestroyVoice(voice_id));
+        self.commands
+            .lock()
+            .unwrap()
+            .push(Command::DestroyVoice(voice_id));
         self.pending_trigger.wakeup();
     }
 
@@ -670,8 +683,9 @@ impl<'a, T> Buffer<'a, T> {
 
         unsafe {
             loop {
-                let result =
-                    alsa::snd_pcm_writei(self.voice_inner.channel, self.buffer.as_ptr() as *const _, to_write);
+                let result = alsa::snd_pcm_writei(self.voice_inner.channel,
+                                                  self.buffer.as_ptr() as *const _,
+                                                  to_write);
 
                 if result == -32 {
                     // buffer underrun

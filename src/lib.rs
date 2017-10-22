@@ -63,7 +63,7 @@
 //! # let voice_id: cpal::VoiceId = return;
 //! event_loop.play(voice_id);
 //! ```
-//! 
+//!
 //! Once everything is done, you must call `run()` on the `event_loop`.
 //!
 //! ```no_run
@@ -327,8 +327,7 @@ impl EventLoop {
     /// On success, returns an identifier for the voice.
     #[inline]
     pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError>
-    {
+                       -> Result<VoiceId, CreationError> {
         self.0.build_voice(&endpoint.0, format).map(VoiceId)
     }
 
