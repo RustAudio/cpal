@@ -149,6 +149,8 @@ mod cpal_impl;
 mod cpal_impl;
 
 /// An iterator for the list of formats that are supported by the backend.
+///
+/// See [`endpoints()`](fn.endpoints.html).
 pub struct EndpointsIterator(cpal_impl::EndpointsIterator);
 
 impl Iterator for EndpointsIterator {
@@ -166,6 +168,8 @@ impl Iterator for EndpointsIterator {
 }
 
 /// Return an iterator to the list of formats that are supported by the system.
+///
+/// Can be empty if the system doesn't support audio in general.
 #[inline]
 pub fn endpoints() -> EndpointsIterator {
     EndpointsIterator(Default::default())
@@ -191,12 +195,18 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
     default_endpoint()
 }
 
-/// An opaque type that identifies an end point.
+/// An opaque type that identifies an endpoint that is capable of playing audio.
+///
+/// Please note that endpoints may become invalid if they get disconnected. Therefore all the
+/// methods that involve an endpoint return a `Result`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
+    ///
+    /// Can return an error if the endpoint is no longer valid (eg. it has been disconnected).
+    /// The returned iterator should never be empty.
     #[inline]
     pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         Ok(SupportedFormatsIterator(self.0.supported_formats()?))
@@ -212,6 +222,7 @@ impl Endpoint {
     }
 
     /// Returns the name of the endpoint.
+    // TODO: human-readable or system name?
     #[inline]
     pub fn name(&self) -> String {
         self.0.name()
@@ -264,6 +275,8 @@ pub struct Format {
 }
 
 /// An iterator that produces a list of formats supported by the endpoint.
+///
+/// See [`Endpoint::supported_formats()`](struct.Endpoint.html#method.supported_formats).
 pub struct SupportedFormatsIterator(cpal_impl::SupportedFormatsIterator);
 
 impl Iterator for SupportedFormatsIterator {
@@ -280,17 +293,20 @@ impl Iterator for SupportedFormatsIterator {
     }
 }
 
-/// Describes a format.
+/// Describes a range of supported formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
     pub channels: Vec<ChannelPosition>,
+    /// Minimum value for the samples rate of the supported formats.
     pub min_samples_rate: SamplesRate,
+    /// Maximum value for the samples rate of the supported formats.
     pub max_samples_rate: SamplesRate,
+    /// Type of data expected by the endpoint.
     pub data_type: SampleFormat,
 }
 
 impl SupportedFormat {
-    /// Builds a corresponding `Format` corresponding to the maximum samples rate.
+    /// Turns this `SupportedFormat` into a `Format` corresponding to the maximum samples rate.
     #[inline]
     pub fn with_max_samples_rate(self) -> Format {
         Format {
@@ -313,6 +329,9 @@ impl From<Format> for SupportedFormat {
     }
 }
 
+/// Collection of voices managed together.
+///
+/// Created with the [`new`](struct.EventLoop.html#method.new) method.
 pub struct EventLoop(cpal_impl::EventLoop);
 
 impl EventLoop {
@@ -325,6 +344,9 @@ impl EventLoop {
     /// Creates a new voice that will play on the given endpoint and with the given format.
     ///
     /// On success, returns an identifier for the voice.
+    ///
+    /// Can return an error if the endpoint is no longer valid, or if the format is not supported
+    /// by the endpoint.
     #[inline]
     pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
                        -> Result<VoiceId, CreationError> {
@@ -344,9 +366,11 @@ impl EventLoop {
 
     /// Takes control of the current thread and processes the sounds.
     ///
+    /// > **Note**: Since it takes control of the thread, this method is best called on a separate
+    /// > thread.
+    ///
     /// Whenever a voice needs to be fed some data, the closure passed as parameter is called.
-    /// **Note**: Calling other methods of the events loop from the callback will most likely
-    /// deadlock. Don't do that. Maybe this will change in the future.
+    /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
@@ -354,7 +378,7 @@ impl EventLoop {
         self.0.run(move |id, buf| callback(VoiceId(id), buf))
     }
 
-    /// Sends a command to the audio device that it should start playing.
+    /// Instructs the audio device that it should start playing.
     ///
     /// Has no effect is the voice was already playing.
     ///
@@ -370,11 +394,11 @@ impl EventLoop {
         self.0.play(voice.0)
     }
 
-    /// Sends a command to the audio device that it should stop playing.
+    /// Instructs the audio device that it should stop playing.
     ///
     /// Has no effect is the voice was already paused.
     ///
-    /// If you call `play` afterwards, the playback will resume exactly where it was.
+    /// If you call `play` afterwards, the playback will resume where it was.
     ///
     /// # Panic
     ///
@@ -475,8 +499,12 @@ impl Error for CreationError {
 
 /// Represents a buffer that must be filled with audio data.
 ///
-/// You should destroy this object as soon as possible. Data is only committed when it
-/// is destroyed.
+/// You should destroy this object as soon as possible. Data is only sent to the audio device when
+/// this object is destroyed.
+///
+/// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
+/// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
+// TODO: explain audio stuff in general
 #[must_use]
 pub struct Buffer<'a, T: 'a>
     where T: Sample
