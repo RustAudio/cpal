@@ -38,8 +38,15 @@ from time to time.
 
 */
 
+#![recursion_limit = "512"]
+
 #[macro_use]
 extern crate lazy_static;
+
+// Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
+#[cfg(target_os = "emscripten")]
+#[macro_use]
+extern crate stdweb;
 
 pub use samples_formats::{Sample, SampleFormat};
 
