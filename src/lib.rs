@@ -1,42 +1,113 @@
-/*!
-# How to use cpal
-
-In order to play a sound, first you need to create an `EventLoop` and a voice.
-
-```no_run
-// getting the default sound output of the system (can return `None` if nothing is supported)
-let endpoint = cpal::default_endpoint().unwrap();
-
-// note that the user can at any moment disconnect the device, therefore all operations return
-// a `Result` to handle this situation
-
-// getting a format for the PCM
-let supported_formats_range = endpoint.supported_formats().unwrap().next().unwrap();
-let format = supported_formats_range.with_max_samples_rate();
-
-let event_loop = cpal::EventLoop::new();
-
-let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();
-event_loop.play(voice_id);
-```
-
-`voice_id` is an identifier for the voice can be used to control the play/pause of the output.
-
-Once that's done, you can call `run()` on the `event_loop`.
-
-```no_run
-# let event_loop = cpal::EventLoop::new();
-event_loop.run(move |_voice_id, _buffer| {
-    // write data to `buffer` here
-});
-```
-
-Calling `run()` will block the thread forever, so it's usually best done in a separate thread.
-
-While `run()` is running, the audio device of the user will call the callbacks you registered
-from time to time.
-
-*/
+//! # How to use cpal
+//!
+//! Here are some concepts cpal exposes:
+//!
+//! - An endpoint is a target where the data of the audio channel will be played.
+//! - A voice is an open audio channel which you can stream audio data to. You have to choose which
+//!   endpoint your voice targets before you create one.
+//! - An event loop is a collection of voices. Each voice must belong to an event loop, and all the
+//!   voices that belong to an event loop are managed together.
+//!
+//! In order to play a sound, you first need to create an event loop:
+//!
+//! ```
+//! use cpal::EventLoop;
+//! let event_loop = EventLoop::new();
+//! ```
+//!
+//! Then choose an endpoint. You can either use the default endpoint with the `default_endpoint()`
+//! function, or enumerate all the available endpoints with the `endpoints()` function. Beware that
+//! `default_endpoint()` returns an `Option` in case no endpoint is available on the system.
+//!
+//! ```
+//! // Note: we call `unwrap()` because it is convenient, but you should avoid doing that in a real
+//! // code.
+//! let endpoint = cpal::default_endpoint().expect("no endpoint is available");
+//! ```
+//!
+//! Before we can create a voice, we must decide what the format of the audio samples is going to
+//! be. You can query all the supported formats with the `supported_formats()` method, which
+//! produces a list of `SupportedFormat` structs which can later be turned into actual `Format`
+//! structs. If you don't want to query the list of formats, you can also build your own `Format`
+//! manually, but doing so could lead to an error when building the voice if the format ends up not
+//! being supported.
+//!
+//! > **Note**: the `supported_formats()` method could return an error for example if the device
+//! > has been disconnected.
+//!
+//! ```no_run
+//! # let endpoint = cpal::default_endpoint().unwrap();
+//! let mut supported_formats_range = endpoint.supported_formats()
+//!                                           .expect("error while querying formats");
+//! let format = supported_formats_range.next().expect("no supported format?!")
+//!                                     .with_max_samples_rate();
+//! ```
+//!
+//! Now that we have everything, we can create a voice from that event loop:
+//!
+//! ```no_run
+//! # let endpoint = cpal::default_endpoint().unwrap();
+//! # let format = endpoint.supported_formats().unwrap().next().unwrap().with_max_samples_rate();
+//! # let event_loop = cpal::EventLoop::new();
+//! let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();
+//! ```
+//!
+//! The value returned by `build_voice()` is of type `VoiceId` and is an identifier that will
+//! allow you to control the voice.
+//!
+//! There is a last step to perform before going forward, which is to start the voice. This is done
+//! with the `play()` method on the event loop.
+//!
+//! ```
+//! # let event_loop: cpal::EventLoop = return;
+//! # let voice_id: cpal::VoiceId = return;
+//! event_loop.play(voice_id);
+//! ```
+//!
+//! Once everything is done, you must call `run()` on the `event_loop`.
+//!
+//! ```no_run
+//! # let event_loop = cpal::EventLoop::new();
+//! event_loop.run(move |_voice_id, _buffer| {
+//!     // write data to `buffer` here
+//! });
+//! ```
+//!
+//! > **Note**: Calling `run()` will block the thread forever, so it's usually best done in a
+//! > separate thread.
+//!
+//! While `run()` is running, the audio device of the user will from time to time call the callback
+//! that you passed to this function. The callback gets passed the voice ID, and a struct of type
+//! `UnknownTypeBuffer` that represents the buffer that must be filled with audio samples. The
+//! `UnknownTypeBuffer` can be one of `I16`, `U16` or `F32` depending on the format that was passed
+//! to `build_voice`.
+//!
+//! In this example, we simply simply fill the buffer with zeroes.
+//!
+//! ```no_run
+//! use cpal::UnknownTypeBuffer;
+//!
+//! # let event_loop = cpal::EventLoop::new();
+//! event_loop.run(move |_voice_id, mut buffer| {
+//!     match buffer {
+//!         UnknownTypeBuffer::U16(mut buffer) => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = u16::max_value() / 2;
+//!             }
+//!         },
+//!         UnknownTypeBuffer::I16(mut buffer) => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = 0;
+//!             }
+//!         },
+//!         UnknownTypeBuffer::F32(mut buffer) => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = 0.0;
+//!             }
+//!         },
+//!     }
+//! });
+//! ```
 
 #![recursion_limit = "512"]
 
@@ -78,6 +149,8 @@ mod cpal_impl;
 mod cpal_impl;
 
 /// An iterator for the list of formats that are supported by the backend.
+///
+/// See [`endpoints()`](fn.endpoints.html).
 pub struct EndpointsIterator(cpal_impl::EndpointsIterator);
 
 impl Iterator for EndpointsIterator {
@@ -95,6 +168,8 @@ impl Iterator for EndpointsIterator {
 }
 
 /// Return an iterator to the list of formats that are supported by the system.
+///
+/// Can be empty if the system doesn't support audio in general.
 #[inline]
 pub fn endpoints() -> EndpointsIterator {
     EndpointsIterator(Default::default())
@@ -120,12 +195,18 @@ pub fn get_default_endpoint() -> Option<Endpoint> {
     default_endpoint()
 }
 
-/// An opaque type that identifies an end point.
+/// An opaque type that identifies an endpoint that is capable of playing audio.
+///
+/// Please note that endpoints may become invalid if they get disconnected. Therefore all the
+/// methods that involve an endpoint return a `Result`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint(cpal_impl::Endpoint);
 
 impl Endpoint {
     /// Returns an iterator that produces the list of formats that are supported by the backend.
+    ///
+    /// Can return an error if the endpoint is no longer valid (eg. it has been disconnected).
+    /// The returned iterator should never be empty.
     #[inline]
     pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         Ok(SupportedFormatsIterator(self.0.supported_formats()?))
@@ -141,6 +222,7 @@ impl Endpoint {
     }
 
     /// Returns the name of the endpoint.
+    // TODO: human-readable or system name?
     #[inline]
     pub fn name(&self) -> String {
         self.0.name()
@@ -193,6 +275,8 @@ pub struct Format {
 }
 
 /// An iterator that produces a list of formats supported by the endpoint.
+///
+/// See [`Endpoint::supported_formats()`](struct.Endpoint.html#method.supported_formats).
 pub struct SupportedFormatsIterator(cpal_impl::SupportedFormatsIterator);
 
 impl Iterator for SupportedFormatsIterator {
@@ -209,17 +293,20 @@ impl Iterator for SupportedFormatsIterator {
     }
 }
 
-/// Describes a format.
+/// Describes a range of supported formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
     pub channels: Vec<ChannelPosition>,
+    /// Minimum value for the samples rate of the supported formats.
     pub min_samples_rate: SamplesRate,
+    /// Maximum value for the samples rate of the supported formats.
     pub max_samples_rate: SamplesRate,
+    /// Type of data expected by the endpoint.
     pub data_type: SampleFormat,
 }
 
 impl SupportedFormat {
-    /// Builds a corresponding `Format` corresponding to the maximum samples rate.
+    /// Turns this `SupportedFormat` into a `Format` corresponding to the maximum samples rate.
     #[inline]
     pub fn with_max_samples_rate(self) -> Format {
         Format {
@@ -242,6 +329,9 @@ impl From<Format> for SupportedFormat {
     }
 }
 
+/// Collection of voices managed together.
+///
+/// Created with the [`new`](struct.EventLoop.html#method.new) method.
 pub struct EventLoop(cpal_impl::EventLoop);
 
 impl EventLoop {
@@ -254,10 +344,12 @@ impl EventLoop {
     /// Creates a new voice that will play on the given endpoint and with the given format.
     ///
     /// On success, returns an identifier for the voice.
+    ///
+    /// Can return an error if the endpoint is no longer valid, or if the format is not supported
+    /// by the endpoint.
     #[inline]
     pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError>
-    {
+                       -> Result<VoiceId, CreationError> {
         self.0.build_voice(&endpoint.0, format).map(VoiceId)
     }
 
@@ -274,9 +366,11 @@ impl EventLoop {
 
     /// Takes control of the current thread and processes the sounds.
     ///
+    /// > **Note**: Since it takes control of the thread, this method is best called on a separate
+    /// > thread.
+    ///
     /// Whenever a voice needs to be fed some data, the closure passed as parameter is called.
-    /// **Note**: Calling other methods of the events loop from the callback will most likely
-    /// deadlock. Don't do that. Maybe this will change in the future.
+    /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(VoiceId, UnknownTypeBuffer)
@@ -284,7 +378,7 @@ impl EventLoop {
         self.0.run(move |id, buf| callback(VoiceId(id), buf))
     }
 
-    /// Sends a command to the audio device that it should start playing.
+    /// Instructs the audio device that it should start playing.
     ///
     /// Has no effect is the voice was already playing.
     ///
@@ -300,11 +394,11 @@ impl EventLoop {
         self.0.play(voice.0)
     }
 
-    /// Sends a command to the audio device that it should stop playing.
+    /// Instructs the audio device that it should stop playing.
     ///
     /// Has no effect is the voice was already paused.
     ///
-    /// If you call `play` afterwards, the playback will resume exactly where it was.
+    /// If you call `play` afterwards, the playback will resume where it was.
     ///
     /// # Panic
     ///
@@ -405,8 +499,12 @@ impl Error for CreationError {
 
 /// Represents a buffer that must be filled with audio data.
 ///
-/// You should destroy this object as soon as possible. Data is only committed when it
-/// is destroyed.
+/// You should destroy this object as soon as possible. Data is only sent to the audio device when
+/// this object is destroyed.
+///
+/// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
+/// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
+// TODO: explain audio stuff in general
 #[must_use]
 pub struct Buffer<'a, T: 'a>
     where T: Sample

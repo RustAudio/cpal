@@ -1,6 +1,7 @@
 # Unreleased
 
 - Changed the emscripten backend to consume less CPU.
+- Added improvements to the crate documentation.
 
 # Version 0.5.1 (2017-10-21)
 

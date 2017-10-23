@@ -1,4 +1,3 @@
-
 use super::Endpoint;
 use super::check_result;
 use super::com;
@@ -10,9 +9,9 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::slice;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
 
 use ChannelPosition;
 use CreationError;
@@ -81,9 +80,9 @@ impl EventLoop {
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
             run_context: Mutex::new(RunContext {
-                voices: Vec::new(),
-                handles: vec![pending_scheduled_event],
-            }),
+                                        voices: Vec::new(),
+                                        handles: vec![pending_scheduled_event],
+                                    }),
             next_voice_id: AtomicUsize::new(0),
             commands: Mutex::new(Vec::new()),
         }
@@ -226,20 +225,20 @@ impl EventLoop {
             };
 
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_voice_id.0, usize::max_value());     // check for overflows
+            assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
 
             // Once we built the `VoiceInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
             {
                 let inner = VoiceInner {
-                                id: new_voice_id.clone(),
-                                audio_client: audio_client,
-                                render_client: render_client,
-                                event: event,
-                                playing: false,
-                                max_frames_in_buffer: max_frames_in_buffer,
-                                bytes_per_frame: format.nBlockAlign,
-                            };
+                    id: new_voice_id.clone(),
+                    audio_client: audio_client,
+                    render_client: render_client,
+                    event: event,
+                    playing: false,
+                    max_frames_in_buffer: max_frames_in_buffer,
+                    bytes_per_frame: format.nBlockAlign,
+                };
 
                 self.commands.lock().unwrap().push(Command::NewVoice(inner));
 
@@ -254,7 +253,10 @@ impl EventLoop {
     #[inline]
     pub fn destroy_voice(&self, voice_id: VoiceId) {
         unsafe {
-            self.commands.lock().unwrap().push(Command::DestroyVoice(voice_id));
+            self.commands
+                .lock()
+                .unwrap()
+                .push(Command::DestroyVoice(voice_id));
             let result = kernel32::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -356,8 +358,8 @@ impl EventLoop {
                         debug_assert!(!buffer.is_null());
 
                         (buffer as *mut _,
-                        frames_available as usize * voice.bytes_per_frame as usize /
-                            mem::size_of::<f32>()) // FIXME: correct size when not f32
+                         frames_available as usize * voice.bytes_per_frame as usize /
+                             mem::size_of::<f32>()) // FIXME: correct size when not f32
                     };
 
                     let buffer = Buffer {
@@ -368,7 +370,7 @@ impl EventLoop {
                         marker: PhantomData,
                     };
 
-                    let buffer = UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) });     // FIXME: not always f32
+                    let buffer = UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }); // FIXME: not always f32
                     callback(voice_id, buffer);
                 }
             }

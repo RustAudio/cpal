@@ -5,8 +5,8 @@ use std::sync::Mutex;
 use stdweb;
 use stdweb::Reference;
 use stdweb::unstable::TryInto;
-use stdweb::web::set_timeout;
 use stdweb::web::TypedArray;
+use stdweb::web::set_timeout;
 
 use CreationError;
 use Format;
@@ -33,9 +33,7 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         stdweb::initialize();
 
-        EventLoop {
-            voices: Mutex::new(Vec::new()),
-        }
+        EventLoop { voices: Mutex::new(Vec::new()) }
     }
 
     #[inline]
@@ -68,7 +66,8 @@ impl EventLoop {
                         voice: &voice,
                     };
 
-                    user_cb(VoiceId(voice_id), ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
+                    user_cb(VoiceId(voice_id),
+                            ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
                 }
 
                 set_timeout(|| callback_fn::<F>(user_data_ptr), 330);
@@ -84,9 +83,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _: &Endpoint, _format: &Format)
-                       -> Result<VoiceId, CreationError>
-    {
+    pub fn build_voice(&self, _: &Endpoint, _format: &Format) -> Result<VoiceId, CreationError> {
         let voice = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut voices = self.voices.lock().unwrap();
@@ -110,14 +107,20 @@ impl EventLoop {
     #[inline]
     pub fn play(&self, voice_id: VoiceId) {
         let voices = self.voices.lock().unwrap();
-        let voice = voices.get(voice_id.0).and_then(|v| v.as_ref()).expect("invalid voice ID");
+        let voice = voices
+            .get(voice_id.0)
+            .and_then(|v| v.as_ref())
+            .expect("invalid voice ID");
         js!(@{voice}.resume());
     }
 
     #[inline]
     pub fn pause(&self, voice_id: VoiceId) {
         let voices = self.voices.lock().unwrap();
-        let voice = voices.get(voice_id.0).and_then(|v| v.as_ref()).expect("invalid voice ID");
+        let voice = voices
+            .get(voice_id.0)
+            .and_then(|v| v.as_ref())
+            .expect("invalid voice ID");
         js!(@{voice}.suspend());
     }
 }
@@ -130,9 +133,12 @@ pub struct VoiceId(usize);
 fn is_webaudio_available() -> bool {
     stdweb::initialize();
 
-    js!(
-        if (!AudioContext) { return false; } else { return true; }
-    ).try_into().unwrap()
+    js!(if (!AudioContext) {
+            return false;
+        } else {
+            return true;
+        }).try_into()
+        .unwrap()
 }
 
 // Content is false if the iterator is empty.
@@ -170,18 +176,20 @@ pub struct Endpoint;
 
 impl Endpoint {
     #[inline]
-    pub fn supported_formats(
-        &self)
-        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
-        Ok(vec![SupportedFormat {
-            channels: vec![::ChannelPosition::BackLeft, ::ChannelPosition::BackRight],
-            min_samples_rate: ::SamplesRate(44100),
-            max_samples_rate: ::SamplesRate(44100),
-            data_type: ::SampleFormat::F32,
-        }].into_iter())
+        Ok(
+            vec![
+                SupportedFormat {
+                    channels: vec![::ChannelPosition::BackLeft, ::ChannelPosition::BackRight],
+                    min_samples_rate: ::SamplesRate(44100),
+                    max_samples_rate: ::SamplesRate(44100),
+                    data_type: ::SampleFormat::F32,
+                },
+            ].into_iter(),
+        )
     }
 
     #[inline]
@@ -192,12 +200,16 @@ impl Endpoint {
 
 pub type SupportedFormatsIterator = ::std::vec::IntoIter<SupportedFormat>;
 
-pub struct Buffer<'a, T: 'a> where T: Sample {
+pub struct Buffer<'a, T: 'a>
+    where T: Sample
+{
     temporary_buffer: Vec<T>,
     voice: &'a Reference,
 }
 
-impl<'a, T> Buffer<'a, T> where T: Sample {
+impl<'a, T> Buffer<'a, T>
+    where T: Sample
+{
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
         &mut self.temporary_buffer
@@ -214,12 +226,15 @@ impl<'a, T> Buffer<'a, T> where T: Sample {
 
         let typed_array = {
             let t_slice: &[T] = self.temporary_buffer.as_slice();
-            let u8_slice: &[u8] = unsafe { from_raw_parts(t_slice.as_ptr() as *const _, t_slice.len() * mem::size_of::<T>()) };
+            let u8_slice: &[u8] = unsafe {
+                from_raw_parts(t_slice.as_ptr() as *const _,
+                               t_slice.len() * mem::size_of::<T>())
+            };
             let typed_array: TypedArray<u8> = u8_slice.into();
             typed_array
         };
 
-        let num_channels = 2u32;       // TODO: correct value
+        let num_channels = 2u32; // TODO: correct value
         debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
 
         js!(

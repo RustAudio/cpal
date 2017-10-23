@@ -4,7 +4,7 @@ extern crate kernel32;
 
 use std::io::Error as IoError;
 
-pub use self::endpoint::{Endpoint, EndpointsIterator, default_endpoint, SupportedFormatsIterator};
+pub use self::endpoint::{Endpoint, EndpointsIterator, SupportedFormatsIterator, default_endpoint};
 pub use self::voice::{Buffer, EventLoop, VoiceId};
 
 mod com;

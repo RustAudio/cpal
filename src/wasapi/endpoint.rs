@@ -110,9 +110,7 @@ impl Endpoint {
         Ok(client)
     }
 
-    pub fn supported_formats(
-        &self)
-        -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
         // We always create voices in shared mode, therefore all samples go through an audio
         // processor to mix them together.
         // However there is no way to query the list of all formats that are supported by the
@@ -299,7 +297,7 @@ lazy_static! {
         // building the devices enumerator object
         unsafe {
             let mut enumerator: *mut winapi::IMMDeviceEnumerator = mem::uninitialized();
-            
+
             let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
                                                   ptr::null_mut(), winapi::CLSCTX_ALL,
                                                   &winapi::IID_IMMDeviceEnumerator,
