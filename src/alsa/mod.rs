@@ -13,7 +13,7 @@ use SupportedFormat;
 use UnknownTypeBuffer;
 
 use std::{cmp, ffi, iter, mem, ptr};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
@@ -276,6 +276,8 @@ unsafe impl Sync for EventLoop {
 
 enum Command {
     NewVoice(VoiceInner),
+    PlayVoice(VoiceId),
+    PauseVoice(VoiceId),
     DestroyVoice(VoiceId),
 }
 
@@ -309,7 +311,10 @@ struct VoiceInner {
     // Minimum number of samples to put in the buffer.
     period_len: usize,
 
-    // Wherease the sample stream is paused
+    // Whether or not the hardware supports pausing the stream.
+    can_pause: bool,
+
+    // Whether or not the sample stream is currently paused.
     is_paused: AtomicBool,
 
     // A file descriptor opened with `eventfd`.
@@ -366,6 +371,22 @@ impl EventLoop {
                             match command {
                                 Command::DestroyVoice(voice_id) => {
                                     run_context.voices.retain(|v| v.id != voice_id);
+                                },
+                                Command::PlayVoice(voice_id) => {
+                                    if let Some(voice) = run_context.voices.iter()
+                                        .find(|voice| voice.can_pause && voice.id == voice_id)
+                                    {
+                                        alsa::snd_pcm_pause(voice.channel, 0);
+                                        voice.is_paused.store(false, Ordering::Relaxed);
+                                    }
+                                },
+                                Command::PauseVoice(voice_id) => {
+                                    if let Some(voice) = run_context.voices.iter()
+                                        .find(|voice| voice.can_pause && voice.id == voice_id)
+                                    {
+                                        alsa::snd_pcm_pause(voice.channel, 1);
+                                        voice.is_paused.store(true, Ordering::Relaxed);
+                                    }
                                 },
                                 Command::NewVoice(voice_inner) => {
                                     run_context.voices.push(voice_inner);
@@ -561,6 +582,8 @@ impl EventLoop {
             check_errors(alsa::snd_pcm_hw_params(playback_handle, hw_params.0))
                 .expect("hardware params could not be set");
 
+            let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
+
             let mut sw_params = mem::uninitialized(); // TODO: RAII
             check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)).unwrap();
             check_errors(alsa::snd_pcm_sw_params_current(playback_handle, sw_params)).unwrap();
@@ -597,6 +620,14 @@ impl EventLoop {
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
             assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
 
+            let is_paused = if can_pause {
+                alsa::snd_pcm_pause(playback_handle, 1);
+                true
+            } else {
+                false
+            };
+
+
             let voice_inner = VoiceInner {
                 id: new_voice_id.clone(),
                 channel: playback_handle,
@@ -605,36 +636,35 @@ impl EventLoop {
                 num_channels: format.channels.len() as u16,
                 buffer_len: buffer_len,
                 period_len: period_len,
-                is_paused: AtomicBool::new(true),
+                can_pause: can_pause,
+                is_paused: AtomicBool::new(is_paused),
                 resume_trigger: Trigger::new(),
             };
 
-            self.commands
-                .lock()
-                .unwrap()
-                .push(Command::NewVoice(voice_inner));
-            self.pending_trigger.wakeup();
+            self.push_command(Command::NewVoice(voice_inner));
             Ok(new_voice_id)
         }
     }
 
     #[inline]
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
-        self.commands
-            .lock()
-            .unwrap()
-            .push(Command::DestroyVoice(voice_id));
+    fn push_command(&self, command: Command) {
+        self.commands.lock().unwrap().push(command);
         self.pending_trigger.wakeup();
     }
 
     #[inline]
-    pub fn play(&self, _: VoiceId) {
-        //unimplemented!()
+    pub fn destroy_voice(&self, voice_id: VoiceId) {
+        self.push_command(Command::DestroyVoice(voice_id));
     }
 
     #[inline]
-    pub fn pause(&self, _: VoiceId) {
-        unimplemented!()
+    pub fn play(&self, voice_id: VoiceId) {
+        self.push_command(Command::PlayVoice(voice_id));
+    }
+
+    #[inline]
+    pub fn pause(&self, voice_id: VoiceId) {
+        self.push_command(Command::PauseVoice(voice_id));
     }
 }
 
