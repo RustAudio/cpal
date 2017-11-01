@@ -620,14 +620,6 @@ impl EventLoop {
             let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
             assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
 
-            let is_paused = if can_pause {
-                alsa::snd_pcm_pause(playback_handle, 1);
-                true
-            } else {
-                false
-            };
-
-
             let voice_inner = VoiceInner {
                 id: new_voice_id.clone(),
                 channel: playback_handle,
@@ -637,7 +629,7 @@ impl EventLoop {
                 buffer_len: buffer_len,
                 period_len: period_len,
                 can_pause: can_pause,
-                is_paused: AtomicBool::new(is_paused),
+                is_paused: AtomicBool::new(false),
                 resume_trigger: Trigger::new(),
             };
 
