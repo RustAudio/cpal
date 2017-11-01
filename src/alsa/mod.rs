@@ -325,8 +325,16 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         let pending_trigger = Trigger::new();
 
+        let initial_descriptors = vec![
+            libc::pollfd {
+                fd: pending_trigger.read_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+
         let run_context = Mutex::new(RunContext {
-                                         descriptors: Vec::new(), // TODO: clearify in doc initial value not necessary
+                                         descriptors: initial_descriptors,
                                          voices: Vec::new(),
                                      });
 
