@@ -353,39 +353,36 @@ impl EventLoop {
             loop {
                 {
                     let mut commands_lock = self.commands.lock().unwrap();
-                    if !commands_lock.is_empty() {
-                        for command in commands_lock.drain(..) {
-                            match command {
-                                Command::DestroyVoice(voice_id) => {
-                                    run_context.voices.retain(|v| v.id != voice_id);
-                                },
-                                Command::NewVoice(voice_inner) => {
-                                    run_context.voices.push(voice_inner);
-                                },
-                            }
-                        }
-
-                        run_context.descriptors = vec![
-                            libc::pollfd {
-                                fd: self.pending_trigger.read_fd(),
-                                events: libc::POLLIN,
-                                revents: 0,
+                    for command in commands_lock.drain(..) {
+                        match command {
+                            Command::DestroyVoice(voice_id) => {
+                                run_context.voices.retain(|v| v.id != voice_id);
                             },
-                        ];
-                        for voice in run_context.voices.iter() {
-                            run_context.descriptors.reserve(voice.num_descriptors);
-                            let len = run_context.descriptors.len();
-                            let filled = alsa::snd_pcm_poll_descriptors(voice.channel,
-                                                                        run_context
-                                                                            .descriptors
-                                                                            .as_mut_ptr()
-                                                                            .offset(len as isize),
-                                                                        voice.num_descriptors as
-                                                                            libc::c_uint);
-                            debug_assert_eq!(filled, voice.num_descriptors as libc::c_int);
-                            run_context.descriptors.set_len(len + voice.num_descriptors);
+                            Command::NewVoice(voice_inner) => {
+                                run_context.voices.push(voice_inner);
+                            },
                         }
                     }
+                }
+
+                run_context.descriptors.clear();
+                run_context.descriptors.push(libc::pollfd {
+                    fd: self.pending_trigger.read_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+                for voice in run_context.voices.iter() {
+                    run_context.descriptors.reserve(voice.num_descriptors);
+                    let len = run_context.descriptors.len();
+                    let filled = alsa::snd_pcm_poll_descriptors(voice.channel,
+                                                                run_context
+                                                                    .descriptors
+                                                                    .as_mut_ptr()
+                                                                    .offset(len as isize),
+                                                                voice.num_descriptors as
+                                                                    libc::c_uint);
+                    debug_assert_eq!(filled, voice.num_descriptors as libc::c_int);
+                    run_context.descriptors.set_len(len + voice.num_descriptors);
                 }
 
                 let ret = libc::poll(run_context.descriptors.as_mut_ptr(),
