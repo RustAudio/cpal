@@ -14,7 +14,7 @@ use UnknownTypeBuffer;
 
 use std::{cmp, ffi, iter, mem, ptr};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
 pub type SupportedFormatsIterator = VecIntoIter<SupportedFormat>;
@@ -315,7 +315,7 @@ struct VoiceInner {
     can_pause: bool,
 
     // Whether or not the sample stream is currently paused.
-    is_paused: AtomicBool,
+    is_paused: bool,
 
     // A file descriptor opened with `eventfd`.
     // It is used to wait for resume signal.
@@ -373,19 +373,19 @@ impl EventLoop {
                                     run_context.voices.retain(|v| v.id != voice_id);
                                 },
                                 Command::PlayVoice(voice_id) => {
-                                    if let Some(voice) = run_context.voices.iter()
+                                    if let Some(voice) = run_context.voices.iter_mut()
                                         .find(|voice| voice.can_pause && voice.id == voice_id)
                                     {
                                         alsa::snd_pcm_pause(voice.channel, 0);
-                                        voice.is_paused.store(false, Ordering::Relaxed);
+                                        voice.is_paused = false;
                                     }
                                 },
                                 Command::PauseVoice(voice_id) => {
-                                    if let Some(voice) = run_context.voices.iter()
+                                    if let Some(voice) = run_context.voices.iter_mut()
                                         .find(|voice| voice.can_pause && voice.id == voice_id)
                                     {
                                         alsa::snd_pcm_pause(voice.channel, 1);
-                                        voice.is_paused.store(true, Ordering::Relaxed);
+                                        voice.is_paused = true;
                                     }
                                 },
                                 Command::NewVoice(voice_inner) => {
@@ -629,7 +629,7 @@ impl EventLoop {
                 buffer_len: buffer_len,
                 period_len: period_len,
                 can_pause: can_pause,
-                is_paused: AtomicBool::new(false),
+                is_paused: false,
                 resume_trigger: Trigger::new(),
             };
 
