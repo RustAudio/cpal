@@ -83,6 +83,19 @@ impl EventLoop {
             .lock()
             .unwrap()
             .push(unsafe { mem::transmute(callback) });
+        
+        // All audio units are paused at this point. Start them all.
+        {
+            let mut voices = self.voices.lock().unwrap();
+            for maybe_voice in (*voices).iter_mut() {
+                if let &mut Some(ref mut voice) = maybe_voice {
+                    if !voice.playing {
+                        voice.audio_unit.start().unwrap();
+                        voice.playing = true;
+                    }
+                }
+            }
+        }
 
         loop {
             // So the loop does not get optimised out in --release
@@ -160,13 +173,10 @@ impl EventLoop {
 
         }).map_err(convert_error)?;
 
-        // TODO: start playing now? is that consistent with the other backends?
-        audio_unit.start().map_err(convert_error)?;
-
         // Add the voice to the list of voices within `self`.
         {
             let inner = VoiceInner {
-                playing: true,
+                playing: false,
                 audio_unit: audio_unit,
             };
 
