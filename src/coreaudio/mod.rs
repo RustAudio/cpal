@@ -11,9 +11,7 @@ use SupportedFormat;
 use UnknownTypeBuffer;
 
 use std::mem;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Condvar};
 
 use self::coreaudio::audio_unit::AudioUnit;
 use self::coreaudio::audio_unit::render_callback::{self, data};
@@ -49,14 +47,10 @@ impl Endpoint {
 pub struct VoiceId(usize);
 
 pub struct EventLoop {
-    // This `Arc` is shared with all the callbacks of coreaudio.
-    active_callbacks: Arc<ActiveCallbacks>,
+    /// The active callback passed to `run`
+    active_callback: Arc<Mutex<Option<&'static mut FnMut(VoiceId, UnknownTypeBuffer)>>>,
     voices: Mutex<Vec<Option<VoiceInner>>>,
-}
-
-struct ActiveCallbacks {
-    // Whenever the `run()` method is called with a callback, this callback is put in this list.
-    callbacks: Mutex<Vec<&'static mut FnMut(VoiceId, UnknownTypeBuffer)>>,
+    loop_cond: Arc<(Mutex<bool>, Condvar)>,
 }
 
 struct VoiceInner {
@@ -68,8 +62,9 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
         EventLoop {
-            active_callbacks: Arc::new(ActiveCallbacks { callbacks: Mutex::new(Vec::new()) }),
+            active_callback: Arc::new(Mutex::new(None)),
             voices: Mutex::new(Vec::new()),
+            loop_cond: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -78,17 +73,20 @@ impl EventLoop {
         where F: FnMut(VoiceId, UnknownTypeBuffer)
     {
         let callback: &mut FnMut(VoiceId, UnknownTypeBuffer) = &mut callback;
-        self.active_callbacks
-            .callbacks
-            .lock()
-            .unwrap()
-            .push(unsafe { mem::transmute(callback) });
-
-        loop {
-            // So the loop does not get optimised out in --release
-            thread::sleep(Duration::new(1u64, 0u32));
+        {
+            let mut active_callback = self.active_callback.lock().unwrap();
+            *active_callback = Some(unsafe { mem::transmute(callback) });
         }
 
+        // Wait on a condvar to notify... which should never happen
+        let &(ref lock, ref cvar) = &*self.loop_cond;
+        let mut running = lock.lock().unwrap();
+        *running = true;
+        while *running {
+            running = cvar.wait(running).unwrap();
+        }
+
+        unreachable!();
         // Note: if we ever change this API so that `run` can return, then it is critical that
         // we remove the callback from `active_callbacks`.
     }
@@ -131,12 +129,11 @@ impl EventLoop {
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let active_callbacks = self.active_callbacks.clone();
+        let active_callback = self.active_callback.clone();
         audio_unit.set_render_callback(move |mut args: render_callback::Args<data::NonInterleaved<f32>>| {
-            // If `run()` is currently running, then a callback will be available from this list.
-            // Otherwise, we just fill the buffer with zeroes and return.
-            let mut callbacks = active_callbacks.callbacks.lock().unwrap();
-            let callback = if let Some(cb) = callbacks.get_mut(0) {
+            // If `run()` is currently running, then a callback will be available.
+            let mut callback_ref = active_callback.lock().unwrap();
+            let callback = if let Some(ref mut cb) = *callback_ref {
                 cb
             } else {
                 for channel in args.data.channels_mut() {
