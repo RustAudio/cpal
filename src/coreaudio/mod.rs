@@ -64,6 +64,20 @@ struct VoiceInner {
     audio_unit: AudioUnit,
 }
 
+// TODO need stronger error identification
+impl From<coreaudio::Error> for CreationError {
+    fn from(err: coreaudio::Error) -> CreationError {
+        match err {
+            coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
+            coreaudio::Error::NoKnownSubtype |
+            coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
+            coreaudio::Error::AudioCodec(_) |
+            coreaudio::Error::AudioFormat(_) => CreationError::FormatNotSupported,
+            _ => CreationError::DeviceNotAvailable,
+        }
+    }
+}
+
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
@@ -96,17 +110,6 @@ impl EventLoop {
     #[inline]
     pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
                        -> Result<VoiceId, CreationError> {
-        fn convert_error(err: coreaudio::Error) -> CreationError {
-            match err {
-                coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
-                coreaudio::Error::NoKnownSubtype |
-                coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
-                coreaudio::Error::AudioCodec(_) |
-                coreaudio::Error::AudioFormat(_) => CreationError::FormatNotSupported,
-                _ => CreationError::DeviceNotAvailable,
-            }
-        }
-
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
                 // The DefaultOutput unit isn't available in iOS unfortunately.
@@ -117,7 +120,7 @@ impl EventLoop {
                 coreaudio::audio_unit::IOType::DefaultOutput
             };
 
-            AudioUnit::new(au_type).map_err(convert_error)?
+            AudioUnit::new(au_type)?
         };
 
         // Determine the future ID of the voice.
@@ -158,10 +161,10 @@ impl EventLoop {
             callback(VoiceId(voice_id), UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
             Ok(())
 
-        }).map_err(convert_error)?;
+        })?;
 
         // TODO: start playing now? is that consistent with the other backends?
-        audio_unit.start().map_err(convert_error)?;
+        audio_unit.start()?;
 
         // Add the voice to the list of voices within `self`.
         {
