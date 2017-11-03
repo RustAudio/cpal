@@ -14,9 +14,18 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::slice;
 
-use self::coreaudio::audio_unit::AudioUnit;
+use self::coreaudio::audio_unit::{AudioUnit, Scope, Element};
 use self::coreaudio::audio_unit::render_callback::{self, data};
+use self::coreaudio::bindings::audio_unit::{
+    AudioStreamBasicDescription,
+    AudioBuffer,
+    kAudioFormatLinearPCM,
+    kAudioFormatFlagIsFloat,
+    kAudioFormatFlagIsPacked,
+    kAudioUnitProperty_StreamFormat
+};
 
 mod enumerate;
 
@@ -108,7 +117,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
+    pub fn build_voice(&self, _endpoint: &Endpoint, _format: &Format)
                        -> Result<VoiceId, CreationError> {
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
@@ -123,6 +132,27 @@ impl EventLoop {
             AudioUnit::new(au_type)?
         };
 
+        // TODO: iOS uses integer and fixed-point data
+
+        // Set the stream in interleaved mode.
+        let asbd = AudioStreamBasicDescription {
+            mBitsPerChannel: 32,
+            mBytesPerFrame: 8,
+            mChannelsPerFrame: 2,
+            mBytesPerPacket: 8,
+            mFramesPerPacket: 1,
+            mFormatFlags: (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
+            mFormatID: kAudioFormatLinearPCM,
+            mSampleRate: 44100.0,
+            ..Default::default()
+        };
+        audio_unit.set_property(
+            kAudioUnitProperty_StreamFormat,
+            Scope::Input,
+            Element::Output,
+            Some(&asbd)
+        ).map_err(convert_error)?;
+
         // Determine the future ID of the voice.
         let mut voices_lock = self.voices.lock().unwrap();
         let voice_id = voices_lock
@@ -130,31 +160,34 @@ impl EventLoop {
             .position(|n| n.is_none())
             .unwrap_or(voices_lock.len());
 
-        // TODO: iOS uses integer and fixed-point data
-
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let active_callbacks = self.active_callbacks.clone();
-        audio_unit.set_render_callback(move |mut args: render_callback::Args<data::NonInterleaved<f32>>| {
+        audio_unit.set_render_callback(move |args: render_callback::Args<data::Raw>| unsafe {
             // If `run()` is currently running, then a callback will be available from this list.
             // Otherwise, we just fill the buffer with zeroes and return.
+
+            let AudioBuffer {
+                mNumberChannels: _num_channels,
+                mDataByteSize: data_byte_size,
+                mData: data
+            } = (*args.data.data).mBuffers[0];
+            let data_slice = slice::from_raw_parts_mut(data as *mut f32, (data_byte_size / 4) as usize);
+
             let mut callbacks = active_callbacks.callbacks.lock().unwrap();
             let callback = if let Some(cb) = callbacks.get_mut(0) {
                 cb
             } else {
-                for channel in args.data.channels_mut() {
-                    for elem in channel.iter_mut() {
-                        *elem = 0.0;
-                    }
+                for sample in data_slice.iter_mut() {
+                    *sample = 0.0;
                 }
+
                 return Ok(());
             };
 
             let buffer = {
-                let buffer_len = args.num_frames * args.data.channels().count();
                 Buffer {
-                    args: &mut args,
-                    buffer: vec![0.0; buffer_len],
+                    buffer: data_slice
                 }
             };
 
@@ -210,8 +243,7 @@ impl EventLoop {
 }
 
 pub struct Buffer<'a, T: 'a> {
-    args: &'a mut render_callback::Args<data::NonInterleaved<T>>,
-    buffer: Vec<T>,
+    buffer: &'a mut [T],
 }
 
 impl<'a, T> Buffer<'a, T>
@@ -219,7 +251,7 @@ impl<'a, T> Buffer<'a, T>
 {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
-        &mut self.buffer[..]
+        &mut self.buffer
     }
 
     #[inline]
@@ -229,13 +261,6 @@ impl<'a, T> Buffer<'a, T>
 
     #[inline]
     pub fn finish(self) {
-        // TODO: At the moment this assumes the Vec<T> is a Vec<f32>.
-        // Need to add T: Sample and use Sample::to_vec_f32.
-        let num_channels = self.args.data.channels().count();
-        for (i, frame) in self.buffer.chunks(num_channels).enumerate() {
-            for (channel, sample) in self.args.data.channels_mut().zip(frame.iter()) {
-                channel[i] = *sample;
-            }
-        }
+        // Do nothing. We wrote directly to the buffer.
     }
 }
