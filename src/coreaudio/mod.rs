@@ -129,13 +129,6 @@ impl EventLoop {
             AudioUnit::new(au_type).map_err(convert_error)?
         };
 
-        // Determine the future ID of the voice.
-        let mut voices_lock = self.voices.lock().unwrap();
-        let voice_id = voices_lock
-            .iter()
-            .position(|n| n.is_none())
-            .unwrap_or(voices_lock.len());
-
         // TODO: iOS uses integer and fixed-point data
 
         // Set the stream in interleaved mode.
@@ -156,6 +149,13 @@ impl EventLoop {
             Element::Output,
             Some(&asbd)
         ).map_err(convert_error)?;
+
+        // Determine the future ID of the voice.
+        let mut voices_lock = self.voices.lock().unwrap();
+        let voice_id = voices_lock
+            .iter()
+            .position(|n| n.is_none())
+            .unwrap_or(voices_lock.len());
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
