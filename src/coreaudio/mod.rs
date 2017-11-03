@@ -60,6 +60,9 @@ struct ActiveCallbacks {
 }
 
 struct VoiceInner {
+    /// The event loop has started.
+    started: bool,
+    /// The voice is considered "playing" to the user
     playing: bool,
     audio_unit: AudioUnit,
 }
@@ -84,14 +87,15 @@ impl EventLoop {
             .unwrap()
             .push(unsafe { mem::transmute(callback) });
         
-        // All audio units are paused at this point. Start them all.
+        // All audio units are paused at this point.
+        // Start any that are not explicitly paused.
         {
             let mut voices = self.voices.lock().unwrap();
             for maybe_voice in (*voices).iter_mut() {
                 if let &mut Some(ref mut voice) = maybe_voice {
-                    if !voice.playing {
+                    voice.started = true;
+                    if voice.playing {
                         voice.audio_unit.start().unwrap();
-                        voice.playing = true;
                     }
                 }
             }
@@ -176,6 +180,7 @@ impl EventLoop {
         // Add the voice to the list of voices within `self`.
         {
             let inner = VoiceInner {
+                started: false,
                 playing: false,
                 audio_unit: audio_unit,
             };
@@ -200,7 +205,9 @@ impl EventLoop {
         let voice = voices[voice.0].as_mut().unwrap();
 
         if !voice.playing {
-            voice.audio_unit.start().unwrap();
+            if voice.started {
+                voice.audio_unit.start().unwrap();
+            }
             voice.playing = true;
         }
     }
@@ -210,7 +217,9 @@ impl EventLoop {
         let voice = voices[voice.0].as_mut().unwrap();
 
         if voice.playing {
-            voice.audio_unit.stop().unwrap();
+            if voice.started {
+                voice.audio_unit.stop().unwrap();
+            }
             voice.playing = false;
         }
     }
