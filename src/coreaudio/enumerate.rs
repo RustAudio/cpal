@@ -1,6 +1,5 @@
 use super::Endpoint;
 
-use Format;
 use SupportedFormat;
 
 use std::vec::IntoIter as VecIntoIter;
