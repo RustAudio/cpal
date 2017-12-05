@@ -98,9 +98,9 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(VoiceId, UnknownTypeBuffer) + Send
     {
-        let callback: &mut FnMut(VoiceId, UnknownTypeBuffer) = &mut callback;
+        let callback: &mut (FnMut(VoiceId, UnknownTypeBuffer) + Send) = &mut callback;
         self.active_callbacks
             .callbacks
             .lock()
