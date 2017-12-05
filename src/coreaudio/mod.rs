@@ -151,7 +151,7 @@ impl EventLoop {
             Scope::Input,
             Element::Output,
             Some(&asbd)
-        ).map_err(convert_error)?;
+        )?;
 
         // Determine the future ID of the voice.
         let mut voices_lock = self.voices.lock().unwrap();
