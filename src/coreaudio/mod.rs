@@ -65,7 +65,7 @@ pub struct EventLoop {
 
 struct ActiveCallbacks {
     // Whenever the `run()` method is called with a callback, this callback is put in this list.
-    callbacks: Mutex<Vec<&'static mut FnMut(VoiceId, UnknownTypeBuffer)>>,
+    callbacks: Mutex<Vec<&'static mut (FnMut(VoiceId, UnknownTypeBuffer) + Send)>>,
 }
 
 struct VoiceInner {
@@ -98,9 +98,9 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(VoiceId, UnknownTypeBuffer) + Send
     {
-        let callback: &mut FnMut(VoiceId, UnknownTypeBuffer) = &mut callback;
+        let callback: &mut (FnMut(VoiceId, UnknownTypeBuffer) + Send) = &mut callback;
         self.active_callbacks
             .callbacks
             .lock()

@@ -374,7 +374,7 @@ impl EventLoop {
     /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(VoiceId, UnknownTypeBuffer) + Send
     {
         self.0.run(move |id, buf| callback(VoiceId(id), buf))
     }
