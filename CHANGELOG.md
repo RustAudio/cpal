@@ -1,9 +1,12 @@
 # Unreleased
 
+# Version 0.6.0 (2017-12-11)
+
 - Changed the emscripten backend to consume less CPU.
 - Added improvements to the crate documentation.
 - Implement `pause` and `play` for ALSA backend.
 - Reduced the number of allocations in the CoreAudio backend.
+- Fixes for macos build (#186, #189).
 
 # Version 0.5.1 (2017-10-21)
 
