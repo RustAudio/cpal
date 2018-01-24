@@ -148,11 +148,11 @@ impl EventLoop {
             _ => kAudioFormatFlagIsPacked as u32,
         };
         let asbd = AudioStreamBasicDescription {
-            mBitsPerChannel: bits_per_channel,
-            mBytesPerFrame: bytes_per_frame,
-            mChannelsPerFrame: n_channels,
-            mBytesPerPacket: bytes_per_packet,
-            mFramesPerPacket: frames_per_packet,
+            mBitsPerChannel: bits_per_channel as _,
+            mBytesPerFrame: bytes_per_frame as _,
+            mChannelsPerFrame: n_channels as _,
+            mBytesPerPacket: bytes_per_packet as _,
+            mFramesPerPacket: frames_per_packet as _,
             mFormatFlags: format_flags,
             mFormatID: kAudioFormatLinearPCM,
             mSampleRate: sample_rate as _,
@@ -191,7 +191,7 @@ impl EventLoop {
             // A small macro to simplify handling the callback for different sample types.
             macro_rules! try_callback {
                 ($SampleFormat:ident, $SampleType:ty, $equilibrium:expr) => {{
-                    let data_len = (data_byte_size / bytes_per_channel) as usize;
+                    let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
                     let data_slice = slice::from_raw_parts_mut(data as *mut $SampleType, data_len);
                     let callback = match callbacks.get_mut(0) {
                         Some(cb) => cb,
@@ -211,7 +211,7 @@ impl EventLoop {
             match sample_format {
                 SampleFormat::F32 => try_callback!(F32, f32, 0.0),
                 SampleFormat::I16 => try_callback!(I16, i16, 0),
-                SampleFormat::U16 => try_callback!(U16, u16, ::std::u16::consts::MAX / 2),
+                SampleFormat::U16 => try_callback!(U16, u16, ::std::u16::MAX / 2),
             }
 
             Ok(())
