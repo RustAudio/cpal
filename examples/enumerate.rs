@@ -1,8 +1,9 @@
 extern crate cpal;
 
 fn main() {
-    let endpoints = cpal::endpoints();
+    println!("Default Endpoint:\n  {:?}", cpal::default_endpoint().map(|e| e.name()));
 
+    let endpoints = cpal::endpoints();
     println!("Endpoints: ");
     for (endpoint_index, endpoint) in endpoints.enumerate() {
         println!("{}. Endpoint \"{}\" Audio formats: ",

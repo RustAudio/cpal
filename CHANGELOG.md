@@ -1,5 +1,6 @@
 # Unreleased
 
+- Implement Endpoint and Format Enumeration for macos.
 - Implement format handling for macos `build_voice` method.
 
 # Version 0.6.0 (2017-12-11)
