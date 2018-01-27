@@ -117,7 +117,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _endpoint: &Endpoint, _format: &Format)
+    pub fn build_voice(&self, _endpoint: &Endpoint, format: &Format)
                        -> Result<VoiceId, CreationError> {
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
@@ -135,15 +135,27 @@ impl EventLoop {
         // TODO: iOS uses integer and fixed-point data
 
         // Set the stream in interleaved mode.
+        let n_channels = format.channels.len();
+        let sample_rate = format.samples_rate.0;
+        let bytes_per_channel = format.data_type.sample_size();
+        let bits_per_channel = bytes_per_channel * 8;
+        let bytes_per_frame = n_channels * bytes_per_channel;
+        let frames_per_packet = 1;
+        let bytes_per_packet = frames_per_packet * bytes_per_frame;
+        let sample_format = format.data_type;
+        let format_flags = match sample_format {
+            SampleFormat::F32 => (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
+            _ => kAudioFormatFlagIsPacked as u32,
+        };
         let asbd = AudioStreamBasicDescription {
-            mBitsPerChannel: 32,
-            mBytesPerFrame: 8,
-            mChannelsPerFrame: 2,
-            mBytesPerPacket: 8,
-            mFramesPerPacket: 1,
-            mFormatFlags: (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
+            mBitsPerChannel: bits_per_channel as _,
+            mBytesPerFrame: bytes_per_frame as _,
+            mChannelsPerFrame: n_channels as _,
+            mBytesPerPacket: bytes_per_packet as _,
+            mFramesPerPacket: frames_per_packet as _,
+            mFormatFlags: format_flags,
             mFormatID: kAudioFormatLinearPCM,
-            mSampleRate: 44100.0,
+            mSampleRate: sample_rate as _,
             ..Default::default()
         };
         audio_unit.set_property(
@@ -172,28 +184,37 @@ impl EventLoop {
                 mDataByteSize: data_byte_size,
                 mData: data
             } = (*args.data.data).mBuffers[0];
-            let data_slice = slice::from_raw_parts_mut(data as *mut f32, (data_byte_size / 4) as usize);
+
 
             let mut callbacks = active_callbacks.callbacks.lock().unwrap();
-            let callback = if let Some(cb) = callbacks.get_mut(0) {
-                cb
-            } else {
-                for sample in data_slice.iter_mut() {
-                    *sample = 0.0;
-                }
 
-                return Ok(());
-            };
+            // A small macro to simplify handling the callback for different sample types.
+            macro_rules! try_callback {
+                ($SampleFormat:ident, $SampleType:ty, $equilibrium:expr) => {{
+                    let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
+                    let data_slice = slice::from_raw_parts_mut(data as *mut $SampleType, data_len);
+                    let callback = match callbacks.get_mut(0) {
+                        Some(cb) => cb,
+                        None => {
+                            for sample in data_slice.iter_mut() {
+                                *sample = $equilibrium;
+                            }
+                            return Ok(());
+                        }
+                    };
+                    let buffer = Buffer { buffer: data_slice };
+                    let unknown_type_buffer = UnknownTypeBuffer::$SampleFormat(::Buffer { target: Some(buffer) });
+                    callback(VoiceId(voice_id), unknown_type_buffer);
+                }};
+            }
 
-            let buffer = {
-                Buffer {
-                    buffer: data_slice
-                }
-            };
+            match sample_format {
+                SampleFormat::F32 => try_callback!(F32, f32, 0.0),
+                SampleFormat::I16 => try_callback!(I16, i16, 0),
+                SampleFormat::U16 => try_callback!(U16, u16, ::std::u16::MAX / 2),
+            }
 
-            callback(VoiceId(voice_id), UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
             Ok(())
-
         })?;
 
         // TODO: start playing now? is that consistent with the other backends?

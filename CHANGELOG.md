@@ -1,5 +1,7 @@
 # Unreleased
 
+- Implement format handling for macos `build_voice` method.
+
 # Version 0.6.0 (2017-12-11)
 
 - Changed the emscripten backend to consume less CPU.
