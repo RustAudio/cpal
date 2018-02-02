@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use ChannelsCount;
 use FormatsEnumerationError;
 use SampleFormat;
-use SamplesRate;
+use SampleRate;
 use SupportedFormat;
 
 use super::check_result;
@@ -172,8 +172,8 @@ impl Endpoint {
 
                 SupportedFormat {
                     channels: channels,
-                    min_samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
-                    max_samples_rate: SamplesRate((*format_ptr).nSamplesPerSec),
+                    min_sample_rate: SampleRate((*format_ptr).nSamplesPerSec),
+                    max_sample_rate: SampleRate((*format_ptr).nSamplesPerSec),
                     data_type: data_type,
                 }
             };

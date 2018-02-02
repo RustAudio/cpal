@@ -7,7 +7,7 @@ use Format;
 use FormatsEnumerationError;
 use Sample;
 use SampleFormat;
-use SamplesRate;
+use SampleRate;
 use SupportedFormat;
 use UnknownTypeBuffer;
 
@@ -152,8 +152,8 @@ impl Endpoint {
             for range in ranges {
                 let fmt = SupportedFormat {
                     channels: n_channels as ChannelsCount,
-                    min_samples_rate: SamplesRate(range.mMinimum as _),
-                    max_samples_rate: SamplesRate(range.mMaximum as _),
+                    min_sample_rate: SampleRate(range.mMinimum as _),
+                    max_sample_rate: SampleRate(range.mMaximum as _),
                     data_type: sample_format,
                 };
                 fmts.push(fmt);
@@ -282,7 +282,7 @@ impl EventLoop {
 
         // Set the stream in interleaved mode.
         let n_channels = format.channels as usize;
-        let sample_rate = format.samples_rate.0;
+        let sample_rate = format.sample_rate.0;
         let bytes_per_channel = format.data_type.sample_size();
         let bits_per_channel = bytes_per_channel * 8;
         let bytes_per_frame = n_channels * bytes_per_channel;

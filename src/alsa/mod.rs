@@ -8,7 +8,7 @@ use CreationError;
 use Format;
 use FormatsEnumerationError;
 use SampleFormat;
-use SamplesRate;
+use SampleRate;
 use SupportedFormat;
 use UnknownTypeBuffer;
 
@@ -149,7 +149,7 @@ impl Endpoint {
                                                               ptr::null_mut()))
                 .expect("unable to get maximum supported rate");
 
-            let samples_rates = if min_rate == max_rate {
+            let sample_rates = if min_rate == max_rate {
                 vec![(min_rate, max_rate)]
             } else if alsa::snd_pcm_hw_params_test_rate(playback_handle,
                                                         hw_params.0,
@@ -213,14 +213,14 @@ impl Endpoint {
                 .collect::<Vec<_>>();
 
             let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
-                                                    samples_rates.len());
+                                                    sample_rates.len());
             for &data_type in supported_formats.iter() {
                 for channels in supported_channels.iter() {
-                    for &(min_rate, max_rate) in samples_rates.iter() {
+                    for &(min_rate, max_rate) in sample_rates.iter() {
                         output.push(SupportedFormat {
                                         channels: channels.clone(),
-                                        min_samples_rate: SamplesRate(min_rate as u32),
-                                        max_samples_rate: SamplesRate(max_rate as u32),
+                                        min_sample_rate: SampleRate(min_rate as u32),
+                                        max_sample_rate: SampleRate(max_rate as u32),
                                         data_type: data_type,
                                     });
                     }
@@ -552,7 +552,7 @@ impl EventLoop {
                 .expect("format could not be set");
             check_errors(alsa::snd_pcm_hw_params_set_rate(playback_handle,
                                                           hw_params.0,
-                                                          format.samples_rate.0 as libc::c_uint,
+                                                          format.sample_rate.0 as libc::c_uint,
                                                           0))
                 .expect("sample rate could not be set");
             check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle,
@@ -560,7 +560,7 @@ impl EventLoop {
                                                               format.channels as
                                                                   libc::c_uint))
                 .expect("channel count could not be set");
-            let mut max_buffer_size = format.samples_rate.0 as alsa::snd_pcm_uframes_t /
+            let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
                 format.channels as alsa::snd_pcm_uframes_t /
                 5; // 200ms of buffer
             check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(playback_handle,
