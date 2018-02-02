@@ -7,7 +7,7 @@ use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use ChannelPosition;
+use ChannelsCount;
 use FormatsEnumerationError;
 use SampleFormat;
 use SamplesRate;
@@ -140,75 +140,11 @@ impl Endpoint {
             let format = {
                 let (channels, data_type) = match (*format_ptr).wFormatTag {
                     winapi::WAVE_FORMAT_PCM => {
-                        (vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-                         SampleFormat::I16)
+                        (2, SampleFormat::I16)
                     },
                     winapi::WAVE_FORMAT_EXTENSIBLE => {
                         let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
-
-                        let channels = {
-                            let mut channels = Vec::new();
-
-                            let mask = (*format_ptr).dwChannelMask;
-                            if (mask & winapi::SPEAKER_FRONT_LEFT) != 0 {
-                                channels.push(ChannelPosition::FrontLeft);
-                            }
-                            if (mask & winapi::SPEAKER_FRONT_RIGHT) != 0 {
-                                channels.push(ChannelPosition::FrontRight);
-                            }
-                            if (mask & winapi::SPEAKER_FRONT_CENTER) != 0 {
-                                channels.push(ChannelPosition::FrontCenter);
-                            }
-                            if (mask & winapi::SPEAKER_LOW_FREQUENCY) != 0 {
-                                channels.push(ChannelPosition::LowFrequency);
-                            }
-                            if (mask & winapi::SPEAKER_BACK_LEFT) != 0 {
-                                channels.push(ChannelPosition::BackLeft);
-                            }
-                            if (mask & winapi::SPEAKER_BACK_RIGHT) != 0 {
-                                channels.push(ChannelPosition::BackRight);
-                            }
-                            if (mask & winapi::SPEAKER_FRONT_LEFT_OF_CENTER) != 0 {
-                                channels.push(ChannelPosition::FrontLeftOfCenter);
-                            }
-                            if (mask & winapi::SPEAKER_FRONT_RIGHT_OF_CENTER) != 0 {
-                                channels.push(ChannelPosition::FrontRightOfCenter);
-                            }
-                            if (mask & winapi::SPEAKER_BACK_CENTER) != 0 {
-                                channels.push(ChannelPosition::BackCenter);
-                            }
-                            if (mask & winapi::SPEAKER_SIDE_LEFT) != 0 {
-                                channels.push(ChannelPosition::SideLeft);
-                            }
-                            if (mask & winapi::SPEAKER_SIDE_RIGHT) != 0 {
-                                channels.push(ChannelPosition::SideRight);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_CENTER) != 0 {
-                                channels.push(ChannelPosition::TopCenter);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_FRONT_LEFT) != 0 {
-                                channels.push(ChannelPosition::TopFrontLeft);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_FRONT_CENTER) != 0 {
-                                channels.push(ChannelPosition::TopFrontCenter);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_FRONT_RIGHT) != 0 {
-                                channels.push(ChannelPosition::TopFrontRight);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_BACK_LEFT) != 0 {
-                                channels.push(ChannelPosition::TopBackLeft);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_BACK_CENTER) != 0 {
-                                channels.push(ChannelPosition::TopBackCenter);
-                            }
-                            if (mask & winapi::SPEAKER_TOP_BACK_RIGHT) != 0 {
-                                channels.push(ChannelPosition::TopBackRight);
-                            }
-
-                            assert_eq!((*format_ptr).Format.nChannels as usize, channels.len());
-                            channels
-                        };
-
+                        let channels = (*format_ptr).Format.nChannels as ChannelsCount;
                         let format = {
                             fn cmp_guid(a: &winapi::GUID, b: &winapi::GUID) -> bool {
                                 a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 &&
