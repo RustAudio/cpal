@@ -1,5 +1,7 @@
 # Unreleased
 
+- Rename ChannelsCount to ChannelCount.
+- Rename SamplesRate to SampleRate.
 - Remove unused ChannelPosition API.
 - Implement Endpoint and Format Enumeration for macos.
 - Implement format handling for macos `build_voice` method.
