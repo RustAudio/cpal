@@ -25,7 +25,7 @@ fn main() {
     event_loop.run(move |_, buffer| {
         match buffer {
             cpal::UnknownTypeBuffer::U16(mut buffer) => {
-                for sample in buffer.chunks_mut(format.channels.len()) {
+                for sample in buffer.chunks_mut(format.channels as usize) {
                     let value = ((next_value() * 0.5 + 0.5) * std::u16::MAX as f32) as u16;
                     for out in sample.iter_mut() {
                         *out = value;
@@ -34,7 +34,7 @@ fn main() {
             },
 
             cpal::UnknownTypeBuffer::I16(mut buffer) => {
-                for sample in buffer.chunks_mut(format.channels.len()) {
+                for sample in buffer.chunks_mut(format.channels as usize) {
                     let value = (next_value() * std::i16::MAX as f32) as i16;
                     for out in sample.iter_mut() {
                         *out = value;
@@ -43,7 +43,7 @@ fn main() {
             },
 
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
-                for sample in buffer.chunks_mut(format.channels.len()) {
+                for sample in buffer.chunks_mut(format.channels as usize) {
                     let value = next_value();
                     for out in sample.iter_mut() {
                         *out = value;

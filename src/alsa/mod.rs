@@ -3,7 +3,7 @@ extern crate libc;
 
 pub use self::enumerate::{EndpointsIterator, default_endpoint};
 
-use ChannelPosition;
+use ChannelsCount;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -206,19 +206,7 @@ impl Endpoint {
                     num,
                 ) == 0
                 {
-                    Some(
-                        [
-                            ChannelPosition::FrontLeft,
-                            ChannelPosition::FrontRight,
-                            ChannelPosition::BackLeft,
-                            ChannelPosition::BackRight,
-                            ChannelPosition::FrontCenter,
-                            ChannelPosition::LowFrequency,
-                        ].iter()
-                            .take(num as usize)
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    )
+                    Some(num as ChannelsCount)
                 } else {
                     None
                 })
@@ -569,11 +557,11 @@ impl EventLoop {
                 .expect("sample rate could not be set");
             check_errors(alsa::snd_pcm_hw_params_set_channels(playback_handle,
                                                               hw_params.0,
-                                                              format.channels.len() as
+                                                              format.channels as
                                                                   libc::c_uint))
                 .expect("channel count could not be set");
             let mut max_buffer_size = format.samples_rate.0 as alsa::snd_pcm_uframes_t /
-                format.channels.len() as alsa::snd_pcm_uframes_t /
+                format.channels as alsa::snd_pcm_uframes_t /
                 5; // 200ms of buffer
             check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(playback_handle,
                                                                      hw_params.0,
@@ -602,8 +590,8 @@ impl EventLoop {
                                                                    sw_params,
                                                                    period))
                     .unwrap();
-                let buffer = buffer as usize * format.channels.len();
-                let period = period as usize * format.channels.len();
+                let buffer = buffer as usize * format.channels as usize;
+                let period = period as usize * format.channels as usize;
                 (buffer, period)
             };
 
@@ -625,7 +613,7 @@ impl EventLoop {
                 channel: playback_handle,
                 sample_format: format.data_type,
                 num_descriptors: num_descriptors,
-                num_channels: format.channels.len() as u16,
+                num_channels: format.channels as u16,
                 buffer_len: buffer_len,
                 period_len: period_len,
                 can_pause: can_pause,
