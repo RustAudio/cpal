@@ -1,7 +1,7 @@
 extern crate coreaudio;
 extern crate core_foundation_sys;
 
-use ChannelsCount;
+use ChannelCount;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -151,7 +151,7 @@ impl Endpoint {
             let mut fmts = vec![];
             for range in ranges {
                 let fmt = SupportedFormat {
-                    channels: n_channels as ChannelsCount,
+                    channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
                     data_type: sample_format,

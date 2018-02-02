@@ -3,7 +3,7 @@ extern crate libc;
 
 pub use self::enumerate::{EndpointsIterator, default_endpoint};
 
-use ChannelsCount;
+use ChannelCount;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -206,7 +206,7 @@ impl Endpoint {
                     num,
                 ) == 0
                 {
-                    Some(num as ChannelsCount)
+                    Some(num as ChannelCount)
                 } else {
                     None
                 })

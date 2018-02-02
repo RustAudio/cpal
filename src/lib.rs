@@ -238,7 +238,7 @@ impl Endpoint {
 }
 
 /// Number of channels.
-pub type ChannelsCount = u16;
+pub type ChannelCount = u16;
 
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -247,7 +247,7 @@ pub struct SampleRate(pub u32);
 /// Describes a format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Format {
-    pub channels: ChannelsCount,
+    pub channels: ChannelCount,
     pub sample_rate: SampleRate,
     pub data_type: SampleFormat,
 }
@@ -274,7 +274,7 @@ impl Iterator for SupportedFormatsIterator {
 /// Describes a range of supported formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
-    pub channels: ChannelsCount,
+    pub channels: ChannelCount,
     /// Minimum value for the samples rate of the supported formats.
     pub min_sample_rate: SampleRate,
     /// Maximum value for the samples rate of the supported formats.

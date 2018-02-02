@@ -7,7 +7,7 @@ use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use ChannelsCount;
+use ChannelCount;
 use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
@@ -144,7 +144,7 @@ impl Endpoint {
                     },
                     winapi::WAVE_FORMAT_EXTENSIBLE => {
                         let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
-                        let channels = (*format_ptr).Format.nChannels as ChannelsCount;
+                        let channels = (*format_ptr).Format.nChannels as ChannelCount;
                         let format = {
                             fn cmp_guid(a: &winapi::GUID, b: &winapi::GUID) -> bool {
                                 a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 &&
