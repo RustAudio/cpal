@@ -1,4 +1,4 @@
-use super::Endpoint;
+use super::Device;
 use super::alsa;
 use super::check_errors;
 use super::libc;
@@ -7,8 +7,8 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::mem;
 
-/// ALSA implementation for `EndpointsIterator`.
-pub struct EndpointsIterator {
+/// ALSA implementation for `Devices`.
+pub struct Devices {
     // we keep the original list so that we can pass it to the free function
     global_list: *const *const u8,
 
@@ -16,12 +16,12 @@ pub struct EndpointsIterator {
     next_str: *const *const u8,
 }
 
-unsafe impl Send for EndpointsIterator {
+unsafe impl Send for Devices {
 }
-unsafe impl Sync for EndpointsIterator {
+unsafe impl Sync for Devices {
 }
 
-impl Drop for EndpointsIterator {
+impl Drop for Devices {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -30,8 +30,8 @@ impl Drop for EndpointsIterator {
     }
 }
 
-impl Default for EndpointsIterator {
-    fn default() -> EndpointsIterator {
+impl Default for Devices {
+    fn default() -> Devices {
         unsafe {
             let mut hints = mem::uninitialized();
             // TODO: check in which situation this can fail
@@ -40,7 +40,7 @@ impl Default for EndpointsIterator {
 
             let hints = hints as *const *const u8;
 
-            EndpointsIterator {
+            Devices {
                 global_list: hints,
                 next_str: hints,
             }
@@ -48,10 +48,10 @@ impl Default for EndpointsIterator {
     }
 }
 
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
+impl Iterator for Devices {
+    type Item = Device;
 
-    fn next(&mut self) -> Option<Endpoint> {
+    fn next(&mut self) -> Option<Device> {
         loop {
             unsafe {
                 if (*self.next_str).is_null() {
@@ -108,7 +108,7 @@ impl Iterator for EndpointsIterator {
 
                     // ignoring the `null` device
                     if name != "null" {
-                        return Some(Endpoint(name));
+                        return Some(Device(name));
                     }
                 }
             }
@@ -117,6 +117,11 @@ impl Iterator for EndpointsIterator {
 }
 
 #[inline]
-pub fn default_endpoint() -> Option<Endpoint> {
-    Some(Endpoint("default".to_owned()))
+pub fn default_input_device() -> Option<Device> {
+    unimplemented!();
+}
+
+#[inline]
+pub fn default_output_device() -> Option<Device> {
+    Some(Device("default".to_owned()))
 }

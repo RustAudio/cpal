@@ -1,14 +1,16 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
-pub use self::enumerate::{EndpointsIterator, default_endpoint};
+pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
 use ChannelCount;
 use CreationError;
+use DefaultFormatError;
 use Format;
 use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
+use StreamData;
 use SupportedFormat;
 use UnknownTypeBuffer;
 
@@ -17,7 +19,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
-pub type SupportedFormatsIterator = VecIntoIter<SupportedFormat>;
+pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
 
 mod enumerate;
 
@@ -64,17 +67,29 @@ impl Drop for Trigger {
 
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Endpoint(String);
+pub struct Device(String);
 
-impl Endpoint {
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+impl Device {
+    #[inline]
+    pub fn name(&self) -> String {
+        self.0.clone()
+    }
+
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+        unimplemented!();
+    }
+
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
         unsafe {
             let mut playback_handle = mem::uninitialized();
             let device_name = ffi::CString::new(self.0.clone()).expect("Unable to get device name");
 
-            match alsa::snd_pcm_open(&mut playback_handle, device_name.as_ptr() as *const _,
-                                     alsa::SND_PCM_STREAM_PLAYBACK, alsa::SND_PCM_NONBLOCK)
-            {
+            match alsa::snd_pcm_open(
+                &mut playback_handle,
+                device_name.as_ptr() as *const _,
+                alsa::SND_PCM_STREAM_PLAYBACK,
+                alsa::SND_PCM_NONBLOCK
+            ) {
                 -2 |
                 -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
                 e => check_errors(e).expect("device not available")
@@ -233,15 +248,18 @@ impl Endpoint {
         }
     }
 
-    #[inline]
-    pub fn name(&self) -> String {
-        self.0.clone()
+    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
+    }
+
+    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
     }
 }
 
 pub struct EventLoop {
-    // Each newly-created voice gets a new ID from this counter. The counter is then incremented.
-    next_voice_id: AtomicUsize, // TODO: use AtomicU64 when stable?
+    // Each newly-created stream gets a new ID from this counter. The counter is then incremented.
+    next_stream_id: AtomicUsize, // TODO: use AtomicU64 when stable?
 
     // A trigger that uses a `pipe()` as backend. Signalled whenever a new command is ready, so
     // that `poll()` can wake up and pick the changes.
@@ -263,22 +281,22 @@ unsafe impl Sync for EventLoop {
 }
 
 enum Command {
-    NewVoice(VoiceInner),
-    PlayVoice(VoiceId),
-    PauseVoice(VoiceId),
-    DestroyVoice(VoiceId),
+    NewStream(StreamInner),
+    PlayStream(StreamId),
+    PauseStream(StreamId),
+    DestroyStream(StreamId),
 }
 
 struct RunContext {
     // Descriptors to wait for. Always contains `pending_trigger.read_fd()` as first element.
     descriptors: Vec<libc::pollfd>,
-    // List of voices that are written in `descriptors`.
-    voices: Vec<VoiceInner>,
+    // List of streams that are written in `descriptors`.
+    streams: Vec<StreamInner>,
 }
 
-struct VoiceInner {
-    // The id of the voice.
-    id: VoiceId,
+struct StreamInner {
+    // The id of the stream.
+    id: StreamId,
 
     // The ALSA channel.
     channel: *mut alsa::snd_pcm_t,
@@ -311,7 +329,7 @@ struct VoiceInner {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId(usize);
+pub struct StreamId(usize);
 
 impl EventLoop {
     #[inline]
@@ -328,11 +346,11 @@ impl EventLoop {
 
         let run_context = Mutex::new(RunContext {
                                          descriptors: initial_descriptors,
-                                         voices: Vec::new(),
+                                         streams: Vec::new(),
                                      });
 
         EventLoop {
-            next_voice_id: AtomicUsize::new(0),
+            next_stream_id: AtomicUsize::new(0),
             pending_trigger: pending_trigger,
             run_context,
             commands: Mutex::new(Vec::new()),
@@ -341,12 +359,12 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(StreamId, StreamData)
     {
         self.run_inner(&mut callback)
     }
 
-    fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> ! {
+    fn run_inner(&self, callback: &mut FnMut(StreamId, StreamData)) -> ! {
         unsafe {
             let mut run_context = self.run_context.lock().unwrap();
             let run_context = &mut *run_context;
@@ -357,27 +375,27 @@ impl EventLoop {
                     if !commands_lock.is_empty() {
                         for command in commands_lock.drain(..) {
                             match command {
-                                Command::DestroyVoice(voice_id) => {
-                                    run_context.voices.retain(|v| v.id != voice_id);
+                                Command::DestroyStream(stream_id) => {
+                                    run_context.streams.retain(|s| s.id != stream_id);
                                 },
-                                Command::PlayVoice(voice_id) => {
-                                    if let Some(voice) = run_context.voices.iter_mut()
-                                        .find(|voice| voice.can_pause && voice.id == voice_id)
+                                Command::PlayStream(stream_id) => {
+                                    if let Some(stream) = run_context.streams.iter_mut()
+                                        .find(|stream| stream.can_pause && stream.id == stream_id)
                                     {
-                                        alsa::snd_pcm_pause(voice.channel, 0);
-                                        voice.is_paused = false;
+                                        alsa::snd_pcm_pause(stream.channel, 0);
+                                        stream.is_paused = false;
                                     }
                                 },
-                                Command::PauseVoice(voice_id) => {
-                                    if let Some(voice) = run_context.voices.iter_mut()
-                                        .find(|voice| voice.can_pause && voice.id == voice_id)
+                                Command::PauseStream(stream_id) => {
+                                    if let Some(stream) = run_context.streams.iter_mut()
+                                        .find(|stream| stream.can_pause && stream.id == stream_id)
                                     {
-                                        alsa::snd_pcm_pause(voice.channel, 1);
-                                        voice.is_paused = true;
+                                        alsa::snd_pcm_pause(stream.channel, 1);
+                                        stream.is_paused = true;
                                     }
                                 },
-                                Command::NewVoice(voice_inner) => {
-                                    run_context.voices.push(voice_inner);
+                                Command::NewStream(stream_inner) => {
+                                    run_context.streams.push(stream_inner);
                                 },
                             }
                         }
@@ -389,18 +407,18 @@ impl EventLoop {
                                 revents: 0,
                             },
                         ];
-                        for voice in run_context.voices.iter() {
-                            run_context.descriptors.reserve(voice.num_descriptors);
+                        for stream in run_context.streams.iter() {
+                            run_context.descriptors.reserve(stream.num_descriptors);
                             let len = run_context.descriptors.len();
-                            let filled = alsa::snd_pcm_poll_descriptors(voice.channel,
+                            let filled = alsa::snd_pcm_poll_descriptors(stream.channel,
                                                                         run_context
                                                                             .descriptors
                                                                             .as_mut_ptr()
                                                                             .offset(len as isize),
-                                                                        voice.num_descriptors as
+                                                                        stream.num_descriptors as
                                                                             libc::c_uint);
-                            debug_assert_eq!(filled, voice.num_descriptors as libc::c_int);
-                            run_context.descriptors.set_len(len + voice.num_descriptors);
+                            debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
+                            run_context.descriptors.set_len(len + stream.num_descriptors);
                         }
                     }
                 }
@@ -420,21 +438,21 @@ impl EventLoop {
                     self.pending_trigger.clear_pipe();
                 }
 
-                // Iterate over each individual voice/descriptor.
-                let mut i_voice = 0;
+                // Iterate over each individual stream/descriptor.
+                let mut i_stream = 0;
                 let mut i_descriptor = 1;
                 while (i_descriptor as usize) < run_context.descriptors.len() {
-                    let voice_inner = run_context.voices.get_mut(i_voice).unwrap();
+                    let stream_inner = run_context.streams.get_mut(i_stream).unwrap();
 
                     // Check whether the event is `POLLOUT`. If not, `continue`.
                     {
                         let mut revent = mem::uninitialized();
 
                         {
-                            let num_descriptors = voice_inner.num_descriptors as libc::c_uint;
+                            let num_descriptors = stream_inner.num_descriptors as libc::c_uint;
                             let desc_ptr =
                                 run_context.descriptors.as_mut_ptr().offset(i_descriptor);
-                            let res = alsa::snd_pcm_poll_descriptors_revents(voice_inner.channel,
+                            let res = alsa::snd_pcm_poll_descriptors_revents(stream_inner.channel,
                                                                              desc_ptr,
                                                                              num_descriptors,
                                                                              &mut revent);
@@ -442,42 +460,42 @@ impl EventLoop {
                         }
 
                         if (revent as libc::c_short & libc::POLLOUT) == 0 {
-                            i_descriptor += voice_inner.num_descriptors as isize;
-                            i_voice += 1;
+                            i_descriptor += stream_inner.num_descriptors as isize;
+                            i_stream += 1;
                             continue;
                         }
                     }
 
                     // Determine the number of samples that are available to write.
                     let available = {
-                        let available = alsa::snd_pcm_avail(voice_inner.channel); // TODO: what about snd_pcm_avail_update?
+                        let available = alsa::snd_pcm_avail(stream_inner.channel); // TODO: what about snd_pcm_avail_update?
 
                         if available == -32 {
                             // buffer underrun
-                            voice_inner.buffer_len
+                            stream_inner.buffer_len
                         } else if available < 0 {
                             check_errors(available as libc::c_int)
                                 .expect("buffer is not available");
                             unreachable!()
                         } else {
-                            (available * voice_inner.num_channels as alsa::snd_pcm_sframes_t) as
+                            (available * stream_inner.num_channels as alsa::snd_pcm_sframes_t) as
                                 usize
                         }
                     };
 
-                    if available < voice_inner.period_len {
-                        i_descriptor += voice_inner.num_descriptors as isize;
-                        i_voice += 1;
+                    if available < stream_inner.period_len {
+                        i_descriptor += stream_inner.num_descriptors as isize;
+                        i_stream += 1;
                         continue;
                     }
 
-                    let voice_id = voice_inner.id.clone();
+                    let stream_id = stream_inner.id.clone();
 
                     // We're now sure that we're ready to write data.
-                    let buffer = match voice_inner.sample_format {
+                    let buffer = match stream_inner.sample_format {
                         SampleFormat::I16 => {
                             let buffer = Buffer {
-                                voice_inner: voice_inner,
+                                stream_inner: stream_inner,
                                 buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
@@ -487,7 +505,7 @@ impl EventLoop {
                         },
                         SampleFormat::U16 => {
                             let buffer = Buffer {
-                                voice_inner: voice_inner,
+                                stream_inner: stream_inner,
                                 buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
@@ -497,7 +515,7 @@ impl EventLoop {
                         },
                         SampleFormat::F32 => {
                             let buffer = Buffer {
-                                voice_inner: voice_inner,
+                                stream_inner: stream_inner,
                                 // Note that we don't use `mem::uninitialized` because of sNaN.
                                 buffer: iter::repeat(0.0).take(available).collect(),
                             };
@@ -506,16 +524,30 @@ impl EventLoop {
                         },
                     };
 
-                    callback(voice_id, buffer);
+                    let stream_data = StreamData::Output { buffer: buffer };
+                    callback(stream_id, stream_data);
                 }
             }
         }
     }
 
-    pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError> {
+    pub fn build_input_stream(
+        &self,
+        _device: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
+        unimplemented!();
+    }
+
+    pub fn build_output_stream(
+        &self,
+        device: &Device,
+        format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
         unsafe {
-            let name = ffi::CString::new(endpoint.0.clone()).expect("unable to clone endpoint");
+            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
 
             let mut playback_handle = mem::uninitialized();
             match alsa::snd_pcm_open(&mut playback_handle, name.as_ptr(),
@@ -605,11 +637,11 @@ impl EventLoop {
                 num_descriptors as usize
             };
 
-            let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
+            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
+            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
 
-            let voice_inner = VoiceInner {
-                id: new_voice_id.clone(),
+            let stream_inner = StreamInner {
+                id: new_stream_id.clone(),
                 channel: playback_handle,
                 sample_format: format.data_type,
                 num_descriptors: num_descriptors,
@@ -621,8 +653,8 @@ impl EventLoop {
                 resume_trigger: Trigger::new(),
             };
 
-            self.push_command(Command::NewVoice(voice_inner));
-            Ok(new_voice_id)
+            self.push_command(Command::NewStream(stream_inner));
+            Ok(new_stream_id)
         }
     }
 
@@ -633,23 +665,23 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
-        self.push_command(Command::DestroyVoice(voice_id));
+    pub fn destroy_stream(&self, stream_id: StreamId) {
+        self.push_command(Command::DestroyStream(stream_id));
     }
 
     #[inline]
-    pub fn play(&self, voice_id: VoiceId) {
-        self.push_command(Command::PlayVoice(voice_id));
+    pub fn play_stream(&self, stream_id: StreamId) {
+        self.push_command(Command::PlayStream(stream_id));
     }
 
     #[inline]
-    pub fn pause(&self, voice_id: VoiceId) {
-        self.push_command(Command::PauseVoice(voice_id));
+    pub fn pause_stream(&self, stream_id: StreamId) {
+        self.push_command(Command::PauseStream(stream_id));
     }
 }
 
 pub struct Buffer<'a, T: 'a> {
-    voice_inner: &'a mut VoiceInner,
+    stream_inner: &'a mut StreamInner,
     buffer: Vec<T>,
 }
 
@@ -675,7 +707,7 @@ impl Drop for HwParams {
     }
 }
 
-impl Drop for VoiceInner {
+impl Drop for StreamInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -696,18 +728,18 @@ impl<'a, T> Buffer<'a, T> {
     }
 
     pub fn finish(self) {
-        let to_write = (self.buffer.len() / self.voice_inner.num_channels as usize) as
+        let to_write = (self.buffer.len() / self.stream_inner.num_channels as usize) as
             alsa::snd_pcm_uframes_t;
 
         unsafe {
             loop {
-                let result = alsa::snd_pcm_writei(self.voice_inner.channel,
+                let result = alsa::snd_pcm_writei(self.stream_inner.channel,
                                                   self.buffer.as_ptr() as *const _,
                                                   to_write);
 
                 if result == -32 {
                     // buffer underrun
-                    alsa::snd_pcm_prepare(self.voice_inner.channel);
+                    alsa::snd_pcm_prepare(self.stream_inner.channel);
                 } else if result < 0 {
                     check_errors(result as libc::c_int).expect("could not write pcm");
                 } else {
