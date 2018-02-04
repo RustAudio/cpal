@@ -6,7 +6,7 @@ fn main() {
     let devices = cpal::devices();
     println!("Devices: ");
     for (device_index, device) in devices.enumerate() {
-        println!("{}. device \"{}\" Audio formats: ",
+        println!("{}. device \"{}\" Output stream formats: ",
                  device_index + 1,
                  device.name());
 

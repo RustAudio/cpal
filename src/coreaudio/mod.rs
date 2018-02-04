@@ -3,11 +3,13 @@ extern crate core_foundation_sys;
 
 use ChannelCount;
 use CreationError;
+use DefaultFormatError;
 use Format;
 use FormatsEnumerationError;
 use Sample;
 use SampleFormat;
 use SampleRate;
+use StreamData;
 use SupportedFormat;
 use UnknownTypeBuffer;
 
@@ -52,15 +54,48 @@ use self::core_foundation_sys::string::{
 
 mod enumerate;
 
-pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, default_endpoint};
+pub use self::enumerate::{Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Endpoint {
+pub struct Device {
     audio_device_id: AudioDeviceID,
 }
 
-impl Endpoint {
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+impl Device {
+    pub fn name(&self) -> String {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMaster,
+        };
+        let device_name: CFStringRef = null();
+        let data_size = mem::size_of::<CFStringRef>();
+        let c_str = unsafe {
+            let status = AudioObjectGetPropertyData(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                &device_name as *const _ as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                return format!("<OSStatus: {:?}>", status);
+            }
+            let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
+            if c_string == null() {
+                return "<null>".into();
+            }
+            CStr::from_ptr(c_string as *mut _)
+        };
+        c_str.to_string_lossy().into_owned()
+    }
+
+    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+        unimplemented!();
+    }
+
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: kAudioObjectPropertyScopeOutput,
@@ -163,52 +198,31 @@ impl Endpoint {
         }
     }
 
-    pub fn name(&self) -> String {
-        let property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMaster,
-        };
-        let device_name: CFStringRef = null();
-        let data_size = mem::size_of::<CFStringRef>();
-        let c_str = unsafe {
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                &property_address as *const _,
-                0,
-                null(),
-                &data_size as *const _ as *mut _,
-                &device_name as *const _ as *mut _,
-            );
-            if status != kAudioHardwareNoError as i32 {
-                return format!("<OSStatus: {:?}>", status);
-            }
-            let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
-            if c_string == null() {
-                return "<null>".into();
-            }
-            CStr::from_ptr(c_string as *mut _)
-        };
-        c_str.to_string_lossy().into_owned()
+    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
+    }
+
+    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
     }
 }
 
-// The ID of a voice is its index within the `voices` array of the events loop.
+// The ID of a stream is its index within the `streams` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId(usize);
+pub struct StreamId(usize);
 
 pub struct EventLoop {
     // This `Arc` is shared with all the callbacks of coreaudio.
     active_callbacks: Arc<ActiveCallbacks>,
-    voices: Mutex<Vec<Option<VoiceInner>>>,
+    streams: Mutex<Vec<Option<StreamInner>>>,
 }
 
 struct ActiveCallbacks {
     // Whenever the `run()` method is called with a callback, this callback is put in this list.
-    callbacks: Mutex<Vec<&'static mut (FnMut(VoiceId, UnknownTypeBuffer) + Send)>>,
+    callbacks: Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>,
 }
 
-struct VoiceInner {
+struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
 }
@@ -232,15 +246,15 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         EventLoop {
             active_callbacks: Arc::new(ActiveCallbacks { callbacks: Mutex::new(Vec::new()) }),
-            voices: Mutex::new(Vec::new()),
+            streams: Mutex::new(Vec::new()),
         }
     }
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer) + Send
+        where F: FnMut(StreamId, StreamData) + Send
     {
-        let callback: &mut (FnMut(VoiceId, UnknownTypeBuffer) + Send) = &mut callback;
+        let callback: &mut (FnMut(StreamId, StreamData) + Send) = &mut callback;
         self.active_callbacks
             .callbacks
             .lock()
@@ -257,8 +271,22 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError> {
+    pub fn build_input_stream(
+        &self,
+        _device: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
+        unimplemented!();
+    }
+
+    #[inline]
+    pub fn build_output_stream(
+        &self,
+        device: &Device,
+        format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
                 // The DefaultOutput unit isn't available in iOS unfortunately.
@@ -272,12 +300,11 @@ impl EventLoop {
             AudioUnit::new(au_type)?
         };
 
-        // TODO: Set the audio output unit device as the given endpoint device.
         audio_unit.set_property(
             kAudioOutputUnitProperty_CurrentDevice,
             Scope::Global,
             Element::Output,
-            Some(&endpoint.audio_device_id),
+            Some(&device.audio_device_id),
         )?;
 
         // Set the stream in interleaved mode.
@@ -311,12 +338,12 @@ impl EventLoop {
             Some(&asbd)
         )?;
 
-        // Determine the future ID of the voice.
-        let mut voices_lock = self.voices.lock().unwrap();
-        let voice_id = voices_lock
+        // Determine the future ID of the stream.
+        let mut streams_lock = self.streams.lock().unwrap();
+        let stream_id = streams_lock
             .iter()
             .position(|n| n.is_none())
-            .unwrap_or(voices_lock.len());
+            .unwrap_or(streams_lock.len());
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
@@ -330,7 +357,6 @@ impl EventLoop {
                 mDataByteSize: data_byte_size,
                 mData: data
             } = (*args.data.data).mBuffers[0];
-
 
             let mut callbacks = active_callbacks.callbacks.lock().unwrap();
 
@@ -350,7 +376,8 @@ impl EventLoop {
                     };
                     let buffer = Buffer { buffer: data_slice };
                     let unknown_type_buffer = UnknownTypeBuffer::$SampleFormat(::Buffer { target: Some(buffer) });
-                    callback(VoiceId(voice_id), unknown_type_buffer);
+                    let stream_data = StreamData::Output { buffer: unknown_type_buffer };
+                    callback(StreamId(stream_id), stream_data);
                 }};
             }
 
@@ -366,45 +393,45 @@ impl EventLoop {
         // TODO: start playing now? is that consistent with the other backends?
         audio_unit.start()?;
 
-        // Add the voice to the list of voices within `self`.
+        // Add the stream to the list of streams within `self`.
         {
-            let inner = VoiceInner {
+            let inner = StreamInner {
                 playing: true,
                 audio_unit: audio_unit,
             };
 
-            if voice_id == voices_lock.len() {
-                voices_lock.push(Some(inner));
+            if stream_id == streams_lock.len() {
+                streams_lock.push(Some(inner));
             } else {
-                voices_lock[voice_id] = Some(inner);
+                streams_lock[stream_id] = Some(inner);
             }
         }
 
-        Ok(VoiceId(voice_id))
+        Ok(StreamId(stream_id))
     }
 
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
-        let mut voices = self.voices.lock().unwrap();
-        voices[voice_id.0] = None;
+    pub fn destroy_stream(&self, stream_id: StreamId) {
+        let mut streams = self.streams.lock().unwrap();
+        streams[stream_id.0] = None;
     }
 
-    pub fn play(&self, voice: VoiceId) {
-        let mut voices = self.voices.lock().unwrap();
-        let voice = voices[voice.0].as_mut().unwrap();
+    pub fn play_stream(&self, stream: StreamId) {
+        let mut streams = self.streams.lock().unwrap();
+        let stream = streams[stream.0].as_mut().unwrap();
 
-        if !voice.playing {
-            voice.audio_unit.start().unwrap();
-            voice.playing = true;
+        if !stream.playing {
+            stream.audio_unit.start().unwrap();
+            stream.playing = true;
         }
     }
 
-    pub fn pause(&self, voice: VoiceId) {
-        let mut voices = self.voices.lock().unwrap();
-        let voice = voices[voice.0].as_mut().unwrap();
+    pub fn pause_stream(&self, stream: StreamId) {
+        let mut streams = self.streams.lock().unwrap();
+        let stream = streams[stream.0].as_mut().unwrap();
 
-        if voice.playing {
-            voice.audio_unit.stop().unwrap();
-            voice.playing = false;
+        if stream.playing {
+            stream.audio_unit.stop().unwrap();
+            stream.playing = false;
         }
     }
 }
