@@ -183,7 +183,7 @@ impl Endpoint {
         Ok(
             vec![
                 SupportedFormat {
-                    channels: vec![::ChannelPosition::BackLeft, ::ChannelPosition::BackRight],
+                    channels: 2,
                     min_samples_rate: ::SamplesRate(44100),
                     max_samples_rate: ::SamplesRate(44100),
                     data_type: ::SampleFormat::F32,

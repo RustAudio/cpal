@@ -1,7 +1,7 @@
 extern crate coreaudio;
 extern crate core_foundation_sys;
 
-use ChannelPosition;
+use ChannelsCount;
 use CreationError;
 use Format;
 use FormatsEnumerationError;
@@ -108,26 +108,6 @@ impl Endpoint {
             for buffer in buffers {
                 n_channels += buffer.mNumberChannels as usize;
             }
-            const CHANNEL_POSITIONS: &'static [ChannelPosition] = &[
-                ChannelPosition::FrontLeft,
-                ChannelPosition::FrontRight,
-                ChannelPosition::FrontCenter,
-                ChannelPosition::LowFrequency,
-                ChannelPosition::BackLeft,
-                ChannelPosition::BackRight,
-                ChannelPosition::FrontLeftOfCenter,
-                ChannelPosition::FrontRightOfCenter,
-                ChannelPosition::BackCenter,
-                ChannelPosition::SideLeft,
-                ChannelPosition::SideRight,
-                ChannelPosition::TopCenter,
-                ChannelPosition::TopFrontLeft,
-                ChannelPosition::TopFrontCenter,
-                ChannelPosition::TopFrontRight,
-                ChannelPosition::TopBackLeft,
-                ChannelPosition::TopBackCenter,
-                ChannelPosition::TopBackRight,
-            ];
 
             // AFAIK the sample format should always be f32 on macos and i16 on iOS? Feel free to
             // fix this if more pcm formats are supported.
@@ -170,13 +150,8 @@ impl Endpoint {
             // Collect the supported formats for the device.
             let mut fmts = vec![];
             for range in ranges {
-                let channels = CHANNEL_POSITIONS.iter()
-                    .cloned()
-                    .cycle()
-                    .take(n_channels)
-                    .collect::<Vec<_>>();
                 let fmt = SupportedFormat {
-                    channels: channels.clone(),
+                    channels: n_channels as ChannelsCount,
                     min_samples_rate: SamplesRate(range.mMinimum as _),
                     max_samples_rate: SamplesRate(range.mMaximum as _),
                     data_type: sample_format,
@@ -306,7 +281,7 @@ impl EventLoop {
         )?;
 
         // Set the stream in interleaved mode.
-        let n_channels = format.channels.len();
+        let n_channels = format.channels as usize;
         let sample_rate = format.samples_rate.0;
         let bytes_per_channel = format.data_type.sample_size();
         let bits_per_channel = bytes_per_channel * 8;

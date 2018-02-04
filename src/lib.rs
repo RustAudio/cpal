@@ -240,29 +240,6 @@ impl Endpoint {
 /// Number of channels.
 pub type ChannelsCount = u16;
 
-/// Possible position of a channel.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ChannelPosition {
-    FrontLeft,
-    FrontRight,
-    FrontCenter,
-    LowFrequency,
-    BackLeft,
-    BackRight,
-    FrontLeftOfCenter,
-    FrontRightOfCenter,
-    BackCenter,
-    SideLeft,
-    SideRight,
-    TopCenter,
-    TopFrontLeft,
-    TopFrontCenter,
-    TopFrontRight,
-    TopBackLeft,
-    TopBackCenter,
-    TopBackRight,
-}
-
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SamplesRate(pub u32);
@@ -270,7 +247,7 @@ pub struct SamplesRate(pub u32);
 /// Describes a format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Format {
-    pub channels: Vec<ChannelPosition>,
+    pub channels: ChannelsCount,
     pub samples_rate: SamplesRate,
     pub data_type: SampleFormat,
 }
@@ -297,7 +274,7 @@ impl Iterator for SupportedFormatsIterator {
 /// Describes a range of supported formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
-    pub channels: Vec<ChannelPosition>,
+    pub channels: ChannelsCount,
     /// Minimum value for the samples rate of the supported formats.
     pub min_samples_rate: SamplesRate,
     /// Maximum value for the samples rate of the supported formats.

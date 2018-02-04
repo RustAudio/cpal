@@ -13,7 +13,6 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use ChannelPosition;
 use CreationError;
 use Format;
 use SampleFormat;
@@ -472,12 +471,12 @@ fn format_to_waveformatextensible(format: &Format)
                    SampleFormat::F32 => winapi::WAVE_FORMAT_EXTENSIBLE,
                    SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                },
-               nChannels: format.channels.len() as winapi::WORD,
+               nChannels: format.channels as winapi::WORD,
                nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
-               nAvgBytesPerSec: format.channels.len() as winapi::DWORD *
+               nAvgBytesPerSec: format.channels as winapi::DWORD *
                    format.samples_rate.0 as winapi::DWORD *
                    format.data_type.sample_size() as winapi::DWORD,
-               nBlockAlign: format.channels.len() as winapi::WORD *
+               nBlockAlign: format.channels as winapi::WORD *
                    format.data_type.sample_size() as winapi::WORD,
                wBitsPerSample: 8 * format.data_type.sample_size() as winapi::WORD,
                cbSize: match format.data_type {
@@ -491,33 +490,30 @@ fn format_to_waveformatextensible(format: &Format)
            Samples: 8 * format.data_type.sample_size() as winapi::WORD,
            dwChannelMask: {
                let mut mask = 0;
-               for &channel in format.channels.iter() {
-                   let raw_value = match channel {
-                       ChannelPosition::FrontLeft => winapi::SPEAKER_FRONT_LEFT,
-                       ChannelPosition::FrontRight => winapi::SPEAKER_FRONT_RIGHT,
-                       ChannelPosition::FrontCenter => winapi::SPEAKER_FRONT_CENTER,
-                       ChannelPosition::LowFrequency => winapi::SPEAKER_LOW_FREQUENCY,
-                       ChannelPosition::BackLeft => winapi::SPEAKER_BACK_LEFT,
-                       ChannelPosition::BackRight => winapi::SPEAKER_BACK_RIGHT,
-                       ChannelPosition::FrontLeftOfCenter => winapi::SPEAKER_FRONT_LEFT_OF_CENTER,
-                       ChannelPosition::FrontRightOfCenter => winapi::SPEAKER_FRONT_RIGHT_OF_CENTER,
-                       ChannelPosition::BackCenter => winapi::SPEAKER_BACK_CENTER,
-                       ChannelPosition::SideLeft => winapi::SPEAKER_SIDE_LEFT,
-                       ChannelPosition::SideRight => winapi::SPEAKER_SIDE_RIGHT,
-                       ChannelPosition::TopCenter => winapi::SPEAKER_TOP_CENTER,
-                       ChannelPosition::TopFrontLeft => winapi::SPEAKER_TOP_FRONT_LEFT,
-                       ChannelPosition::TopFrontCenter => winapi::SPEAKER_TOP_FRONT_CENTER,
-                       ChannelPosition::TopFrontRight => winapi::SPEAKER_TOP_FRONT_RIGHT,
-                       ChannelPosition::TopBackLeft => winapi::SPEAKER_TOP_BACK_LEFT,
-                       ChannelPosition::TopBackCenter => winapi::SPEAKER_TOP_BACK_CENTER,
-                       ChannelPosition::TopBackRight => winapi::SPEAKER_TOP_BACK_RIGHT,
-                   };
 
-                   // channels must be in the right order
-                   if raw_value <= mask {
-                       return Err(CreationError::FormatNotSupported);
-                   }
+               const CHANNEL_POSITIONS: &'static [winapi::DWORD] = &[
+                    winapi::SPEAKER_FRONT_LEFT,
+                    winapi::SPEAKER_FRONT_RIGHT,
+                    winapi::SPEAKER_FRONT_CENTER,
+                    winapi::SPEAKER_LOW_FREQUENCY,
+                    winapi::SPEAKER_BACK_LEFT,
+                    winapi::SPEAKER_BACK_RIGHT,
+                    winapi::SPEAKER_FRONT_LEFT_OF_CENTER,
+                    winapi::SPEAKER_FRONT_RIGHT_OF_CENTER,
+                    winapi::SPEAKER_BACK_CENTER,
+                    winapi::SPEAKER_SIDE_LEFT,
+                    winapi::SPEAKER_SIDE_RIGHT,
+                    winapi::SPEAKER_TOP_CENTER,
+                    winapi::SPEAKER_TOP_FRONT_LEFT,
+                    winapi::SPEAKER_TOP_FRONT_CENTER,
+                    winapi::SPEAKER_TOP_FRONT_RIGHT,
+                    winapi::SPEAKER_TOP_BACK_LEFT,
+                    winapi::SPEAKER_TOP_BACK_CENTER,
+                    winapi::SPEAKER_TOP_BACK_RIGHT,
+               ];
 
+               for i in 0..format.channels {
+                   let raw_value = CHANNEL_POSITIONS[i as usize];
                    mask = mask | raw_value;
                }
 
