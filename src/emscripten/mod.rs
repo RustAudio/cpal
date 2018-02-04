@@ -184,8 +184,8 @@ impl Endpoint {
             vec![
                 SupportedFormat {
                     channels: 2,
-                    min_samples_rate: ::SamplesRate(44100),
-                    max_samples_rate: ::SamplesRate(44100),
+                    min_sample_rate: ::SampleRate(44100),
+                    max_sample_rate: ::SampleRate(44100),
                     data_type: ::SampleFormat::F32,
                 },
             ].into_iter(),

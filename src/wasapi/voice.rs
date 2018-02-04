@@ -472,9 +472,9 @@ fn format_to_waveformatextensible(format: &Format)
                    SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                },
                nChannels: format.channels as winapi::WORD,
-               nSamplesPerSec: format.samples_rate.0 as winapi::DWORD,
+               nSamplesPerSec: format.sample_rate.0 as winapi::DWORD,
                nAvgBytesPerSec: format.channels as winapi::DWORD *
-                   format.samples_rate.0 as winapi::DWORD *
+                   format.sample_rate.0 as winapi::DWORD *
                    format.data_type.sample_size() as winapi::DWORD,
                nBlockAlign: format.channels as winapi::WORD *
                    format.data_type.sample_size() as winapi::WORD,
