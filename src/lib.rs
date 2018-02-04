@@ -39,7 +39,7 @@
 //!
 //! ```no_run
 //! # let device = cpal::default_output_device().unwrap();
-//! let mut supported_formats_range = device.supported_formats()
+//! let mut supported_formats_range = device.supported_output_formats()
 //!     .expect("error while querying formats");
 //! let format = supported_formats_range.next()
 //!     .expect("no supported format?!")
@@ -92,7 +92,7 @@
 //! # let event_loop = cpal::EventLoop::new();
 //! event_loop.run(move |_stream_id, mut stream_data| {
 //!     match stream_data {
-//!         StreamData::Output(mut buffer) => {
+//!         StreamData::Output { mut buffer } => {
 //!             match buffer {
 //!                 UnknownTypeBuffer::U16(mut buffer) => {
 //!                     for elem in buffer.iter_mut() {
