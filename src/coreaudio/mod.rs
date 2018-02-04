@@ -1,4 +1,5 @@
 extern crate coreaudio;
+extern crate core_foundation_sys;
 
 use ChannelPosition;
 use CreationError;
@@ -10,7 +11,10 @@ use SamplesRate;
 use SupportedFormat;
 use UnknownTypeBuffer;
 
+use std::ffi::CStr;
 use std::mem;
+use std::os::raw::c_char;
+use std::ptr::null;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -18,13 +22,32 @@ use std::slice;
 
 use self::coreaudio::audio_unit::{AudioUnit, Scope, Element};
 use self::coreaudio::audio_unit::render_callback::{self, data};
-use self::coreaudio::bindings::audio_unit::{
-    AudioStreamBasicDescription,
+use self::coreaudio::sys::{
     AudioBuffer,
-    kAudioFormatLinearPCM,
+    AudioBufferList,
+    AudioDeviceID,
+    AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize,
+    AudioObjectPropertyAddress,
+    AudioStreamBasicDescription,
+    AudioValueRange,
+    kAudioDevicePropertyAvailableNominalSampleRates,
+    kAudioDevicePropertyDeviceNameCFString,
+    kAudioDevicePropertyScopeOutput,
+    kAudioDevicePropertyStreamConfiguration,
     kAudioFormatFlagIsFloat,
     kAudioFormatFlagIsPacked,
-    kAudioUnitProperty_StreamFormat
+    kAudioFormatLinearPCM,
+    kAudioHardwareNoError,
+    kAudioObjectPropertyElementMaster,
+    kAudioObjectPropertyScopeOutput,
+    kAudioOutputUnitProperty_CurrentDevice,
+    kAudioUnitProperty_StreamFormat,
+    kCFStringEncodingUTF8,
+};
+use self::core_foundation_sys::string::{
+    CFStringRef,
+    CFStringGetCStringPtr,
 };
 
 mod enumerate;
@@ -32,24 +55,166 @@ mod enumerate;
 pub use self::enumerate::{EndpointsIterator, SupportedFormatsIterator, default_endpoint};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Endpoint;
+pub struct Endpoint {
+    audio_device_id: AudioDeviceID,
+}
 
 impl Endpoint {
     pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
-        Ok(
-            vec![
-                SupportedFormat {
-                    channels: vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
-                    min_samples_rate: SamplesRate(44100),
-                    max_samples_rate: SamplesRate(44100),
-                    data_type: SampleFormat::F32,
-                },
-            ].into_iter(),
-        )
+        let mut property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMaster,
+        };
+
+        unsafe {
+            // Retrieve the devices audio buffer list.
+            let data_size = 0u32;
+            let status = AudioObjectGetPropertyDataSize(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                unimplemented!();
+            }
+            let mut audio_buffer_list: Vec<u8> = vec![];
+            audio_buffer_list.reserve_exact(data_size as usize);
+            let status = AudioObjectGetPropertyData(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                audio_buffer_list.as_mut_ptr() as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                unimplemented!();
+            }
+            let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
+
+            // If there's no buffers, skip.
+            if (*audio_buffer_list).mNumberBuffers == 0 {
+                return Ok(vec![].into_iter());
+            }
+
+            // Count the number of channels as the sum of all channels in all output buffers.
+            let n_buffers = (*audio_buffer_list).mNumberBuffers as usize;
+            let first: *const AudioBuffer = (*audio_buffer_list).mBuffers.as_ptr();
+            let buffers: &'static [AudioBuffer] = slice::from_raw_parts(first, n_buffers);
+            let mut n_channels = 0;
+            for buffer in buffers {
+                n_channels += buffer.mNumberChannels as usize;
+            }
+            const CHANNEL_POSITIONS: &'static [ChannelPosition] = &[
+                ChannelPosition::FrontLeft,
+                ChannelPosition::FrontRight,
+                ChannelPosition::FrontCenter,
+                ChannelPosition::LowFrequency,
+                ChannelPosition::BackLeft,
+                ChannelPosition::BackRight,
+                ChannelPosition::FrontLeftOfCenter,
+                ChannelPosition::FrontRightOfCenter,
+                ChannelPosition::BackCenter,
+                ChannelPosition::SideLeft,
+                ChannelPosition::SideRight,
+                ChannelPosition::TopCenter,
+                ChannelPosition::TopFrontLeft,
+                ChannelPosition::TopFrontCenter,
+                ChannelPosition::TopFrontRight,
+                ChannelPosition::TopBackLeft,
+                ChannelPosition::TopBackCenter,
+                ChannelPosition::TopBackRight,
+            ];
+
+            // AFAIK the sample format should always be f32 on macos and i16 on iOS? Feel free to
+            // fix this if more pcm formats are supported.
+            let sample_format = if cfg!(target_os = "ios") {
+                SampleFormat::I16
+            } else {
+                SampleFormat::F32
+            };
+
+            // Get available sample rate ranges.
+            property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+            let data_size = 0u32;
+            let status = AudioObjectGetPropertyDataSize(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                unimplemented!();
+            }
+            let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
+            let mut ranges: Vec<u8> = vec![];
+            ranges.reserve_exact(data_size as usize);
+            let status = AudioObjectGetPropertyData(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                ranges.as_mut_ptr() as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                unimplemented!();
+            }
+            let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
+            let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+
+            // Collect the supported formats for the device.
+            let mut fmts = vec![];
+            for range in ranges {
+                let channels = CHANNEL_POSITIONS.iter()
+                    .cloned()
+                    .cycle()
+                    .take(n_channels)
+                    .collect::<Vec<_>>();
+                let fmt = SupportedFormat {
+                    channels: channels.clone(),
+                    min_samples_rate: SamplesRate(range.mMinimum as _),
+                    max_samples_rate: SamplesRate(range.mMaximum as _),
+                    data_type: sample_format,
+                };
+                fmts.push(fmt);
+            }
+
+            Ok(fmts.into_iter())
+        }
     }
 
     pub fn name(&self) -> String {
-        "Default AudioUnit Endpoint".to_string()
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMaster,
+        };
+        let device_name: CFStringRef = null();
+        let data_size = mem::size_of::<CFStringRef>();
+        let c_str = unsafe {
+            let status = AudioObjectGetPropertyData(
+                self.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                &device_name as *const _ as *mut _,
+            );
+            if status != kAudioHardwareNoError as i32 {
+                return format!("<OSStatus: {:?}>", status);
+            }
+            let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
+            if c_string == null() {
+                return "<null>".into();
+            }
+            CStr::from_ptr(c_string as *mut _)
+        };
+        c_str.to_string_lossy().into_owned()
     }
 }
 
@@ -117,7 +282,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _endpoint: &Endpoint, format: &Format)
+    pub fn build_voice(&self, endpoint: &Endpoint, format: &Format)
                        -> Result<VoiceId, CreationError> {
         let mut audio_unit = {
             let au_type = if cfg!(target_os = "ios") {
@@ -132,7 +297,13 @@ impl EventLoop {
             AudioUnit::new(au_type)?
         };
 
-        // TODO: iOS uses integer and fixed-point data
+        // TODO: Set the audio output unit device as the given endpoint device.
+        audio_unit.set_property(
+            kAudioOutputUnitProperty_CurrentDevice,
+            Scope::Global,
+            Element::Output,
+            Some(&endpoint.audio_device_id),
+        )?;
 
         // Set the stream in interleaved mode.
         let n_channels = format.channels.len();
