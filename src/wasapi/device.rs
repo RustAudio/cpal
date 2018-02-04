@@ -8,6 +8,8 @@ use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ChannelCount;
+use DefaultFormatError;
+use Format;
 use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
@@ -45,7 +47,8 @@ use super::winapi::um::mmdeviceapi::{
     IMMDeviceEnumerator,
 };
 
-pub type SupportedFormatsIterator = OptionIntoIter<SupportedFormat>;
+pub type SupportedInputFormats = OptionIntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = OptionIntoIter<SupportedFormat>;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
@@ -56,21 +59,20 @@ unsafe impl Sync for IAudioClientWrapper {
 }
 
 /// An opaque type that identifies an end point.
-pub struct Endpoint {
+pub struct Device {
     device: *mut IMMDevice,
-
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
     future_audio_client: Arc<Mutex<Option<IAudioClientWrapper>>>, // TODO: add NonZero around the ptr
 }
 
-unsafe impl Send for Endpoint {
+unsafe impl Send for Device {
 }
-unsafe impl Sync for Endpoint {
+unsafe impl Sync for Device {
 }
 
-impl Endpoint {
-    // TODO: this function returns a GUID of the endpoin
+impl Device {
+    // TODO: this function returns a GUID of the device
     //       instead it should use the property store and return the friendly name
     pub fn name(&self) -> String {
         unsafe {
@@ -95,8 +97,8 @@ impl Endpoint {
     }
 
     #[inline]
-    fn from_immdevice(device: *mut IMMDevice) -> Endpoint {
-        Endpoint {
+    fn from_immdevice(device: *mut IMMDevice) -> Self {
+        Device {
             device: device,
             future_audio_client: Arc::new(Mutex::new(None)),
         }
@@ -137,7 +139,11 @@ impl Endpoint {
         Ok(client)
     }
 
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+        unimplemented!();
+    }
+
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
         // We always create voices in shared mode, therefore all samples go through an audio
         // processor to mix them together.
         // However there is no way to query the list of all formats that are supported by the
@@ -212,33 +218,41 @@ impl Endpoint {
             Ok(Some(format).into_iter())
         }
     }
+
+    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
+    }
+
+    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
+    }
 }
 
-impl PartialEq for Endpoint {
+impl PartialEq for Device {
     #[inline]
-    fn eq(&self, other: &Endpoint) -> bool {
+    fn eq(&self, other: &Device) -> bool {
         self.device == other.device
     }
 }
 
-impl Eq for Endpoint {
+impl Eq for Device {
 }
 
-impl Clone for Endpoint {
+impl Clone for Device {
     #[inline]
-    fn clone(&self) -> Endpoint {
+    fn clone(&self) -> Device {
         unsafe {
             (*self.device).AddRef();
         }
 
-        Endpoint {
+        Device {
             device: self.device,
             future_audio_client: self.future_audio_client.clone(),
         }
     }
 }
 
-impl Drop for Endpoint {
+impl Drop for Device {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -293,19 +307,19 @@ impl Drop for Enumerator {
     }
 }
 
-/// WASAPI implementation for `EndpointsIterator`.
-pub struct EndpointsIterator {
+/// WASAPI implementation for `Devices`.
+pub struct Devices {
     collection: *mut IMMDeviceCollection,
     total_count: u32,
     next_item: u32,
 }
 
-unsafe impl Send for EndpointsIterator {
+unsafe impl Send for Devices {
 }
-unsafe impl Sync for EndpointsIterator {
+unsafe impl Sync for Devices {
 }
 
-impl Drop for EndpointsIterator {
+impl Drop for Devices {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -314,8 +328,8 @@ impl Drop for EndpointsIterator {
     }
 }
 
-impl Default for EndpointsIterator {
-    fn default() -> EndpointsIterator {
+impl Default for Devices {
+    fn default() -> Devices {
         unsafe {
             let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
             // can fail because of wrong parameters (should never happen) or out of memory
@@ -328,7 +342,7 @@ impl Default for EndpointsIterator {
             // can fail if the parameter is null, which should never happen
             check_result((*collection).GetCount(&mut count)).unwrap();
 
-            EndpointsIterator {
+            Devices {
                 collection: collection,
                 total_count: count,
                 next_item: 0,
@@ -337,10 +351,10 @@ impl Default for EndpointsIterator {
     }
 }
 
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
+impl Iterator for Devices {
+    type Item = Device;
 
-    fn next(&mut self) -> Option<Endpoint> {
+    fn next(&mut self) -> Option<Device> {
         if self.next_item >= self.total_count {
             return None;
         }
@@ -351,7 +365,7 @@ impl Iterator for EndpointsIterator {
             check_result((*self.collection).Item(self.next_item, &mut device)).unwrap();
 
             self.next_item += 1;
-            Some(Endpoint::from_immdevice(device))
+            Some(Device::from_immdevice(device))
         }
     }
 
@@ -363,16 +377,18 @@ impl Iterator for EndpointsIterator {
     }
 }
 
-pub fn default_endpoint() -> Option<Endpoint> {
+pub fn default_input_device() -> Option<Device> {
+    unimplemented!();
+}
+
+pub fn default_output_device() -> Option<Device> {
     unsafe {
         let mut device = mem::uninitialized();
         let hres = (*ENUMERATOR.0)
             .GetDefaultAudioEndpoint(eRender, eConsole, &mut device);
-
         if let Err(_err) = check_result(hres) {
             return None; // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
         }
-
-        Some(Endpoint::from_immdevice(device))
+        Some(Device::from_immdevice(device))
     }
 }

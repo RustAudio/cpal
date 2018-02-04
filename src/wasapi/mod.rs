@@ -2,13 +2,13 @@ extern crate winapi;
 
 use std::io::Error as IoError;
 
-pub use self::endpoint::{Endpoint, EndpointsIterator, SupportedFormatsIterator, default_endpoint};
-pub use self::voice::{Buffer, EventLoop, VoiceId};
+pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
+pub use self::stream::{Buffer, EventLoop, StreamId};
 use self::winapi::um::winnt::HRESULT;
 
 mod com;
-mod endpoint;
-mod voice;
+mod device;
+mod stream;
 
 #[inline]
 fn check_result(result: HRESULT) -> Result<(), IoError> {

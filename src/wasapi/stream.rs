@@ -1,4 +1,4 @@
-use super::Endpoint;
+use super::Device;
 use super::check_result;
 use super::com;
 use super::winapi::shared::basetsd::UINT32;
@@ -25,6 +25,7 @@ use std::sync::atomic::Ordering;
 use CreationError;
 use Format;
 use SampleFormat;
+use StreamData;
 use UnknownTypeBuffer;
 
 pub struct EventLoop {
@@ -33,10 +34,10 @@ pub struct EventLoop {
     // means that we shouldn't try to lock this field from anywhere else but `run()`.
     run_context: Mutex<RunContext>,
 
-    // Identifier of the next voice to create. Each new voice increases this counter. If the
+    // Identifier of the next stream to create. Each new stream increases this counter. If the
     // counter overflows, there's a panic.
     // TODO: use AtomicU64 instead
-    next_voice_id: AtomicUsize,
+    next_stream_id: AtomicUsize,
 
     // Commands processed by the `run()` method that is currently running.
     // `pending_scheduled_event` must be signalled whenever a command is added here, so that it
@@ -50,8 +51,8 @@ pub struct EventLoop {
 }
 
 struct RunContext {
-    // Voices that have been created in this event loop.
-    voices: Vec<VoiceInner>,
+    // Streams that have been created in this event loop.
+    streams: Vec<StreamInner>,
 
     // Handles corresponding to the `event` field of each element of `voices`. Must always be in
     // sync with `voices`, except that the first element is always `pending_scheduled_event`.
@@ -59,21 +60,20 @@ struct RunContext {
 }
 
 enum Command {
-    NewVoice(VoiceInner),
-    DestroyVoice(VoiceId),
-    Play(VoiceId),
-    Pause(VoiceId),
+    NewStream(StreamInner),
+    DestroyStream(StreamId),
+    PlayStream(StreamId),
+    PauseStream(StreamId),
 }
 
-struct VoiceInner {
-    id: VoiceId,
+struct StreamInner {
+    id: StreamId,
     audio_client: *mut audioclient::IAudioClient,
     render_client: *mut audioclient::IAudioRenderClient,
     // Event that is signalled by WASAPI whenever audio data must be written.
     event: winnt::HANDLE,
-    // True if the voice is currently playing. False if paused.
+    // True if the stream is currently playing. False if paused.
     playing: bool,
-
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
     max_frames_in_buffer: UINT32,
     // Number of bytes that each frame occupies.
@@ -88,23 +88,36 @@ impl EventLoop {
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
             run_context: Mutex::new(RunContext {
-                                        voices: Vec::new(),
+                                        streams: Vec::new(),
                                         handles: vec![pending_scheduled_event],
                                     }),
-            next_voice_id: AtomicUsize::new(0),
+            next_stream_id: AtomicUsize::new(0),
             commands: Mutex::new(Vec::new()),
         }
     }
 
-    pub fn build_voice(&self, end_point: &Endpoint, format: &Format)
-                       -> Result<VoiceId, CreationError> {
+    pub fn build_input_stream(
+        &self,
+        _device: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
+        unimplemented!();
+    }
+
+    pub fn build_output_stream(
+        &self,
+        device: &Device,
+        format: &Format,
+    ) -> Result<StreamId, CreationError>
+    {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
             com::com_initialized();
 
             // Obtaining a `IAudioClient`.
-            let audio_client = match end_point.build_audioclient() {
+            let audio_client = match device.build_audioclient() {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(CreationError::DeviceNotAvailable),
                 e => e.unwrap(),
@@ -232,14 +245,14 @@ impl EventLoop {
                 &mut *render_client
             };
 
-            let new_voice_id = VoiceId(self.next_voice_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_voice_id.0, usize::max_value()); // check for overflows
+            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
+            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
 
-            // Once we built the `VoiceInner`, we add a command that will be picked up by the
+            // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
             {
-                let inner = VoiceInner {
-                    id: new_voice_id.clone(),
+                let inner = StreamInner {
+                    id: new_stream_id.clone(),
                     audio_client: audio_client,
                     render_client: render_client,
                     event: event,
@@ -248,23 +261,23 @@ impl EventLoop {
                     bytes_per_frame: format.nBlockAlign,
                 };
 
-                self.commands.lock().unwrap().push(Command::NewVoice(inner));
+                self.commands.lock().unwrap().push(Command::NewStream(inner));
 
                 let result = synchapi::SetEvent(self.pending_scheduled_event);
                 assert!(result != 0);
             };
 
-            Ok(new_voice_id)
+            Ok(new_stream_id)
         }
     }
 
     #[inline]
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
+    pub fn destroy_stream(&self, stream_id: StreamId) {
         unsafe {
             self.commands
                 .lock()
                 .unwrap()
-                .push(Command::DestroyVoice(voice_id));
+                .push(Command::DestroyStream(stream_id));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -272,12 +285,12 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(StreamId, StreamData)
     {
         self.run_inner(&mut callback);
     }
 
-    fn run_inner(&self, callback: &mut FnMut(VoiceId, UnknownTypeBuffer)) -> ! {
+    fn run_inner(&self, callback: &mut FnMut(StreamId, StreamData)) -> ! {
         unsafe {
             // We keep `run_context` locked forever, which guarantees that two invocations of
             // `run()` cannot run simultaneously.
@@ -288,22 +301,22 @@ impl EventLoop {
                 let mut commands_lock = self.commands.lock().unwrap();
                 for command in commands_lock.drain(..) {
                     match command {
-                        Command::NewVoice(voice_inner) => {
-                            let event = voice_inner.event;
-                            run_context.voices.push(voice_inner);
+                        Command::NewStream(stream_inner) => {
+                            let event = stream_inner.event;
+                            run_context.streams.push(stream_inner);
                             run_context.handles.push(event);
                         },
-                        Command::DestroyVoice(voice_id) => {
-                            match run_context.voices.iter().position(|v| v.id == voice_id) {
+                        Command::DestroyStream(stream_id) => {
+                            match run_context.streams.iter().position(|v| v.id == stream_id) {
                                 None => continue,
                                 Some(p) => {
                                     run_context.handles.remove(p + 1);
-                                    run_context.voices.remove(p);
+                                    run_context.streams.remove(p);
                                 },
                             }
                         },
-                        Command::Play(voice_id) => {
-                            if let Some(v) = run_context.voices.get_mut(voice_id.0) {
+                        Command::PlayStream(stream_id) => {
+                            if let Some(v) = run_context.streams.get_mut(stream_id.0) {
                                 if !v.playing {
                                     let hresult = (*v.audio_client).Start();
                                     check_result(hresult).unwrap();
@@ -311,8 +324,8 @@ impl EventLoop {
                                 }
                             }
                         },
-                        Command::Pause(voice_id) => {
-                            if let Some(v) = run_context.voices.get_mut(voice_id.0) {
+                        Command::PauseStream(stream_id) => {
+                            if let Some(v) = run_context.streams.get_mut(stream_id.0) {
                                 if v.playing {
                                     let hresult = (*v.audio_client).Stop();
                                     check_result(hresult).unwrap();
@@ -339,17 +352,17 @@ impl EventLoop {
 
                 // If `handle_id` is 0, then it's `pending_scheduled_event` that was signalled in
                 // order for us to pick up the pending commands.
-                // Otherwise, a voice needs data.
+                // Otherwise, a stream needs data.
                 if handle_id >= 1 {
-                    let voice = &mut run_context.voices[handle_id - 1];
-                    let voice_id = voice.id.clone();
+                    let stream = &mut run_context.streams[handle_id - 1];
+                    let stream_id = stream.id.clone();
 
                     // Obtaining the number of frames that are available to be written.
                     let frames_available = {
                         let mut padding = mem::uninitialized();
-                        let hresult = (*voice.audio_client).GetCurrentPadding(&mut padding);
+                        let hresult = (*stream.audio_client).GetCurrentPadding(&mut padding);
                         check_result(hresult).unwrap();
-                        voice.max_frames_in_buffer - padding
+                        stream.max_frames_in_buffer - padding
                     };
 
                     if frames_available == 0 {
@@ -360,18 +373,18 @@ impl EventLoop {
                     // Obtaining a pointer to the buffer.
                     let (buffer_data, buffer_len) = {
                         let mut buffer: *mut BYTE = mem::uninitialized();
-                        let hresult = (*voice.render_client)
+                        let hresult = (*stream.render_client)
                             .GetBuffer(frames_available, &mut buffer as *mut *mut _);
                         check_result(hresult).unwrap(); // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
                         debug_assert!(!buffer.is_null());
 
                         (buffer as *mut _,
-                         frames_available as usize * voice.bytes_per_frame as usize /
+                         frames_available as usize * stream.bytes_per_frame as usize /
                              mem::size_of::<f32>()) // FIXME: correct size when not f32
                     };
 
                     let buffer = Buffer {
-                        voice: voice,
+                        stream: stream,
                         buffer_data: buffer_data,
                         buffer_len: buffer_len,
                         frames: frames_available,
@@ -379,25 +392,26 @@ impl EventLoop {
                     };
 
                     let buffer = UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }); // FIXME: not always f32
-                    callback(voice_id, buffer);
+                    let data = StreamData::Output { buffer: buffer };
+                    callback(stream_id, data);
                 }
             }
         }
     }
 
     #[inline]
-    pub fn play(&self, voice: VoiceId) {
+    pub fn play_stream(&self, stream: StreamId) {
         unsafe {
-            self.commands.lock().unwrap().push(Command::Play(voice));
+            self.commands.lock().unwrap().push(Command::PlayStream(stream));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
     }
 
     #[inline]
-    pub fn pause(&self, voice: VoiceId) {
+    pub fn pause_stream(&self, stream: StreamId) {
         unsafe {
-            self.commands.lock().unwrap().push(Command::Pause(voice));
+            self.commands.lock().unwrap().push(Command::PauseStream(stream));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -418,11 +432,11 @@ unsafe impl Send for EventLoop {
 unsafe impl Sync for EventLoop {
 }
 
-// The content of a voice ID is a number that was fetched from `next_voice_id`.
+// The content of a stream ID is a number that was fetched from `next_stream_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId(usize);
+pub struct StreamId(usize);
 
-impl Drop for VoiceInner {
+impl Drop for StreamInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -434,7 +448,7 @@ impl Drop for VoiceInner {
 }
 
 pub struct Buffer<'a, T: 'a> {
-    voice: &'a mut VoiceInner,
+    stream: &'a mut StreamInner,
 
     buffer_data: *mut T,
     buffer_len: usize,
@@ -460,7 +474,7 @@ impl<'a, T> Buffer<'a, T> {
     #[inline]
     pub fn finish(self) {
         unsafe {
-            let hresult = (*self.voice.render_client).ReleaseBuffer(self.frames as u32, 0);
+            let hresult = (*self.stream.render_client).ReleaseBuffer(self.frames as u32, 0);
             match check_result(hresult) {
                 // Ignoring the error that is produced if the device has been disconnected.
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => (),
