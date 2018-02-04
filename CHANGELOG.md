@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.7.0 (2018-02-04)
+
 - Rename ChannelsCount to ChannelCount.
 - Rename SamplesRate to SampleRate.
 - Remove unused ChannelPosition API.
