@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.7.0 (2018-02-04)
+
 - Remove unused ChannelPosition API.
 - Implement Endpoint and Format Enumeration for macos.
 - Implement format handling for macos `build_voice` method.
