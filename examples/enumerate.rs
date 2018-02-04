@@ -1,16 +1,16 @@
 extern crate cpal;
 
 fn main() {
-    println!("Default Endpoint:\n  {:?}", cpal::default_endpoint().map(|e| e.name()));
+    println!("Default Output Device:\n  {:?}", cpal::default_output_device().map(|e| e.name()));
 
-    let endpoints = cpal::endpoints();
-    println!("Endpoints: ");
-    for (endpoint_index, endpoint) in endpoints.enumerate() {
-        println!("{}. Endpoint \"{}\" Audio formats: ",
-                 endpoint_index + 1,
-                 endpoint.name());
+    let devices = cpal::devices();
+    println!("Devices: ");
+    for (device_index, device) in devices.enumerate() {
+        println!("{}. device \"{}\" Audio formats: ",
+                 device_index + 1,
+                 device.name());
 
-        let formats = match endpoint.supported_formats() {
+        let output_formats = match device.supported_output_formats() {
             Ok(f) => f,
             Err(e) => {
                 println!("Error: {:?}", e);
@@ -18,8 +18,8 @@ fn main() {
             },
         };
 
-        for (format_index, format) in formats.enumerate() {
-            println!("{}.{}. {:?}", endpoint_index + 1, format_index + 1, format);
+        for (format_index, format) in output_formats.enumerate() {
+            println!("{}.{}. {:?}", device_index + 1, format_index + 1, format);
         }
     }
 }
