@@ -7,19 +7,19 @@ fn main() {
         .unwrap()
         .next()
         .expect("Failed to get endpoint format")
-        .with_max_samples_rate();
+        .with_max_sample_rate();
 
     let event_loop = cpal::EventLoop::new();
     let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();
     event_loop.play(voice_id);
 
-    let samples_rate = format.samples_rate.0 as f32;
+    let sample_rate = format.sample_rate.0 as f32;
     let mut sample_clock = 0f32;
 
     // Produce a sinusoid of maximum amplitude.
     let mut next_value = || {
-        sample_clock = (sample_clock + 1.0) % samples_rate;
-        (sample_clock * 440.0 * 2.0 * 3.141592 / samples_rate).sin()
+        sample_clock = (sample_clock + 1.0) % sample_rate;
+        (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
     event_loop.run(move |_, buffer| {

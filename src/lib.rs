@@ -40,14 +40,14 @@
 //! let mut supported_formats_range = endpoint.supported_formats()
 //!                                           .expect("error while querying formats");
 //! let format = supported_formats_range.next().expect("no supported format?!")
-//!                                     .with_max_samples_rate();
+//!                                     .with_max_sample_rate();
 //! ```
 //!
 //! Now that we have everything, we can create a voice from that event loop:
 //!
 //! ```no_run
 //! # let endpoint = cpal::default_endpoint().unwrap();
-//! # let format = endpoint.supported_formats().unwrap().next().unwrap().with_max_samples_rate();
+//! # let format = endpoint.supported_formats().unwrap().next().unwrap().with_max_sample_rate();
 //! # let event_loop = cpal::EventLoop::new();
 //! let voice_id = event_loop.build_voice(&endpoint, &format).unwrap();
 //! ```
@@ -238,17 +238,17 @@ impl Endpoint {
 }
 
 /// Number of channels.
-pub type ChannelsCount = u16;
+pub type ChannelCount = u16;
 
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SamplesRate(pub u32);
+pub struct SampleRate(pub u32);
 
 /// Describes a format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Format {
-    pub channels: ChannelsCount,
-    pub samples_rate: SamplesRate,
+    pub channels: ChannelCount,
+    pub sample_rate: SampleRate,
     pub data_type: SampleFormat,
 }
 
@@ -274,11 +274,11 @@ impl Iterator for SupportedFormatsIterator {
 /// Describes a range of supported formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
-    pub channels: ChannelsCount,
+    pub channels: ChannelCount,
     /// Minimum value for the samples rate of the supported formats.
-    pub min_samples_rate: SamplesRate,
+    pub min_sample_rate: SampleRate,
     /// Maximum value for the samples rate of the supported formats.
-    pub max_samples_rate: SamplesRate,
+    pub max_sample_rate: SampleRate,
     /// Type of data expected by the endpoint.
     pub data_type: SampleFormat,
 }
@@ -286,10 +286,10 @@ pub struct SupportedFormat {
 impl SupportedFormat {
     /// Turns this `SupportedFormat` into a `Format` corresponding to the maximum samples rate.
     #[inline]
-    pub fn with_max_samples_rate(self) -> Format {
+    pub fn with_max_sample_rate(self) -> Format {
         Format {
             channels: self.channels,
-            samples_rate: self.max_samples_rate,
+            sample_rate: self.max_sample_rate,
             data_type: self.data_type,
         }
     }
@@ -300,8 +300,8 @@ impl From<Format> for SupportedFormat {
     fn from(format: Format) -> SupportedFormat {
         SupportedFormat {
             channels: format.channels,
-            min_samples_rate: format.samples_rate,
-            max_samples_rate: format.samples_rate,
+            min_sample_rate: format.sample_rate,
+            max_sample_rate: format.sample_rate,
             data_type: format.data_type,
         }
     }
