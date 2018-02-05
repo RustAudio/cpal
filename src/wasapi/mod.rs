@@ -3,7 +3,7 @@ extern crate winapi;
 use std::io::Error as IoError;
 
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
-pub use self::stream::{Buffer, EventLoop, StreamId};
+pub use self::stream::{InputBuffer, OutputBuffer, EventLoop, StreamId};
 use self::winapi::um::winnt::HRESULT;
 
 mod com;

@@ -26,7 +26,7 @@ use CreationError;
 use Format;
 use SampleFormat;
 use StreamData;
-use UnknownTypeBuffer;
+use UnknownTypeOutputBuffer;
 
 pub struct EventLoop {
     // Data used by the `run()` function implementation. The mutex is kept lock permanently by
@@ -383,7 +383,7 @@ impl EventLoop {
                              mem::size_of::<f32>()) // FIXME: correct size when not f32
                     };
 
-                    let buffer = Buffer {
+                    let buffer = OutputBuffer {
                         stream: stream,
                         buffer_data: buffer_data,
                         buffer_len: buffer_len,
@@ -391,7 +391,7 @@ impl EventLoop {
                         marker: PhantomData,
                     };
 
-                    let buffer = UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }); // FIXME: not always f32
+                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) }); // FIXME: not always f32
                     let data = StreamData::Output { buffer: buffer };
                     callback(stream_id, data);
                 }
@@ -447,7 +447,11 @@ impl Drop for StreamInner {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
+pub struct InputBuffer<'a, T: 'a> {
+    marker: ::std::marker::PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a> {
     stream: &'a mut StreamInner,
 
     buffer_data: *mut T,
@@ -457,10 +461,21 @@ pub struct Buffer<'a, T: 'a> {
     marker: PhantomData<&'a mut [T]>,
 }
 
-unsafe impl<'a, T> Send for Buffer<'a, T> {
+unsafe impl<'a, T> Send for OutputBuffer<'a, T> {
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.buffer_data, self.buffer_len) }
