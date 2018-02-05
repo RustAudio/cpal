@@ -15,7 +15,7 @@ use FormatsEnumerationError;
 use Sample;
 use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
+use UnknownTypeOutputBuffer;
 
 // The emscripten backend works by having a global variable named `_cpal_audio_contexts`, which
 // is an array of `AudioContext` objects. A stream ID corresponds to an entry in this array.
@@ -63,13 +63,13 @@ impl EventLoop {
                         None => continue,
                     };
 
-                    let buffer = Buffer {
+                    let buffer = OutputBuffer {
                         temporary_buffer: vec![0.0; 44100 * 2 / 3],
                         stream: &stream,
                     };
 
                     let id = StreamId(stream_id);
-                    let buffer = UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) });
+                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) });
                     let data = StreamData::Output { buffer: buffer };
                     user_cb(StreamId(stream_id), data);
                 }
@@ -228,14 +228,29 @@ impl Device {
 pub type SupportedInputFormats = ::std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = ::std::vec::IntoIter<SupportedFormat>;
 
-pub struct Buffer<'a, T: 'a>
+pub struct InputBuffer<'a, T: 'a> {
+    marker: ::std::marker::PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a>
     where T: Sample
 {
     temporary_buffer: Vec<T>,
     stream: &'a Reference,
 }
 
-impl<'a, T> Buffer<'a, T>
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T>
     where T: Sample
 {
     #[inline]
