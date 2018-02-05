@@ -11,7 +11,7 @@ use SampleFormat;
 use SampleRate;
 use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
+use UnknownTypeOutputBuffer;
 
 use std::ffi::CStr;
 use std::mem;
@@ -374,8 +374,8 @@ impl EventLoop {
                             return Ok(());
                         }
                     };
-                    let buffer = Buffer { buffer: data_slice };
-                    let unknown_type_buffer = UnknownTypeBuffer::$SampleFormat(::Buffer { target: Some(buffer) });
+                    let buffer = OutputBuffer { buffer: data_slice };
+                    let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { target: Some(buffer) });
                     let stream_data = StreamData::Output { buffer: unknown_type_buffer };
                     callback(StreamId(stream_id), stream_data);
                 }};
@@ -436,11 +436,26 @@ impl EventLoop {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
+pub struct InputBuffer<'a, T: 'a> {
+    marker: ::std::marker::PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a> {
     buffer: &'a mut [T],
 }
 
-impl<'a, T> Buffer<'a, T>
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T>
     where T: Sample
 {
     #[inline]
