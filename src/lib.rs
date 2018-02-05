@@ -217,7 +217,7 @@ where
 {
     // Always contains something, taken by `Drop`
     // TODO: change that
-    buffer: cpal_impl::InputBuffer<'a, T>,
+    buffer: Option<cpal_impl::InputBuffer<'a, T>>,
 }
 
 /// Represents a buffer that must be filled with audio data.
@@ -509,7 +509,7 @@ impl<'a, T> Deref for InputBuffer<'a, T>
 
     #[inline]
     fn deref(&self) -> &[T] {
-        self.buffer.buffer()
+        self.buffer.as_ref().unwrap().buffer()
     }
 }
 
@@ -518,7 +518,7 @@ impl<'a, T> Drop for InputBuffer<'a, T>
 {
     #[inline]
     fn drop(&mut self) {
-        self.buffer.finish();
+        self.buffer.take().unwrap().finish();
     }
 }
 
