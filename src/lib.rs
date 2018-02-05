@@ -81,34 +81,30 @@
 //! While `run()` is running, the audio device of the user will from time to time call the callback
 //! that you passed to this function. The callback gets passed the stream ID an instance of type
 //! `StreamData` that represents the data that must be read from or written to. The inner
-//! `UnknownTypeBuffer` can be one of `I16`, `U16` or `F32` depending on the format that was passed
-//! to `build_input_stream` or `build_output_stream`.
+//! `UnknownTypeOutputBuffer` can be one of `I16`, `U16` or `F32` depending on the format that was
+//! passed to `build_output_stream`.
 //!
 //! In this example, we simply simply fill the given output buffer with zeroes.
 //!
 //! ```no_run
-//! use cpal::{StreamData, UnknownTypeBuffer};
+//! use cpal::{StreamData, UnknownTypeOutputBuffer};
 //!
 //! # let event_loop = cpal::EventLoop::new();
 //! event_loop.run(move |_stream_id, mut stream_data| {
 //!     match stream_data {
-//!         StreamData::Output { mut buffer } => {
-//!             match buffer {
-//!                 UnknownTypeBuffer::U16(mut buffer) => {
-//!                     for elem in buffer.iter_mut() {
-//!                         *elem = u16::max_value() / 2;
-//!                     }
-//!                 },
-//!                 UnknownTypeBuffer::I16(mut buffer) => {
-//!                     for elem in buffer.iter_mut() {
-//!                         *elem = 0;
-//!                     }
-//!                 },
-//!                 UnknownTypeBuffer::F32(mut buffer) => {
-//!                     for elem in buffer.iter_mut() {
-//!                         *elem = 0.0;
-//!                     }
-//!                 },
+//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = u16::max_value() / 2;
+//!             }
+//!         },
+//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = 0;
+//!             }
+//!         },
+//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
+//!             for elem in buffer.iter_mut() {
+//!                 *elem = 0.0;
 //!             }
 //!         },
 //!         _ => (),
@@ -202,10 +198,26 @@ pub struct SupportedFormat {
 
 /// Stream data passed to the `EventLoop::run` callback.
 pub enum StreamData<'a> {
-    Input,
+    Input {
+        buffer: UnknownTypeInputBuffer<'a>,
+    },
     Output {
-        buffer: UnknownTypeBuffer<'a>,
-    }
+        buffer: UnknownTypeOutputBuffer<'a>,
+    },
+}
+
+/// Represents a buffer containing audio data that may be read.
+///
+/// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
+/// same way as reading from a `Vec` or any other kind of Rust array.
+// TODO: explain audio stuff in general
+pub struct InputBuffer<'a, T: 'a>
+where
+    T: Sample,
+{
+    // Always contains something, taken by `Drop`
+    // TODO: change that
+    buffer: cpal_impl::InputBuffer<'a, T>,
 }
 
 /// Represents a buffer that must be filled with audio data.
@@ -217,24 +229,37 @@ pub enum StreamData<'a> {
 /// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
 #[must_use]
-pub struct Buffer<'a, T: 'a>
-    where T: Sample
+pub struct OutputBuffer<'a, T: 'a>
+where
+    T: Sample,
 {
     // Always contains something, taken by `Drop`
     // TODO: change that
-    target: Option<cpal_impl::Buffer<'a, T>>,
+    target: Option<cpal_impl::OutputBuffer<'a, T>>,
+}
+
+/// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
+///
+/// Since the type of data is only known at runtime, you have to read the right buffer.
+pub enum UnknownTypeInputBuffer<'a> {
+    /// Samples whose format is `u16`.
+    U16(InputBuffer<'a, u16>),
+    /// Samples whose format is `i16`.
+    I16(InputBuffer<'a, i16>),
+    /// Samples whose format is `f32`.
+    F32(InputBuffer<'a, f32>),
 }
 
 /// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to fill the right buffer.
-pub enum UnknownTypeBuffer<'a> {
+pub enum UnknownTypeOutputBuffer<'a> {
     /// Samples whose format is `u16`.
-    U16(Buffer<'a, u16>),
+    U16(OutputBuffer<'a, u16>),
     /// Samples whose format is `i16`.
-    I16(Buffer<'a, i16>),
+    I16(OutputBuffer<'a, i16>),
     /// Samples whose format is `f32`.
-    F32(Buffer<'a, f32>),
+    F32(OutputBuffer<'a, f32>),
 }
 
 /// An iterator yielding all `Device`s currently available to the system.
@@ -477,7 +502,27 @@ impl SupportedFormat {
     }
 }
 
-impl<'a, T> Deref for Buffer<'a, T>
+impl<'a, T> Deref for InputBuffer<'a, T>
+    where T: Sample
+{
+    type Target = [T];
+
+    #[inline]
+    fn deref(&self) -> &[T] {
+        self.buffer.buffer()
+    }
+}
+
+impl<'a, T> Drop for InputBuffer<'a, T>
+    where T: Sample
+{
+    #[inline]
+    fn drop(&mut self) {
+        self.buffer.finish();
+    }
+}
+
+impl<'a, T> Deref for OutputBuffer<'a, T>
     where T: Sample
 {
     type Target = [T];
@@ -488,7 +533,7 @@ impl<'a, T> Deref for Buffer<'a, T>
     }
 }
 
-impl<'a, T> DerefMut for Buffer<'a, T>
+impl<'a, T> DerefMut for OutputBuffer<'a, T>
     where T: Sample
 {
     #[inline]
@@ -497,7 +542,7 @@ impl<'a, T> DerefMut for Buffer<'a, T>
     }
 }
 
-impl<'a, T> Drop for Buffer<'a, T>
+impl<'a, T> Drop for OutputBuffer<'a, T>
     where T: Sample
 {
     #[inline]
@@ -506,14 +551,26 @@ impl<'a, T> Drop for Buffer<'a, T>
     }
 }
 
-impl<'a> UnknownTypeBuffer<'a> {
+impl<'a> UnknownTypeInputBuffer<'a> {
     /// Returns the length of the buffer in number of samples.
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            &UnknownTypeBuffer::U16(ref buf) => buf.target.as_ref().unwrap().len(),
-            &UnknownTypeBuffer::I16(ref buf) => buf.target.as_ref().unwrap().len(),
-            &UnknownTypeBuffer::F32(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeInputBuffer::U16(ref buf) => buf.len(),
+            &UnknownTypeInputBuffer::I16(ref buf) => buf.len(),
+            &UnknownTypeInputBuffer::F32(ref buf) => buf.len(),
+        }
+    }
+}
+
+impl<'a> UnknownTypeOutputBuffer<'a> {
+    /// Returns the length of the buffer in number of samples.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            &UnknownTypeOutputBuffer::U16(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeOutputBuffer::I16(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeOutputBuffer::F32(ref buf) => buf.target.as_ref().unwrap().len(),
         }
     }
 }
