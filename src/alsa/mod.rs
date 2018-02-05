@@ -12,7 +12,7 @@ use SampleFormat;
 use SampleRate;
 use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
+use UnknownTypeOutputBuffer;
 
 use std::{cmp, ffi, iter, mem, ptr};
 use std::sync::Mutex;
@@ -494,33 +494,33 @@ impl EventLoop {
                     // We're now sure that we're ready to write data.
                     let buffer = match stream_inner.sample_format {
                         SampleFormat::I16 => {
-                            let buffer = Buffer {
+                            let buffer = OutputBuffer {
                                 stream_inner: stream_inner,
                                 buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
                             };
 
-                            UnknownTypeBuffer::I16(::Buffer { target: Some(buffer) })
+                            UnknownTypeOutputBuffer::I16(::OutputBuffer { target: Some(buffer) })
                         },
                         SampleFormat::U16 => {
-                            let buffer = Buffer {
+                            let buffer = OutputBuffer {
                                 stream_inner: stream_inner,
                                 buffer: iter::repeat(mem::uninitialized())
                                     .take(available)
                                     .collect(),
                             };
 
-                            UnknownTypeBuffer::U16(::Buffer { target: Some(buffer) })
+                            UnknownTypeOutputBuffer::U16(::OutputBuffer { target: Some(buffer) })
                         },
                         SampleFormat::F32 => {
-                            let buffer = Buffer {
+                            let buffer = OutputBuffer {
                                 stream_inner: stream_inner,
                                 // Note that we don't use `mem::uninitialized` because of sNaN.
                                 buffer: iter::repeat(0.0).take(available).collect(),
                             };
 
-                            UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) })
+                            UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) })
                         },
                     };
 
@@ -680,7 +680,11 @@ impl EventLoop {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
+pub struct InputBuffer<'a, T: 'a> {
+    marker: ::std::marker::PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a> {
     stream_inner: &'a mut StreamInner,
     buffer: Vec<T>,
 }
@@ -716,7 +720,18 @@ impl Drop for StreamInner {
     }
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
         &mut self.buffer
