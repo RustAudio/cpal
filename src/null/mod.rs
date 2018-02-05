@@ -8,9 +8,9 @@ use Format;
 use FormatsEnumerationError;
 use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
 
 pub struct EventLoop;
+
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
@@ -36,7 +36,7 @@ impl EventLoop {
 
     #[inline]
     pub fn destroy_stream(&self, _: StreamId) {
-        unreachable!()
+        unimplemented!()
     }
 
     #[inline]
@@ -126,14 +126,29 @@ impl Iterator for SupportedOutputFormats {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
+pub struct InputBuffer<'a, T: 'a> {
+    marker: PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a> {
     marker: PhantomData<&'a mut T>,
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
-        unreachable!()
+        unimplemented!()
     }
 
     #[inline]
