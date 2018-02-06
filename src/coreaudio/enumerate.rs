@@ -8,6 +8,7 @@ use super::coreaudio::sys::{
     AudioObjectGetPropertyData,
     AudioObjectGetPropertyDataSize,
     kAudioHardwareNoError,
+    kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice,
     kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster,
@@ -17,7 +18,7 @@ use super::coreaudio::sys::{
 };
 use super::Device;
 
-unsafe fn audio_output_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
+unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -71,7 +72,7 @@ unsafe impl Sync for Devices {
 impl Default for Devices {
     fn default() -> Self {
         let devices = unsafe {
-            audio_output_devices().expect("failed to get audio output devices")
+            audio_devices().expect("failed to get audio output devices")
         };
         Devices(devices.into_iter())
     }
@@ -85,7 +86,32 @@ impl Iterator for Devices {
 }
 
 pub fn default_input_device() -> Option<Device> {
-    unimplemented!();
+    let property_address = AudioObjectPropertyAddress {
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMaster,
+    };
+
+    let audio_device_id: AudioDeviceID = 0;
+    let data_size = mem::size_of::<AudioDeviceID>();;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject,
+            &property_address as *const _,
+            0,
+            null(),
+            &data_size as *const _ as *mut _,
+            &audio_device_id as *const _ as *mut _,
+        )
+    };
+    if status != kAudioHardwareNoError as i32 {
+        return None;
+    }
+
+    let device = Device {
+        audio_device_id: audio_device_id,
+    };
+    Some(device)
 }
 
 pub fn default_output_device() -> Option<Device> {
