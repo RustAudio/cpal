@@ -500,6 +500,77 @@ impl SupportedFormat {
             data_type: self.data_type,
         }
     }
+
+    /// A comparison function which compares two `SupportedFormat`s in terms of their priority of
+    /// use as a default stream format.
+    ///
+    /// Some backends do not provide a default stream format for their audio devices. In these
+    /// cases, CPAL attempts to decide on a reasonable default format for the user. To do this we
+    /// use the "greatest" of all supported stream formats when compared with this method.
+    ///
+    /// Formats are prioritised by the following heuristics:
+    ///
+    /// **Channels**:
+    ///
+    /// - Stereo
+    /// - Mono
+    /// - Max available channels
+    ///
+    /// **Sample format**:
+    /// - f32
+    /// - i16
+    /// - u16
+    ///
+    /// **Sample rate**:
+    ///
+    /// - 44100 (cd quality)
+    /// - Max sample rate
+    pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering::Equal;
+        use SampleFormat::{F32, I16, U16};
+
+        let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
+        if cmp_stereo != Equal {
+            return cmp_stereo;
+        }
+
+        let cmp_mono = (self.channels == 1).cmp(&(other.channels == 1));
+        if cmp_mono != Equal {
+            return cmp_mono;
+        }
+
+        let cmp_channels = self.channels.cmp(&other.channels);
+        if cmp_channels != Equal {
+            return cmp_channels;
+        }
+
+        let cmp_f32 = (self.data_type == F32).cmp(&(other.data_type == F32));
+        if cmp_f32 != Equal {
+            return cmp_f32;
+        }
+
+        let cmp_i16 = (self.data_type == I16).cmp(&(other.data_type == I16));
+        if cmp_i16 != Equal {
+            return cmp_i16;
+        }
+
+        let cmp_u16 = (self.data_type == U16).cmp(&(other.data_type == U16));
+        if cmp_u16 != Equal {
+            return cmp_u16;
+        }
+
+        const HZ_44100: SampleRate = SampleRate(44_100);
+        let r44100_in_self = self.min_sample_rate <= HZ_44100
+            && HZ_44100 <= self.max_sample_rate;
+        let r44100_in_other = other.min_sample_rate <= HZ_44100
+            && HZ_44100 <= other.max_sample_rate;
+        let cmp_r44100 = r44100_in_self.cmp(&r44100_in_other);
+        if cmp_r44100 != Equal {
+            return cmp_r44100;
+        }
+
+        self.max_sample_rate.cmp(&other.max_sample_rate)
+    }
 }
 
 impl<'a, T> Deref for InputBuffer<'a, T>
