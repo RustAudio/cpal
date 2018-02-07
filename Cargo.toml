@@ -12,9 +12,7 @@ keywords = ["audio", "sound"]
 lazy_static = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = "0.2.8"
-ole32-sys = "0.2"
-kernel32-sys = "0.2"
+winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "combaseapi", "debug", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
