@@ -1,9 +1,18 @@
 use super::Endpoint;
 use super::check_result;
 use super::com;
-use super::kernel32;
-use super::ole32;
-use super::winapi;
+use super::winapi::shared::basetsd::UINT32;
+use super::winapi::shared::ksmedia;
+use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
+use super::winapi::shared::mmreg;
+use super::winapi::shared::winerror;
+use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED};
+use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK};
+use super::winapi::um::combaseapi::CoTaskMemFree;
+use super::winapi::um::handleapi;
+use super::winapi::um::synchapi;
+use super::winapi::um::winbase;
+use super::winapi::um::winnt;
 
 use std::marker::PhantomData;
 use std::mem;
@@ -37,7 +46,7 @@ pub struct EventLoop {
 
     // This event is signalled after a new entry is added to `commands`, so that the `run()`
     // method can be notified.
-    pending_scheduled_event: winapi::HANDLE,
+    pending_scheduled_event: winnt::HANDLE,
 }
 
 struct RunContext {
@@ -46,7 +55,7 @@ struct RunContext {
 
     // Handles corresponding to the `event` field of each element of `voices`. Must always be in
     // sync with `voices`, except that the first element is always `pending_scheduled_event`.
-    handles: Vec<winapi::HANDLE>,
+    handles: Vec<winnt::HANDLE>,
 }
 
 enum Command {
@@ -58,23 +67,23 @@ enum Command {
 
 struct VoiceInner {
     id: VoiceId,
-    audio_client: *mut winapi::IAudioClient,
-    render_client: *mut winapi::IAudioRenderClient,
+    audio_client: *mut audioclient::IAudioClient,
+    render_client: *mut audioclient::IAudioRenderClient,
     // Event that is signalled by WASAPI whenever audio data must be written.
-    event: winapi::HANDLE,
+    event: winnt::HANDLE,
     // True if the voice is currently playing. False if paused.
     playing: bool,
 
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
-    max_frames_in_buffer: winapi::UINT32,
+    max_frames_in_buffer: UINT32,
     // Number of bytes that each frame occupies.
-    bytes_per_frame: winapi::WORD,
+    bytes_per_frame: WORD,
 }
 
 impl EventLoop {
     pub fn new() -> EventLoop {
         let pending_scheduled_event =
-            unsafe { kernel32::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
+            unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
 
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
@@ -96,7 +105,7 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match end_point.build_audioclient() {
-                Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(CreationError::DeviceNotAvailable),
                 e => e.unwrap(),
             };
@@ -104,24 +113,24 @@ impl EventLoop {
             // Computing the format and initializing the device.
             let format = {
                 let format_attempt = format_to_waveformatextensible(format)?;
-                let share_mode = winapi::AUDCLNT_SHAREMODE_SHARED;
+                let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
                 // `IsFormatSupported` checks whether the format is supported and fills
                 // a `WAVEFORMATEX`
-                let mut dummy_fmt_ptr: *mut winapi::WAVEFORMATEX = mem::uninitialized();
+                let mut dummy_fmt_ptr: *mut mmreg::WAVEFORMATEX = mem::uninitialized();
                 let hresult =
                     (*audio_client)
                         .IsFormatSupported(share_mode, &format_attempt.Format, &mut dummy_fmt_ptr);
                 // we free that `WAVEFORMATEX` immediately after because we don't need it
                 if !dummy_fmt_ptr.is_null() {
-                    ole32::CoTaskMemFree(dummy_fmt_ptr as *mut _);
+                    CoTaskMemFree(dummy_fmt_ptr as *mut _);
                 }
 
                 // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
                 // has been found) but we also treat this as an error
                 match (hresult, check_result(hresult)) {
                     (_, Err(ref e))
-                        if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
@@ -129,7 +138,7 @@ impl EventLoop {
                         (*audio_client).Release();
                         panic!("{:?}", e);
                     },
-                    (winapi::S_FALSE, _) => {
+                    (winerror::S_FALSE, _) => {
                         (*audio_client).Release();
                         return Err(CreationError::FormatNotSupported);
                     },
@@ -138,14 +147,14 @@ impl EventLoop {
 
                 // finally initializing the audio client
                 let hresult = (*audio_client).Initialize(share_mode,
-                                                         winapi::AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                                                         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
                                                          0,
                                                          0,
                                                          &format_attempt.Format,
                                                          ptr::null());
                 match check_result(hresult) {
                     Err(ref e)
-                        if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
@@ -161,7 +170,7 @@ impl EventLoop {
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
-                let event = kernel32::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
+                let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
                 if event == ptr::null_mut() {
                     (*audio_client).Release();
                     panic!("Failed to create event");
@@ -185,7 +194,7 @@ impl EventLoop {
 
                 match check_result(hresult) {
                     Err(ref e)
-                        if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
@@ -201,15 +210,15 @@ impl EventLoop {
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = {
-                let mut render_client: *mut winapi::IAudioRenderClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(&winapi::IID_IAudioRenderClient,
+                let mut render_client: *mut audioclient::IAudioRenderClient = mem::uninitialized();
+                let hresult = (*audio_client).GetService(&audioclient::IID_IAudioRenderClient,
                                                          &mut render_client as
-                                                             *mut *mut winapi::IAudioRenderClient as
+                                                             *mut *mut audioclient::IAudioRenderClient as
                                                              *mut _);
 
                 match check_result(hresult) {
                     Err(ref e)
-                        if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
                     },
@@ -241,7 +250,7 @@ impl EventLoop {
 
                 self.commands.lock().unwrap().push(Command::NewVoice(inner));
 
-                let result = kernel32::SetEvent(self.pending_scheduled_event);
+                let result = synchapi::SetEvent(self.pending_scheduled_event);
                 assert!(result != 0);
             };
 
@@ -256,7 +265,7 @@ impl EventLoop {
                 .lock()
                 .unwrap()
                 .push(Command::DestroyVoice(voice_id));
-            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
     }
@@ -317,16 +326,16 @@ impl EventLoop {
 
                 // Wait for any of the handles to be signalled, which means that the corresponding
                 // sound needs a buffer.
-                debug_assert!(run_context.handles.len() <= winapi::MAXIMUM_WAIT_OBJECTS as usize);
-                let result = kernel32::WaitForMultipleObjectsEx(run_context.handles.len() as u32,
+                debug_assert!(run_context.handles.len() <= winnt::MAXIMUM_WAIT_OBJECTS as usize);
+                let result = synchapi::WaitForMultipleObjectsEx(run_context.handles.len() as u32,
                                                                 run_context.handles.as_ptr(),
-                                                                winapi::FALSE,
-                                                                winapi::INFINITE, /* TODO: allow setting a timeout */
-                                                                winapi::FALSE /* irrelevant parameter here */);
+                                                                FALSE,
+                                                                winbase::INFINITE, /* TODO: allow setting a timeout */
+                                                                FALSE /* irrelevant parameter here */);
 
                 // Notifying the corresponding task handler.
-                debug_assert!(result >= winapi::WAIT_OBJECT_0);
-                let handle_id = (result - winapi::WAIT_OBJECT_0) as usize;
+                debug_assert!(result >= winbase::WAIT_OBJECT_0);
+                let handle_id = (result - winbase::WAIT_OBJECT_0) as usize;
 
                 // If `handle_id` is 0, then it's `pending_scheduled_event` that was signalled in
                 // order for us to pick up the pending commands.
@@ -350,7 +359,7 @@ impl EventLoop {
 
                     // Obtaining a pointer to the buffer.
                     let (buffer_data, buffer_len) = {
-                        let mut buffer: *mut winapi::BYTE = mem::uninitialized();
+                        let mut buffer: *mut BYTE = mem::uninitialized();
                         let hresult = (*voice.render_client)
                             .GetBuffer(frames_available, &mut buffer as *mut *mut _);
                         check_result(hresult).unwrap(); // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
@@ -380,7 +389,7 @@ impl EventLoop {
     pub fn play(&self, voice: VoiceId) {
         unsafe {
             self.commands.lock().unwrap().push(Command::Play(voice));
-            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
     }
@@ -389,7 +398,7 @@ impl EventLoop {
     pub fn pause(&self, voice: VoiceId) {
         unsafe {
             self.commands.lock().unwrap().push(Command::Pause(voice));
-            let result = kernel32::SetEvent(self.pending_scheduled_event);
+            let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
     }
@@ -399,7 +408,7 @@ impl Drop for EventLoop {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            kernel32::CloseHandle(self.pending_scheduled_event);
+            handleapi::CloseHandle(self.pending_scheduled_event);
         }
     }
 }
@@ -419,7 +428,7 @@ impl Drop for VoiceInner {
         unsafe {
             (*self.render_client).Release();
             (*self.audio_client).Release();
-            kernel32::CloseHandle(self.event);
+            handleapi::CloseHandle(self.event);
         }
     }
 }
@@ -429,7 +438,7 @@ pub struct Buffer<'a, T: 'a> {
 
     buffer_data: *mut T,
     buffer_len: usize,
-    frames: winapi::UINT32,
+    frames: UINT32,
 
     marker: PhantomData<&'a mut [T]>,
 }
@@ -454,7 +463,7 @@ impl<'a, T> Buffer<'a, T> {
             let hresult = (*self.voice.render_client).ReleaseBuffer(self.frames as u32, 0);
             match check_result(hresult) {
                 // Ignoring the error that is produced if the device has been disconnected.
-                Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => (),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => (),
                 e => e.unwrap(),
             };
         }
@@ -463,53 +472,53 @@ impl<'a, T> Buffer<'a, T> {
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 fn format_to_waveformatextensible(format: &Format)
-                                  -> Result<winapi::WAVEFORMATEXTENSIBLE, CreationError> {
-    Ok(winapi::WAVEFORMATEXTENSIBLE {
-           Format: winapi::WAVEFORMATEX {
+                                  -> Result<mmreg::WAVEFORMATEXTENSIBLE, CreationError> {
+    Ok(mmreg::WAVEFORMATEXTENSIBLE {
+           Format: mmreg::WAVEFORMATEX {
                wFormatTag: match format.data_type {
-                   SampleFormat::I16 => winapi::WAVE_FORMAT_PCM,
-                   SampleFormat::F32 => winapi::WAVE_FORMAT_EXTENSIBLE,
+                   SampleFormat::I16 => mmreg::WAVE_FORMAT_PCM,
+                   SampleFormat::F32 => mmreg::WAVE_FORMAT_EXTENSIBLE,
                    SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                },
-               nChannels: format.channels as winapi::WORD,
-               nSamplesPerSec: format.sample_rate.0 as winapi::DWORD,
-               nAvgBytesPerSec: format.channels as winapi::DWORD *
-                   format.sample_rate.0 as winapi::DWORD *
-                   format.data_type.sample_size() as winapi::DWORD,
-               nBlockAlign: format.channels as winapi::WORD *
-                   format.data_type.sample_size() as winapi::WORD,
-               wBitsPerSample: 8 * format.data_type.sample_size() as winapi::WORD,
+               nChannels: format.channels as WORD,
+               nSamplesPerSec: format.sample_rate.0 as DWORD,
+               nAvgBytesPerSec: format.channels as DWORD *
+                   format.sample_rate.0 as DWORD *
+                   format.data_type.sample_size() as DWORD,
+               nBlockAlign: format.channels as WORD *
+                   format.data_type.sample_size() as WORD,
+               wBitsPerSample: 8 * format.data_type.sample_size() as WORD,
                cbSize: match format.data_type {
                    SampleFormat::I16 => 0,
-                   SampleFormat::F32 => (mem::size_of::<winapi::WAVEFORMATEXTENSIBLE>() -
-                                             mem::size_of::<winapi::WAVEFORMATEX>()) as
-                       winapi::WORD,
+                   SampleFormat::F32 => (mem::size_of::<mmreg::WAVEFORMATEXTENSIBLE>() -
+                                             mem::size_of::<mmreg::WAVEFORMATEX>()) as
+                       WORD,
                    SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
                },
            },
-           Samples: 8 * format.data_type.sample_size() as winapi::WORD,
+           Samples: 8 * format.data_type.sample_size() as WORD,
            dwChannelMask: {
                let mut mask = 0;
 
-               const CHANNEL_POSITIONS: &'static [winapi::DWORD] = &[
-                    winapi::SPEAKER_FRONT_LEFT,
-                    winapi::SPEAKER_FRONT_RIGHT,
-                    winapi::SPEAKER_FRONT_CENTER,
-                    winapi::SPEAKER_LOW_FREQUENCY,
-                    winapi::SPEAKER_BACK_LEFT,
-                    winapi::SPEAKER_BACK_RIGHT,
-                    winapi::SPEAKER_FRONT_LEFT_OF_CENTER,
-                    winapi::SPEAKER_FRONT_RIGHT_OF_CENTER,
-                    winapi::SPEAKER_BACK_CENTER,
-                    winapi::SPEAKER_SIDE_LEFT,
-                    winapi::SPEAKER_SIDE_RIGHT,
-                    winapi::SPEAKER_TOP_CENTER,
-                    winapi::SPEAKER_TOP_FRONT_LEFT,
-                    winapi::SPEAKER_TOP_FRONT_CENTER,
-                    winapi::SPEAKER_TOP_FRONT_RIGHT,
-                    winapi::SPEAKER_TOP_BACK_LEFT,
-                    winapi::SPEAKER_TOP_BACK_CENTER,
-                    winapi::SPEAKER_TOP_BACK_RIGHT,
+               const CHANNEL_POSITIONS: &'static [DWORD] = &[
+                    mmreg::SPEAKER_FRONT_LEFT,
+                    mmreg::SPEAKER_FRONT_RIGHT,
+                    mmreg::SPEAKER_FRONT_CENTER,
+                    mmreg::SPEAKER_LOW_FREQUENCY,
+                    mmreg::SPEAKER_BACK_LEFT,
+                    mmreg::SPEAKER_BACK_RIGHT,
+                    mmreg::SPEAKER_FRONT_LEFT_OF_CENTER,
+                    mmreg::SPEAKER_FRONT_RIGHT_OF_CENTER,
+                    mmreg::SPEAKER_BACK_CENTER,
+                    mmreg::SPEAKER_SIDE_LEFT,
+                    mmreg::SPEAKER_SIDE_RIGHT,
+                    mmreg::SPEAKER_TOP_CENTER,
+                    mmreg::SPEAKER_TOP_FRONT_LEFT,
+                    mmreg::SPEAKER_TOP_FRONT_CENTER,
+                    mmreg::SPEAKER_TOP_FRONT_RIGHT,
+                    mmreg::SPEAKER_TOP_BACK_LEFT,
+                    mmreg::SPEAKER_TOP_BACK_CENTER,
+                    mmreg::SPEAKER_TOP_BACK_RIGHT,
                ];
 
                for i in 0..format.channels {
@@ -520,8 +529,8 @@ fn format_to_waveformatextensible(format: &Format)
                mask
            },
            SubFormat: match format.data_type {
-               SampleFormat::I16 => winapi::KSDATAFORMAT_SUBTYPE_PCM,
-               SampleFormat::F32 => winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
+               SampleFormat::I16 => ksmedia::KSDATAFORMAT_SUBTYPE_PCM,
+               SampleFormat::F32 => ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
                SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
            },
        })

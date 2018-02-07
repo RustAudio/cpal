@@ -1,15 +1,16 @@
 //! Handles COM initialization and cleanup.
 
 use super::check_result;
-use super::ole32;
-use super::winapi;
 use std::ptr;
+
+use super::winapi::um::objbase::{COINIT_MULTITHREADED};
+use super::winapi::um::combaseapi::{CoInitializeEx, CoUninitialize};
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
         // this call can fail if another library initialized COM in single-threaded mode
         // handling this situation properly would make the API more annoying, so we just don't care
-        check_result(ole32::CoInitializeEx(ptr::null_mut(), winapi::COINIT_MULTITHREADED)).unwrap();
+        check_result(CoInitializeEx(ptr::null_mut(), COINIT_MULTITHREADED)).unwrap();
         ComInitialized(ptr::null_mut())
     }
 });
@@ -23,7 +24,7 @@ struct ComInitialized(*mut ());
 impl Drop for ComInitialized {
     #[inline]
     fn drop(&mut self) {
-        unsafe { ole32::CoUninitialize() };
+        unsafe { CoUninitialize() };
     }
 }
 

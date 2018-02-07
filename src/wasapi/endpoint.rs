@@ -15,14 +15,41 @@ use SupportedFormat;
 
 use super::check_result;
 use super::com;
-use super::ole32;
-use super::winapi;
+use super::winapi::Interface;
+use super::winapi::shared::ksmedia;
+use super::winapi::shared::guiddef::{
+    GUID,
+};
+use super::winapi::shared::mmreg::{
+    WAVE_FORMAT_PCM,
+    WAVE_FORMAT_EXTENSIBLE,
+    WAVEFORMATEXTENSIBLE,
+};
+use super::winapi::um::audioclient::{
+    IAudioClient,
+    IID_IAudioClient,
+    AUDCLNT_E_DEVICE_INVALIDATED,
+};
+use super::winapi::um::combaseapi::{
+    CoCreateInstance,
+    CoTaskMemFree,
+    CLSCTX_ALL,
+};
+use super::winapi::um::mmdeviceapi::{
+    eConsole,
+    eRender,
+    CLSID_MMDeviceEnumerator,
+    DEVICE_STATE_ACTIVE,
+    IMMDevice,
+    IMMDeviceCollection,
+    IMMDeviceEnumerator,
+};
 
 pub type SupportedFormatsIterator = OptionIntoIter<SupportedFormat>;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
-struct IAudioClientWrapper(*mut winapi::IAudioClient);
+struct IAudioClientWrapper(*mut IAudioClient);
 unsafe impl Send for IAudioClientWrapper {
 }
 unsafe impl Sync for IAudioClientWrapper {
@@ -30,7 +57,7 @@ unsafe impl Sync for IAudioClientWrapper {
 
 /// An opaque type that identifies an end point.
 pub struct Endpoint {
-    device: *mut winapi::IMMDevice,
+    device: *mut IMMDevice,
 
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
@@ -62,13 +89,13 @@ impl Endpoint {
 
             // and turning it into a string
             let name_string: OsString = OsStringExt::from_wide(name_slice);
-            ole32::CoTaskMemFree(name_ptr as *mut _);
+            CoTaskMemFree(name_ptr as *mut _);
             name_string.into_string().unwrap()
         }
     }
 
     #[inline]
-    fn from_immdevice(device: *mut winapi::IMMDevice) -> Endpoint {
+    fn from_immdevice(device: *mut IMMDevice) -> Endpoint {
         Endpoint {
             device: device,
             future_audio_client: Arc::new(Mutex::new(None)),
@@ -83,10 +110,10 @@ impl Endpoint {
             return Ok(lock);
         }
 
-        let audio_client: *mut winapi::IAudioClient = unsafe {
+        let audio_client: *mut IAudioClient = unsafe {
             let mut audio_client = mem::uninitialized();
-            let hresult = (*self.device).Activate(&winapi::IID_IAudioClient,
-                                                  winapi::CLSCTX_ALL,
+            let hresult = (*self.device).Activate(&IID_IAudioClient,
+                                                  CLSCTX_ALL,
                                                   ptr::null_mut(),
                                                   &mut audio_client);
 
@@ -103,7 +130,7 @@ impl Endpoint {
 
     /// Returns an uninitialized `IAudioClient`.
     #[inline]
-    pub(crate) fn build_audioclient(&self) -> Result<*mut winapi::IAudioClient, IoError> {
+    pub(crate) fn build_audioclient(&self) -> Result<*mut IAudioClient, IoError> {
         let mut lock = self.ensure_future_audio_client()?;
         let client = lock.unwrap().0;
         *lock = None;
@@ -121,7 +148,7 @@ impl Endpoint {
         com::com_initialized();
 
         let lock = match self.ensure_future_audio_client() {
-            Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) =>
+            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
                 return Err(FormatsEnumerationError::DeviceNotAvailable),
             e => e.unwrap(),
         };
@@ -130,7 +157,7 @@ impl Endpoint {
         unsafe {
             let mut format_ptr = mem::uninitialized();
             match check_result((*client).GetMixFormat(&mut format_ptr)) {
-                Err(ref e) if e.raw_os_error() == Some(winapi::AUDCLNT_E_DEVICE_INVALIDATED) => {
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(FormatsEnumerationError::DeviceNotAvailable);
                 },
                 Err(e) => panic!("{:?}", e),
@@ -139,28 +166,30 @@ impl Endpoint {
 
             let format = {
                 let (channels, data_type) = match (*format_ptr).wFormatTag {
-                    winapi::WAVE_FORMAT_PCM => {
+                    WAVE_FORMAT_PCM => {
                         (2, SampleFormat::I16)
                     },
-                    winapi::WAVE_FORMAT_EXTENSIBLE => {
-                        let format_ptr = format_ptr as *const winapi::WAVEFORMATEXTENSIBLE;
+                    WAVE_FORMAT_EXTENSIBLE => {
+                        let format_ptr = format_ptr as *const WAVEFORMATEXTENSIBLE;
                         let channels = (*format_ptr).Format.nChannels as ChannelCount;
                         let format = {
-                            fn cmp_guid(a: &winapi::GUID, b: &winapi::GUID) -> bool {
+                            fn cmp_guid(a: &GUID, b: &GUID) -> bool {
                                 a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 &&
                                     a.Data4 == b.Data4
                             }
                             if cmp_guid(&(*format_ptr).SubFormat,
-                                        &winapi::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)
+                                        &ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)
                             {
                                 SampleFormat::F32
                             } else if cmp_guid(&(*format_ptr).SubFormat,
-                                               &winapi::KSDATAFORMAT_SUBTYPE_PCM)
+                                               &ksmedia::KSDATAFORMAT_SUBTYPE_PCM)
                             {
                                 SampleFormat::I16
                             } else {
-                                panic!("Unknown SubFormat GUID returned by GetMixFormat: {:?}",
-                                       (*format_ptr).SubFormat)
+                                panic!("Unknown SubFormat GUID returned by GetMixFormat");
+                                        // TODO: Re-add this to end of panic. Getting
+                                        // `trait Debug is not satisfied` error.
+                                       //(*format_ptr).SubFormat)
                             }
                         };
 
@@ -178,7 +207,7 @@ impl Endpoint {
                 }
             };
 
-            ole32::CoTaskMemFree(format_ptr as *mut _);
+            CoTaskMemFree(format_ptr as *mut _);
 
             Ok(Some(format).into_iter())
         }
@@ -232,13 +261,13 @@ lazy_static! {
 
         // building the devices enumerator object
         unsafe {
-            let mut enumerator: *mut winapi::IMMDeviceEnumerator = mem::uninitialized();
+            let mut enumerator: *mut IMMDeviceEnumerator = mem::uninitialized();
 
-            let hresult = ole32::CoCreateInstance(&winapi::CLSID_MMDeviceEnumerator,
-                                                  ptr::null_mut(), winapi::CLSCTX_ALL,
-                                                  &winapi::IID_IMMDeviceEnumerator,
+            let hresult = CoCreateInstance(&CLSID_MMDeviceEnumerator,
+                                                  ptr::null_mut(), CLSCTX_ALL,
+                                                  &IMMDeviceEnumerator::uuidof(),
                                                   &mut enumerator
-                                                           as *mut *mut winapi::IMMDeviceEnumerator
+                                                           as *mut *mut IMMDeviceEnumerator
                                                            as *mut _);
 
             check_result(hresult).unwrap();
@@ -247,8 +276,8 @@ lazy_static! {
     };
 }
 
-/// RAII object around `winapi::IMMDeviceEnumerator`.
-struct Enumerator(*mut winapi::IMMDeviceEnumerator);
+/// RAII object around `IMMDeviceEnumerator`.
+struct Enumerator(*mut IMMDeviceEnumerator);
 
 unsafe impl Send for Enumerator {
 }
@@ -266,7 +295,7 @@ impl Drop for Enumerator {
 
 /// WASAPI implementation for `EndpointsIterator`.
 pub struct EndpointsIterator {
-    collection: *mut winapi::IMMDeviceCollection,
+    collection: *mut IMMDeviceCollection,
     total_count: u32,
     next_item: u32,
 }
@@ -288,10 +317,10 @@ impl Drop for EndpointsIterator {
 impl Default for EndpointsIterator {
     fn default() -> EndpointsIterator {
         unsafe {
-            let mut collection: *mut winapi::IMMDeviceCollection = mem::uninitialized();
+            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
             // can fail because of wrong parameters (should never happen) or out of memory
-            check_result((*ENUMERATOR.0).EnumAudioEndpoints(winapi::eRender,
-                                                            winapi::DEVICE_STATE_ACTIVE,
+            check_result((*ENUMERATOR.0).EnumAudioEndpoints(eRender,
+                                                            DEVICE_STATE_ACTIVE,
                                                             &mut collection))
                 .unwrap();
 
@@ -338,7 +367,7 @@ pub fn default_endpoint() -> Option<Endpoint> {
     unsafe {
         let mut device = mem::uninitialized();
         let hres = (*ENUMERATOR.0)
-            .GetDefaultAudioEndpoint(winapi::eRender, winapi::eConsole, &mut device);
+            .GetDefaultAudioEndpoint(eRender, eConsole, &mut device);
 
         if let Err(_err) = check_result(hres) {
             return None; // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
