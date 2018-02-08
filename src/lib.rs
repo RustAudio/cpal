@@ -739,3 +739,23 @@ impl Error for CreationError {
         }
     }
 }
+
+// If a backend does not provide an API for retrieving supported formats, we query it with a bunch
+// of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
+//
+// If a rate you desire is missing from this list, feel free to add it!
+const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
+    SampleRate(5512),
+    SampleRate(8000),
+    SampleRate(11025),
+    SampleRate(16000),
+    SampleRate(22050),
+    SampleRate(32000),
+    SampleRate(44100),
+    SampleRate(48000),
+    SampleRate(64000),
+    SampleRate(88200),
+    SampleRate(96000),
+    SampleRate(176400),
+    SampleRate(192000),
+];

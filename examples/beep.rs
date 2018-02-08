@@ -2,6 +2,7 @@ extern crate cpal;
 
 fn main() {
     let device = cpal::default_output_device().expect("Failed to get default output device");
+    //let format = device.default_output_format().expect("Failed to get default output format");
     let format = device
         .supported_output_formats()
         .unwrap()

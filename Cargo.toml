@@ -15,7 +15,7 @@ lazy_static = "0.2"
 hound = "3.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "combaseapi", "debug", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
+winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
