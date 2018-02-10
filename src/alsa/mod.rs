@@ -487,7 +487,7 @@ impl EventLoop {
                 let mut i_descriptor = 1;
                 while (i_descriptor as usize) < run_context.descriptors.len() {
                     enum StreamType { Input, Output }
-                    let mut stream_type = StreamType::Output;
+                    let stream_type;
                     let stream_inner = run_context.streams.get_mut(i_stream).unwrap();
 
                     // Check whether the event is `POLLOUT` or `POLLIN`. If neither, `continue`.
@@ -555,6 +555,7 @@ impl EventLoop {
                                         buffer.as_mut_ptr() as *mut _,
                                         available as _,
                                     );
+                                    check_errors(err as _).expect("snd_pcm_readi error");
                                     let input_buffer = InputBuffer {
                                         buffer: &buffer,
                                     };

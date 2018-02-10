@@ -744,6 +744,7 @@ impl Error for CreationError {
 // of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
 //
 // If a rate you desire is missing from this list, feel free to add it!
+#[cfg(target_os = "windows")]
 const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
     SampleRate(5512),
     SampleRate(8000),
