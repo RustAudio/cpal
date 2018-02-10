@@ -1,5 +1,19 @@
 # Unreleased
 
+- Add `record_wav.rs` example. Records 3 seconds to
+  `$CARGO_MANIFEST_DIR/recorded.wav` using default input device.
+- Update `enumerate.rs` example to display default input/output devices and
+  formats.
+- Add input stream support to coreaudio, alsa and windows backends.
+- Introduce `StreamData` type for handling either input or output streams in
+  `EventLoop::run` callback.
+- Add `Device::supported_{input/output}_formats` methods.
+- Add `Device::default_{input/output}_format` methods.
+- Add `default_{input/output}_device` functions.
+- Replace usage of `Voice` with `Stream` throughout the crate.
+- Remove `Endpoint` in favour of `Device` for supporting both input and output
+  streams.
+
 # Version 0.7.0 (2018-02-04)
 
 - Rename ChannelsCount to ChannelCount.
