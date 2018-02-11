@@ -1,8 +1,21 @@
-# CPAL - Cross-platform audio library
+# CPAL - Cross-Platform Audio Library
 
-[Documentation](https://docs.rs/cpal)
+[![Build Status](https://travis-ci.org/tomaka/cpal.svg?branch=master)](https://travis-ci.org/tomaka/cpal) [![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
 
-Low-level library for audio playback in pure Rust.
+Low-level library for audio input and output in pure Rust.
 
-This library allows you to open a channel with the audio device of the user's machine, and
-send PCM data to it.
+This library currently supports the following:
+
+- Enumerate all available audio devices.
+- Get the current default input and output devices.
+- Enumerate known supported input and output stream formats for a device.
+- Get the current default input and output stream formats for a device.
+- Build and run input and output PCM streams on a chosen device with a given stream format.
+
+Currently supported backends include:
+
+- Linux (via ALSA)
+- Windows
+- macOS (via CoreAudio)
+- iOS (via CoreAudio)
+- Emscripten
