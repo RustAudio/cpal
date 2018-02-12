@@ -11,15 +11,18 @@ keywords = ["audio", "sound"]
 [dependencies]
 lazy_static = "0.2"
 
+[dev-dependencies]
+hound = "3.0"
+
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "combaseapi", "debug", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
+winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
 libc = "0.2"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-coreaudio-rs = { version = "0.8.1", default-features = false, features = ["audio_unit", "core_audio"] }
+coreaudio-rs = { version = "0.9.0", default-features = false, features = ["audio_unit", "core_audio"] }
 core-foundation-sys = "0.5.1" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 
 [target.'cfg(target_os = "emscripten")'.dependencies]

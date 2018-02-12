@@ -1,14 +1,11 @@
-use super::Endpoint;
+use super::Device;
 use super::alsa;
 use super::check_errors;
-use super::libc;
-
-use std::ffi::CStr;
 use std::ffi::CString;
 use std::mem;
 
-/// ALSA implementation for `EndpointsIterator`.
-pub struct EndpointsIterator {
+/// ALSA implementation for `Devices`.
+pub struct Devices {
     // we keep the original list so that we can pass it to the free function
     global_list: *const *const u8,
 
@@ -16,12 +13,12 @@ pub struct EndpointsIterator {
     next_str: *const *const u8,
 }
 
-unsafe impl Send for EndpointsIterator {
+unsafe impl Send for Devices {
 }
-unsafe impl Sync for EndpointsIterator {
+unsafe impl Sync for Devices {
 }
 
-impl Drop for EndpointsIterator {
+impl Drop for Devices {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -30,8 +27,8 @@ impl Drop for EndpointsIterator {
     }
 }
 
-impl Default for EndpointsIterator {
-    fn default() -> EndpointsIterator {
+impl Default for Devices {
+    fn default() -> Devices {
         unsafe {
             let mut hints = mem::uninitialized();
             // TODO: check in which situation this can fail
@@ -40,7 +37,7 @@ impl Default for EndpointsIterator {
 
             let hints = hints as *const *const u8;
 
-            EndpointsIterator {
+            Devices {
                 global_list: hints,
                 next_str: hints,
             }
@@ -48,10 +45,10 @@ impl Default for EndpointsIterator {
     }
 }
 
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
+impl Iterator for Devices {
+    type Item = Device;
 
-    fn next(&mut self) -> Option<Endpoint> {
+    fn next(&mut self) -> Option<Device> {
         loop {
             unsafe {
                 if (*self.next_str).is_null() {
@@ -62,10 +59,9 @@ impl Iterator for EndpointsIterator {
                     let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
                                                                b"NAME\0".as_ptr() as *const _);
                     if !n_ptr.is_null() {
-                        let n = CStr::from_ptr(n_ptr).to_bytes().to_vec();
-                        let n = String::from_utf8(n).unwrap();
-                        libc::free(n_ptr as *mut _);
-                        Some(n)
+                        let bytes = CString::from_raw(n_ptr).into_bytes();
+                        let string = String::from_utf8(bytes).unwrap();
+                        Some(string)
                     } else {
                         None
                     }
@@ -75,10 +71,9 @@ impl Iterator for EndpointsIterator {
                     let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
                                                                b"IOID\0".as_ptr() as *const _);
                     if !n_ptr.is_null() {
-                        let n = CStr::from_ptr(n_ptr).to_bytes().to_vec();
-                        let n = String::from_utf8(n).unwrap();
-                        libc::free(n_ptr as *mut _);
-                        Some(n)
+                        let bytes = CString::from_raw(n_ptr).into_bytes();
+                        let string = String::from_utf8(bytes).unwrap();
+                        Some(string)
                     } else {
                         None
                     }
@@ -92,24 +87,46 @@ impl Iterator for EndpointsIterator {
                     }
                 }
 
-                if let Some(name) = name {
-                    // trying to open the PCM device to see if it can be opened
-                    let name_zeroed = CString::new(name.clone()).unwrap();
-                    let mut playback_handle = mem::uninitialized();
-                    if alsa::snd_pcm_open(&mut playback_handle,
-                                          name_zeroed.as_ptr() as *const _,
-                                          alsa::SND_PCM_STREAM_PLAYBACK,
-                                          alsa::SND_PCM_NONBLOCK) == 0
-                    {
-                        alsa::snd_pcm_close(playback_handle);
-                    } else {
-                        continue;
-                    }
+                let name = match name {
+                    Some(name) => {
+                        // Ignoring the `null` device.
+                        if name == "null" {
+                            continue;
+                        }
+                        name
+                    },
+                    _ => continue,
+                };
 
-                    // ignoring the `null` device
-                    if name != "null" {
-                        return Some(Endpoint(name));
-                    }
+                // trying to open the PCM device to see if it can be opened
+                let name_zeroed = CString::new(&name[..]).unwrap();
+
+                // See if the device has an available output stream.
+                let mut playback_handle = mem::uninitialized();
+                let has_available_output = alsa::snd_pcm_open(
+                    &mut playback_handle,
+                    name_zeroed.as_ptr() as *const _,
+                    alsa::SND_PCM_STREAM_PLAYBACK,
+                    alsa::SND_PCM_NONBLOCK,
+                ) == 0;
+                if has_available_output {
+                    alsa::snd_pcm_close(playback_handle);
+                }
+
+                // See if the device has an available input stream.
+                let mut capture_handle = mem::uninitialized();
+                let has_available_input = alsa::snd_pcm_open(
+                    &mut capture_handle,
+                    name_zeroed.as_ptr() as *const _,
+                    alsa::SND_PCM_STREAM_CAPTURE,
+                    alsa::SND_PCM_NONBLOCK,
+                ) == 0;
+                if has_available_input {
+                    alsa::snd_pcm_close(capture_handle);
+                }
+
+                if has_available_output || has_available_input {
+                    return Some(Device(name));
                 }
             }
         }
@@ -117,6 +134,11 @@ impl Iterator for EndpointsIterator {
 }
 
 #[inline]
-pub fn default_endpoint() -> Option<Endpoint> {
-    Some(Endpoint("default".to_owned()))
+pub fn default_input_device() -> Option<Device> {
+    Some(Device("default".to_owned()))
+}
+
+#[inline]
+pub fn default_output_device() -> Option<Device> {
+    Some(Device("default".to_owned()))
 }

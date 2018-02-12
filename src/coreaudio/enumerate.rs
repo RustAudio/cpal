@@ -8,6 +8,7 @@ use super::coreaudio::sys::{
     AudioObjectGetPropertyData,
     AudioObjectGetPropertyDataSize,
     kAudioHardwareNoError,
+    kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice,
     kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster,
@@ -15,9 +16,9 @@ use super::coreaudio::sys::{
     kAudioObjectSystemObject,
     OSStatus,
 };
-use super::Endpoint;
+use super::Device;
 
-unsafe fn audio_output_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
+unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -58,42 +59,62 @@ unsafe fn audio_output_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
 
     audio_devices.set_len(device_count as usize);
 
-    // Only keep the devices that have some supported output format.
-    audio_devices.retain(|&id| {
-        let e = Endpoint { audio_device_id: id };
-        match e.supported_formats() {
-            Err(_) => false,
-            Ok(mut fmts) => fmts.next().is_some(),
-        }
-    });
-
     Ok(audio_devices)
 }
 
-pub struct EndpointsIterator(VecIntoIter<AudioDeviceID>);
+pub struct Devices(VecIntoIter<AudioDeviceID>);
 
-unsafe impl Send for EndpointsIterator {
+unsafe impl Send for Devices {
 }
-unsafe impl Sync for EndpointsIterator {
+unsafe impl Sync for Devices {
 }
 
-impl Default for EndpointsIterator {
+impl Default for Devices {
     fn default() -> Self {
         let devices = unsafe {
-            audio_output_devices().expect("failed to get audio output devices")
+            audio_devices().expect("failed to get audio output devices")
         };
-        EndpointsIterator(devices.into_iter())
+        Devices(devices.into_iter())
     }
 }
 
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
-    fn next(&mut self) -> Option<Endpoint> {
-        self.0.next().map(|id| Endpoint { audio_device_id: id })
+impl Iterator for Devices {
+    type Item = Device;
+    fn next(&mut self) -> Option<Device> {
+        self.0.next().map(|id| Device { audio_device_id: id })
     }
 }
 
-pub fn default_endpoint() -> Option<Endpoint> {
+pub fn default_input_device() -> Option<Device> {
+    let property_address = AudioObjectPropertyAddress {
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMaster,
+    };
+
+    let audio_device_id: AudioDeviceID = 0;
+    let data_size = mem::size_of::<AudioDeviceID>();;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject,
+            &property_address as *const _,
+            0,
+            null(),
+            &data_size as *const _ as *mut _,
+            &audio_device_id as *const _ as *mut _,
+        )
+    };
+    if status != kAudioHardwareNoError as i32 {
+        return None;
+    }
+
+    let device = Device {
+        audio_device_id: audio_device_id,
+    };
+    Some(device)
+}
+
+pub fn default_output_device() -> Option<Device> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDefaultOutputDevice,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -116,10 +137,11 @@ pub fn default_endpoint() -> Option<Endpoint> {
         return None;
     }
 
-    let endpoint = Endpoint {
+    let device = Device {
         audio_device_id: audio_device_id,
     };
-    Some(endpoint)
+    Some(device)
 }
 
-pub type SupportedFormatsIterator = VecIntoIter<SupportedFormat>;
+pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;

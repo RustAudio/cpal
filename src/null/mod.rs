@@ -3,12 +3,14 @@
 use std::marker::PhantomData;
 
 use CreationError;
+use DefaultFormatError;
 use Format;
 use FormatsEnumerationError;
+use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
 
 pub struct EventLoop;
+
 impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
@@ -17,59 +19,84 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, _callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(StreamId, StreamData)
     {
         loop { /* TODO: don't spin */ }
     }
 
     #[inline]
-    pub fn build_voice(&self, _: &Endpoint, _: &Format) -> Result<VoiceId, CreationError> {
+    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
         Err(CreationError::DeviceNotAvailable)
     }
 
     #[inline]
-    pub fn destroy_voice(&self, _: VoiceId) {
-        unreachable!()
+    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
+        Err(CreationError::DeviceNotAvailable)
     }
 
     #[inline]
-    pub fn play(&self, _: VoiceId) {
+    pub fn destroy_stream(&self, _: StreamId) {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn play_stream(&self, _: StreamId) {
         panic!()
     }
 
     #[inline]
-    pub fn pause(&self, _: VoiceId) {
+    pub fn pause_stream(&self, _: StreamId) {
         panic!()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId;
+pub struct StreamId;
 
 #[derive(Default)]
-pub struct EndpointsIterator;
+pub struct Devices;
 
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
+impl Iterator for Devices {
+    type Item = Device;
 
     #[inline]
-    fn next(&mut self) -> Option<Endpoint> {
+    fn next(&mut self) -> Option<Device> {
         None
     }
 }
 
 #[inline]
-pub fn default_endpoint() -> Option<Endpoint> {
+pub fn default_input_device() -> Option<Device> {
+    None
+}
+
+#[inline]
+pub fn default_output_device() -> Option<Device> {
     None
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Endpoint;
+pub struct Device;
 
-impl Endpoint {
+impl Device {
     #[inline]
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
-        unreachable!()
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!()
     }
 
     #[inline]
@@ -78,9 +105,10 @@ impl Endpoint {
     }
 }
 
-pub struct SupportedFormatsIterator;
+pub struct SupportedInputFormats;
+pub struct SupportedOutputFormats;
 
-impl Iterator for SupportedFormatsIterator {
+impl Iterator for SupportedInputFormats {
     type Item = SupportedFormat;
 
     #[inline]
@@ -89,14 +117,38 @@ impl Iterator for SupportedFormatsIterator {
     }
 }
 
-pub struct Buffer<'a, T: 'a> {
+impl Iterator for SupportedOutputFormats {
+    type Item = SupportedFormat;
+
+    #[inline]
+    fn next(&mut self) -> Option<SupportedFormat> {
+        None
+    }
+}
+
+pub struct InputBuffer<'a, T: 'a> {
+    marker: PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a> {
     marker: PhantomData<&'a mut T>,
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
-        unreachable!()
+        unimplemented!()
     }
 
     #[inline]

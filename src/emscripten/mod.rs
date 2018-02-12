@@ -9,23 +9,25 @@ use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
 use CreationError;
+use DefaultFormatError;
 use Format;
 use FormatsEnumerationError;
 use Sample;
+use StreamData;
 use SupportedFormat;
-use UnknownTypeBuffer;
+use UnknownTypeOutputBuffer;
 
 // The emscripten backend works by having a global variable named `_cpal_audio_contexts`, which
-// is an array of `AudioContext` objects. A voice ID corresponds to an entry in this array.
+// is an array of `AudioContext` objects. A stream ID corresponds to an entry in this array.
 //
-// Creating a voice creates a new `AudioContext`. Destroying a voice destroys it.
+// Creating a stream creates a new `AudioContext`. Destroying a stream destroys it.
 
 // TODO: handle latency better ; right now we just use setInterval with the amount of sound data
 // that is in each buffer ; this is obviously bad, and also the schedule is too tight and there may
 // be underflows
 
 pub struct EventLoop {
-    voices: Mutex<Vec<Option<Reference>>>,
+    streams: Mutex<Vec<Option<Reference>>>,
 }
 
 impl EventLoop {
@@ -33,12 +35,12 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         stdweb::initialize();
 
-        EventLoop { voices: Mutex::new(Vec::new()) }
+        EventLoop { streams: Mutex::new(Vec::new()) }
     }
 
     #[inline]
     pub fn run<F>(&self, callback: F) -> !
-        where F: FnMut(VoiceId, UnknownTypeBuffer)
+        where F: FnMut(StreamId, StreamData)
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
         // of this callback is to fill the content of the audio buffers.
@@ -47,27 +49,29 @@ impl EventLoop {
         // and to the `callback` parameter that was passed to `run`.
 
         fn callback_fn<F>(user_data_ptr: *mut c_void)
-            where F: FnMut(VoiceId, UnknownTypeBuffer)
+            where F: FnMut(StreamId, StreamData)
         {
             unsafe {
                 let user_data_ptr2 = user_data_ptr as *mut (&EventLoop, F);
                 let user_data = &mut *user_data_ptr2;
                 let user_cb = &mut user_data.1;
 
-                let voices = user_data.0.voices.lock().unwrap().clone();
-                for (voice_id, voice) in voices.iter().enumerate() {
-                    let voice = match voice.as_ref() {
+                let streams = user_data.0.streams.lock().unwrap().clone();
+                for (stream_id, stream) in streams.iter().enumerate() {
+                    let stream = match stream.as_ref() {
                         Some(v) => v,
                         None => continue,
                     };
 
-                    let buffer = Buffer {
+                    let buffer = OutputBuffer {
                         temporary_buffer: vec![0.0; 44100 * 2 / 3],
-                        voice: &voice,
+                        stream: &stream,
                     };
 
-                    user_cb(VoiceId(voice_id),
-                            ::UnknownTypeBuffer::F32(::Buffer { target: Some(buffer) }));
+                    let id = StreamId(stream_id);
+                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) });
+                    let data = StreamData::Output { buffer: buffer };
+                    user_cb(StreamId(stream_id), data);
                 }
 
                 set_timeout(|| callback_fn::<F>(user_data_ptr), 330);
@@ -83,51 +87,56 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_voice(&self, _: &Endpoint, _format: &Format) -> Result<VoiceId, CreationError> {
-        let voice = js!(return new AudioContext()).into_reference().unwrap();
+    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+        unimplemented!();
+    }
 
-        let mut voices = self.voices.lock().unwrap();
-        let voice_id = if let Some(pos) = voices.iter().position(|v| v.is_none()) {
-            voices[pos] = Some(voice);
+    #[inline]
+    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+        let stream = js!(return new AudioContext()).into_reference().unwrap();
+
+        let mut streams = self.streams.lock().unwrap();
+        let stream_id = if let Some(pos) = streams.iter().position(|v| v.is_none()) {
+            streams[pos] = Some(stream);
             pos
         } else {
-            let l = voices.len();
-            voices.push(Some(voice));
+            let l = streams.len();
+            streams.push(Some(stream));
             l
         };
 
-        Ok(VoiceId(voice_id))
+        Ok(StreamId(stream_id))
     }
 
     #[inline]
-    pub fn destroy_voice(&self, voice_id: VoiceId) {
-        self.voices.lock().unwrap()[voice_id.0] = None;
+    pub fn destroy_stream(&self, stream_id: StreamId) {
+        self.streams.lock().unwrap()[stream_id.0] = None;
     }
 
     #[inline]
-    pub fn play(&self, voice_id: VoiceId) {
-        let voices = self.voices.lock().unwrap();
-        let voice = voices
-            .get(voice_id.0)
+    pub fn play_stream(&self, stream_id: StreamId) {
+        let streams = self.streams.lock().unwrap();
+        let stream = streams
+            .get(stream_id.0)
             .and_then(|v| v.as_ref())
-            .expect("invalid voice ID");
-        js!(@{voice}.resume());
+            .expect("invalid stream ID");
+        js!(@{stream}.resume());
     }
 
     #[inline]
-    pub fn pause(&self, voice_id: VoiceId) {
-        let voices = self.voices.lock().unwrap();
-        let voice = voices
-            .get(voice_id.0)
+    pub fn pause_stream(&self, stream_id: StreamId) {
+        let streams = self.streams.lock().unwrap();
+        let stream = streams
+            .get(stream_id.0)
             .and_then(|v| v.as_ref())
-            .expect("invalid voice ID");
-        js!(@{voice}.suspend());
+            .expect("invalid stream ID");
+        js!(@{stream}.suspend());
     }
 }
 
-// Index within the `voices` array of the events loop.
+// Index within the `streams` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VoiceId(usize);
+pub struct StreamId(usize);
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
@@ -142,20 +151,20 @@ fn is_webaudio_available() -> bool {
 }
 
 // Content is false if the iterator is empty.
-pub struct EndpointsIterator(bool);
-impl Default for EndpointsIterator {
-    fn default() -> EndpointsIterator {
+pub struct Devices(bool);
+impl Default for Devices {
+    fn default() -> Devices {
         // We produce an empty iterator if the WebAudio API isn't available.
-        EndpointsIterator(is_webaudio_available())
+        Devices(is_webaudio_available())
     }
 }
-impl Iterator for EndpointsIterator {
-    type Item = Endpoint;
+impl Iterator for Devices {
+    type Item = Device;
     #[inline]
-    fn next(&mut self) -> Option<Endpoint> {
+    fn next(&mut self) -> Option<Device> {
         if self.0 {
             self.0 = false;
-            Some(Endpoint)
+            Some(Device)
         } else {
             None
         }
@@ -163,20 +172,35 @@ impl Iterator for EndpointsIterator {
 }
 
 #[inline]
-pub fn default_endpoint() -> Option<Endpoint> {
+pub fn default_input_device() -> Option<Device> {
+    unimplemented!();
+}
+
+#[inline]
+pub fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
-        Some(Endpoint)
+        Some(Device)
     } else {
         None
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Endpoint;
+pub struct Device;
 
-impl Endpoint {
+impl Device {
     #[inline]
-    pub fn supported_formats(&self) -> Result<SupportedFormatsIterator, FormatsEnumerationError> {
+    pub fn name(&self) -> String {
+        "Default Device".to_owned()
+    }
+
+    #[inline]
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+        unimplemented!();
+    }
+
+    #[inline]
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
@@ -192,22 +216,41 @@ impl Endpoint {
         )
     }
 
-    #[inline]
-    pub fn name(&self) -> String {
-        "Default endpoint".to_owned()
+    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
+    }
+
+    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        unimplemented!();
     }
 }
 
-pub type SupportedFormatsIterator = ::std::vec::IntoIter<SupportedFormat>;
+pub type SupportedInputFormats = ::std::vec::IntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = ::std::vec::IntoIter<SupportedFormat>;
 
-pub struct Buffer<'a, T: 'a>
+pub struct InputBuffer<'a, T: 'a> {
+    marker: ::std::marker::PhantomData<&'a T>,
+}
+
+pub struct OutputBuffer<'a, T: 'a>
     where T: Sample
 {
     temporary_buffer: Vec<T>,
-    voice: &'a Reference,
+    stream: &'a Reference,
 }
 
-impl<'a, T> Buffer<'a, T>
+impl<'a, T> InputBuffer<'a, T> {
+    #[inline]
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+
+    #[inline]
+    pub fn finish(self) {
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T>
     where T: Sample
 {
     #[inline]
@@ -239,7 +282,7 @@ impl<'a, T> Buffer<'a, T>
 
         js!(
             var src_buffer = new Float32Array(@{typed_array}.buffer);
-            var context = @{self.voice};
+            var context = @{self.stream};
             var buf_len = @{self.temporary_buffer.len() as u32};
             var num_channels = @{num_channels};
 
