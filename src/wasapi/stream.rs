@@ -162,27 +162,6 @@ impl EventLoop {
                 format_attempt.Format
             };
 
-            /*
-            // Creating the event that will be signalled whenever we need to submit some samples.
-            let event = {
-                let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
-                if event == ptr::null_mut() {
-                    (*audio_client).Release();
-                    panic!("Failed to create event");
-                }
-
-                match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(_) => {
-                        (*audio_client).Release();
-                        panic!("Failed to call SetEventHandle")
-                    },
-                    Ok(_) => (),
-                };
-
-                event
-            };
-            */
-
             // obtaining the size of the samples buffer in number of frames
             let max_frames_in_buffer = {
                 let mut max_frames_in_buffer = mem::uninitialized();
