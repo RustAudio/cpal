@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.8.0 (2018-02-15)
+
 - Add `record_wav.rs` example. Records 3 seconds to
   `$CARGO_MANIFEST_DIR/recorded.wav` using default input device.
 - Update `enumerate.rs` example to display default input/output devices and
