@@ -1,0 +1,9 @@
+[package]
+name = "asio-sys"
+version = "0.1.0"
+authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
+build = "build.rs"
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.build-dependencies]
+bindgen = "0.33.1"
+walkdir = "2"

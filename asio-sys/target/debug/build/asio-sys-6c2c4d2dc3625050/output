@@ -1,0 +1,1 @@
+cargo:rust-link-lib=static=asio

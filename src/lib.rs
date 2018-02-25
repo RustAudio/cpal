@@ -141,6 +141,9 @@ mod samples_formats;
 #[path = "alsa/mod.rs"]
 mod cpal_impl;
 
+#[cfg(any(windows, target_os = "macos"))]
+mod asio;
+
 #[cfg(windows)]
 #[path = "wasapi/mod.rs"]
 mod cpal_impl;

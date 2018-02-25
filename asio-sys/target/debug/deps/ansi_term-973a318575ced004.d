@@ -1,0 +1,12 @@
+/Users/tomgowan/rust/cpal/asio-sys/target/debug/deps/libansi_term-973a318575ced004.rlib: /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/lib.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/ansi.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/style.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/difference.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/display.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/write.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/windows.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/debug.rs
+
+/Users/tomgowan/rust/cpal/asio-sys/target/debug/deps/ansi_term-973a318575ced004.d: /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/lib.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/ansi.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/style.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/difference.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/display.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/write.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/windows.rs /Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/debug.rs
+
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/lib.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/ansi.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/style.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/difference.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/display.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/write.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/windows.rs:
+/Users/tomgowan/.cargo/registry/src/github.com-1ecc6299db9ec823/ansi_term-0.10.2/src/debug.rs:

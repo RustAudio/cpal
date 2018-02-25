@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `CodeFragments` struct in crate `asio_sys`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, CodeFragments">
+
+    <title>asio_sys::CodeFragments - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../normalize.css">
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../main.css">
+    
+
+    
+    
+</head>
+<body class="rustdoc struct">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <div class="sidebar-menu">&#9776;</div>
+        
+        <p class='location'>Struct CodeFragments</p><div class="sidebar-elems"><div class="block items"><a class="sidebar-title" href="#fields">Fields</a><div class="sidebar-links"><a href="#structfield.root">root</a><a href="#structfield.numFragments">numFragments</a><a href="#structfield.gARefNum">gARefNum</a><a href="#structfield.defVol">defVol</a></div><a class="sidebar-title" href="#methods">Methods</a><div class="sidebar-links"><a href="#method.newInstance">newInstance</a><a href="#method.removeInstance">removeInstance</a><a href="#method.getName">getName</a><a href="#method.loadFragments">loadFragments</a><a href="#method.setFolder">setFolder</a><a href="#method.openFragmentFolder">openFragmentFolder</a><a href="#method.getFrontProcessDirectory">getFrontProcessDirectory</a><a href="#method.getDefVol">getDefVol</a><a href="#method.new">new</a><a href="#method.destruct">destruct</a></div><a class="sidebar-title" href="#implementations">Trait Implementations</a><div class="sidebar-links"><a href="#impl-Debug">Debug</a></div></div><p class='location'><a href='index.html'>asio_sys</a></p><script>window.sidebarCurrent = {name: 'CodeFragments', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script></div>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content">
+<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>asio_sys</a>::<wbr><a class="struct" href=''>CodeFragments</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1193-1198' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'><div class="docblock attributes">#[repr(C)]
+</div>pub struct CodeFragments {
+    pub root: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="struct" href="../asio_sys/struct.CodeFragment.html" title="struct asio_sys::CodeFragment">CodeFragment</a>,
+    pub numFragments: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>,
+    pub gARefNum: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a>,
+    pub defVol: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a>,
+}</pre><h2 id='fields' class='fields small-section-header'>
+                       Fields<a href='#fields' class='anchor'></a></h2><span id="structfield.root" class="structfield small-section-header">
+                           <a href="#structfield.root" class="anchor field"></a>
+                           <span id="root.v" class='invisible'>
+                           <code>root: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="struct" href="../asio_sys/struct.CodeFragment.html" title="struct asio_sys::CodeFragment">CodeFragment</a></code>
+                           </span></span><span id="structfield.numFragments" class="structfield small-section-header">
+                           <a href="#structfield.numFragments" class="anchor field"></a>
+                           <span id="numFragments.v" class='invisible'>
+                           <code>numFragments: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a></code>
+                           </span></span><span id="structfield.gARefNum" class="structfield small-section-header">
+                           <a href="#structfield.gARefNum" class="anchor field"></a>
+                           <span id="gARefNum.v" class='invisible'>
+                           <code>gARefNum: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a></code>
+                           </span></span><span id="structfield.defVol" class="structfield small-section-header">
+                           <a href="#structfield.defVol" class="anchor field"></a>
+                           <span id="defVol.v" class='invisible'>
+                           <code>defVol: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a></code>
+                           </span></span>
+                    <h2 id='methods' class='small-section-header'>
+                      Methods<a href='#methods' class='anchor'></a>
+                    </h2>
+                <h3 id='impl' class='impl'><span class='in-band'><code>impl <a class="struct" href="../asio_sys/struct.CodeFragments.html" title="struct asio_sys::CodeFragments">CodeFragments</a></code><a href='#impl' class='anchor'></a></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1325-1394' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.newInstance' class="method"><span id='newInstance.v' class='invisible'><code>pub unsafe fn <a href='#method.newInstance' class='fnname'>newInstance</a>(&amp;mut self, index: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>, cID: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_ulong.html" title="type std::os::raw::c_ulong">c_ulong</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1327-1333' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.removeInstance' class="method"><span id='removeInstance.v' class='invisible'><code>pub unsafe fn <a href='#method.removeInstance' class='fnname'>removeInstance</a>(&amp;mut self, index: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>, cID: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_ulong.html" title="type std::os::raw::c_ulong">c_ulong</a>)</code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1335-1341' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.getName' class="method"><span id='getName.v' class='invisible'><code>pub unsafe fn <a href='#method.getName' class='fnname'>getName</a>(&amp;mut self, index: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>, name: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_char.html" title="type std::os::raw::c_char">c_char</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1343-1349' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.loadFragments' class="method"><span id='loadFragments.v' class='invisible'><code>pub unsafe fn <a href='#method.loadFragments' class='fnname'>loadFragments</a>(<br>&nbsp;&nbsp;&nbsp;&nbsp;&amp;mut self, <br>&nbsp;&nbsp;&nbsp;&nbsp;folderRef: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;fileType: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;resType: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a><br>)</code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1351-1358' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.setFolder' class="method"><span id='setFolder.v' class='invisible'><code>pub unsafe fn <a href='#method.setFolder' class='fnname'>setFolder</a>(&amp;mut self, folderName: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_char.html" title="type std::os::raw::c_char">c_char</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1360-1362' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.openFragmentFolder' class="method"><span id='openFragmentFolder.v' class='invisible'><code>pub unsafe fn <a href='#method.openFragmentFolder' class='fnname'>openFragmentFolder</a>(<br>&nbsp;&nbsp;&nbsp;&nbsp;&amp;mut self, <br>&nbsp;&nbsp;&nbsp;&nbsp;specs: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="enum" href="https://doc.rust-lang.org/nightly/std/os/raw/enum.c_void.html" title="enum std::os::raw::c_void">c_void</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;foldername: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_char.html" title="type std::os::raw::c_char">c_char</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;found_vref: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a><br>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1364-1371' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.getFrontProcessDirectory' class="method"><span id='getFrontProcessDirectory.v' class='invisible'><code>pub unsafe fn <a href='#method.getFrontProcessDirectory' class='fnname'>getFrontProcessDirectory</a>(&amp;mut self, specs: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="enum" href="https://doc.rust-lang.org/nightly/std/os/raw/enum.c_void.html" title="enum std::os::raw::c_void">c_void</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1373-1375' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.getDefVol' class="method"><span id='getDefVol.v' class='invisible'><code>pub unsafe fn <a href='#method.getDefVol' class='fnname'>getDefVol</a>(&amp;mut self) -&gt; <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_short.html" title="type std::os::raw::c_short">c_short</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1377-1379' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.new' class="method"><span id='new.v' class='invisible'><code>pub unsafe fn <a href='#method.new' class='fnname'>new</a>(<br>&nbsp;&nbsp;&nbsp;&nbsp;folderName: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.pointer.html">*mut </a><a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_char.html" title="type std::os::raw::c_char">c_char</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;fileType: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a>, <br>&nbsp;&nbsp;&nbsp;&nbsp;resType: <a class="type" href="https://doc.rust-lang.org/nightly/std/os/raw/type.c_long.html" title="type std::os::raw::c_long">c_long</a><br>) -&gt; Self</code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1381-1389' title='goto source code'>[src]</a></span></h4>
+<h4 id='method.destruct' class="method"><span id='destruct.v' class='invisible'><code>pub unsafe fn <a href='#method.destruct' class='fnname'>destruct</a>(&amp;mut self)</code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1391-1393' title='goto source code'>[src]</a></span></h4>
+</div>
+            <h2 id='implementations' class='small-section-header'>
+              Trait Implementations<a href='#implementations' class='anchor'></a>
+            </h2>
+        <h3 id='impl-Debug' class='impl'><span class='in-band'><code>impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html" title="trait core::fmt::Debug">Debug</a> for <a class="struct" href="../asio_sys/struct.CodeFragments.html" title="struct asio_sys::CodeFragments">CodeFragments</a></code><a href='#impl-Debug' class='anchor'></a></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1192' title='goto source code'>[src]</a></span></h3>
+<div class='impl-items'><h4 id='method.fmt' class="method"><span id='fmt.v' class='invisible'><code>fn <a href='https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html#tymethod.fmt' class='fnname'>fmt</a>(&amp;self, __arg_0: &amp;mut <a class="struct" href="https://doc.rust-lang.org/nightly/core/fmt/struct.Formatter.html" title="struct core::fmt::Formatter">Formatter</a>) -&gt; <a class="type" href="https://doc.rust-lang.org/nightly/core/fmt/type.Result.html" title="type core::fmt::Result">Result</a></code></span><span class='out-of-band'><div class='ghost'></div><a class='srclink' href='../src/asio_sys/Users/tomgowan/rust/cpal/asio-sys/target/debug/build/asio-sys-6c2c4d2dc3625050/out/asio_bindings.rs.html#1192' title='goto source code'>[src]</a></span></h4>
+<div class='docblock'><p>Formats the value using the given formatter. <a href="https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html#tymethod.fmt">Read more</a></p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>↑</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>↓</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt style="width:31px;">+ / -</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "asio_sys";
+    </script>
+    <script src="../main.js"></script>
+    <script defer src="../search-index.js"></script>
+</body>
+</html>
