@@ -7,3 +7,4 @@ build = "build.rs"
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.build-dependencies]
 bindgen = "0.33.1"
 walkdir = "2"
+cc = "1.0.4"

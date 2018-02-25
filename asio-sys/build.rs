@@ -1,5 +1,6 @@
 extern crate bindgen;
 extern crate walkdir;
+extern crate cc;
 
 use std::env;
 use std::path::PathBuf;
@@ -12,7 +13,6 @@ const ASIO_SYS_HEADER: &'static str = "asiosys.h";
 const ASIO_DRIVERS_HEADER: &'static str = "asiodrivers.h";
 
 fn main() {
-    println!("cargo:rust-link-lib=static=asio");
     // If ASIO directory isn't set silently return early
     let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
         Err(_) => { 
@@ -23,6 +23,17 @@ fn main() {
     };
 
     let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+
+    // build the asio lib
+    cc::Build::new()
+        .include( format!("{}/{}", cpal_asio_dir.display(), "host") )
+        .include( format!("{}/{}", cpal_asio_dir.display(), "common") )
+        .file( format!("{}/{}", cpal_asio_dir.display(), "host/asiodrivers.cpp") )
+        .file( format!("{}/{}", cpal_asio_dir.display(), "host/mac/codefragments.cpp") )
+        .cpp(true)
+        .compile("libasio.a");
+
+    println!("cargo:rust-link-lib=static=libasio.a");
 
     let mut asio_header = None;
     let mut asio_sys_header = None;
@@ -85,4 +96,6 @@ fn main() {
     bindings
         .write_to_file(out_path.join("asio_bindings.rs"))
         .expect("Couldn't write bindings!");
+
+    
 }
