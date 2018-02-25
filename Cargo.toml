@@ -7,6 +7,11 @@ repository = "https://github.com/tomaka/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
+build = "build.rs"
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.build-dependencies]
+bindgen = "0.33.1"
+walkdir = "2"
 
 [dependencies]
 lazy_static = "0.2"
