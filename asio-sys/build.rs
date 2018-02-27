@@ -1,6 +1,6 @@
 extern crate bindgen;
-extern crate walkdir;
 extern crate cc;
+extern crate walkdir;
 
 use std::env;
 use std::path::PathBuf;
@@ -15,7 +15,7 @@ const ASIO_DRIVERS_HEADER: &'static str = "asiodrivers.h";
 fn main() {
     // If ASIO directory isn't set silently return early
     let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
-        Err(_) => { 
+        Err(_) => {
             //panic!("didn't load ");
             return;
         }
@@ -24,12 +24,50 @@ fn main() {
 
     let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
 
+    let mut cpp_paths: Vec<PathBuf> = Vec::new();
+    let mut host_dir = cpal_asio_dir.clone();
+    let mut pc_dir = cpal_asio_dir.clone();
+    let mut common_dir = cpal_asio_dir.clone();
+    host_dir.push("host");
+    common_dir.push("common");
+    pc_dir.push("host/pc");
+
+    let walk_a_dir = |dir_to_walk, paths: &mut Vec<PathBuf>|{
+        for entry in WalkDir::new(&dir_to_walk).max_depth(0) {
+            let entry = match entry {
+                Err(_) => continue,
+                Ok(entry) => entry,
+            };
+            match entry.path().extension().and_then(|s| s.to_str()){
+                None => continue,
+                Some("cpp") => {
+                    if entry.path().file_name().unwrap().to_str() == Some("asiodrvr.cpp") { continue; }
+                    paths.push( entry.path().to_path_buf() )
+                },
+                Some(_) => continue,
+            };
+        }
+    
+    };
+
+    walk_a_dir(host_dir, &mut cpp_paths);
+    walk_a_dir(pc_dir, &mut cpp_paths);
+    walk_a_dir(common_dir, &mut cpp_paths);
+
+
     // build the asio lib
     cc::Build::new()
-        .include( format!("{}/{}", cpal_asio_dir.display(), "host") )
-        .include( format!("{}/{}", cpal_asio_dir.display(), "common") )
-        .file( format!("{}/{}", cpal_asio_dir.display(), "host/asiodrivers.cpp") )
-        .file( format!("{}/{}", cpal_asio_dir.display(), "host/mac/codefragments.cpp") )
+        .include(format!("{}/{}", cpal_asio_dir.display(), "host"))
+        .include(format!("{}/{}", cpal_asio_dir.display(), "common"))
+        .include(format!("{}/{}", cpal_asio_dir.display(), "host/pc"))
+        .files(cpp_paths)
+        /*
+        .files(format!(
+            "{}/{}",
+            cpal_asio_dir.display(),
+            "host/"
+        ))
+        */
         .cpp(true)
         .compile("libasio.a");
 
@@ -39,7 +77,7 @@ fn main() {
     let mut asio_sys_header = None;
     let mut asio_drivers_header = None;
     // Recursively walk given cpal dir to find required headers
-    for entry in WalkDir::new(&cpal_asio_dir){
+    for entry in WalkDir::new(&cpal_asio_dir) {
         let entry = match entry {
             Err(_) => continue,
             Ok(entry) => entry,
@@ -50,10 +88,10 @@ fn main() {
         };
 
         match file_name {
-           ASIO_HEADER => asio_header = Some(entry.path().to_path_buf()), 
-           ASIO_SYS_HEADER => asio_sys_header = Some(entry.path().to_path_buf()), 
-           ASIO_DRIVERS_HEADER => asio_drivers_header = Some(entry.path().to_path_buf()), 
-           _ => (),
+            ASIO_HEADER => asio_header = Some(entry.path().to_path_buf()),
+            ASIO_SYS_HEADER => asio_sys_header = Some(entry.path().to_path_buf()),
+            ASIO_DRIVERS_HEADER => asio_drivers_header = Some(entry.path().to_path_buf()),
+            _ => (),
         }
     }
 
@@ -85,6 +123,8 @@ fn main() {
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++14")
+        .clang_arg("-I/Users/dmsdeveloper/Documents/my_libs/ASIOSDK2.3/host/pc")
+        .whitelisted_type("AsioDrivers")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
@@ -96,6 +136,4 @@ fn main() {
     bindings
         .write_to_file(out_path.join("asio_bindings.rs"))
         .expect("Couldn't write bindings!");
-
-    
 }
