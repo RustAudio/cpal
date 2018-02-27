@@ -1,0 +1,2 @@
+error: toolchain 'stable-x86_64-pc-windows-msvc' does not have the binary `rustfmt.exe`
+Error { repr: Custom(Custom { kind: Other, error: StringError("Internal rustfmt error") }) }

@@ -23,13 +23,13 @@ fn main() {
     };
 
     let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
-
+    
     // build the asio lib
     cc::Build::new()
         .include( format!("{}/{}", cpal_asio_dir.display(), "host") )
         .include( format!("{}/{}", cpal_asio_dir.display(), "common") )
+        .include( format!("{}/{}", cpal_asio_dir.display(), "host/pc") )
         .file( format!("{}/{}", cpal_asio_dir.display(), "host/asiodrivers.cpp") )
-        .file( format!("{}/{}", cpal_asio_dir.display(), "host/mac/codefragments.cpp") )
         .cpp(true)
         .compile("libasio.a");
 
@@ -85,6 +85,8 @@ fn main() {
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++14")
+        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
+        .whitelisted_type("AsioDrivers")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
