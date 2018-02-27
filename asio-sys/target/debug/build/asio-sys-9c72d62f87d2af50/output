@@ -1,0 +1,37 @@
+TARGET = Some("x86_64-pc-windows-msvc")
+OPT_LEVEL = Some("0")
+TARGET = Some("x86_64-pc-windows-msvc")
+HOST = Some("x86_64-pc-windows-msvc")
+TARGET = Some("x86_64-pc-windows-msvc")
+TARGET = Some("x86_64-pc-windows-msvc")
+HOST = Some("x86_64-pc-windows-msvc")
+CXX_x86_64-pc-windows-msvc = None
+CXX_x86_64_pc_windows_msvc = None
+HOST_CXX = None
+CXX = None
+TARGET = Some("x86_64-pc-windows-msvc")
+HOST = Some("x86_64-pc-windows-msvc")
+CXXFLAGS_x86_64-pc-windows-msvc = None
+CXXFLAGS_x86_64_pc_windows_msvc = None
+HOST_CXXFLAGS = None
+CXXFLAGS = None
+DEBUG = Some("true")
+running: "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Tools\\MSVC\\14.12.25827\\bin\\HostX64\\x64\\cl.exe" "/nologo" "/MD" "/Z7" "/I" "D:\\Users\\freesig\\Documents\\my_libs\\ASIOSDK2.3/host" "/I" "D:\\Users\\freesig\\Documents\\my_libs\\ASIOSDK2.3/common" "/I" "D:\\Users\\freesig\\Documents\\my_libs\\ASIOSDK2.3/host/pc" "/W4" "/FoD:\\Users\\freesig\\Documents\\my_libs\\cpal\\asio-sys\\target\\debug\\build\\asio-sys-9c72d62f87d2af50\\out\\asiodrivers.o" "/c" "D:\\Users\\freesig\\Documents\\my_libs\\ASIOSDK2.3/host/asiodrivers.cpp"
+asiodrivers.cpp
+exit code: 0
+TARGET = Some("x86_64-pc-windows-msvc")
+running: "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Tools\\MSVC\\14.12.25827\\bin\\HostX64\\x64\\lib.exe" "/OUT:D:\\Users\\freesig\\Documents\\my_libs\\cpal\\asio-sys\\target\\debug\\build\\asio-sys-9c72d62f87d2af50\\out\\libasio.a" "/nologo" "D:\\Users\\freesig\\Documents\\my_libs\\cpal\\asio-sys\\target\\debug\\build\\asio-sys-9c72d62f87d2af50\\out\\asiodrivers.o"
+exit code: 0
+TARGET = Some("x86_64-pc-windows-msvc")
+HOST = Some("x86_64-pc-windows-msvc")
+TARGET = Some("x86_64-pc-windows-msvc")
+TARGET = Some("x86_64-pc-windows-msvc")
+HOST = Some("x86_64-pc-windows-msvc")
+CXX_x86_64-pc-windows-msvc = None
+CXX_x86_64_pc_windows_msvc = None
+HOST_CXX = None
+CXX = None
+cargo:rustc-link-lib=static=asio
+cargo:rustc-link-search=native=D:\Users\freesig\Documents\my_libs\cpal\asio-sys\target\debug\build\asio-sys-9c72d62f87d2af50\out
+TARGET = Some("x86_64-pc-windows-msvc")
+cargo:rust-link-lib=static=libasio.a

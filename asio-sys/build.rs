@@ -123,7 +123,7 @@ fn main() {
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++14")
-        .clang_arg("-I/Users/dmsdeveloper/Documents/my_libs/ASIOSDK2.3/host/pc")
+        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
         .whitelisted_type("AsioDrivers")
         // Finish the builder and generate the bindings.
         .generate()
