@@ -23,6 +23,8 @@ fn main() {
     };
 
     let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+    
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
 
     let mut lib_path = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
     lib_path.push("libasio.a");
@@ -65,6 +67,8 @@ fn main() {
             .include(format!("{}/{}", cpal_asio_dir.display(), "host"))
             .include(format!("{}/{}", cpal_asio_dir.display(), "common"))
             .include(format!("{}/{}", cpal_asio_dir.display(), "host/pc"))
+            .include("asio-link/helpers.hpp")
+            .file("asio-link/helpers.cpp")
             .files(cpp_paths)
             .cpp(true)
             .compile("libasio.a");
@@ -72,12 +76,10 @@ fn main() {
 
     }
 
-    let mut out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
-    println!("cargo:rust-link-lib=static=libasio.a");
     println!("cargo:rustc-link-lib=dylib=ole32");
     println!("cargo:rustc-link-lib=dylib=User32");
     println!("cargo:rustc-link-search={}", out_dir.display());
-    //println!("cargo:rustc-link-lib=static=libasio.a");
+    println!("cargo:rustc-link-lib=static=asio");
 
     let mut binding_path = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
     binding_path.push("asio_bindings.rs");
@@ -131,11 +133,14 @@ fn main() {
             .header(asio_header)
             .header(asio_sys_header)
             .header(asio_drivers_header)
+            .header("asio-link/helpers.hpp")
             .clang_arg("-x")
             .clang_arg("c++")
             .clang_arg("-std=c++14")
             .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
+            .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host") )
             .whitelisted_type("AsioDrivers")
+            .whitelisted_function("destruct_AsioDrivers")
             // Finish the builder and generate the bindings.
             .generate()
             // Unwrap the Result and panic on failure.
