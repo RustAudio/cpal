@@ -11,6 +11,7 @@ const CPAL_ASIO_DIR: &'static str = "CPAL_ASIO_DIR";
 const ASIO_HEADER: &'static str = "asio.h";
 const ASIO_SYS_HEADER: &'static str = "asiosys.h";
 const ASIO_DRIVERS_HEADER: &'static str = "asiodrivers.h";
+const THE_ASIO_DRIVER_HEADER: &'static str = "asiodrvr.h";
 
 fn main() {
     // If ASIO directory isn't set silently return early
@@ -89,6 +90,7 @@ fn main() {
         let mut asio_header = None;
         let mut asio_sys_header = None;
         let mut asio_drivers_header = None;
+        let mut the_asio_driver_header = None;
         // Recursively walk given cpal dir to find required headers
         for entry in WalkDir::new(&cpal_asio_dir) {
             let entry = match entry {
@@ -104,6 +106,7 @@ fn main() {
                 ASIO_HEADER => asio_header = Some(entry.path().to_path_buf()),
                 ASIO_SYS_HEADER => asio_sys_header = Some(entry.path().to_path_buf()),
                 ASIO_DRIVERS_HEADER => asio_drivers_header = Some(entry.path().to_path_buf()),
+                THE_ASIO_DRIVER_HEADER => the_asio_driver_header = Some(entry.path().to_path_buf()),
                 _ => (),
             }
         }
@@ -123,6 +126,7 @@ fn main() {
         let asio_header = header_or_panic!(asio_header, ASIO_HEADER);
         let asio_sys_header = header_or_panic!(asio_sys_header, ASIO_SYS_HEADER);
         let asio_drivers_header = header_or_panic!(asio_drivers_header, ASIO_DRIVERS_HEADER);
+        let the_asio_driver_header = header_or_panic!(the_asio_driver_header, THE_ASIO_DRIVER_HEADER);
 
         // The bindgen::Builder is the main entry point
         // to bindgen, and lets you build up options for
@@ -133,14 +137,17 @@ fn main() {
             .header(asio_header)
             .header(asio_sys_header)
             .header(asio_drivers_header)
+            .header(the_asio_driver_header)
             .header("asio-link/helpers.hpp")
             .clang_arg("-x")
             .clang_arg("c++")
             .clang_arg("-std=c++14")
             .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
             .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host") )
-            .whitelisted_type("AsioDrivers")
-            .whitelisted_function("destruct_AsioDrivers")
+            .whitelist_type("AsioDrivers")
+            .whitelist_type("AsioDriver")
+            .whitelist_function("destruct_AsioDrivers")
+            .whitelist_function("get_asio_driver_ptr")
             // Finish the builder and generate the bindings.
             .generate()
             // Unwrap the Result and panic on failure.

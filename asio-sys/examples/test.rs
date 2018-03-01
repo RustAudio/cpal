@@ -1,7 +1,12 @@
 extern crate asio_sys as sys;
 use std::os::raw::c_char;
 use std::ffi::CStr;
+use std::ffi::CString;
+use std::os::raw::c_int;
+use std::os::raw::c_long;
+use std::os::raw::c_void;
 
+extern "C" { pub static theAsioDriver: *mut c_int; }
 fn main() {
     
     let max_names = 32;
@@ -20,9 +25,22 @@ fn main() {
 
         if result > 0{
             println!("found driver");
+            let mut my_driver_name = CString::new("").unwrap();
             for i in 0..result{
                 let name = CStr::from_ptr(p_driver_name[i as usize]);
                 println!("Name: {:?}", name);
+                my_driver_name = name.to_owned();
+            }
+            let raw = my_driver_name.into_raw();
+            let load_result = asio_drivers.loadDriver(raw);
+            my_driver_name = CString::from_raw(raw);
+            println!("loaded? {}", load_result);
+            if load_result {
+                let mut ins: c_long = 0;
+                let mut outs: c_long = 0;
+                sys::AsioDriver_getChannels(theAsioDriver as *mut c_void, &mut ins, &mut outs);
+                println!("ins: {}", ins);
+                println!("outs: {}", outs);
             }
         } else {
             println!("no result");
