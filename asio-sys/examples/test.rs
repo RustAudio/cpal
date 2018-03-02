@@ -1,12 +1,10 @@
 extern crate asio_sys as sys;
+use std::mem;
 use std::os::raw::c_char;
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::os::raw::c_int;
 use std::os::raw::c_long;
-use std::os::raw::c_void;
 
-extern "C" { pub static theAsioDriver: *mut c_int; }
 fn main() {
     
     let max_names = 32;
@@ -38,9 +36,14 @@ fn main() {
             if load_result {
                 let mut ins: c_long = 0;
                 let mut outs: c_long = 0;
-                sys::AsioDriver_getChannels(theAsioDriver as *mut c_void, &mut ins, &mut outs);
+                let mut driver_info = sys::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
+                let init_result = sys::ASIOInit(&mut driver_info);
+                println!("init result: {}", init_result);
+                let channel_result: sys::ASIOError = sys::ASIOGetChannels(&mut ins, &mut outs);
+                println!("channel result: {}", channel_result);
                 println!("ins: {}", ins);
                 println!("outs: {}", outs);
+                asio_drivers.removeCurrentDriver();
             }
         } else {
             println!("no result");
