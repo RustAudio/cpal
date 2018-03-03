@@ -33,7 +33,7 @@ fn setup(){
 
 }
 
-pub fn get_driver_list() Vec<String>{
+pub fn get_driver_list() -> Vec<String>{
     let driver_list: Vec<String> = Vec::new();
 
     let max_names = max_names;
