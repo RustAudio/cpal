@@ -7,7 +7,7 @@ use std::os::raw::c_long;
 
 use asio_import as ai;
 
-const MAX_DRIVER: i32 = 32;
+const MAX_DRIVER: usize = 32;
 
 fn setup(){
     /*
