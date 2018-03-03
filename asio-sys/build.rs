@@ -26,7 +26,7 @@ fn main() {
     
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
 
-    let mut lib_path = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
+    let mut lib_path = out_dir.clone(); 
     lib_path.push("libasio.a");
 
     if ! lib_path.exists() {
@@ -81,7 +81,7 @@ fn main() {
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=asio");
 
-    let mut binding_path = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
+    let mut binding_path = out_dir.clone(); 
     binding_path.push("asio_bindings.rs");
 
     if ! binding_path.exists(){
