@@ -10,28 +10,32 @@ use asio_import as ai;
 const MAX_DRIVER: usize = 32;
 
 fn setup(){
-    /*
 #[link(name="libasio")]
-unsafe {
-let raw = my_driver_name.into_raw();
-let load_result = asio_drivers.loadDriver(raw);
-my_driver_name = CString::from_raw(raw);
-println!("loaded? {}", load_result);
-if load_result {
-let mut ins: c_long = 0;
-let mut outs: c_long = 0;
-let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
-let init_result = ai::ASIOInit(&mut driver_info);
-println!("init result: {}", init_result);
-let channel_result: ai::ASIOError = ai::ASIOGetChannels(&mut ins, &mut outs);
-println!("channel result: {}", channel_result);
-println!("ins: {}", ins);
-println!("outs: {}", outs);
-asio_drivers.removeCurrentDriver();
-}
-}
-*/
+    unsafe {
+        let raw = my_driver_name.into_raw();
+        let load_result = asio_drivers.loadDriver(raw);
+        my_driver_name = CString::from_raw(raw);
+        println!("loaded? {}", load_result);
+        if load_result {
+            let mut ins: c_long = 0;
+            let mut outs: c_long = 0;
+            let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
+            let init_result = ai::ASIOInit(&mut driver_info);
+            println!("init result: {}", init_result);
+            let channel_result: ai::ASIOError = ai::ASIOGetChannels(&mut ins, &mut outs);
+            println!("channel result: {}", channel_result);
+            println!("ins: {}", ins);
+            println!("outs: {}", outs);
+            asio_drivers.removeCurrentDriver();
+        }
+    }
 
+}
+
+pub struct Channel{
+}
+
+pub fn get_channels(driver_name: &str) -> Vec<Channel>{
 }
 
 pub fn get_driver_list() -> Vec<String>{
