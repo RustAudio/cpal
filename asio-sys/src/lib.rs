@@ -1,12 +1,11 @@
-#[macro_use]
-extern crate quick_error;
-
 mod asio_import;
+pub mod errors;
 
 use std::os::raw::c_char;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::c_long;
+use errors::ASIOError;
 
 use asio_import as ai;
 
@@ -18,15 +17,6 @@ pub struct Channel{
     outs: i64,
 }
 
-quick_error!{
-#[derive(Debug)]
-    pub enum ASIOError{
-        NoResult(driver_name: String){
-            description("Could not find driver"),
-            display(r#"The driver "{}" could not be found"#, driver_name)
-        },
-    }
-}
 
 /// Returns the channels for the driver it's passed
 ///
@@ -60,7 +50,7 @@ pub fn get_channels(driver_name: &str) -> Result<Channel, ASIOError>{
             asio_drivers.removeCurrentDriver();
             channel = Ok(Channel{ ins: ins as i64, outs: outs as i64});
         }else{
-            channel = Err(ASIOError::NoResult(driver_name));
+            channel = Err(ASIOError::NoResult(driver_name.to_owned()));
         }
         ai::destruct_AsioDrivers(&mut asio_drivers);
     }

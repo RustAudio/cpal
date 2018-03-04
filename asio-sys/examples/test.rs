@@ -8,9 +8,9 @@ fn main() {
     }
 
     if driver_list.len() > 0 {
-        match sys::get_channels(& driver_list[0]); {
-            Ok(channels) => println!("Channels: {:?}", channels);,
-            Err(e) => println("Error retrieving channels: {}", e),
+        match sys::get_channels(& driver_list[0]) {
+            Ok(channels) => println!("Channels: {:?}", channels),
+            Err(e) => println!("Error retrieving channels: {}", e),
         }
     }
     
