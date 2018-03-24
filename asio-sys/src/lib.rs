@@ -6,6 +6,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::c_long;
 use errors::ASIOError;
+use std::mem;
 
 use asio_import as ai;
 
@@ -13,10 +14,14 @@ const MAX_DRIVER: usize = 32;
 
 #[derive(Debug)]
 pub struct Channel{
-    ins: i64,
-    outs: i64,
+    pub ins: i64,
+    pub outs: i64,
 }
 
+#[derive(Debug)]
+pub struct SampleRate{
+    pub rate: u32,
+}
 
 /// Returns the channels for the driver it's passed
 ///
@@ -96,3 +101,36 @@ pub fn get_driver_list() -> Vec<String>{
 }
 
 
+pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
+    
+    let sample_rate: Result<SampleRate, ASIOError>;
+    // Make owned CString to send to load driver
+    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
+    let raw = my_driver_name.into_raw();
+
+    // Initialize memory for calls
+    let mut rate = ai::ASIOSampleRate{ ieee: [0 as c_char; 8] };
+    let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
+
+    unsafe{
+        let mut asio_drivers = ai::AsioDrivers::new();
+
+        let load_result = asio_drivers.loadDriver(raw);
+
+        // Take back ownership
+        my_driver_name = CString::from_raw(raw);
+
+        if load_result {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetSampleRate(&mut rate);
+            asio_drivers.removeCurrentDriver();
+            let found_rate: f32 = mem::transmute_copy(&rate.ieee);
+            sample_rate = Ok(SampleRate{ rate: found_rate as u32});
+        }else{
+            sample_rate = Err(ASIOError::NoResult(driver_name.to_owned()));
+        }
+        ai::destruct_AsioDrivers(&mut asio_drivers);
+    }
+    
+    sample_rate
+}
