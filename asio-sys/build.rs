@@ -150,14 +150,14 @@ fn create_bindings(cpal_asio_dir: &PathBuf){
         .clang_arg("-std=c++14")
         .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
         .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host") )
+        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "common") )
         // Need to whitelist to avoid binding tp c++ std::*
         .whitelist_type("AsioDrivers")
         .whitelist_type("AsioDriver")
-        .whitelist_type("ASIOSampleRate")
         .whitelist_type("ASIODriverInfo")
         .whitelist_function("destruct_AsioDrivers")
         .whitelist_function("ASIOGetChannels")
-        .whitelist_function("ASIOGetSampleRate")
+        .whitelist_function("get_sample_rate")
         .whitelist_function("ASIOInit")
         .whitelist_function("ASIOExit")
         // Finish the builder and generate the bindings.

@@ -5,6 +5,7 @@ use std::os::raw::c_char;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::c_long;
+use std::os::raw::c_double;
 use errors::ASIOError;
 use std::mem;
 
@@ -109,7 +110,7 @@ pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
     let raw = my_driver_name.into_raw();
 
     // Initialize memory for calls
-    let mut rate = ai::ASIOSampleRate{ ieee: [0 as c_char; 8] };
+    let mut rate: c_double = 0.0f64; 
     let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
 
     unsafe{
@@ -122,10 +123,9 @@ pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
 
         if load_result {
             ai::ASIOInit(&mut driver_info);
-            ai::ASIOGetSampleRate(&mut rate);
+            ai::get_sample_rate(&mut rate);
             asio_drivers.removeCurrentDriver();
-            let found_rate: f32 = mem::transmute_copy(&rate.ieee);
-            sample_rate = Ok(SampleRate{ rate: found_rate as u32});
+            sample_rate = Ok(SampleRate{ rate: rate as u32});
         }else{
             sample_rate = Err(ASIOError::NoResult(driver_name.to_owned()));
         }
