@@ -37,7 +37,8 @@ fn main(){
     let driver_list = sys::get_driver_list();
 
     let format = Format{channels: 0, sample_rate: SampleRate(0), 
-        data_type: SampleFormat::I16};
+        // TODO Not sure about how to set the data type
+        data_type: SampleFormat::F32};
     if driver_list.len() > 0 {
         let format = match sys::get_channels(& driver_list[0]) {
             Ok(channels) => {
