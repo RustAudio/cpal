@@ -11,11 +11,13 @@ pub enum EventLoop {
     Asio,
 }
 
+#[derive(Clone, PartialEq, Eq)]
 pub enum Device {
     Wasapi(wasapi::Device),
-    Asio,
+    Asio(asio::Device),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StreamId{
     Wasapi(wasapi::StreamId),
     Asio
@@ -33,7 +35,7 @@ pub enum OutputBuffer<'a, T: 'a>{
 
 pub enum Devices{
     Wasapi(wasapi::Devices),
-    Asio,
+    Asio(asio::Devices),
 }
 
 pub enum SupportedInputFormats{
@@ -57,5 +59,23 @@ pub fn default_output_device() -> Option<Device> {
     match which_backend() {
         Backend::Wasapi => wasapi::default_output_device(),
         Backend::Asio => None,
+    }
+}
+
+impl Default for Devices {
+    fn default() -> Devices {
+        match which_backend() {
+            Backend::Wasapi => wasapi::Devices::default(),
+            Backend::Asio => asio::Devices::default(),
+        }
+    }
+}
+
+impl Device {
+    pub fn name(&self) -> String {
+        match self {
+            &Device::Wasapi(ref d) => d.name(),
+            &Device::Asio(ref d) => d.name(),
+        }
     }
 }
