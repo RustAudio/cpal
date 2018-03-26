@@ -127,7 +127,7 @@ pub use samples_formats::{Sample, SampleFormat};
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "freebsd",
               target_os = "macos", target_os = "ios", target_os = "emscripten")))]
-use null as cpal_impl;
+use null as platform;
 
 use std::error::Error;
 use std::fmt;
@@ -137,40 +137,24 @@ use std::ops::{Deref, DerefMut};
 mod null;
 mod samples_formats;
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-#[path = "alsa/mod.rs"]
-mod cpal_impl;
-
-#[cfg(any(windows, target_os = "macos"))]
-mod asio;
-
-#[cfg(windows)]
-#[path = "wasapi/mod.rs"]
-mod cpal_impl;
-
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-#[path = "coreaudio/mod.rs"]
-mod cpal_impl;
-
-#[cfg(target_os = "emscripten")]
-#[path = "emscripten/mod.rs"]
-mod cpal_impl;
+mod os;
+mod platform;
 
 /// An opaque type that identifies a device that is capable of either audio input or output.
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore all the
 /// methods that involve a device return a `Result`.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Device(cpal_impl::Device);
+pub struct Device(platform::Device);
 
 /// Collection of voices managed together.
 ///
 /// Created with the [`new`](struct.EventLoop.html#method.new) method.
-pub struct EventLoop(cpal_impl::EventLoop);
+pub struct EventLoop(platform::EventLoop);
 
 /// Identifier of a stream within the `EventLoop`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(cpal_impl::StreamId);
+pub struct StreamId(platform::StreamId);
 
 /// Number of channels.
 pub type ChannelCount = u16;
@@ -220,7 +204,7 @@ where
 {
     // Always contains something, taken by `Drop`
     // TODO: change that
-    buffer: Option<cpal_impl::InputBuffer<'a, T>>,
+    buffer: Option<platform::InputBuffer<'a, T>>,
 }
 
 /// Represents a buffer that must be filled with audio data.
@@ -238,7 +222,7 @@ where
 {
     // Always contains something, taken by `Drop`
     // TODO: change that
-    target: Option<cpal_impl::OutputBuffer<'a, T>>,
+    target: Option<platform::OutputBuffer<'a, T>>,
 }
 
 /// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
@@ -268,7 +252,7 @@ pub enum UnknownTypeOutputBuffer<'a> {
 /// An iterator yielding all `Device`s currently available to the system.
 ///
 /// See [`devices()`](fn.devices.html).
-pub struct Devices(cpal_impl::Devices);
+pub struct Devices(platform::Devices);
 
 /// A `Devices` yielding only *input* devices.
 pub type InputDevices = iter::Filter<Devices, fn(&Device) -> bool>;
@@ -279,12 +263,12 @@ pub type OutputDevices = iter::Filter<Devices, fn(&Device) -> bool>;
 /// An iterator that produces a list of input stream formats supported by the device.
 ///
 /// See [`Device::supported_input_formats()`](struct.Device.html#method.supported_input_formats).
-pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
+pub struct SupportedInputFormats(platform::SupportedInputFormats);
 
 /// An iterator that produces a list of output stream formats supported by the device.
 ///
 /// See [`Device::supported_output_formats()`](struct.Device.html#method.supported_output_formats).
-pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
+pub struct SupportedOutputFormats(platform::SupportedOutputFormats);
 
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug)]
@@ -352,14 +336,14 @@ pub fn output_devices() -> OutputDevices {
 ///
 /// Returns `None` if no input device is available.
 pub fn default_input_device() -> Option<Device> {
-    cpal_impl::default_input_device().map(Device)
+    platform::default_input_device().map(Device)
 }
 
 /// The default output audio device on the system.
 ///
 /// Returns `None` if no output device is available.
 pub fn default_output_device() -> Option<Device> {
-    cpal_impl::default_output_device().map(Device)
+    platform::default_output_device().map(Device)
 }
 
 impl Device {
@@ -402,7 +386,7 @@ impl EventLoop {
     /// Initializes a new events loop.
     #[inline]
     pub fn new() -> EventLoop {
-        EventLoop(cpal_impl::EventLoop::new())
+        EventLoop(platform::EventLoop::new())
     }
 
     /// Creates a new input stream that will run from the given device and with the given format.
