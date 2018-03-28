@@ -1,8 +1,10 @@
+use std;
 use os::windows::{Backend, which_backend};
 
 use CreationError;
 use DefaultFormatError;
 use FormatsEnumerationError;
+use SupportedFormat;
 
 use Format;
 use StreamData;
@@ -32,12 +34,12 @@ pub enum StreamId{
 
 pub enum InputBuffer<'a, T: 'a>{
     Wasapi(wasapi::InputBuffer<'a, T>),
-    Asio,
+    Asio(asio::InputBuffer<'a, T>),
 }
 
 pub enum OutputBuffer<'a, T: 'a>{
     Wasapi(wasapi::OutputBuffer<'a, T>),
-    Asio,
+    Asio(asio::OutputBuffer<'a, T>),
 }
 
 pub enum Devices{
@@ -45,26 +47,29 @@ pub enum Devices{
     Asio(asio::Devices),
 }
 
-pub enum SupportedInputFormats{
-    Wasapi(wasapi::SupportedInputFormats),
-    Asio(asio::SupportedInputFormats),
-}
-
-pub enum SupportedOutputFormats{
-    Wasapi(wasapi::SupportedOutputFormats),
-    Asio(asio::SupportedOutputFormats),
-}
+pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 pub fn default_input_device() -> Option<Device> {
     match which_backend() {
-        Backend::Wasapi => wasapi::default_input_device(),
+        Backend::Wasapi => {
+            match wasapi::default_input_device(){
+                Some(d) => Some( Device::Wasapi(d) ),
+                None => None
+            }
+        },
         Backend::Asio => None,
     }
 }
 
 pub fn default_output_device() -> Option<Device> {
     match which_backend() {
-        Backend::Wasapi => wasapi::default_output_device(),
+        Backend::Wasapi => {
+            match wasapi::default_output_device(){
+                Some(d) => Some( Device::Wasapi(d) ),
+                None => None
+            }
+        },
         Backend::Asio => None,
     }
 }
@@ -72,8 +77,36 @@ pub fn default_output_device() -> Option<Device> {
 impl Default for Devices {
     fn default() -> Devices {
         match which_backend() {
-            Backend::Wasapi => wasapi::Devices::default(),
-            Backend::Asio => asio::Devices::default(),
+            Backend::Wasapi => Devices::Wasapi( wasapi::Devices::default() ),
+            Backend::Asio => Devices::Asio( asio::Devices::default() ),
+        }
+    }
+}
+
+impl Iterator for Devices {
+    type Item = Device;
+
+    fn next(&mut self) -> Option<Device> {
+        match self {
+            &mut Devices::Wasapi(ref d) => {
+                match d.next(){
+                    Some(n) => Some(Device::Wasapi(n)),
+                    None => None,
+                }
+            },
+            &mut Devices::Asio(ref d) => {
+                match d.next(){
+                    Some(n) => Some(Device::Asio(n)),
+                    None => None,
+                }
+            },
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            &Devices::Wasapi(ref d) => d.size_hint(),
+            &Devices::Asio(ref d) => d.size_hint(),
         }
     }
 }
@@ -121,8 +154,8 @@ impl Device {
 impl EventLoop {
     pub fn new() -> EventLoop {
         match which_backend() {
-            Backend::Wasapi => wasapi::EventLoop::new(),
-            Backend::Asio => asio::EventLoop::new(),
+            Backend::Wasapi => EventLoop::Wasapi( wasapi::EventLoop::new() ),
+            Backend::Asio => EventLoop::Asio( asio::EventLoop::new() ),
         }
     }
     
@@ -133,8 +166,14 @@ impl EventLoop {
     ) -> Result<StreamId, CreationError>
     {
         match self {
-            &EventLoop::Wasapi(ref d) => d.build_input_stream(device, format),
-            &EventLoop::Asio(ref d) => d.build_input_stream(device, format),
+            &EventLoop::Wasapi(ref d) => match device {
+                &Device::Wasapi(ref dev) => Ok(StreamId::Wasapi(d.build_input_stream(dev, format))),
+                _ => panic!("Mismatch between Eventloop and Device impls"),
+            },
+            &EventLoop::Asio(ref d) => match device {
+                &Device::Asio(ref dev) => d.build_input_stream(dev, format),
+                _ => panic!("Mismatch between Eventloop and Device impls"),
+            },
         }
     }
     

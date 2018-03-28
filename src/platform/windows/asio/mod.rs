@@ -1,30 +1,50 @@
+use std;
 extern crate asio_sys as sys;
 
 use CreationError;
 use DefaultFormatError;
 use FormatsEnumerationError;
 use StreamData;
+use std::marker::PhantomData;
+use SupportedFormat;
 
 use Format;
 
 pub struct Devices{
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Device;
 
 pub struct EventLoop;
 
-pub struct SupportedInputFormats;
-pub struct SupportedOutputFormats;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
 
-pub struct InputBuffer<'a, T: 'a>;
-pub struct OutputBuffer<'a, T: 'a>;
+pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
+pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
+
+pub struct InputBuffer<'a, T: 'a>{
+    marker: PhantomData<&'a T>,
+}
+pub struct OutputBuffer<'a, T: 'a>{
+    marker: PhantomData<&'a T>,
+}
 impl Default for Devices {
     fn default() -> Devices {
         Devices{}
+    }
+}
+
+impl Iterator for Devices {
+    type Item = Device;
+
+    fn next(&mut self) -> Option<Device> {
+        unimplemented!()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        unimplemented!()
     }
 }
 
