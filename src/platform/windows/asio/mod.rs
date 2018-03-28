@@ -3,6 +3,7 @@ extern crate asio_sys as sys;
 use CreationError;
 use DefaultFormatError;
 use FormatsEnumerationError;
+use StreamData;
 
 use Format;
 
@@ -19,6 +20,8 @@ pub struct SupportedOutputFormats;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
 
+pub struct InputBuffer<'a, T: 'a>;
+pub struct OutputBuffer<'a, T: 'a>;
 impl Default for Devices {
     fn default() -> Devices {
         Devices{}
@@ -73,6 +76,41 @@ impl EventLoop {
     }
     
     pub fn play_stream(&self, stream: StreamId) {
+        unimplemented!()
+    }
+    
+    pub fn pause_stream(&self, stream: StreamId) {
+        unimplemented!()
+    }
+    pub fn destroy_stream(&self, stream_id: StreamId) {
+        unimplemented!()
+    }
+    pub fn run<F>(&self, mut callback: F) -> !
+        where F: FnMut(StreamId, StreamData)
+        {
+            unimplemented!()
+        }
+}
+
+impl<'a, T> InputBuffer<'a, T> {
+    pub fn buffer(&self) -> &[T] {
+        unimplemented!()
+    }
+    pub fn finish(self) {
+        unimplemented!()
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
+    pub fn buffer(&mut self) -> &mut [T] {
+        unimplemented!()
+    }
+
+    pub fn len(&self) -> usize {
+        unimplemented!()
+    }
+
+    pub fn finish(self) {
         unimplemented!()
     }
 }

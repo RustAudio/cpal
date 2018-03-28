@@ -5,6 +5,7 @@ use DefaultFormatError;
 use FormatsEnumerationError;
 
 use Format;
+use StreamData;
 
 #[cfg(windows)]
 mod asio;
@@ -153,6 +154,66 @@ impl EventLoop {
         match self {
             &EventLoop::Wasapi(ref d) => d.play_stream(stream),
             &EventLoop::Asio(ref d) => d.play_stream(stream),
+        }
+    }
+    pub fn pause_stream(&self, stream: StreamId) {
+        match self {
+            &EventLoop::Wasapi(ref d) => d.pause_stream(stream),
+            &EventLoop::Asio(ref d) => d.pause_stream(stream),
+        }
+    }
+    pub fn destroy_stream(&self, stream_id: StreamId) {
+        match self {
+            &EventLoop::Wasapi(ref d) => d.destroy_stream(stream_id),
+            &EventLoop::Asio(ref d) => d.destroy_stream(stream_id),
+        }
+    }
+    
+    pub fn run<F>(&self, mut callback: F) -> !
+        where F: FnMut(StreamId, StreamData)
+        {
+            match self {
+                &EventLoop::Wasapi(ref d) => d.run(callback),
+                &EventLoop::Asio(ref d) => d.run(callback),
+            }
+        }
+}
+
+
+impl<'a, T> InputBuffer<'a, T> {
+    pub fn buffer(&self) -> &[T] {
+        match self {
+            &InputBuffer::Wasapi(ref d) => d.buffer(),
+            &InputBuffer::Asio(ref d) => d.buffer(),
+        }
+    }
+    pub fn finish(self) {
+        match self {
+            InputBuffer::Wasapi(d) => d.finish(),
+            InputBuffer::Asio(d) => d.finish(),
+        }
+    }
+}
+
+impl<'a, T> OutputBuffer<'a, T> {
+    pub fn buffer(&mut self) -> &mut [T] {
+        match self {
+            &OutputBuffer::Wasapi(ref d) => d.buffer(),
+            &OutputBuffer::Asio(ref d) => d.buffer(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            &OutputBuffer::Wasapi(ref d) => d.len(),
+            &OutputBuffer::Asio(ref d) => d.len(),
+        }
+    }
+
+    pub fn finish(self) {
+        match self {
+            OutputBuffer::Wasapi(d) => d.finish(),
+            OutputBuffer::Asio(d) => d.finish(),
         }
     }
 }
