@@ -7,7 +7,6 @@ use FormatsEnumerationError;
 use SupportedFormat;
 
 use Format;
-use StreamData;
 
 #[cfg(windows)]
 mod asio;
@@ -42,6 +41,32 @@ pub enum OutputBuffer<'a, T: 'a>{
     Asio(asio::OutputBuffer<'a, T>),
 }
 
+pub enum UnknownTypeInputBuffer<'a> {
+    /// Samples whose format is `u16`.
+    U16(InputBuffer<'a, u16>),
+    /// Samples whose format is `i16`.
+    I16(InputBuffer<'a, i16>),
+    /// Samples whose format is `f32`.
+    F32(InputBuffer<'a, f32>),
+}
+
+pub enum UnknownTypeOutputBuffer<'a> {
+    /// Samples whose format is `u16`.
+    U16(OutputBuffer<'a, u16>),
+    /// Samples whose format is `i16`.
+    I16(OutputBuffer<'a, i16>),
+    /// Samples whose format is `f32`.
+    F32(OutputBuffer<'a, f32>),
+}
+
+pub enum StreamData<'a> {
+    Input {
+        buffer: UnknownTypeInputBuffer<'a>,
+    },
+    Output {
+        buffer: UnknownTypeOutputBuffer<'a>,
+    },
+}
 pub enum Devices{
     Wasapi(wasapi::Devices),
     Asio(asio::Devices),
@@ -165,15 +190,10 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, CreationError>
     {
-        match self {
-            &EventLoop::Wasapi(ref d) => match device {
-                &Device::Wasapi(ref dev) => Ok(StreamId::Wasapi(d.build_input_stream(dev, format))),
-                _ => panic!("Mismatch between Eventloop and Device impls"),
-            },
-            &EventLoop::Asio(ref d) => match device {
-                &Device::Asio(ref dev) => d.build_input_stream(dev, format),
-                _ => panic!("Mismatch between Eventloop and Device impls"),
-            },
+        match (self, device) {
+            (&EventLoop::Wasapi(ref ev), &Device::Wasapi(ref dev)) => ev.build_input_stream(dev, format).map(|id| StreamId::Wasapi(id)),
+            (&EventLoop::Asio(ref ev), &Device::Asio(ref dev)) => ev.build_input_stream(dev, format).map(|id| StreamId::Asio(id)),
+            _ => unreachable!(),
         }
     }
     
@@ -183,28 +203,29 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, CreationError>
     {
-        match self {
-            &EventLoop::Wasapi(ref d) => d.build_output_stream(device, format),
-            &EventLoop::Asio(ref d) => d.build_output_stream(device, format),
+        match (self, device) {
+            (&EventLoop::Wasapi(ref ev), &Device::Wasapi(ref dev)) => ev.build_output_stream(dev, format).map(|id| StreamId::Wasapi(id)),
+            (&EventLoop::Asio(ref ev), &Device::Asio(ref dev)) => ev.build_output_stream(dev, format).map(|id| StreamId::Asio(id)),
+            _ => unreachable!(),
         }
     }
     
     pub fn play_stream(&self, stream: StreamId) {
-        match self {
-            &EventLoop::Wasapi(ref d) => d.play_stream(stream),
-            &EventLoop::Asio(ref d) => d.play_stream(stream),
+        match (self, stream) {
+            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.play_stream(s),
+            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.play_stream(s),
         }
     }
     pub fn pause_stream(&self, stream: StreamId) {
-        match self {
-            &EventLoop::Wasapi(ref d) => d.pause_stream(stream),
-            &EventLoop::Asio(ref d) => d.pause_stream(stream),
+        match (self, stream) {
+            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.pause_stream(s),
+            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.pause_stream(s),
         }
     }
-    pub fn destroy_stream(&self, stream_id: StreamId) {
-        match self {
-            &EventLoop::Wasapi(ref d) => d.destroy_stream(stream_id),
-            &EventLoop::Asio(ref d) => d.destroy_stream(stream_id),
+    pub fn destroy_stream(&self, stream: StreamId) {
+        match (self, stream) {
+            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.destroy_stream(s),
+            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.destroy_stream(s),
         }
     }
     
@@ -212,8 +233,18 @@ impl EventLoop {
         where F: FnMut(StreamId, StreamData)
         {
             match self {
-                &EventLoop::Wasapi(ref d) => d.run(callback),
-                &EventLoop::Asio(ref d) => d.run(callback),
+                &EventLoop::Wasapi(ref d) => {
+                    /*
+                    data = match data {
+                        StreamData::Input(b) => b,
+                        StreamData::Output(b) => b,
+                    }
+                    */
+                    d.run( |id, data| callback(StreamId::Wasapi(id), data) )
+                },
+                &EventLoop::Asio(ref d) => {
+                    d.run( |id, data| callback(StreamId::Asio(id), data) )
+                },
             }
         }
 }
@@ -237,8 +268,8 @@ impl<'a, T> InputBuffer<'a, T> {
 impl<'a, T> OutputBuffer<'a, T> {
     pub fn buffer(&mut self) -> &mut [T] {
         match self {
-            &OutputBuffer::Wasapi(ref d) => d.buffer(),
-            &OutputBuffer::Asio(ref d) => d.buffer(),
+            &mut OutputBuffer::Wasapi(ref d) => d.buffer(),
+            &mut OutputBuffer::Asio(ref d) => d.buffer(),
         }
     }
 
