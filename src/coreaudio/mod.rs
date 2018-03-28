@@ -29,15 +29,21 @@ use self::coreaudio::sys::{
     AudioBuffer,
     AudioBufferList,
     AudioDeviceID,
+    AudioObjectAddPropertyListener,
     AudioObjectGetPropertyData,
     AudioObjectGetPropertyDataSize,
+    AudioObjectID,
     AudioObjectPropertyAddress,
     AudioObjectPropertyScope,
+    AudioObjectRemovePropertyListener,
+    AudioObjectSetPropertyData,
     AudioStreamBasicDescription,
     AudioValueRange,
     kAudioDevicePropertyAvailableNominalSampleRates,
     kAudioDevicePropertyDeviceNameCFString,
+    kAudioDevicePropertyNominalSampleRate,
     kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeGlobal,
     kAudioDevicePropertyScopeOutput,
     kAudioDevicePropertyStreamConfiguration,
     kAudioDevicePropertyStreamFormat,
@@ -253,7 +259,7 @@ impl Device {
 
             if status != kAudioHardwareNoError as i32 {
                 let err = default_format_error_from_os_status(status)
-                    .expect("no known error for OsStatus");
+                    .expect("no known error for OSStatus");
                 return Err(err);
             }
 
@@ -314,6 +320,11 @@ struct ActiveCallbacks {
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
+    // Track the device with which the audio unit was spawned.
+    //
+    // We must do this so that we can avoid changing the device sample rate if there is already
+    // a stream associated with the device.
+    device_id: AudioDeviceID,
 }
 
 // TODO need stronger error identification
@@ -442,10 +453,11 @@ impl EventLoop {
     }
 
     // Add the stream to the list of streams within `self`.
-    fn add_stream(&self, stream_id: usize, au: AudioUnit) {
+    fn add_stream(&self, stream_id: usize, au: AudioUnit, device_id: AudioDeviceID) {
         let inner = StreamInner {
             playing: true,
             audio_unit: au,
+            device_id: device_id,
         };
 
         let mut streams_lock = self.streams.lock().unwrap();
@@ -463,11 +475,155 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, CreationError>
     {
-        let mut audio_unit = audio_unit_from_device(device, true)?;
-
-        // The scope and element for working with a device's output stream.
+        // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
         let element = Element::Input;
+
+        // Check whether or not we need to change the device sample rate to suit the one specified for the stream.
+        unsafe {
+            // Get the current sample rate.
+            let mut property_address = AudioObjectPropertyAddress {
+                mSelector: kAudioDevicePropertyNominalSampleRate,
+	        mScope: kAudioObjectPropertyScopeGlobal,
+	        mElement: kAudioObjectPropertyElementMaster,
+            };
+            let sample_rate: f64 = 0.0;
+            let data_size = mem::size_of::<f64>() as u32;
+            let status = AudioObjectGetPropertyData(
+                device.audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                &sample_rate as *const _ as *mut _,
+            );
+            coreaudio::Error::from_os_status(status)?;
+
+            // If the requested sample rate is different to the device sample rate, update the device.
+            if sample_rate as u32 != format.sample_rate.0 {
+
+                // In order to avoid breaking existing input streams we `panic!` if there is already an
+                // active input stream for this device with the actual sample rate.
+                for stream in &*self.streams.lock().unwrap() {
+                    if let Some(stream) = stream.as_ref() {
+                        if stream.device_id == device.audio_device_id {
+                            panic!("cannot change device sample rate for stream as an existing stream \
+                                    is already running at the current sample rate.");
+                        }
+                    }
+                }
+
+                // Get available sample rate ranges.
+                property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+                let data_size = 0u32;
+                let status = AudioObjectGetPropertyDataSize(
+                    device.audio_device_id,
+                    &property_address as *const _,
+                    0,
+                    null(),
+                    &data_size as *const _ as *mut _,
+                );
+                coreaudio::Error::from_os_status(status)?;
+                let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
+                let mut ranges: Vec<u8> = vec![];
+                ranges.reserve_exact(data_size as usize);
+                let status = AudioObjectGetPropertyData(
+                    device.audio_device_id,
+                    &property_address as *const _,
+                    0,
+                    null(),
+                    &data_size as *const _ as *mut _,
+                    ranges.as_mut_ptr() as *mut _,
+                );
+                coreaudio::Error::from_os_status(status)?;
+                let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
+                let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+
+                // Now that we have the available ranges, pick the one matching the desired rate.
+                let sample_rate = format.sample_rate.0;
+                let maybe_index = ranges
+                    .iter()
+                    .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
+                let range_index = match maybe_index {
+                    None => return Err(CreationError::FormatNotSupported),
+                    Some(i) => i,
+                };
+
+                // Update the property selector to specify the nominal sample rate.
+                property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
+
+                // Setting the sample rate of a device is an asynchronous process in coreaudio.
+                //
+                // Thus we are required to set a `listener` so that we may be notified when the
+                // change occurs.
+                unsafe extern "C" fn rate_listener(
+                    device_id: AudioObjectID,
+                    _n_addresses: u32,
+                    _properties: *const AudioObjectPropertyAddress,
+                    rate_ptr: *mut ::std::os::raw::c_void,
+                ) -> OSStatus {
+                    let rate_ptr: *const f64 = rate_ptr as *const _;
+                    let data_size = mem::size_of::<f64>();
+                    let property_address = AudioObjectPropertyAddress {
+                        mSelector: kAudioDevicePropertyNominalSampleRate,
+	                mScope: kAudioObjectPropertyScopeGlobal,
+	                mElement: kAudioObjectPropertyElementMaster,
+                    };
+                    AudioObjectGetPropertyData(
+                        device_id,
+                        &property_address as *const _,
+                        0,
+                        null(),
+                        &data_size as *const _ as *mut _,
+                        rate_ptr as *const _ as *mut _,
+                    )
+                }
+
+                // Add our sample rate change listener callback.
+                let reported_rate: f64 = 0.0;
+                let status = AudioObjectAddPropertyListener(
+                    device.audio_device_id,
+                    &property_address as *const _,
+                    Some(rate_listener),
+                    &reported_rate as *const _ as *mut _,
+                );
+                coreaudio::Error::from_os_status(status)?;
+
+                // Finally, set the sample rate.
+                let sample_rate = sample_rate as f64;
+                let status = AudioObjectSetPropertyData(
+                    device.audio_device_id,
+                    &property_address as *const _,
+                    0,
+                    null(),
+                    data_size,
+                    &ranges[range_index] as *const _ as *const _,
+                );
+                coreaudio::Error::from_os_status(status)?;
+
+                // Wait for the reported_rate to change.
+                //
+                // This should not take longer than a few ms, but we timeout after 1 sec just in case.
+                let timer = ::std::time::Instant::now();
+                while sample_rate != reported_rate {
+                    if timer.elapsed() > ::std::time::Duration::from_secs(1) {
+                        panic!("timeout waiting for sample rate update for device");
+                    }
+                    ::std::thread::sleep(::std::time::Duration::from_millis(5));
+                }
+
+                // Remove the `rate_listener` callback.
+                let status = AudioObjectRemovePropertyListener(
+                    device.audio_device_id,
+                    &property_address as *const _,
+                    Some(rate_listener),
+                    &reported_rate as *const _ as *mut _,
+                );
+                coreaudio::Error::from_os_status(status)?;
+            }
+        }
+
+        let mut audio_unit = audio_unit_from_device(device, true)?;
 
         // Set the stream in interleaved mode.
         let asbd = asbd_from_format(format);
@@ -525,7 +681,7 @@ impl EventLoop {
         audio_unit.start()?;
 
         // Add the stream to the list of streams within `self`.
-        self.add_stream(stream_id, audio_unit);
+        self.add_stream(stream_id, audio_unit, device.audio_device_id);
 
         Ok(StreamId(stream_id))
     }
@@ -602,7 +758,7 @@ impl EventLoop {
         audio_unit.start()?;
 
         // Add the stream to the list of streams within `self`.
-        self.add_stream(stream_id, audio_unit);
+        self.add_stream(stream_id, audio_unit, device.audio_device_id);
 
         Ok(StreamId(stream_id))
     }
