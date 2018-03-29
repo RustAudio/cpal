@@ -5,6 +5,7 @@ use CreationError;
 use DefaultFormatError;
 use FormatsEnumerationError;
 use SupportedFormat;
+use StreamData;
 
 use Format;
 
@@ -41,6 +42,7 @@ pub enum OutputBuffer<'a, T: 'a>{
     Asio(asio::OutputBuffer<'a, T>),
 }
 
+/*
 pub enum UnknownTypeInputBuffer<'a> {
     /// Samples whose format is `u16`.
     U16(InputBuffer<'a, u16>),
@@ -67,6 +69,8 @@ pub enum StreamData<'a> {
         buffer: UnknownTypeOutputBuffer<'a>,
     },
 }
+*/
+
 pub enum Devices{
     Wasapi(wasapi::Devices),
     Asio(asio::Devices),
@@ -77,33 +81,33 @@ pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 pub fn default_input_device() -> Option<Device> {
     match which_backend() {
-        Backend::Wasapi => {
+        &Backend::Wasapi => {
             match wasapi::default_input_device(){
                 Some(d) => Some( Device::Wasapi(d) ),
                 None => None
             }
         },
-        Backend::Asio => None,
+        &Backend::Asio => None,
     }
 }
 
 pub fn default_output_device() -> Option<Device> {
     match which_backend() {
-        Backend::Wasapi => {
+        &Backend::Wasapi => {
             match wasapi::default_output_device(){
                 Some(d) => Some( Device::Wasapi(d) ),
                 None => None
             }
         },
-        Backend::Asio => None,
+        &Backend::Asio => None,
     }
 }
 
 impl Default for Devices {
     fn default() -> Devices {
         match which_backend() {
-            Backend::Wasapi => Devices::Wasapi( wasapi::Devices::default() ),
-            Backend::Asio => Devices::Asio( asio::Devices::default() ),
+            &Backend::Wasapi => Devices::Wasapi( wasapi::Devices::default() ),
+            &Backend::Asio => Devices::Asio( asio::Devices::default() ),
         }
     }
 }
@@ -113,13 +117,13 @@ impl Iterator for Devices {
 
     fn next(&mut self) -> Option<Device> {
         match self {
-            &mut Devices::Wasapi(ref d) => {
+            &mut Devices::Wasapi(ref mut d) => {
                 match d.next(){
                     Some(n) => Some(Device::Wasapi(n)),
                     None => None,
                 }
             },
-            &mut Devices::Asio(ref d) => {
+            &mut Devices::Asio(ref mut d) => {
                 match d.next(){
                     Some(n) => Some(Device::Asio(n)),
                     None => None,
@@ -179,8 +183,8 @@ impl Device {
 impl EventLoop {
     pub fn new() -> EventLoop {
         match which_backend() {
-            Backend::Wasapi => EventLoop::Wasapi( wasapi::EventLoop::new() ),
-            Backend::Asio => EventLoop::Asio( asio::EventLoop::new() ),
+            &Backend::Wasapi => EventLoop::Wasapi( wasapi::EventLoop::new() ),
+            &Backend::Asio => EventLoop::Asio( asio::EventLoop::new() ),
         }
     }
     
@@ -211,21 +215,39 @@ impl EventLoop {
     }
     
     pub fn play_stream(&self, stream: StreamId) {
-        match (self, stream) {
-            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.play_stream(s),
-            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.play_stream(s),
+        match self {
+            &EventLoop::Wasapi(ref d) => match stream {
+                StreamId::Wasapi(s) => d.play_stream(s),
+                _ => unreachable!(),
+            },
+            &EventLoop::Asio(ref d) => match stream {
+                StreamId::Asio(s) => d.play_stream(s),
+                _ => unreachable!(),
+            },
         }
     }
     pub fn pause_stream(&self, stream: StreamId) {
-        match (self, stream) {
-            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.pause_stream(s),
-            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.pause_stream(s),
+        match self {
+            &EventLoop::Wasapi(ref d) => match stream {
+                StreamId::Wasapi(s) => d.pause_stream(s),
+                _ => unreachable!(),
+            },
+            &EventLoop::Asio(ref d) => match stream {
+                StreamId::Asio(s) => d.pause_stream(s),
+                _ => unreachable!(),
+            },
         }
     }
     pub fn destroy_stream(&self, stream: StreamId) {
-        match (self, stream) {
-            (&EventLoop::Wasapi(ref d), StreamId::Wasapi(s)) => d.destroy_stream(s),
-            (&EventLoop::Asio(ref d), StreamId::Asio(s)) => d.destroy_stream(s),
+        match self {
+            &EventLoop::Wasapi(ref d) => match stream {
+                StreamId::Wasapi(s) => d.destroy_stream(s),
+                _ => unreachable!(),
+            },
+            &EventLoop::Asio(ref d) => match stream {
+                StreamId::Asio(s) => d.destroy_stream(s),
+                _ => unreachable!(),
+            },
         }
     }
     
@@ -234,12 +256,6 @@ impl EventLoop {
         {
             match self {
                 &EventLoop::Wasapi(ref d) => {
-                    /*
-                    data = match data {
-                        StreamData::Input(b) => b,
-                        StreamData::Output(b) => b,
-                    }
-                    */
                     d.run( |id, data| callback(StreamId::Wasapi(id), data) )
                 },
                 &EventLoop::Asio(ref d) => {
@@ -268,8 +284,8 @@ impl<'a, T> InputBuffer<'a, T> {
 impl<'a, T> OutputBuffer<'a, T> {
     pub fn buffer(&mut self) -> &mut [T] {
         match self {
-            &mut OutputBuffer::Wasapi(ref d) => d.buffer(),
-            &mut OutputBuffer::Asio(ref d) => d.buffer(),
+            &mut OutputBuffer::Wasapi(ref mut d) => d.buffer(),
+            &mut OutputBuffer::Asio(ref mut d) => d.buffer(),
         }
     }
 
@@ -287,3 +303,19 @@ impl<'a, T> OutputBuffer<'a, T> {
         }
     }
 }
+
+/*
+fn convert_stream_type(data: ::StreamData) -> StreamData {
+    match data {
+        ::StreamData::Input(b) => {
+            match b {
+                ::UnknownTypeInputBuffer::U16(ob) => ob,
+            }
+        },
+        ::StreamData::Output(b) => b,
+    }
+    match un_buf {
+        ::Un
+    }
+}
+*/

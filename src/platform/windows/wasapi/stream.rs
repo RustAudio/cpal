@@ -552,7 +552,7 @@ impl EventLoop {
                                     let slice = slice::from_raw_parts(buffer_data, buffer_len);
                                     let input_buffer = InputBuffer { buffer: slice };
                                     let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                        buffer: Some(input_buffer),
+                                        buffer: Some(super::super::InputBuffer::Wasapi(input_buffer)),
                                     });
                                     let data = StreamData::Input { buffer: unknown_buffer };
                                     callback(stream_id, data);
@@ -599,7 +599,7 @@ impl EventLoop {
                                         marker: PhantomData,
                                     };
                                     let unknown_buffer = UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
-                                        target: Some(output_buffer)
+                                        target: Some(super::super::OutputBuffer::Wasapi(output_buffer))
                                     });
                                     let data = StreamData::Output { buffer: unknown_buffer };
                                     callback(stream_id, data);
