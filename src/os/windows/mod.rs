@@ -3,7 +3,7 @@ pub enum Backend {
     Asio,
 }
 
-static backend: Backend = Backend::Wasapi;
+static backend: Backend = Backend::Asio;
 
 pub fn which_backend() -> &'static Backend {
     &backend

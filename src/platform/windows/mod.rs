@@ -42,35 +42,6 @@ pub enum OutputBuffer<'a, T: 'a>{
     Asio(asio::OutputBuffer<'a, T>),
 }
 
-/*
-pub enum UnknownTypeInputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(InputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(InputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(InputBuffer<'a, f32>),
-}
-
-pub enum UnknownTypeOutputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(OutputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(OutputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(OutputBuffer<'a, f32>),
-}
-
-pub enum StreamData<'a> {
-    Input {
-        buffer: UnknownTypeInputBuffer<'a>,
-    },
-    Output {
-        buffer: UnknownTypeOutputBuffer<'a>,
-    },
-}
-*/
-
 pub enum Devices{
     Wasapi(wasapi::Devices),
     Asio(asio::Devices),
@@ -87,7 +58,12 @@ pub fn default_input_device() -> Option<Device> {
                 None => None
             }
         },
-        &Backend::Asio => None,
+        &Backend::Asio => {
+            match asio::default_input_device(){
+                Some(d) => Some( Device::Asio(d) ),
+                None => None
+            }
+        },
     }
 }
 
@@ -99,7 +75,12 @@ pub fn default_output_device() -> Option<Device> {
                 None => None
             }
         },
-        &Backend::Asio => None,
+        &Backend::Asio => {
+            match asio::default_output_device(){
+                Some(d) => Some( Device::Asio(d) ),
+                None => None
+            }
+        },
     }
 }
 
