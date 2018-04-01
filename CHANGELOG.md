@@ -1,5 +1,9 @@
 # Unreleased
 
+# Version 0.8.1 (2018-03-18)
+
+- Fix the handling of non-default sample rates for coreaudio input streams.
+
 # Version 0.8.0 (2018-02-15)
 
 - Add `record_wav.rs` example. Records 3 seconds to
