@@ -92,7 +92,7 @@ impl Device {
         ) {
             -2 |
             -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-            e => check_errors(e).expect("device not available")
+            e => if check_errors(e).is_err(){ return Err(FormatsEnumerationError::DeviceNotAvailable) }
         }
 
         let hw_params = HwParams::alloc();
