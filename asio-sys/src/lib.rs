@@ -24,6 +24,10 @@ pub struct SampleRate{
     pub rate: u32,
 }
 
+pub struct AsioStream{
+    is_input: bool,
+}
+
 /// Returns the channels for the driver it's passed
 ///
 /// # Arguments
@@ -133,4 +137,53 @@ pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
     }
     
     sample_rate
+}
+
+pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
+    let mut buffer_info = ai::ASIOBufferInfo{_bindgen_opaque_blob: [0u32; 6]};
+    let num_channels = 2;
+    let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
+
+    let mut min_b_size: c_long = 0;
+    let mut max_b_size: c_long = 0;
+    let mut pref_b_size: c_long = 0;
+    let mut grans: c_long = 0;
+
+    let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
+    
+    // Make owned CString to send to load driver
+    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
+    let raw = my_driver_name.into_raw();
+
+    unsafe{
+        let mut asio_drivers = ai::AsioDrivers::new();
+
+        let load_result = asio_drivers.loadDriver(raw);
+
+        // Take back ownership
+        my_driver_name = CString::from_raw(raw);
+
+        if load_result {
+            ai::ASIOInit(&mut driver_info);
+            let result =  ai::ASIOGetBufferSize(&mut min_b_size, &mut max_b_size,
+                                                &mut pref_b_size, &mut grans);
+            println!("buff size result {:?}", result);
+            if  pref_b_size > 0 {
+                ai::ASIOCreateBuffers(&mut buffer_info, num_channels,
+                                      pref_b_size, &mut callbacks);
+                println!("create buff result {:?}", result);
+                ai::ASIODisposeBuffers();
+            }
+            asio_drivers.removeCurrentDriver();
+        }
+        ai::destruct_AsioDrivers(&mut asio_drivers);
+    }
+    println!("made it");
+    Err(ASIOError::NoResult("not impl".to_owned()))
+}
+
+pub fn destroy_stream() {
+    unsafe{
+        ai::ASIODisposeBuffers();
+    }
 }

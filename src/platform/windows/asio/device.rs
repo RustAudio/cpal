@@ -15,7 +15,7 @@ pub struct Device{
     // Calls to get a driver in memory
     // require a name so I will store the
     // name here as a handle to the driver
-    driver_name: String,
+    pub driver_name: String,
 }
 
 pub struct Devices{
@@ -147,6 +147,15 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     let mut driver_list = sys::get_driver_list();
+    // TODO For build test only,
+    // remove if inproduction
+    for dn in &driver_list{
+        if dn == "ASIO4ALL v2"{
+            println!("Defaulted to ASIO4ALL **remove from production**");
+            return Some(Device{ driver_name: dn.clone() });
+        }
+    }
+    // end remove
     match driver_list.pop() {
         Some(dn) => Some(Device{ driver_name: dn }),
         None => None,

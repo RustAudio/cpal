@@ -1,3 +1,5 @@
+extern crate asio_sys as sys;
+
 use Format;
 use CreationError;
 use StreamData;
@@ -37,7 +39,15 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, CreationError>
     {
-        unimplemented!()
+        match sys::prepare_stream(&device.driver_name) {
+            Ok(stream) => {
+                Ok(StreamId(0))
+            },
+            Err(_) => {
+                Err(CreationError::DeviceNotAvailable)
+            },
+        }
+        
     }
     
     pub fn play_stream(&self, stream: StreamId) {
