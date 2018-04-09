@@ -9,7 +9,7 @@ use::std::cell::Cell;
 use::std::cell::RefCell;
 
 pub struct EventLoop{
-    asio_buffer_info: RefCell<Option<sys::AsioBufferInfo>>,
+    asio_stream: RefCell<Option<sys::AsioStream>>,
     stream_count: Cell<usize>,
 }
 
@@ -26,7 +26,7 @@ pub struct OutputBuffer<'a, T: 'a>{
 
 impl EventLoop {
     pub fn new() -> EventLoop {
-        EventLoop{ asio_buffer_info: RefCell::new(None),
+        EventLoop{ asio_stream: RefCell::new(None),
         stream_count: Cell::new(0)}
     }
 
@@ -47,13 +47,19 @@ impl EventLoop {
     {
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
-                *self.asio_buffer_info.borrow_mut() = Some(stream.buffer_info);
+                {
+                    *self.asio_stream.borrow_mut() = Some(stream);
+                }
                 let count = self.stream_count.get();
                 self.stream_count.set(count + 1);
+                {
+                    let old_stream = self.asio_stream.replace(None);
+                    sys::destroy_stream(old_stream.unwrap());
+                }
                 Ok(StreamId(count))
             },
             Err(ref e) => {
-                println!("Errror preparing stream: {}", e);
+                println!("Error preparing stream: {}", e);
                 Err(CreationError::DeviceNotAvailable)
             },
         }

@@ -27,6 +27,7 @@ pub struct SampleRate{
 
 pub struct AsioStream{
     pub buffer_info: AsioBufferInfo,
+    driver: ai::AsioDrivers,
 }
 
 #[derive(Debug)]
@@ -35,6 +36,12 @@ pub struct AsioBufferInfo{
     is_input: c_long,
     channel_num: c_long,
     buffers: [*mut(); 2],
+}
+
+impl AsioStream {
+    fn pop_driver(self) -> ai::AsioDrivers{
+        self.driver
+    }
 }
 
 /// Returns the channels for the driver it's passed
@@ -181,22 +188,26 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
             match ai::ASIOCreateBuffers(&mut buffer_info, num_channels,
                                         pref_b_size, &mut callbacks){
                 0 => {
-                    Ok(AsioStream{ buffer_info: mem::transmute::<ai::ASIOBufferInfo,
-                        AsioBufferInfo>(buffer_info) })
+                    Ok(AsioStream{ 
+                        buffer_info: mem::transmute::<ai::ASIOBufferInfo,
+                        AsioBufferInfo>(buffer_info),
+                        driver: asio_drivers
+                    })
                 },
                 _ => Err(ASIOError::BufferError("failed to create buffers".to_owned())),
             }
         }else{
             Err(ASIOError::BufferError("Failed to get buffer size".to_owned()))
         };
-        asio_drivers.removeCurrentDriver();
-        ai::destruct_AsioDrivers(&mut asio_drivers);
     }
     result
 }
 
-pub fn destroy_stream() {
+pub fn destroy_stream(stream: AsioStream) {
     unsafe{
         ai::ASIODisposeBuffers();
+        let mut asio_drivers = stream.pop_driver();
+        asio_drivers.removeCurrentDriver();
+        ai::destruct_AsioDrivers(&mut asio_drivers);
     }
 }
