@@ -67,14 +67,15 @@ impl EventLoop {
     }
     
     pub fn play_stream(&self, stream: StreamId) {
-        unimplemented!()
+        sys::play();
     }
     
     pub fn pause_stream(&self, stream: StreamId) {
-        unimplemented!()
+        sys::stop();
     }
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        unimplemented!()
+        let old_stream = self.asio_stream.replace(None);
+        sys::destroy_stream(old_stream.unwrap());
     }
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(StreamId, StreamData)

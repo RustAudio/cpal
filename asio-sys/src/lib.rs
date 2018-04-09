@@ -156,7 +156,13 @@ pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
 }
 
 pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
-    let mut buffer_info = ai::ASIOBufferInfo{_bindgen_opaque_blob: [0u32; 6]};
+    //let mut buffer_info = ai::ASIOBufferInfo{_bindgen_opaque_blob: [0u32; 6]};
+    let mut buffer_info = AsioBufferInfo{ 
+        is_input: 0, 
+        channel_num: 0,
+        buffers: [std::ptr::null_mut(); 2]
+    };
+
     let num_channels = 2;
     let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
 
@@ -185,20 +191,27 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
         ai::ASIOGetBufferSize(&mut min_b_size, &mut max_b_size,
                               &mut pref_b_size, &mut grans);
         result = if  pref_b_size > 0 { 
-            match ai::ASIOCreateBuffers(&mut buffer_info, num_channels,
-                                        pref_b_size, &mut callbacks){
-                0 => {
-                    Ok(AsioStream{ 
-                        buffer_info: mem::transmute::<ai::ASIOBufferInfo,
-                        AsioBufferInfo>(buffer_info),
-                        driver: asio_drivers
-                    })
-                },
-                _ => Err(ASIOError::BufferError("failed to create buffers".to_owned())),
+            let mut buffer_info_convert = mem::transmute::<AsioBufferInfo, 
+            ai::ASIOBufferInfo>(buffer_info);
+            let buffer_result = ai::ASIOCreateBuffers(&mut buffer_info_convert, 
+                                                             num_channels,
+                                                             pref_b_size, 
+                                                             &mut callbacks);
+            if buffer_result == 0{
+                return Ok(AsioStream{ 
+                    buffer_info: mem::transmute::<ai::ASIOBufferInfo,
+                    AsioBufferInfo>(buffer_info_convert),
+                    driver: asio_drivers
+                })
             }
+            Err(ASIOError::BufferError(format!("failed to create buffers, 
+                                       error code: {}", buffer_result)))
         }else{
             Err(ASIOError::BufferError("Failed to get buffer size".to_owned()))
         };
+
+        asio_drivers.removeCurrentDriver();
+        ai::destruct_AsioDrivers(&mut asio_drivers);
     }
     result
 }
@@ -209,5 +222,19 @@ pub fn destroy_stream(stream: AsioStream) {
         let mut asio_drivers = stream.pop_driver();
         asio_drivers.removeCurrentDriver();
         ai::destruct_AsioDrivers(&mut asio_drivers);
+    }
+}
+
+pub fn play(){
+    unsafe{
+        let result = ai::ASIOStart();
+        println!("start result: {}", result);
+    }
+}
+
+pub fn stop(){
+    unsafe{
+        let result = ai::ASIOStop();
+        println!("start result: {}", result);
     }
 }
