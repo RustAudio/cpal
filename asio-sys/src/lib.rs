@@ -5,6 +5,7 @@ use std::os::raw::c_char;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::c_long;
+use std::os::raw::c_void;
 use std::os::raw::c_double;
 use errors::ASIOError;
 use std::mem;
@@ -25,7 +26,15 @@ pub struct SampleRate{
 }
 
 pub struct AsioStream{
-    is_input: bool,
+    pub buffer_info: AsioBufferInfo,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct AsioBufferInfo{
+    is_input: c_long,
+    channel_num: c_long,
+    buffers: [*mut(); 2],
 }
 
 /// Returns the channels for the driver it's passed
@@ -155,31 +164,35 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
     let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
     let raw = my_driver_name.into_raw();
 
+    let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
+
     unsafe{
         let mut asio_drivers = ai::AsioDrivers::new();
-
         let load_result = asio_drivers.loadDriver(raw);
-
         // Take back ownership
         my_driver_name = CString::from_raw(raw);
+        if !load_result { return Err(ASIOError::DriverLoadError); }
 
-        if load_result {
-            ai::ASIOInit(&mut driver_info);
-            let result =  ai::ASIOGetBufferSize(&mut min_b_size, &mut max_b_size,
-                                                &mut pref_b_size, &mut grans);
-            println!("buff size result {:?}", result);
-            if  pref_b_size > 0 {
-                ai::ASIOCreateBuffers(&mut buffer_info, num_channels,
-                                      pref_b_size, &mut callbacks);
-                println!("create buff result {:?}", result);
-                ai::ASIODisposeBuffers();
+
+        ai::ASIOInit(&mut driver_info);
+        ai::ASIOGetBufferSize(&mut min_b_size, &mut max_b_size,
+                              &mut pref_b_size, &mut grans);
+        result = if  pref_b_size > 0 { 
+            match ai::ASIOCreateBuffers(&mut buffer_info, num_channels,
+                                        pref_b_size, &mut callbacks){
+                0 => {
+                    Ok(AsioStream{ buffer_info: mem::transmute::<ai::ASIOBufferInfo,
+                        AsioBufferInfo>(buffer_info) })
+                },
+                _ => Err(ASIOError::BufferError("failed to create buffers".to_owned())),
             }
-            asio_drivers.removeCurrentDriver();
-        }
+        }else{
+            Err(ASIOError::BufferError("Failed to get buffer size".to_owned()))
+        };
+        asio_drivers.removeCurrentDriver();
         ai::destruct_AsioDrivers(&mut asio_drivers);
     }
-    println!("made it");
-    Err(ASIOError::NoResult("not impl".to_owned()))
+    result
 }
 
 pub fn destroy_stream() {

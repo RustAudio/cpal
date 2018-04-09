@@ -5,8 +5,13 @@ use CreationError;
 use StreamData;
 use std::marker::PhantomData;
 use super::Device;
+use::std::cell::Cell;
+use::std::cell::RefCell;
 
-pub struct EventLoop;
+pub struct EventLoop{
+    asio_buffer_info: RefCell<Option<sys::AsioBufferInfo>>,
+    stream_count: Cell<usize>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
@@ -21,7 +26,8 @@ pub struct OutputBuffer<'a, T: 'a>{
 
 impl EventLoop {
     pub fn new() -> EventLoop {
-        EventLoop
+        EventLoop{ asio_buffer_info: RefCell::new(None),
+        stream_count: Cell::new(0)}
     }
 
     pub fn build_input_stream(
@@ -41,9 +47,13 @@ impl EventLoop {
     {
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
-                Ok(StreamId(0))
+                *self.asio_buffer_info.borrow_mut() = Some(stream.buffer_info);
+                let count = self.stream_count.get();
+                self.stream_count.set(count + 1);
+                Ok(StreamId(count))
             },
-            Err(_) => {
+            Err(ref e) => {
+                println!("Errror preparing stream: {}", e);
                 Err(CreationError::DeviceNotAvailable)
             },
         }
