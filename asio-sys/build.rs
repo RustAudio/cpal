@@ -154,6 +154,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf){
         // Need to whitelist to avoid binding tp c++ std::*
         .whitelist_type("AsioDrivers")
         .whitelist_type("AsioDriver")
+        .whitelist_type("ASIOTime")
         .whitelist_type("ASIODriverInfo")
         .whitelist_type("ASIOBufferInfo")
         .whitelist_type("ASIOCallbacks")

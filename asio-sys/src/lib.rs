@@ -38,6 +38,44 @@ pub struct AsioBufferInfo{
     buffers: [*mut(); 2],
 }
 
+#[repr(C)]
+struct AsioCallbacks{
+    buffer_switch: extern "C" fn(double_buffer_index: c_long,
+                                 direct_process: c_long) -> (),
+                                 sample_rate_did_change: extern "C" fn(s_rate: c_double) -> (),
+                                 asio_message: extern "C" fn(
+                                     selector: c_long,
+                                     value: c_long,
+                                     message: *mut(),
+                                     opt: *mut c_double) -> c_long,
+                                     buffer_switch_time_info: extern "C" fn(
+                                         params: *mut ai::ASIOTime,
+                                         double_buffer_index: c_long,
+                                         direct_process: c_long) -> *mut ai::ASIOTime,
+}
+
+extern "C" fn buffer_switch(double_buffer_index: c_long,
+                       direct_process: c_long) -> (){
+    println!("index: {}", double_buffer_index);
+    println!("direct_process: {}", direct_process);
+}
+
+extern "C" fn sample_rate_did_change(s_rate: c_double) -> (){
+}
+
+extern "C" fn asio_message(selector: c_long,
+        value: c_long,
+        message: *mut(),
+        opt: *mut c_double) -> c_long{
+    4 as c_long
+}
+
+extern "C" fn buffer_switch_time_info(params: *mut ai::ASIOTime,
+                               double_buffer_index: c_long,
+                               direct_process: c_long) -> *mut ai::ASIOTime{
+    params
+}
+
 impl AsioStream {
     fn pop_driver(self) -> ai::AsioDrivers{
         self.driver
@@ -164,7 +202,13 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
     };
 
     let num_channels = 2;
-    let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
+    //let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
+    let mut callbacks = AsioCallbacks{
+        buffer_switch: buffer_switch,
+        sample_rate_did_change: sample_rate_did_change,
+        asio_message: asio_message,
+        buffer_switch_time_info: buffer_switch_time_info
+    };
 
     let mut min_b_size: c_long = 0;
     let mut max_b_size: c_long = 0;
@@ -193,10 +237,12 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
         result = if  pref_b_size > 0 { 
             let mut buffer_info_convert = mem::transmute::<AsioBufferInfo, 
             ai::ASIOBufferInfo>(buffer_info);
+            let mut callbacks_convert = mem::transmute::<AsioCallbacks,
+            ai::ASIOCallbacks>(callbacks);
             let buffer_result = ai::ASIOCreateBuffers(&mut buffer_info_convert, 
                                                              num_channels,
                                                              pref_b_size, 
-                                                             &mut callbacks);
+                                                             &mut callbacks_convert);
             if buffer_result == 0{
                 return Ok(AsioStream{ 
                     buffer_info: mem::transmute::<ai::ASIOBufferInfo,

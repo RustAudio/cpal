@@ -52,10 +52,6 @@ impl EventLoop {
                 }
                 let count = self.stream_count.get();
                 self.stream_count.set(count + 1);
-                {
-                    let old_stream = self.asio_stream.replace(None);
-                    sys::destroy_stream(old_stream.unwrap());
-                }
                 Ok(StreamId(count))
             },
             Err(ref e) => {
@@ -80,7 +76,10 @@ impl EventLoop {
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(StreamId, StreamData)
         {
-            unimplemented!()
+            loop{
+                // Might need a sleep here to prevent the loop being
+                // removed in --release
+            }
         }
 }
 
