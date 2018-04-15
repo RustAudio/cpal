@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 mod asio_import;
 pub mod errors;
 
@@ -9,10 +12,22 @@ use std::os::raw::c_void;
 use std::os::raw::c_double;
 use errors::ASIOError;
 use std::mem;
+use std::sync::Mutex;
 
 use asio_import as ai;
 
 const MAX_DRIVER: usize = 32;
+
+pub struct CbArgs<S, D>{
+    pub stream_id: S,
+    pub data: D
+}
+
+struct BufferCallback(Box<FnMut(i32)>);
+
+lazy_static!{
+    static ref buffer_callback: Mutex<Option<BufferCallback>> = Mutex::new(None);
+}
 
 #[derive(Debug)]
 pub struct Channel{
@@ -33,9 +48,9 @@ pub struct AsioStream{
 #[derive(Debug)]
 #[repr(C)]
 pub struct AsioBufferInfo{
-    is_input: c_long,
-    channel_num: c_long,
-    buffers: [*mut(); 2],
+    pub is_input: c_long,
+    pub channel_num: c_long,
+    pub buffers: [*mut(); 2],
 }
 
 #[repr(C)]
@@ -58,6 +73,12 @@ extern "C" fn buffer_switch(double_buffer_index: c_long,
                        direct_process: c_long) -> (){
     println!("index: {}", double_buffer_index);
     println!("direct_process: {}", direct_process);
+    
+    let mut bc = buffer_callback.lock().unwrap();
+
+    if let Some(ref mut bc) = *bc {
+        bc.run(double_buffer_index);
+    }
 }
 
 extern "C" fn sample_rate_did_change(s_rate: c_double) -> (){
@@ -82,6 +103,21 @@ impl AsioStream {
     }
 }
 
+impl BufferCallback{
+    fn run(&mut self, index: i32){
+        let mut cb = &mut self.0;
+        cb(index);
+    }
+}
+
+unsafe impl Send for BufferCallback{}
+
+pub fn set_callback<F: 'static>(mut callback: F) -> ()
+    where F: FnMut(i32) + Send
+{
+    let mut bc = buffer_callback.lock().unwrap();
+    *bc = Some(BufferCallback(Box::new(callback)));
+}
 /// Returns the channels for the driver it's passed
 ///
 /// # Arguments
@@ -270,6 +306,7 @@ pub fn destroy_stream(stream: AsioStream) {
         ai::destruct_AsioDrivers(&mut asio_drivers);
     }
 }
+
 
 pub fn play(){
     unsafe{

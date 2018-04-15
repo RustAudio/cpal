@@ -237,10 +237,10 @@ impl EventLoop {
         {
             match self {
                 &EventLoop::Wasapi(ref d) => {
-                    d.run( |id, data| callback(StreamId::Wasapi(id), data) )
+                    d.run(move |id, data| callback(StreamId::Wasapi(id), data) )
                 },
                 &EventLoop::Asio(ref d) => {
-                    d.run( |id, data| callback(StreamId::Asio(id), data) )
+                    d.run(move |id, data| callback(StreamId::Asio(id), data) )
                 },
             }
         }

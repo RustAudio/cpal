@@ -8,3 +8,6 @@ build = "build.rs"
 bindgen = "0.33.1"
 walkdir = "2"
 cc = "1.0.4"
+
+[dependencies]
+lazy_static = "1.0.0"
