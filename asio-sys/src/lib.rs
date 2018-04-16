@@ -23,7 +23,7 @@ pub struct CbArgs<S, D>{
     pub data: D
 }
 
-struct BufferCallback(Box<FnMut(i32)>);
+struct BufferCallback(Box<FnMut(i32) + Send>);
 
 lazy_static!{
     static ref buffer_callback: Mutex<Option<BufferCallback>> = Mutex::new(None);
@@ -43,6 +43,7 @@ pub struct SampleRate{
 pub struct AsioStream{
     pub buffer_info: AsioBufferInfo,
     driver: ai::AsioDrivers,
+    pub buffer_size: i32,
 }
 
 #[derive(Debug)]
@@ -110,7 +111,7 @@ impl BufferCallback{
     }
 }
 
-unsafe impl Send for BufferCallback{}
+unsafe impl Send for AsioStream{}
 
 pub fn set_callback<F: 'static>(mut callback: F) -> ()
     where F: FnMut(i32) + Send
@@ -283,7 +284,8 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
                 return Ok(AsioStream{ 
                     buffer_info: mem::transmute::<ai::ASIOBufferInfo,
                     AsioBufferInfo>(buffer_info_convert),
-                    driver: asio_drivers
+                    driver: asio_drivers,
+                    buffer_size: pref_b_size,
                 })
             }
             Err(ASIOError::BufferError(format!("failed to create buffers, 

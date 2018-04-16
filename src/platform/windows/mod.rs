@@ -233,7 +233,7 @@ impl EventLoop {
     }
     
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
+        where F: FnMut(StreamId, StreamData) + Send
         {
             match self {
                 &EventLoop::Wasapi(ref d) => {

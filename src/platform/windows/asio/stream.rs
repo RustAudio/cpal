@@ -1,20 +1,20 @@
 extern crate asio_sys as sys;
 
+use std;
 use Format;
 use CreationError;
 use StreamData;
 use std::marker::PhantomData;
 use super::Device;
 use::std::cell::Cell;
-use::std::cell::RefCell;
 use UnknownTypeOutputBuffer;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 
 
 pub struct EventLoop{
-    asio_stream: RefCell<Option<sys::AsioStream>>,
+    asio_stream: Arc<Mutex<Option<sys::AsioStream>>>,
     stream_count: Cell<usize>,
-    callbacks: Mutex<Vec<Box<FnMut(StreamId, StreamData)>>>,
+    callbacks: Arc<Mutex<Vec<Box<FnMut(StreamId, StreamData) + Send>>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -30,9 +30,9 @@ pub struct OutputBuffer<'a, T: 'a>{
 
 impl EventLoop {
     pub fn new() -> EventLoop {
-        EventLoop{ asio_stream: RefCell::new(None),
+        EventLoop{ asio_stream: Arc::new(Mutex::new(None)),
         stream_count: Cell::new(0),
-        callbacks: Mutex::new(Vec::new())}
+        callbacks: Arc::new(Mutex::new(Vec::new()))}
     }
 
     pub fn build_input_stream(
@@ -53,16 +53,25 @@ impl EventLoop {
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
                 {
-                    *self.asio_stream.borrow_mut() = Some(stream);
+                    *self.asio_stream
+                        .lock()
+                        .unwrap() = Some(stream);
                 }
                 let count = self.stream_count.get();
                 self.stream_count.set(count + 1);
-                if let Some(asio_stream) = *self.asio_stream.borrow() {
-                    sys::set_callback(move |index| {
+                let asio_stream = self.asio_stream.clone();
+                let callbacks = self.callbacks.clone();
+
+                sys::set_callback(move |index| {
+                    if let Some(asio_stream) = *asio_stream
+                        .lock().unwrap(){
+                        let data_slice = std::slice::from_raw_parts_mut(
+                            asio_stream.buffer_info.buffers[index as usize] as *mut f32,
+                            asio_stream.buffer_size as usize);
                         let buff = OutputBuffer{
-                            buffer: asio_stream.buffer_info.buffers[index as usize]
+                            buffer: data_slice
                         };
-                        let callbacks = self.callbacks.lock().unwrap();
+                        let callbacks = *callbacks.lock().unwrap();
                         match callbacks.first(){
                             Some(callback) => {
                                 callback(
@@ -77,8 +86,8 @@ impl EventLoop {
                             },
                             None => return (),
                         }
-                    });
-                }
+                    }
+                });
                 Ok(StreamId(count))
             },
             Err(ref e) => {
@@ -97,11 +106,14 @@ impl EventLoop {
         sys::stop();
     }
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        let old_stream = self.asio_stream.replace(None);
-        sys::destroy_stream(old_stream.unwrap());
+        let asio_stream_lock = self.asio_stream.lock().unwrap();
+        if let Some(old_stream) = *asio_stream_lock{
+            sys::destroy_stream(old_stream);
+            *asio_stream_lock = None;
+        }
     }
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
+        where F: FnMut(StreamId, StreamData) + Send
         {
             self.callbacks
                 .lock()
