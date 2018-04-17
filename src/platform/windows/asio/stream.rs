@@ -9,12 +9,13 @@ use super::Device;
 use::std::cell::Cell;
 use UnknownTypeOutputBuffer;
 use std::sync::{Mutex, Arc};
+use std::mem;
 
 
 pub struct EventLoop{
     asio_stream: Arc<Mutex<Option<sys::AsioStream>>>,
     stream_count: Cell<usize>,
-    callbacks: Arc<Mutex<Vec<Box<FnMut(StreamId, StreamData) + Send>>>>,
+    callbacks: Arc<Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -62,17 +63,17 @@ impl EventLoop {
                 let asio_stream = self.asio_stream.clone();
                 let callbacks = self.callbacks.clone();
 
-                sys::set_callback(move |index| {
-                    if let Some(asio_stream) = *asio_stream
+                sys::set_callback(move |index| unsafe{
+                    if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
-                        let data_slice = std::slice::from_raw_parts_mut(
-                            asio_stream.buffer_info.buffers[index as usize] as *mut f32,
-                            asio_stream.buffer_size as usize);
-                        let buff = OutputBuffer{
+                            let data_slice = std::slice::from_raw_parts_mut(
+                                asio_stream.buffer_info.buffers[index as usize] as *mut f32,
+                                asio_stream.buffer_size as usize);
+                            let buff = OutputBuffer{
                             buffer: data_slice
                         };
-                        let callbacks = *callbacks.lock().unwrap();
-                        match callbacks.first(){
+                        let mut callbacks = callbacks.lock().unwrap();
+                        match callbacks.first_mut(){
                             Some(callback) => {
                                 callback(
                                     StreamId(count),
@@ -106,19 +107,20 @@ impl EventLoop {
         sys::stop();
     }
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        let asio_stream_lock = self.asio_stream.lock().unwrap();
-        if let Some(old_stream) = *asio_stream_lock{
+        let mut asio_stream_lock = self.asio_stream.lock().unwrap();
+        let old_stream = mem::replace(&mut *asio_stream_lock, None);
+        if let Some(old_stream) = old_stream{
             sys::destroy_stream(old_stream);
-            *asio_stream_lock = None;
         }
     }
     pub fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(StreamId, StreamData) + Send
         {
+            let callback: &mut (FnMut(StreamId, StreamData) + Send) = &mut callback;
             self.callbacks
                 .lock()
                 .unwrap()
-                .push(Box::new(callback));
+                .push(unsafe{ mem::transmute(callback) });
             loop{
                 // Might need a sleep here to prevent the loop being
                 // removed in --release
@@ -137,14 +139,13 @@ impl<'a, T> InputBuffer<'a, T> {
 
 impl<'a, T> OutputBuffer<'a, T> {
     pub fn buffer(&mut self) -> &mut [T] {
-        unimplemented!()
+        &mut self.buffer
     }
 
     pub fn len(&self) -> usize {
-        unimplemented!()
+        self.buffer.len()
     }
 
     pub fn finish(self) {
-        unimplemented!()
     }
 }

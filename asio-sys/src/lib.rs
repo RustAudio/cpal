@@ -72,8 +72,6 @@ struct AsioCallbacks{
 
 extern "C" fn buffer_switch(double_buffer_index: c_long,
                        direct_process: c_long) -> (){
-    println!("index: {}", double_buffer_index);
-    println!("direct_process: {}", direct_process);
     
     let mut bc = buffer_callback.lock().unwrap();
 
