@@ -22,10 +22,14 @@
 
 # Version 0.7.0 (2018-02-04)
 
-- Rename ChannelsCount to ChannelCount.
-- Rename SamplesRate to SampleRate.
+- Rename `ChannelsCount` to `ChannelCount`.
+- Rename `SamplesRate` to `SampleRate`.
+- Rename the `min_samples_rate` field of `SupportedFormat` to `min_sample_rate`
+- Rename the `with_max_samples_rate()` method of`SupportedFormat` to `with_max_sample_rate()`
+- Rename the `samples_rate` field of `Format` to `sample_rate`
+- Changed the type of the `channels` field of the `SupportedFormat` struct from `Vec<ChannelPosition>` to `ChannelCount` (an alias to `u16`)
 - Remove unused ChannelPosition API.
-- Implement Endpoint and Format Enumeration for macos.
+- Implement `Endpoint` and `Format` Enumeration for macos.
 - Implement format handling for macos `build_voice` method.
 
 # Version 0.6.0 (2017-12-11)
