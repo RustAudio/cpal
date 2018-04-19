@@ -1,4 +1,5 @@
 extern crate asio_sys as sys;
+extern crate itertools;
 
 use std;
 use Format;
@@ -10,6 +11,7 @@ use::std::cell::Cell;
 use UnknownTypeOutputBuffer;
 use std::sync::{Mutex, Arc};
 use std::mem;
+use self::itertools::Itertools;
 
 
 pub struct EventLoop{
@@ -40,7 +42,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+        ) -> Result<StreamId, CreationError>
     {
         unimplemented!()
     }
@@ -49,7 +51,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+        ) -> Result<StreamId, CreationError>
     {
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
@@ -62,32 +64,50 @@ impl EventLoop {
                 self.stream_count.set(count + 1);
                 let asio_stream = self.asio_stream.clone();
                 let callbacks = self.callbacks.clone();
+                let bytes_per_channel = format.data_type.sample_size();
 
                 sys::set_callback(move |index| unsafe{
                     if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
+                            let data_len = (asio_stream.buffer_size as usize) * 4 as usize;
                             let data_slice = std::slice::from_raw_parts_mut(
-                                asio_stream.buffer_info.buffers[index as usize] as *mut f32,
-                                asio_stream.buffer_size as usize);
+                                asio_stream.buffer_info.buffers[index as usize] as *mut i16,
+                                data_len);
                             let buff = OutputBuffer{
-                            buffer: data_slice
-                        };
-                        let mut callbacks = callbacks.lock().unwrap();
-                        match callbacks.first_mut(){
-                            Some(callback) => {
-                                callback(
-                                    StreamId(count),
-                                    StreamData::Output{ 
-                                        buffer: UnknownTypeOutputBuffer::F32(
-                                                    ::OutputBuffer{ 
-                                                        target: Some(super::super::OutputBuffer::Asio(buff))
-                                                    })
+                                buffer: data_slice
+                            };
+                            let mut callbacks = callbacks.lock().unwrap();
+                            match callbacks.first_mut(){
+                                Some(callback) => {
+                                    callback(
+                                        StreamId(count),
+                                        StreamData::Output{ 
+                                            buffer: UnknownTypeOutputBuffer::I16(
+                                                        ::OutputBuffer{ 
+                                                            target: Some(super::super::OutputBuffer::Asio(buff))
+                                                        })
+                                        }
+                                        ); 
+                                    let data_slice = std::slice::from_raw_parts_mut(
+                                        asio_stream.buffer_info.buffers[index as usize] as *mut i16,
+                                        data_len);
+                                    fn deinterleave(data_slice: &mut [i16]) -> Vec<i16>{
+                                        let mut first: Vec<i16> = data_slice.iter().cloned().step(2).collect();
+                                        let mut it = data_slice.iter().cloned();
+                                        it.next();
+                                        let mut second: Vec<i16> = it.step(2).collect();
+                                        first.append(&mut second);
+                                        first
                                     }
-                                    ) 
-                            },
-                            None => return (),
+                                    let deinter = deinterleave(data_slice);
+                                    for (i, s) in data_slice.iter_mut().enumerate(){
+                                        *s = deinter[i];
+                                    }
+
+                                },
+                                None => return (),
+                            }
                         }
-                    }
                 });
                 Ok(StreamId(count))
             },
@@ -96,13 +116,13 @@ impl EventLoop {
                 Err(CreationError::DeviceNotAvailable)
             },
         }
-        
+
     }
-    
+
     pub fn play_stream(&self, stream: StreamId) {
         sys::play();
     }
-    
+
     pub fn pause_stream(&self, stream: StreamId) {
         sys::stop();
     }

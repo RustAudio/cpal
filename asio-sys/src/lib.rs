@@ -1,6 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 
+extern crate num;
+#[macro_use]
+extern crate num_derive;
+
 mod asio_import;
 pub mod errors;
 
@@ -29,6 +33,7 @@ lazy_static!{
     static ref buffer_callback: Mutex<Option<BufferCallback>> = Mutex::new(None);
 }
 
+
 #[derive(Debug)]
 pub struct Channel{
     pub ins: i64,
@@ -44,6 +49,45 @@ pub struct AsioStream{
     pub buffer_info: AsioBufferInfo,
     driver: ai::AsioDrivers,
     pub buffer_size: i32,
+}
+
+// This is a direct copy of the ASIOSampleType
+// inside ASIO SDK. 
+#[derive(Debug, FromPrimitive)]
+#[repr(C)]
+pub enum AsioSampleType{
+	ASIOSTInt16MSB   = 0,
+	ASIOSTInt24MSB   = 1,		// used for 20 bits as well
+	ASIOSTInt32MSB   = 2,
+	ASIOSTFloat32MSB = 3,		// IEEE 754 32 bit float
+	ASIOSTFloat64MSB = 4,		// IEEE 754 64 bit double float
+
+	// these are used for 32 bit data buffer, with different alignment of the data inside
+	// 32 bit PCI bus systems can be more easily used with these
+	ASIOSTInt32MSB16 = 8,		// 32 bit data with 16 bit alignment
+	ASIOSTInt32MSB18 = 9,		// 32 bit data with 18 bit alignment
+	ASIOSTInt32MSB20 = 10,		// 32 bit data with 20 bit alignment
+	ASIOSTInt32MSB24 = 11,		// 32 bit data with 24 bit alignment
+	
+	ASIOSTInt16LSB   = 16,
+	ASIOSTInt24LSB   = 17,		// used for 20 bits as well
+	ASIOSTInt32LSB   = 18,
+	ASIOSTFloat32LSB = 19,		// IEEE 754 32 bit float, as found on Intel x86 architecture
+	ASIOSTFloat64LSB = 20, 		// IEEE 754 64 bit double float, as found on Intel x86 architecture
+
+	// these are used for 32 bit data buffer, with different alignment of the data inside
+	// 32 bit PCI bus systems can more easily used with these
+	ASIOSTInt32LSB16 = 24,		// 32 bit data with 18 bit alignment
+	ASIOSTInt32LSB18 = 25,		// 32 bit data with 18 bit alignment
+	ASIOSTInt32LSB20 = 26,		// 32 bit data with 20 bit alignment
+	ASIOSTInt32LSB24 = 27,		// 32 bit data with 24 bit alignment
+
+	//	ASIO DSD format.
+	ASIOSTDSDInt8LSB1   = 32,		// DSD 1 bit data, 8 samples per byte. First sample in Least significant bit.
+	ASIOSTDSDInt8MSB1   = 33,		// DSD 1 bit data, 8 samples per byte. First sample in Most significant bit.
+	ASIOSTDSDInt8NER8	= 40,		// DSD 8 bit data, 1 sample per byte. No Endianness required.
+
+	ASIOSTLastEntry
 }
 
 #[derive(Debug)]
@@ -226,6 +270,47 @@ pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError>{
     }
     
     sample_rate
+}
+
+pub fn get_data_type(driver_name: &str) -> Result<AsioSampleType, ASIOError>{
+    
+    let data_type: Result<AsioSampleType, ASIOError>;
+    // Make owned CString to send to load driver
+    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
+    let raw = my_driver_name.into_raw();
+
+    // Initialize memory for calls
+    let mut channel_info = ai::ASIOChannelInfo{
+        channel: 0,
+        isInput: 0,
+        isActive: 0,
+        channelGroup: 0,
+        type_: 0,
+        name: [0 as c_char; 32]
+    };
+    let mut driver_info = ai::ASIODriverInfo{_bindgen_opaque_blob: [0u32; 43] };
+
+    unsafe{
+        let mut asio_drivers = ai::AsioDrivers::new();
+
+        let load_result = asio_drivers.loadDriver(raw);
+
+        // Take back ownership
+        my_driver_name = CString::from_raw(raw);
+
+        if load_result {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetChannelInfo(&mut channel_info);
+            asio_drivers.removeCurrentDriver();
+            data_type = num::FromPrimitive::from_i32(channel_info.type_)
+                .map_or(Err(ASIOError::TypeError), |t| Ok(t));
+        }else{
+            data_type = Err(ASIOError::NoResult(driver_name.to_owned()));
+        }
+        ai::destruct_AsioDrivers(&mut asio_drivers);
+    }
+
+    data_type
 }
 
 pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{

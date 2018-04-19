@@ -75,6 +75,28 @@ impl Device {
             },
         };
 
+        let format = match sys::get_data_type(&self.driver_name) {
+            Ok(data_type) => {
+                println!("Audio Type: {:?}", data_type);
+                let data_type = match data_type{
+                    sys::AsioSampleType::ASIOSTInt16MSB   => SampleFormat::I16,
+                    sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
+                    sys::AsioSampleType::ASIOSTInt16LSB   => SampleFormat::I16,
+                    // TODO This should not be set to 16bit but is for testing
+                    sys::AsioSampleType::ASIOSTInt32LSB   => SampleFormat::I16,
+                    sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,		
+                    _ => panic!("Unsupported Audio Type: {:?}", data_type),
+                };
+                Format{channels: format.channels,
+                sample_rate: format.sample_rate, 
+                data_type: data_type}
+            },
+            Err(e) => {
+                println!("Error retrieving sample rate: {}", e);
+                format
+            },
+        };
+
         Ok(format)
 
     }

@@ -6,6 +6,7 @@ pub enum ASIOError{
     NoResult(String),
     BufferError(String),
     DriverLoadError,
+    TypeError,
 }
 
 impl fmt::Display for ASIOError{
@@ -14,6 +15,7 @@ impl fmt::Display for ASIOError{
             ASIOError::NoResult(ref e) => write!(f, "Driver {} not found", e),
             ASIOError::BufferError(ref e) => write!(f, "Buffer Error: {}", e),
             ASIOError::DriverLoadError => write!(f, "Couldn't load the driver"),
+            ASIOError::TypeError => write!(f, "Couldn't convert sample type"),
         }
     }
 
@@ -25,6 +27,7 @@ impl Error for ASIOError{
             ASIOError::NoResult(_) => "Couln't find driver",
             ASIOError::BufferError(_) => "Error creating the buffer",
             ASIOError::DriverLoadError => "Error loading the driver",
+            ASIOError::TypeError => "Error getting sample type",
         }
     }
 }
