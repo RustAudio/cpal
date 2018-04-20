@@ -70,16 +70,17 @@ impl EventLoop {
                 sys::set_callback(move |index| unsafe{
                     if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
+                            // Number of samples needed total
                             let cpal_num_samples = (asio_stream.buffer_size as usize) *  num_channels as usize;
-                            /*
-                            let data_slice = std::slice::from_raw_parts_mut(
-                                asio_stream.buffer_info.buffers[index as usize] as *mut i16,
-                                data_len);
-                                */
                             let mut callbacks = callbacks.lock().unwrap();
+
+                            // Assuming only one callback, probably needs to change
                             match callbacks.first_mut(){
                                 Some(callback) => {
+                                    // Buffer that is filled by cpal. 
+                                    // Type is assumed to be i16. This needs to change
                                     let mut cpal_buffer = vec![0i16; cpal_num_samples];
+                                    //  Call in block because of mut borrow
                                     {
                                         let buff = OutputBuffer{
                                             buffer: &mut cpal_buffer 
@@ -94,36 +95,39 @@ impl EventLoop {
                                             }
                                             ); 
                                     }
-                                    fn deinterleave(data_slice: &mut [i16]) -> (Vec<i16>,
-                                                                                Vec<i16>){
-                                        let mut first: Vec<i16> = data_slice.iter().cloned().step(2).collect();
-                                        let mut it = data_slice.iter().cloned();
-                                        it.next();
-                                        let mut second: Vec<i16> = it.step(2).collect();
-                                        (first, second)
+                                    // Function for deinterleaving because
+                                    // cpal writes to buffer interleaved
+                                    fn deinterleave(data_slice: &mut [i16], 
+                                                    num_channels: usize) -> Vec<Vec<i16>>{
+                                        let mut channels: Vec<Vec<i16>> = Vec::new();
+                                        for i in 0..num_channels{
+                                            let mut it = data_slice.iter().skip(i).cloned();
+                                            let channel = it.step(num_channels).collect();
+                                            channels.push(channel);
+                                        }
+                                        channels
                                     }
-                                    let (cpal_left,
-                                         cpal_right) = deinterleave(&mut cpal_buffer[..]);
-                                   
-                                    let left_buff_ptr = (asio_stream.buffer_infos[0].buffers[index as usize] as *mut i32);
-                                    let right_buff_ptr = left_buff_ptr.offset(asio_stream.buffer_size as isize);
-                                    println!("left: {:?}", left_buff_ptr);
-                                    println!("right: {:?}", right_buff_ptr);
-                                    /*
-                                    let right_buff_ptr = asio_stream.buffer_infos[1].buffers[index as usize] as *mut i32;
-                                    */
-                                    let asio_buffer_left: &'static mut [i32] = std::slice::from_raw_parts_mut(left_buff_ptr, asio_stream.buffer_size as usize);
-                                    
-                                    let asio_buffer_right: &'static mut [i32] = std::slice::from_raw_parts_mut(right_buff_ptr, asio_stream.buffer_size as usize);
-                                    for (asio_s, cpal_s) in asio_buffer_left.iter_mut()
-                                        .zip(&cpal_left){
-                                        *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
-                                                   ::std::i16::MAX as i64) as i32;
-                                    }
-                                    for (asio_s, cpal_s) in asio_buffer_right.iter_mut()
-                                        .zip(&cpal_right){
-                                        *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
-                                                   ::std::i16::MAX as i64) as i32;
+                                    // Deinter all the channels
+                                    let deinter_channels = deinterleave(&mut cpal_buffer[..], 
+                                                                        num_channels as usize);
+
+                                    // For each channel write the cpal data to 
+                                    // the asio buffer
+                                    for (i, channel) in deinter_channels.into_iter().enumerate(){
+                                        let buff_ptr = (asio_stream
+                                                        .buffer_infos[i]
+                                                        .buffers[index as usize] as *mut i32)
+                                            .offset(asio_stream.buffer_size as isize * i as isize);
+                                        let asio_buffer: &'static mut [i32] = 
+                                            std::slice::from_raw_parts_mut(
+                                                buff_ptr, 
+                                                asio_stream.buffer_size as usize);
+                                        for (asio_s, cpal_s) in asio_buffer.iter_mut()
+                                            .zip(&channel){
+                                                *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
+                                                           ::std::i16::MAX as i64) as i32;
+                                            }
+
                                     }
 
                                 },
