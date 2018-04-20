@@ -46,7 +46,7 @@ pub struct SampleRate{
 }
 
 pub struct AsioStream{
-    pub buffer_info: AsioBufferInfo,
+    pub buffer_infos: [AsioBufferInfo; 2],
     driver: ai::AsioDrivers,
     pub buffer_size: i32,
 }
@@ -90,12 +90,12 @@ pub enum AsioSampleType{
 	ASIOSTLastEntry
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct AsioBufferInfo{
     pub is_input: c_long,
     pub channel_num: c_long,
-    pub buffers: [*mut(); 2],
+    pub buffers: [*mut std::os::raw::c_void; 2],
 }
 
 #[repr(C)]
@@ -315,11 +315,16 @@ pub fn get_data_type(driver_name: &str) -> Result<AsioSampleType, ASIOError>{
 
 pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
     //let mut buffer_info = ai::ASIOBufferInfo{_bindgen_opaque_blob: [0u32; 6]};
-    let mut buffer_info = AsioBufferInfo{ 
+    let mut buffer_infos = [AsioBufferInfo{ 
         is_input: 0, 
         channel_num: 0,
         buffers: [std::ptr::null_mut(); 2]
-    };
+    }, AsioBufferInfo{ 
+        is_input: 0, 
+        channel_num: 0,
+        buffers: [std::ptr::null_mut(); 2]
+    }];
+    
 
     let num_channels = 2;
     //let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
@@ -344,32 +349,57 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
     let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
 
     unsafe{
+        let mut bi = AsioBufferInfo{ 
+            is_input: 0, 
+            channel_num: 0,
+            buffers: [std::ptr::null_mut(); 2] };
         let mut asio_drivers = ai::AsioDrivers::new();
         let load_result = asio_drivers.loadDriver(raw);
         // Take back ownership
         my_driver_name = CString::from_raw(raw);
         if !load_result { return Err(ASIOError::DriverLoadError); }
 
+        for d in &buffer_infos{
+            println!("before {:?}", d);
+        }
+
 
         ai::ASIOInit(&mut driver_info);
         ai::ASIOGetBufferSize(&mut min_b_size, &mut max_b_size,
                               &mut pref_b_size, &mut grans);
         result = if  pref_b_size > 0 { 
-            let mut buffer_info_convert = mem::transmute::<AsioBufferInfo, 
-            ai::ASIOBufferInfo>(buffer_info);
+            let mut buffer_info_convert = [
+                mem::transmute::<AsioBufferInfo, 
+            ai::ASIOBufferInfo>(buffer_infos[0]),
+                mem::transmute::<AsioBufferInfo, 
+            ai::ASIOBufferInfo>(buffer_infos[1])];
+            let mut bic = mem::transmute::<AsioBufferInfo, 
+            ai::ASIOBufferInfo>(bi);
             let mut callbacks_convert = mem::transmute::<AsioCallbacks,
             ai::ASIOCallbacks>(callbacks);
-            let buffer_result = ai::ASIOCreateBuffers(&mut buffer_info_convert, 
+            let buffer_result = ai::ASIOCreateBuffers(&mut bic, 
                                                              num_channels,
                                                              pref_b_size, 
                                                              &mut callbacks_convert);
             if buffer_result == 0{
+                let buffer_infos = [
+                    mem::transmute::<ai::ASIOBufferInfo,
+                    AsioBufferInfo>(buffer_info_convert[0]),
+                    mem::transmute::<ai::ASIOBufferInfo,
+                    AsioBufferInfo>(buffer_info_convert[1])];
+                for d in &buffer_infos{
+                    println!("after {:?}", d);
+                }
+                println!("channels: {:?}", num_channels);
+                let mut bi = mem::transmute::<ai::ASIOBufferInfo,
+                AsioBufferInfo>(bic);
+                println!("bi: {:?}", bi);
+
                 return Ok(AsioStream{ 
-                    buffer_info: mem::transmute::<ai::ASIOBufferInfo,
-                    AsioBufferInfo>(buffer_info_convert),
+                    buffer_infos: buffer_infos,
                     driver: asio_drivers,
                     buffer_size: pref_b_size,
-                })
+                });
             }
             Err(ASIOError::BufferError(format!("failed to create buffers, 
                                        error code: {}", buffer_result)))

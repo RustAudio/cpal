@@ -70,39 +70,53 @@ impl EventLoop {
                     if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
                             let data_len = (asio_stream.buffer_size as usize) * 4 as usize;
+                            /*
                             let data_slice = std::slice::from_raw_parts_mut(
                                 asio_stream.buffer_info.buffers[index as usize] as *mut i16,
                                 data_len);
-                            let buff = OutputBuffer{
-                                buffer: data_slice
-                            };
+                                */
                             let mut callbacks = callbacks.lock().unwrap();
                             match callbacks.first_mut(){
                                 Some(callback) => {
-                                    callback(
-                                        StreamId(count),
-                                        StreamData::Output{ 
-                                            buffer: UnknownTypeOutputBuffer::I16(
-                                                        ::OutputBuffer{ 
-                                                            target: Some(super::super::OutputBuffer::Asio(buff))
-                                                        })
-                                        }
-                                        ); 
-                                    let data_slice = std::slice::from_raw_parts_mut(
-                                        asio_stream.buffer_info.buffers[index as usize] as *mut i16,
-                                        data_len);
-                                    fn deinterleave(data_slice: &mut [i16]) -> Vec<i16>{
+                                    let mut data_slice = vec![0i16; data_len];
+                                    {
+                                        let buff = OutputBuffer{
+                                            buffer: &mut data_slice
+                                        };
+                                        callback(
+                                            StreamId(count),
+                                            StreamData::Output{ 
+                                                buffer: UnknownTypeOutputBuffer::I16(
+                                                            ::OutputBuffer{ 
+                                                                target: Some(super::super::OutputBuffer::Asio(buff))
+                                                            })
+                                            }
+                                            ); 
+                                    }
+                                    fn deinterleave(data_slice: &mut [i16]) -> (Vec<i16>,
+                                                                                Vec<i16>){
                                         let mut first: Vec<i16> = data_slice.iter().cloned().step(2).collect();
                                         let mut it = data_slice.iter().cloned();
                                         it.next();
                                         let mut second: Vec<i16> = it.step(2).collect();
-                                        first.append(&mut second);
-                                        first
+                                        (first, second)
                                     }
-                                    let deinter = deinterleave(data_slice);
-                                    for (i, s) in data_slice.iter_mut().enumerate(){
-                                        *s = deinter[i];
+                                    let (deinter_right,
+                                         deinter_left) = deinterleave(&mut data_slice[..]);
+                                    let data_slice_right = std::slice::from_raw_parts_mut(
+                                        asio_stream.buffer_infos[0].buffers[index as usize] as *mut i16,
+                                        data_len / 2);
+                                    let data_slice_left = std::slice::from_raw_parts_mut(
+                                        asio_stream.buffer_infos[1].buffers[index as usize] as *mut i16,
+                                        data_len / 2);
+                                    for (i, s) in data_slice_right.iter_mut().enumerate(){
+                                        *s = deinter_right[i];
                                     }
+                                    for (i, s) in data_slice_left.iter_mut().enumerate(){
+                                        *s = deinter_left[i];
+                                    }
+                                    //println!("right: {:?}", asio_stream.buffer_infos[0]);
+                                    //println!("left: {:?}", asio_stream.buffer_infos[1]);
 
                                 },
                                 None => return (),
