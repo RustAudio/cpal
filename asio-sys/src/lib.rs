@@ -349,10 +349,6 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
     let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
 
     unsafe{
-        let mut bi = AsioBufferInfo{ 
-            is_input: 0, 
-            channel_num: 0,
-            buffers: [std::ptr::null_mut(); 2] };
         let mut asio_drivers = ai::AsioDrivers::new();
         let load_result = asio_drivers.loadDriver(raw);
         // Take back ownership
@@ -373,11 +369,9 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
             ai::ASIOBufferInfo>(buffer_infos[0]),
                 mem::transmute::<AsioBufferInfo, 
             ai::ASIOBufferInfo>(buffer_infos[1])];
-            let mut bic = mem::transmute::<AsioBufferInfo, 
-            ai::ASIOBufferInfo>(bi);
             let mut callbacks_convert = mem::transmute::<AsioCallbacks,
             ai::ASIOCallbacks>(callbacks);
-            let buffer_result = ai::ASIOCreateBuffers(&mut bic, 
+            let buffer_result = ai::ASIOCreateBuffers(buffer_info_convert.as_mut_ptr(), 
                                                              num_channels,
                                                              pref_b_size, 
                                                              &mut callbacks_convert);
@@ -391,9 +385,6 @@ pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError>{
                     println!("after {:?}", d);
                 }
                 println!("channels: {:?}", num_channels);
-                let mut bi = mem::transmute::<ai::ASIOBufferInfo,
-                AsioBufferInfo>(bic);
-                println!("bi: {:?}", bi);
 
                 return Ok(AsioStream{ 
                     buffer_infos: buffer_infos,
