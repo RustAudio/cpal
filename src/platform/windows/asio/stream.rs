@@ -65,11 +65,12 @@ impl EventLoop {
                 let asio_stream = self.asio_stream.clone();
                 let callbacks = self.callbacks.clone();
                 let bytes_per_channel = format.data_type.sample_size();
+                let num_channels = format.channels.clone();
 
                 sys::set_callback(move |index| unsafe{
                     if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
-                            let data_len = (asio_stream.buffer_size as usize) * 4 as usize;
+                            let cpal_num_samples = (asio_stream.buffer_size as usize) *  num_channels as usize;
                             /*
                             let data_slice = std::slice::from_raw_parts_mut(
                                 asio_stream.buffer_info.buffers[index as usize] as *mut i16,
@@ -78,10 +79,10 @@ impl EventLoop {
                             let mut callbacks = callbacks.lock().unwrap();
                             match callbacks.first_mut(){
                                 Some(callback) => {
-                                    let mut data_slice = vec![0i16; data_len];
+                                    let mut cpal_buffer = vec![0i16; cpal_num_samples];
                                     {
                                         let buff = OutputBuffer{
-                                            buffer: &mut data_slice
+                                            buffer: &mut cpal_buffer 
                                         };
                                         callback(
                                             StreamId(count),
@@ -101,22 +102,29 @@ impl EventLoop {
                                         let mut second: Vec<i16> = it.step(2).collect();
                                         (first, second)
                                     }
-                                    let (deinter_right,
-                                         deinter_left) = deinterleave(&mut data_slice[..]);
-                                    let data_slice_right = std::slice::from_raw_parts_mut(
-                                        asio_stream.buffer_infos[0].buffers[index as usize] as *mut i16,
-                                        data_len / 2);
-                                    let data_slice_left = std::slice::from_raw_parts_mut(
-                                        asio_stream.buffer_infos[1].buffers[index as usize] as *mut i16,
-                                        data_len / 2);
-                                    for (i, s) in data_slice_right.iter_mut().enumerate(){
-                                        *s = deinter_right[i];
+                                    let (cpal_left,
+                                         cpal_right) = deinterleave(&mut cpal_buffer[..]);
+                                   
+                                    let left_buff_ptr = (asio_stream.buffer_infos[0].buffers[index as usize] as *mut i32);
+                                    let right_buff_ptr = left_buff_ptr.offset(asio_stream.buffer_size as isize);
+                                    println!("left: {:?}", left_buff_ptr);
+                                    println!("right: {:?}", right_buff_ptr);
+                                    /*
+                                    let right_buff_ptr = asio_stream.buffer_infos[1].buffers[index as usize] as *mut i32;
+                                    */
+                                    let asio_buffer_left: &'static mut [i32] = std::slice::from_raw_parts_mut(left_buff_ptr, asio_stream.buffer_size as usize);
+                                    
+                                    let asio_buffer_right: &'static mut [i32] = std::slice::from_raw_parts_mut(right_buff_ptr, asio_stream.buffer_size as usize);
+                                    for (asio_s, cpal_s) in asio_buffer_left.iter_mut()
+                                        .zip(&cpal_left){
+                                        *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
+                                                   ::std::i16::MAX as i64) as i32;
                                     }
-                                    for (i, s) in data_slice_left.iter_mut().enumerate(){
-                                        *s = deinter_left[i];
+                                    for (asio_s, cpal_s) in asio_buffer_right.iter_mut()
+                                        .zip(&cpal_right){
+                                        *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
+                                                   ::std::i16::MAX as i64) as i32;
                                     }
-                                    //println!("right: {:?}", asio_stream.buffer_infos[0]);
-                                    //println!("left: {:?}", asio_stream.buffer_infos[1]);
 
                                 },
                                 None => return (),
