@@ -133,7 +133,6 @@ impl Device {
         
         let format = match sys::get_data_type(&self.driver_name) {
             Ok(data_type) => {
-                println!("Audio Type: {:?}", data_type);
                 let data_type = match data_type{
                     sys::AsioSampleType::ASIOSTInt16MSB   => SampleFormat::I16,
                     sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,

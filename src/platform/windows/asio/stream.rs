@@ -53,6 +53,7 @@ impl EventLoop {
         format: &Format,
         ) -> Result<StreamId, CreationError>
     {
+        let stream_type = sys::get_data_type(&device.driver_name).expect("Couldn't load data type");
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
                 {
@@ -67,67 +68,90 @@ impl EventLoop {
                 let bytes_per_channel = format.data_type.sample_size();
                 let num_channels = format.channels.clone();
 
+                // Get stream types
+
                 sys::set_callback(move |index| unsafe{
                     if let Some(ref asio_stream) = *asio_stream
                         .lock().unwrap(){
                             // Number of samples needed total
                             let cpal_num_samples = (asio_stream.buffer_size as usize) *  num_channels as usize;
                             let mut callbacks = callbacks.lock().unwrap();
+                            
 
                             // Assuming only one callback, probably needs to change
                             match callbacks.first_mut(){
                                 Some(callback) => {
-                                    // Buffer that is filled by cpal. 
-                                    // Type is assumed to be i16. This needs to change
-                                    let mut cpal_buffer = vec![0i16; cpal_num_samples];
-                                    //  Call in block because of mut borrow
-                                    {
-                                        let buff = OutputBuffer{
-                                            buffer: &mut cpal_buffer 
+                                    macro_rules! try_callback {
+                                        ($SampleFormat:ident, 
+                                         $SampleType:ty, 
+                                         $SampleTypeIdent:ident,
+                                         $AsioType:ty,
+                                         $AsioTypeIdent:ident,
+                                         $BiggerType:ty) => {
+                                            // Buffer that is filled by cpal. 
+                                            // Type is assumed to be i16. This needs to change
+                                            let mut cpal_buffer: Vec<$SampleType> = vec![0; cpal_num_samples];
+                                            //  Call in block because of mut borrow
+                                            {
+                                                let buff = OutputBuffer{
+                                                    buffer: &mut cpal_buffer 
+                                                };
+                                                callback(
+                                                    StreamId(count),
+                                                    StreamData::Output{ 
+                                                        buffer: UnknownTypeOutputBuffer::$SampleFormat(
+                                                                    ::OutputBuffer{ 
+                                                                        target: Some(super::super::OutputBuffer::Asio(buff))
+                                                                    })
+                                                    }
+                                                    ); 
+                                            }
+                                            // Function for deinterleaving because
+                                            // cpal writes to buffer interleaved
+                                            fn deinterleave(data_slice: &mut [$SampleType], 
+                                                            num_channels: usize) -> Vec<Vec<$SampleType>>{
+                                                let mut channels: Vec<Vec<$SampleType>> = Vec::new();
+                                                for i in 0..num_channels{
+                                                    let mut it = data_slice.iter().skip(i).cloned();
+                                                    let channel = it.step(num_channels).collect();
+                                                    channels.push(channel);
+                                                }
+                                                channels
+                                            }
+                                            // Deinter all the channels
+                                            let deinter_channels = deinterleave(&mut cpal_buffer[..], 
+                                                                                num_channels as usize);
+
+                                            // For each channel write the cpal data to 
+                                            // the asio buffer
+                                            // Type is assumed as i16 for cpal
+                                            // and i32 for asio.
+                                            // This should be generic
+                                            // Also need to check for Endian
+                                            for (i, channel) in deinter_channels.into_iter().enumerate(){
+                                                let buff_ptr = (asio_stream
+                                                                .buffer_infos[i]
+                                                                .buffers[index as usize] as *mut $AsioType)
+                                                    .offset(asio_stream.buffer_size as isize * i as isize);
+                                                let asio_buffer: &'static mut [$AsioType] = 
+                                                    std::slice::from_raw_parts_mut(
+                                                        buff_ptr, 
+                                                        asio_stream.buffer_size as usize);
+                                                for (asio_s, cpal_s) in asio_buffer.iter_mut()
+                                                    .zip(&channel){
+                                                        *asio_s = (*cpal_s as $BiggerType * 
+                                                                   ::std::$AsioTypeIdent::MAX as $BiggerType /
+                                                                   ::std::$SampleTypeIdent::MAX as $BiggerType) as $AsioType;
+                                                    }
+
+                                            }
                                         };
-                                        callback(
-                                            StreamId(count),
-                                            StreamData::Output{ 
-                                                buffer: UnknownTypeOutputBuffer::I16(
-                                                            ::OutputBuffer{ 
-                                                                target: Some(super::super::OutputBuffer::Asio(buff))
-                                                            })
-                                            }
-                                            ); 
                                     }
-                                    // Function for deinterleaving because
-                                    // cpal writes to buffer interleaved
-                                    fn deinterleave(data_slice: &mut [i16], 
-                                                    num_channels: usize) -> Vec<Vec<i16>>{
-                                        let mut channels: Vec<Vec<i16>> = Vec::new();
-                                        for i in 0..num_channels{
-                                            let mut it = data_slice.iter().skip(i).cloned();
-                                            let channel = it.step(num_channels).collect();
-                                            channels.push(channel);
-                                        }
-                                        channels
-                                    }
-                                    // Deinter all the channels
-                                    let deinter_channels = deinterleave(&mut cpal_buffer[..], 
-                                                                        num_channels as usize);
-
-                                    // For each channel write the cpal data to 
-                                    // the asio buffer
-                                    for (i, channel) in deinter_channels.into_iter().enumerate(){
-                                        let buff_ptr = (asio_stream
-                                                        .buffer_infos[i]
-                                                        .buffers[index as usize] as *mut i32)
-                                            .offset(asio_stream.buffer_size as isize * i as isize);
-                                        let asio_buffer: &'static mut [i32] = 
-                                            std::slice::from_raw_parts_mut(
-                                                buff_ptr, 
-                                                asio_stream.buffer_size as usize);
-                                        for (asio_s, cpal_s) in asio_buffer.iter_mut()
-                                            .zip(&channel){
-                                                *asio_s = (*cpal_s as i64 * ::std::i32::MAX as i64 /
-                                                           ::std::i16::MAX as i64) as i32;
-                                            }
-
+                                    match stream_type{
+                                        sys::AsioSampleType::ASIOSTInt32LSB => {
+                                            try_callback!(I16, i16, i16, i32, i32, i64);
+                                        },
+                                        _ => println!("unsupported format {:?}", stream_type),
                                     }
 
                                 },
