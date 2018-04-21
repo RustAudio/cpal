@@ -27,9 +27,9 @@ fn main() {
 
     // Check if library exists
     // if it doesn't create it
-    let mut lib_path = out_dir.clone(); 
+    let mut lib_path = out_dir.clone();
     lib_path.push("libasio.a");
-    if ! lib_path.exists() {
+    if !lib_path.exists() {
         create_lib(&cpal_asio_dir);
     }
 
@@ -40,15 +40,15 @@ fn main() {
     println!("cargo:rustc-link-lib=static=asio");
 
     // Check if bindings exist
-    // if they dont create them 
-    let mut binding_path = out_dir.clone(); 
+    // if they dont create them
+    let mut binding_path = out_dir.clone();
     binding_path.push("asio_bindings.rs");
-    if ! binding_path.exists(){
+    if !binding_path.exists() {
         create_bindings(&cpal_asio_dir);
     }
 }
 
-fn create_lib(cpal_asio_dir: &PathBuf){
+fn create_lib(cpal_asio_dir: &PathBuf) {
     let mut cpp_paths: Vec<PathBuf> = Vec::new();
     let mut host_dir = cpal_asio_dir.clone();
     let mut pc_dir = cpal_asio_dir.clone();
@@ -95,7 +95,7 @@ fn create_lib(cpal_asio_dir: &PathBuf){
         .compile("libasio.a");
 }
 
-fn create_bindings(cpal_asio_dir: &PathBuf){
+fn create_bindings(cpal_asio_dir: &PathBuf) {
     let mut asio_header = None;
     let mut asio_sys_header = None;
     let mut asio_drivers_header = None;
