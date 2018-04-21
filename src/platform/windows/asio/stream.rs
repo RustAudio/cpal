@@ -86,11 +86,9 @@ impl EventLoop {
                                          $SampleType:ty, 
                                          $SampleTypeIdent:ident,
                                          $AsioType:ty,
-                                         $AsioTypeIdent:ident,
-                                         $BiggerType:ty) => {
+                                         $AsioTypeIdent:ident) => {
                                             // Buffer that is filled by cpal. 
-                                            // Type is assumed to be i16. This needs to change
-                                            let mut cpal_buffer: Vec<$SampleType> = vec![0; cpal_num_samples];
+                                            let mut cpal_buffer: Vec<$SampleType> = vec![0 as $SampleType; cpal_num_samples];
                                             //  Call in block because of mut borrow
                                             {
                                                 let buff = OutputBuffer{
@@ -124,9 +122,6 @@ impl EventLoop {
 
                                             // For each channel write the cpal data to 
                                             // the asio buffer
-                                            // Type is assumed as i16 for cpal
-                                            // and i32 for asio.
-                                            // This should be generic
                                             // Also need to check for Endian
                                             for (i, channel) in deinter_channels.into_iter().enumerate(){
                                                 let buff_ptr = (asio_stream
@@ -139,17 +134,28 @@ impl EventLoop {
                                                         asio_stream.buffer_size as usize);
                                                 for (asio_s, cpal_s) in asio_buffer.iter_mut()
                                                     .zip(&channel){
-                                                        *asio_s = (*cpal_s as $BiggerType * 
-                                                                   ::std::$AsioTypeIdent::MAX as $BiggerType /
-                                                                   ::std::$SampleTypeIdent::MAX as $BiggerType) as $AsioType;
+                                                        *asio_s = (*cpal_s as i64 * 
+                                                                   ::std::$AsioTypeIdent::MAX as i64 /
+                                                                   ::std::$SampleTypeIdent::MAX as i64) as $AsioType;
                                                     }
 
                                             }
                                         };
                                     }
+                                    // Generic over types
+                                    // TODO check for endianess
                                     match stream_type{
                                         sys::AsioSampleType::ASIOSTInt32LSB => {
-                                            try_callback!(I16, i16, i16, i32, i32, i64);
+                                            try_callback!(I16, i16, i16, i32, i32);
+                                        },
+                                        sys::AsioSampleType::ASIOSTInt16LSB => {
+                                            try_callback!(I16, i16, i16, i16, i16);
+                                        },
+                                        sys::AsioSampleType::ASIOSTFloat32LSB => {
+                                            try_callback!(F32, f32, f32, f32, f32);
+                                        },
+                                        sys::AsioSampleType::ASIOSTFloat32LSB => {
+                                            try_callback!(F32, f32, f32, f64, f64);
                                         },
                                         _ => println!("unsupported format {:?}", stream_type),
                                     }
