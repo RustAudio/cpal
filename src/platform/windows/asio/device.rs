@@ -182,6 +182,12 @@ impl Iterator for Devices {
 // so returning first in list as default
 pub fn default_input_device() -> Option<Device> {
     let mut driver_list = sys::get_driver_list();
+    for dn in &driver_list{
+        if dn == "ASIO4ALL v2"{
+            println!("Defaulted to ASIO4ALL **remove from production**");
+            return Some(Device{ driver_name: dn.clone() });
+        }
+    }
     match driver_list.pop() {
         Some(dn) => Some(Device{ driver_name: dn }),
         None => None,
