@@ -1,0 +1,16 @@
+[package]
+name = "asio-sys"
+version = "0.1.0"
+authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
+build = "build.rs"
+
+[target.'cfg(any(target_os = "windows"))'.build-dependencies]
+bindgen = "0.33.1"
+walkdir = "2"
+cc = "1.0.4"
+
+[dependencies]
+lazy_static = "1.0.0"
+num = "0.1.42"
+num-traits = "0.2.2"
+num-derive = "0.2.0"
