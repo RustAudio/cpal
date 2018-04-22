@@ -11,9 +11,13 @@ keywords = ["audio", "sound"]
 [dependencies]
 failure = "0.1.5"
 lazy_static = "1.3"
+itertools = "0.7.8"
 
 [dev-dependencies]
 hound = "3.4"
+
+[target.'cfg(any(target_os = "windows" ))'.dependencies]
+asio-sys = { version = "0.1", path = "asio-sys" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
