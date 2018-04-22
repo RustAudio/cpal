@@ -43,6 +43,7 @@ impl EventLoop {
         device: &Device,
         format: &Format,
     ) -> Result<StreamId, CreationError> {
+        /*
         let stream_type = sys::get_data_type(&device.driver_name).expect("Couldn't load data type");
         match sys::prepare_stream(&device.driver_name) {
             Ok(stream) => {
@@ -160,6 +161,8 @@ impl EventLoop {
                 Err(CreationError::DeviceNotAvailable)
             }
         }
+    */
+        unimplemented!()
     }
 
     pub fn build_output_stream(
