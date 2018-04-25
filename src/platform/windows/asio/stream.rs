@@ -45,7 +45,7 @@ impl EventLoop {
         format: &Format,
         ) -> Result<StreamId, CreationError> {
         let stream_type = sys::get_data_type(&device.driver_name).expect("Couldn't load data type");
-        match sys::prepare_stream(&device.driver_name) {
+        match sys::prepare_input_stream(&device.driver_name) {
             Ok(stream) => {
                 {
                     *self.asio_stream.lock().unwrap() = Some(stream);
@@ -76,9 +76,6 @@ impl EventLoop {
                                      $AsioTypeIdent:ident) => {
                                         // Buffer that is filled by cpal.
                                         let mut cpal_buffer: Vec<$SampleType> = vec![0 as $SampleType; cpal_num_samples];
-                                        //  Call in block because of mut borrow
-                                        {
-                                        }
                                         // Function for deinterleaving because
                                         // cpal writes to buffer interleaved
                                         fn interleave(channels: Vec<Vec<$SampleType>>) -> Vec<$SampleType>{
@@ -96,13 +93,14 @@ impl EventLoop {
                                         // For each channel write the cpal data to
                                         // the asio buffer
                                         // Also need to check for Endian
+
                                         for (i, channel) in channels.iter_mut().enumerate(){
                                             let buff_ptr = (asio_stream
                                                             .buffer_infos[i]
-                                                            .buffers[index as usize] as *mut $AsioType)
-                                                .offset(asio_stream.buffer_size as isize * i as isize);
-                                            let asio_buffer: &'static mut [$AsioType] =
-                                                std::slice::from_raw_parts_mut(
+                                                            .buffers[index as usize] as *mut $AsioType);
+                                                //.offset(asio_stream.buffer_size as isize * i as isize);
+                                            let asio_buffer: &'static [$AsioType] =
+                                                std::slice::from_raw_parts(
                                                     buff_ptr,
                                                     asio_stream.buffer_size as usize);
                                             for asio_s in asio_buffer.iter(){
@@ -112,12 +110,13 @@ impl EventLoop {
                                             }
                                         }
 
+
                                         // interleave all the channels
-                                        let inter_buffer = interleave(channels);
+                                        let mut inter_buffer = interleave(channels);
 
 
                                         let buff = InputBuffer{
-                                            buffer: &mut cpal_buffer
+                                            buffer: &mut inter_buffer
                                         };
                                         callback(
                                             StreamId(count),
@@ -264,7 +263,7 @@ pub fn build_output_stream(
                                 sys::AsioSampleType::ASIOSTFloat32LSB => {
                                     try_callback!(F32, f32, f32, f32, f32);
                                 }
-                                sys::AsioSampleType::ASIOSTFloat32LSB => {
+                                sys::AsioSampleType::ASIOSTFloat64LSB => {
                                     try_callback!(F32, f32, f32, f64, f64);
                                 }
                                 _ => println!("unsupported format {:?}", stream_type),
