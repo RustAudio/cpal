@@ -1,7 +1,7 @@
 [package]
 name = "asio-sys"
 version = "0.1.0"
-authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
+authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 build = "build.rs"
 
 [target.'cfg(any(target_os = "windows"))'.build-dependencies]

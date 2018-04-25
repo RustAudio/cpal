@@ -24,7 +24,7 @@ pub struct EventLoop {
 pub struct StreamId(usize);
 
 pub struct InputBuffer<'a, T: 'a> {
-    buffer: &'a mut [T],
+    buffer: &'a [T],
 }
 pub struct OutputBuffer<'a, T: 'a> {
     buffer: &'a mut [T],
@@ -142,7 +142,7 @@ impl EventLoop {
                                     sys::AsioSampleType::ASIOSTFloat32LSB => {
                                         try_callback!(F32, f32, f32, f32, f32);
                                     }
-                                    sys::AsioSampleType::ASIOSTFloat32LSB => {
+                                    sys::AsioSampleType::ASIOSTFloat64LSB => {
                                         try_callback!(F32, f32, f32, f64, f64);
                                     }
                                     _ => println!("unsupported format {:?}", stream_type),
