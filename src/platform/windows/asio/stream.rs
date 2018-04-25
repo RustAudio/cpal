@@ -13,10 +13,11 @@ use UnknownTypeInputBuffer;
 use std::sync::{Arc, Mutex};
 use std::mem;
 use self::itertools::Itertools;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct EventLoop {
     asio_stream: Arc<Mutex<Option<sys::AsioStream>>>,
-    stream_count: Cell<usize>,
+    stream_count: Arc<AtomicUsize>,
     callbacks: Arc<Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
 }
 
@@ -34,7 +35,7 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         EventLoop {
             asio_stream: Arc::new(Mutex::new(None)),
-            stream_count: Cell::new(0),
+            stream_count: Arc::new(AtomicUsize::new(0)),
             callbacks: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -50,8 +51,8 @@ impl EventLoop {
                 {
                     *self.asio_stream.lock().unwrap() = Some(stream);
                 }
-                let count = self.stream_count.get();
-                self.stream_count.set(count + 1);
+                let count = self.stream_count.load(Ordering::SeqCst);
+                self.stream_count.store(count + 1, Ordering::SeqCst);
                 let asio_stream = self.asio_stream.clone();
                 let callbacks = self.callbacks.clone();
                 let bytes_per_channel = format.data_type.sample_size();
@@ -95,9 +96,9 @@ impl EventLoop {
                                         // Also need to check for Endian
 
                                         for (i, channel) in channels.iter_mut().enumerate(){
-                                            let buff_ptr = (asio_stream
+                                            let buff_ptr = asio_stream
                                                             .buffer_infos[i]
-                                                            .buffers[index as usize] as *mut $AsioType);
+                                                            .buffers[index as usize] as *mut $AsioType;
                                                 //.offset(asio_stream.buffer_size as isize * i as isize);
                                             let asio_buffer: &'static [$AsioType] =
                                                 std::slice::from_raw_parts(
@@ -171,8 +172,8 @@ pub fn build_output_stream(
             {
                 *self.asio_stream.lock().unwrap() = Some(stream);
             }
-            let count = self.stream_count.get();
-            self.stream_count.set(count + 1);
+            let count = self.stream_count.load(Ordering::SeqCst);
+            self.stream_count.store(count + 1, Ordering::SeqCst);
             let asio_stream = self.asio_stream.clone();
             let callbacks = self.callbacks.clone();
             let bytes_per_channel = format.data_type.sample_size();
