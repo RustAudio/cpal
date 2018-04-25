@@ -102,57 +102,30 @@ impl Device {
     }
 
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        let format = Format{channels: 0, sample_rate: SampleRate(0), 
-            // TODO Not sure about how to set the data type
-            data_type: SampleFormat::F32};
-
-        let format = match sys::get_channels(&self.driver_name) {
-            Ok(channels) => {
-                Format{channels: channels.outs as u16,
-                sample_rate: format.sample_rate, 
-                data_type: format.data_type}
-            },
-            Err(e) => {
-                println!("Error retrieving channels: {}", e);
-                format
-            },
+        let num_channels = sys::get_channels(&self.driver_name)
+            .map(|c| c.outs as u16);
+        let sample_rate = sys::get_sample_rate(&self.driver_name)
+            .map(|s| SampleRate(s.rate));
+        let data_type = sys::get_data_type(&self.driver_name);
+        let data_type = match data_type{
+            Ok(sys::AsioSampleType::ASIOSTInt16MSB) => Ok(SampleFormat::I16),
+            Ok(sys::AsioSampleType::ASIOSTFloat32MSB) => Ok(SampleFormat::F32),
+            Ok(sys::AsioSampleType::ASIOSTInt16LSB) => Ok(SampleFormat::I16),
+            // TODO This should not be set to 16bit but is for testing
+            Ok(sys::AsioSampleType::ASIOSTInt32LSB)   => Ok(SampleFormat::I16),
+            Ok(sys::AsioSampleType::ASIOSTFloat32LSB) => Ok(SampleFormat::F32),		
+            _ => Err(DefaultFormatError::StreamTypeNotSupported),
+        };
+        let format = match (num_channels, sample_rate, data_type){
+            (Ok(num_channels), Ok(sample_rate), Ok(data_type)) =>{
+                Ok(Format{channels: num_channels,
+                sample_rate: sample_rate, 
+                data_type: data_type})
+            }
+            _ => Err(DefaultFormatError::StreamTypeNotSupported),
         };
 
-
-        let format = match sys::get_sample_rate(&self.driver_name) {
-            Ok(sample_rate) => {
-                Format{channels: format.channels,
-                sample_rate: SampleRate(sample_rate.rate), 
-                data_type: format.data_type}
-            },
-            Err(e) => {
-                println!("Error retrieving sample rate: {}", e);
-                format
-            },
-        };
-        
-        let format = match sys::get_data_type(&self.driver_name) {
-            Ok(data_type) => {
-                let data_type = match data_type{
-                    sys::AsioSampleType::ASIOSTInt16MSB   => SampleFormat::I16,
-                    sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
-                    sys::AsioSampleType::ASIOSTInt16LSB   => SampleFormat::I16,
-                    // TODO This should not be set to 16bit but is for testing
-                    sys::AsioSampleType::ASIOSTInt32LSB   => SampleFormat::I16,
-                    sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,		
-                    _ => panic!("Unsupported Audio Type: {:?}", data_type),
-                };
-                Format{channels: format.channels,
-                sample_rate: format.sample_rate, 
-                data_type: data_type}
-            },
-            Err(e) => {
-                println!("Error retrieving sample rate: {}", e);
-                format
-            },
-        };
-
-        Ok(format)
+        format
     }
 }
 
