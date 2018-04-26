@@ -63,41 +63,55 @@ impl EventLoop {
                 let channel_len = cpal_num_samples 
                     / num_channels as usize;
 
-                enum CpalBuffer{
-                    I16(Vec<i16>),
-                    U16(Vec<u16>),
-                    F32(Vec<f32>),
+                struct I16Buffer{
+                    cpal: Vec<i16>,
+                    channel: Vec<Vec<i16>>,
                 }
-                enum ChannelBuffer{
-                    I16(Vec<Vec<i16>>),
-                    U16(Vec<Vec<u16>>),
-                    F32(Vec<Vec<f32>>),
+                struct U16Buffer{
+                    cpal: Vec<u16>,
+                    channel: Vec<Vec<u16>>,
                 }
-                let (mut cpal_buffer,
-                 mut channels) = match format.data_type{
+                struct F32Buffer{
+                    cpal: Vec<f32>,
+                    channel: Vec<Vec<f32>>,
+                }
+                struct BufferTypes<T>(T);
+                impl BufferTypes<I16Buffer>{
+                    fn into_buff(self) -> I16Buffer{
+                        self.0
+                    }
+                }
+                impl BufferTypes<U16Buffer>{
+                    fn into_buff(self) -> U16Buffer{
+                        self.0
+                    }
+                }
+                impl BufferTypes<F32Buffer>{
+                    fn into_buff(self) -> F32Buffer{
+                        self.0
+                    }
+                }
+                let mut buffers = match format.data_type{
                     SampleFormat::I16 => {
-                        let mut cpal_buffer = CpalBuffer::I16(vec![0 as i16; cpal_num_samples]);
-                        let mut channels = ChannelBuffer::I16(
-                            (0..num_channels)
+                        BufferTypes(I16Buffer{
+                            cpal: vec![0 as i16; cpal_num_samples],
+                            channel: (0..num_channels)
                             .map(|_| Vec::with_capacity(channel_len))
-                            .collect());
-                        (cpal_buffer, channels)
+                            .collect()})
                     }
                     SampleFormat::U16 => {
-                        let mut cpal_buffer = CpalBuffer::U16(vec![0 as u16; cpal_num_samples]);
-                        let mut channels = ChannelBuffer::U16(
-                            (0..num_channels)
+                        BufferTypes(U16Buffer{
+                            cpal: vec![0 as u16; cpal_num_samples],
+                            channel: (0..num_channels)
                             .map(|_| Vec::with_capacity(channel_len))
-                            .collect());
-                        (cpal_buffer, channels)
+                            .collect()})
                     }
                     SampleFormat::F32 => {
-                        let mut cpal_buffer = CpalBuffer::F32(vec![0 as f32; cpal_num_samples]);
-                        let mut channels = ChannelBuffer::F32(
-                            (0..num_channels)
+                        BufferTypes(F32Buffer{
+                            cpal: vec![0 as f32; cpal_num_samples],
+                            channel: (0..num_channels)
                             .map(|_| Vec::with_capacity(channel_len))
-                            .collect());
-                        (cpal_buffer, channels)
+                            .collect()})
                     }
                 };
 
@@ -168,25 +182,17 @@ impl EventLoop {
                                 };
                                 // Generic over types
                                 // TODO check for endianess
-                                match (stream_type, cpal_buffer, channels) {
-                                    (sys::AsioSampleType::ASIOSTInt32LSB,
-                                     CpalBuffer::I16(cpal_buffer),
-                                     ChannelBuffer::I16(channels))=> {
+                                match stream_type {
+                                    sys::AsioSampleType::ASIOSTInt32LSB => {
                                         try_callback!(I16, i16, i16, i32, i32);
                                     }
-                                    (sys::AsioSampleType::ASIOSTInt16LSB,
-                                     CpalBuffer::I16(cpal_buffer),
-                                     ChannelBuffer::I16(channels))=> {
+                                    sys::AsioSampleType::ASIOSTInt16LSB => {
                                         try_callback!(I16, i16, i16, i16, i16);
                                     }
-                                    (sys::AsioSampleType::ASIOSTFloat32LSB,
-                                     CpalBuffer::F32(cpal_buffer),
-                                     ChannelBuffer::F32(channels))=> {
+                                    sys::AsioSampleType::ASIOSTFloat32LSB => {
                                         try_callback!(F32, f32, f32, f32, f32);
                                     }
-                                    (sys::AsioSampleType::ASIOSTFloat64LSB,
-                                     CpalBuffer::F32(cpal_buffer),
-                                     ChannelBuffer::F32(channels))=> {
+                                    sys::AsioSampleType::ASIOSTFloat64LSB => {
                                         try_callback!(F32, f32, f32, f64, f64);
                                     }
                                     _ => println!("unsupported format {:?}", stream_type),
