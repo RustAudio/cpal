@@ -285,18 +285,3 @@ impl<'a, T> OutputBuffer<'a, T> {
     }
 }
 
-/*
-fn convert_stream_type(data: ::StreamData) -> StreamData {
-    match data {
-        ::StreamData::Input(b) => {
-            match b {
-                ::UnknownTypeInputBuffer::U16(ob) => ob,
-            }
-        },
-        ::StreamData::Output(b) => b,
-    }
-    match un_buf {
-        ::Un
-    }
-}
-*/

@@ -1,5 +1,4 @@
 extern crate asio_sys as sys;
-extern crate itertools;
 
 use std;
 use Format;
@@ -12,7 +11,6 @@ use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
 use std::sync::{Arc, Mutex};
 use std::mem;
-use self::itertools::Itertools;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct EventLoop {
@@ -218,11 +216,13 @@ pub fn build_output_stream(
                                     // cpal writes to buffer interleaved
                                     fn deinterleave(data_slice: &mut [$SampleType],
                                                     num_channels: usize) -> Vec<Vec<$SampleType>>{
-                                        let mut channels: Vec<Vec<$SampleType>> = Vec::new();
-                                        for i in 0..num_channels{
-                                            let mut it = data_slice.iter().skip(i).cloned();
-                                            let channel = it.step(num_channels).collect();
-                                            channels.push(channel);
+                                        let channel_len = data_slice.len() / num_channels;
+                                        let mut channels: Vec<_> = (0..num_channels)
+                                            .map(|_| Vec::with_capacity(channel_len))
+                                            .collect();
+                                        for (i, &sample) in data_slice.iter().enumerate() {
+                                            let ch = i % num_channels;
+                                            channels[ch].push(sample);
                                         }
                                         channels
                                     }
