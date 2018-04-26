@@ -12,6 +12,7 @@ use UnknownTypeInputBuffer;
 use std::sync::{Arc, Mutex};
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use SampleFormat;
 
 pub struct EventLoop {
     asio_stream: Arc<Mutex<Option<sys::AsioStream>>>,
@@ -55,13 +56,54 @@ impl EventLoop {
                 let callbacks = self.callbacks.clone();
                 let bytes_per_channel = format.data_type.sample_size();
                 let num_channels = format.channels.clone();
+                
+                // Create buffers 
+                let cpal_num_samples =
+                    (stream.buffer_size as usize) * num_channels as usize;
+                let channel_len = cpal_num_samples 
+                    / num_channels as usize;
 
+                enum CpalBuffer{
+                    I16(Vec<i16>),
+                    U16(Vec<u16>),
+                    F32(Vec<f32>),
+                }
+                enum ChannelBuffer{
+                    I16(Vec<Vec<i16>>),
+                    U16(Vec<Vec<u16>>),
+                    F32(Vec<Vec<f32>>),
+                }
+                let (mut cpal_buffer,
+                 mut channels) = match format.data_type{
+                    SampleFormat::I16 => {
+                        let mut cpal_buffer = CpalBuffer::I16(vec![0 as i16; cpal_num_samples]);
+                        let mut channels = ChannelBuffer::I16(
+                            (0..num_channels)
+                            .map(|_| Vec::with_capacity(channel_len))
+                            .collect());
+                        (cpal_buffer, channels)
+                    }
+                    SampleFormat::U16 => {
+                        let mut cpal_buffer = CpalBuffer::U16(vec![0 as u16; cpal_num_samples]);
+                        let mut channels = ChannelBuffer::U16(
+                            (0..num_channels)
+                            .map(|_| Vec::with_capacity(channel_len))
+                            .collect());
+                        (cpal_buffer, channels)
+                    }
+                    SampleFormat::F32 => {
+                        let mut cpal_buffer = CpalBuffer::F32(vec![0 as f32; cpal_num_samples]);
+                        let mut channels = ChannelBuffer::F32(
+                            (0..num_channels)
+                            .map(|_| Vec::with_capacity(channel_len))
+                            .collect());
+                        (cpal_buffer, channels)
+                    }
+                };
 
                 sys::set_callback(move |index| unsafe {
                     if let Some(ref asio_stream) = *asio_stream.lock().unwrap() {
                         // Number of samples needed total
-                        let cpal_num_samples =
-                            (asio_stream.buffer_size as usize) * num_channels as usize;
                         let mut callbacks = callbacks.lock().unwrap();
 
                         // Assuming only one callback, probably needs to change
@@ -73,22 +115,18 @@ impl EventLoop {
                                      $SampleTypeIdent:ident,
                                      $AsioType:ty,
                                      $AsioTypeIdent:ident) => {
-                                        // Buffer that is filled by cpal.
-                                        let mut cpal_buffer: Vec<$SampleType> = vec![0 as $SampleType; cpal_num_samples];
                                         // Function for deinterleaving because
                                         // cpal writes to buffer interleaved
-                                        fn interleave(channels: Vec<Vec<$SampleType>>) -> Vec<$SampleType>{
-                                            let mut buffer: Vec<$SampleType> = Vec::new();
+                                        fn interleave(channels: &[Vec<$SampleType>],
+                                                      buffer: &mut Vec<$SampleType>) {
                                             let length = channels[0].len();
                                             for i in 0..length{
-                                                for channel in &channels{
+                                                for channel in channels{
                                                     buffer.push(channel[i]);
                                                 }
                                             }
-                                            buffer
                                         }
 
-                                        let mut channels: Vec<Vec<$SampleType>> = vec![Vec::new(); num_channels as usize]; 
                                         // For each channel write the cpal data to
                                         // the asio buffer
                                         // Also need to check for Endian
@@ -111,11 +149,11 @@ impl EventLoop {
 
 
                                         // interleave all the channels
-                                        let mut inter_buffer = interleave(channels);
+                                        interleave(&channels, &mut cpal_buffer);
 
 
                                         let buff = InputBuffer{
-                                            buffer: &mut inter_buffer
+                                            buffer: &mut cpal_buffer 
                                         };
                                         callback(
                                             StreamId(count),
@@ -130,17 +168,25 @@ impl EventLoop {
                                 };
                                 // Generic over types
                                 // TODO check for endianess
-                                match stream_type {
-                                    sys::AsioSampleType::ASIOSTInt32LSB => {
+                                match (stream_type, cpal_buffer, channels) {
+                                    (sys::AsioSampleType::ASIOSTInt32LSB,
+                                     CpalBuffer::I16(cpal_buffer),
+                                     ChannelBuffer::I16(channels))=> {
                                         try_callback!(I16, i16, i16, i32, i32);
                                     }
-                                    sys::AsioSampleType::ASIOSTInt16LSB => {
+                                    (sys::AsioSampleType::ASIOSTInt16LSB,
+                                     CpalBuffer::I16(cpal_buffer),
+                                     ChannelBuffer::I16(channels))=> {
                                         try_callback!(I16, i16, i16, i16, i16);
                                     }
-                                    sys::AsioSampleType::ASIOSTFloat32LSB => {
+                                    (sys::AsioSampleType::ASIOSTFloat32LSB,
+                                     CpalBuffer::F32(cpal_buffer),
+                                     ChannelBuffer::F32(channels))=> {
                                         try_callback!(F32, f32, f32, f32, f32);
                                     }
-                                    sys::AsioSampleType::ASIOSTFloat64LSB => {
+                                    (sys::AsioSampleType::ASIOSTFloat64LSB,
+                                     CpalBuffer::F32(cpal_buffer),
+                                     ChannelBuffer::F32(channels))=> {
                                         try_callback!(F32, f32, f32, f64, f64);
                                     }
                                     _ => println!("unsupported format {:?}", stream_type),
@@ -215,20 +261,22 @@ pub fn build_output_stream(
                                     // Function for deinterleaving because
                                     // cpal writes to buffer interleaved
                                     fn deinterleave(data_slice: &mut [$SampleType],
-                                                    num_channels: usize) -> Vec<Vec<$SampleType>>{
-                                        let channel_len = data_slice.len() / num_channels;
-                                        let mut channels: Vec<_> = (0..num_channels)
-                                            .map(|_| Vec::with_capacity(channel_len))
-                                            .collect();
+                                                    num_channels: usize,
+                                                    channels: &mut [Vec<$SampleType>]) {
                                         for (i, &sample) in data_slice.iter().enumerate() {
                                             let ch = i % num_channels;
                                             channels[ch].push(sample);
                                         }
-                                        channels
                                     }
                                     // Deinter all the channels
-                                    let deinter_channels = deinterleave(&mut cpal_buffer[..],
-                                                                        num_channels as usize);
+                                    let channel_len = cpal_buffer.len() 
+                                        / num_channels as usize;
+                                    let mut deinter_channels: Vec<_> = (0..num_channels)
+                                        .map(|_| Vec::with_capacity(channel_len))
+                                        .collect();
+                                    deinterleave(&mut cpal_buffer[..],
+                                                 num_channels as usize,
+                                                 &mut deinter_channels);
 
                                     // For each channel write the cpal data to
                                     // the asio buffer
