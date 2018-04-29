@@ -19,8 +19,10 @@ use std::slice;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use failure::ResultExt;
 
-use CreationError;
+use Result;
+use ErrorKind;
 use Format;
 use SampleFormat;
 use StreamData;
@@ -110,7 +112,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId>
     {
         unsafe {
             // Making sure that COM is initialized.
@@ -118,22 +120,19 @@ impl EventLoop {
             com::com_initialized();
 
             // Obtaining a `IAudioClient`.
-            let audio_client = match device.build_audioclient() {
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(CreationError::DeviceNotAvailable),
-                e => e.unwrap(),
-            };
+            let audio_client = device.build_audioclient()
+                .context(ErrorKind::DeviceNotAvailable)?;
 
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(CreationError::FormatNotSupported)?;
+                    .ok_or(ErrorKind::FormatNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(CreationError::FormatNotSupported),
-                    Err(_) => return Err(CreationError::DeviceNotAvailable),
+                    Ok(false) => return Err(ErrorKind::FormatNotSupported.into()),
+                    Err(_) => return Err(ErrorKind::DeviceNotAvailable.into()),
                     _ => (),
                 }
 
@@ -147,14 +146,9 @@ impl EventLoop {
                     ptr::null(),
                 );
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -168,14 +162,9 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -192,9 +181,9 @@ impl EventLoop {
                 }
 
                 match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(_) => {
+                    Err(e) => {
                         (*audio_client).Release();
-                        panic!("Failed to call SetEventHandle")
+                        panic!("Failed to call SetEventHandle");
                     },
                     Ok(_) => (),
                 };
@@ -211,14 +200,9 @@ impl EventLoop {
                 );
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -260,7 +244,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId>
     {
         unsafe {
             // Making sure that COM is initialized.
@@ -269,21 +253,20 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(CreationError::DeviceNotAvailable),
-                e => e.unwrap(),
+                Ok(client) => client,
+                Err(e) => return Err(e).context(ErrorKind::DeviceNotAvailable),
             };
 
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(CreationError::FormatNotSupported)?;
+                    .ok_or(ErrorKind::FormatNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(CreationError::FormatNotSupported),
-                    Err(_) => return Err(CreationError::DeviceNotAvailable),
+                    Ok(false) => return Err(ErrorKind::FormatNotSupported),
+                    Err(_) => return Err(e).context(ErrorKind::DeviceNotAvailable),
                     _ => (),
                 }
 
@@ -295,14 +278,9 @@ impl EventLoop {
                                                          &format_attempt.Format,
                                                          ptr::null());
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -335,14 +313,9 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -359,14 +332,9 @@ impl EventLoop {
                                                              *mut _);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(CreationError::DeviceNotAvailable);
-                    },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        return Err(e).context(ErrorKind::DeviceNotAvailable);
                     },
                     Ok(()) => (),
                 };
@@ -521,7 +489,7 @@ impl EventLoop {
                             );
                             check_result(hresult).unwrap();
                             debug_assert!(!buffer.is_null());
-                            let buffer_len = frames_available as usize 
+                            let buffer_len = frames_available as usize
                                 * stream.bytes_per_frame as usize / sample_size;
 
                             // Simplify the capture callback sample format branches.
@@ -538,11 +506,13 @@ impl EventLoop {
 
                                     // Release the buffer.
                                     let hresult = (*capture_client).ReleaseBuffer(frames_available);
-                                    match check_result(hresult) {
+                                    if let Err(e) = check_result(hresult) {
                                         // Ignoring unavailable device error.
-                                        Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                                        if ! e.raw_os_error()
+                                            == Some(AUDCLNT_E_DEVICE_INVALIDATED)
+                                        {
+                                            return Err(e).context(DeviceNotAvailable)
                                         },
-                                        e => e.unwrap(),
                                     };
                                 }};
                             }
@@ -561,9 +531,9 @@ impl EventLoop {
                                 &mut buffer as *mut *mut _,
                             );
                             // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
-                            check_result(hresult).unwrap(); 
+                            check_result(hresult).unwrap();
                             debug_assert!(!buffer.is_null());
-                            let buffer_len = frames_available as usize 
+                            let buffer_len = frames_available as usize
                                 * stream.bytes_per_frame as usize / sample_size;
 
                             // Simplify the render callback sample format branches.

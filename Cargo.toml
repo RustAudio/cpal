@@ -10,6 +10,8 @@ keywords = ["audio", "sound"]
 
 [dependencies]
 lazy_static = "0.2"
+failure = "0.1"
+failure_derive = "0.1"
 
 [dev-dependencies]
 hound = "3.0"

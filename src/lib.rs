@@ -114,6 +114,10 @@
 
 #![recursion_limit = "512"]
 
+#[macro_use]
+extern crate failure_derive;
+extern crate failure;
+
 #[cfg(target_os = "windows")]
 #[macro_use]
 extern crate lazy_static;
@@ -129,11 +133,11 @@ pub use samples_formats::{Sample, SampleFormat};
               target_os = "macos", target_os = "ios", target_os = "emscripten")))]
 use null as cpal_impl;
 
-use std::error::Error;
-use std::fmt;
 use std::iter;
 use std::ops::{Deref, DerefMut};
+pub use error::*;
 
+mod error;
 mod null;
 mod samples_formats;
 
@@ -283,34 +287,6 @@ pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
 /// See [`Device::supported_output_formats()`](struct.Device.html#method.supported_output_formats).
 pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 
-/// Error that can happen when enumerating the list of supported formats.
-#[derive(Debug)]
-pub enum FormatsEnumerationError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
-}
-
-/// May occur when attempting to request the default input or output stream format from a `Device`.
-#[derive(Debug)]
-pub enum DefaultFormatError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
-    /// Returned if e.g. the default input format was requested on an output-only audio device.
-    StreamTypeNotSupported,
-}
-
-/// Error that can happen when creating a `Voice`.
-#[derive(Debug)]
-pub enum CreationError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
-    /// The required format is not supported.
-    FormatNotSupported,
-}
-
 /// An iterator yielding all `Device`s currently available to the system.
 ///
 /// Can be empty if the system does not support audio in general.
@@ -370,7 +346,7 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats> {
         Ok(SupportedInputFormats(self.0.supported_input_formats()?))
     }
 
@@ -378,19 +354,19 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats> {
         Ok(SupportedOutputFormats(self.0.supported_output_formats()?))
     }
 
     /// The default input stream format for the device.
     #[inline]
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_input_format(&self) -> Result<Format> {
         self.0.default_input_format()
     }
 
     /// The default output stream format for the device.
     #[inline]
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_output_format(&self) -> Result<Format> {
         self.0.default_output_format()
     }
 }
@@ -409,11 +385,7 @@ impl EventLoop {
     /// Can return an error if the device is no longer valid, or if the input stream format is not
     /// supported by the device.
     #[inline]
-    pub fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
+    pub fn build_input_stream(&self, device: &Device, format: &Format) -> Result<StreamId>
     {
         self.0.build_input_stream(&device.0, format).map(StreamId)
     }
@@ -425,11 +397,7 @@ impl EventLoop {
     /// Can return an error if the device is no longer valid, or if the output stream format is not
     /// supported by the device.
     #[inline]
-    pub fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
+    pub fn build_output_stream(&self, device: &Device, format: &Format) -> Result<StreamId>
     {
         self.0.build_output_stream(&device.0, format).map(StreamId)
     }
@@ -697,46 +665,6 @@ impl Iterator for SupportedOutputFormats {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
-    }
-}
-
-impl fmt::Display for FormatsEnumerationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for FormatsEnumerationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &FormatsEnumerationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-        }
-    }
-}
-
-impl fmt::Display for CreationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for CreationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &CreationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-
-            &CreationError::FormatNotSupported => {
-                "The requested samples format is not supported by the device."
-            },
-        }
     }
 }
 

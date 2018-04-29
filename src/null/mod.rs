@@ -2,10 +2,9 @@
 
 use std::marker::PhantomData;
 
-use CreationError;
-use DefaultFormatError;
+use Result;
+use ErrorKind;
 use Format;
-use FormatsEnumerationError;
 use StreamData;
 use SupportedFormat;
 
@@ -21,17 +20,21 @@ impl EventLoop {
     pub fn run<F>(&self, _callback: F) -> !
         where F: FnMut(StreamId, StreamData)
     {
-        loop { /* TODO: don't spin */ }
+        use std::sync::mpsc::channel;
+        let (_, rx) = channel::<()>();
+        rx.recv().unwrap();
+        // convince the compiler that we never return
+        loop {}
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
-        Err(CreationError::DeviceNotAvailable)
+    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId> {
+        Err(ErrorKind::DeviceNotAvailable.into())
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
-        Err(CreationError::DeviceNotAvailable)
+    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId> {
+        Err(ErrorKind::DeviceNotAvailable.into())
     }
 
     #[inline]
@@ -80,22 +83,22 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats> {
         unimplemented!()
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats> {
         unimplemented!()
     }
 
     #[inline]
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_input_format(&self) -> Result<Format> {
         unimplemented!()
     }
 
     #[inline]
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_output_format(&self) -> Result<Format> {
         unimplemented!()
     }
 

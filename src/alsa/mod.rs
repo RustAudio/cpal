@@ -4,10 +4,9 @@ extern crate libc;
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
 use ChannelCount;
-use CreationError;
-use DefaultFormatError;
+use ErrorKind;
+use Result;
 use Format;
-use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
@@ -19,6 +18,8 @@ use std::{cmp, ffi, iter, mem, ptr};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
+use std::result::Result as StdResult;
+use failure::{ResultExt, err_msg};
 
 pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
@@ -76,24 +77,18 @@ impl Device {
         self.0.clone()
     }
 
-    unsafe fn supported_formats(
-        &self,
-        stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<VecIntoIter<SupportedFormat>, FormatsEnumerationError>
+    unsafe fn supported_formats(&self, stream_t: alsa::snd_pcm_stream_t)
+        -> Result<VecIntoIter<SupportedFormat>>
     {
+        let device_name = ffi::CString::new(&self.0[..]).context(ErrorKind::NullInString)?;
         let mut handle = mem::uninitialized();
-        let device_name = ffi::CString::new(&self.0[..]).expect("Unable to get device name");
 
-        match alsa::snd_pcm_open(
+        check_errors(alsa::snd_pcm_open(
             &mut handle,
             device_name.as_ptr() as *const _,
             stream_t,
             alsa::SND_PCM_NONBLOCK,
-        ) {
-            -2 |
-            -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-            e => check_errors(e).expect("device not available")
-        }
+        )).map_err(err_msg).context(ErrorKind::DeviceNotAvailable)?;
 
         let hw_params = HwParams::alloc();
         match check_errors(alsa::snd_pcm_hw_params_any(handle, hw_params.0)) {
@@ -110,37 +105,37 @@ impl Device {
                 //SND_PCM_FORMAT_S16_BE,
                 (SampleFormat::U16, alsa::SND_PCM_FORMAT_U16_LE),
                 //SND_PCM_FORMAT_U16_BE,
-            /*SND_PCM_FORMAT_S24_LE,
-            SND_PCM_FORMAT_S24_BE,
-            SND_PCM_FORMAT_U24_LE,
-            SND_PCM_FORMAT_U24_BE,
-            SND_PCM_FORMAT_S32_LE,
-            SND_PCM_FORMAT_S32_BE,
-            SND_PCM_FORMAT_U32_LE,
-            SND_PCM_FORMAT_U32_BE,*/
+                /*SND_PCM_FORMAT_S24_LE,
+                SND_PCM_FORMAT_S24_BE,
+                SND_PCM_FORMAT_U24_LE,
+                SND_PCM_FORMAT_U24_BE,
+                SND_PCM_FORMAT_S32_LE,
+                SND_PCM_FORMAT_S32_BE,
+                SND_PCM_FORMAT_U32_LE,
+                SND_PCM_FORMAT_U32_BE,*/
                 (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE) /*SND_PCM_FORMAT_FLOAT_BE,
-            SND_PCM_FORMAT_FLOAT64_LE,
-            SND_PCM_FORMAT_FLOAT64_BE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
-            SND_PCM_FORMAT_MU_LAW,
-            SND_PCM_FORMAT_A_LAW,
-            SND_PCM_FORMAT_IMA_ADPCM,
-            SND_PCM_FORMAT_MPEG,
-            SND_PCM_FORMAT_GSM,
-            SND_PCM_FORMAT_SPECIAL,
-            SND_PCM_FORMAT_S24_3LE,
-            SND_PCM_FORMAT_S24_3BE,
-            SND_PCM_FORMAT_U24_3LE,
-            SND_PCM_FORMAT_U24_3BE,
-            SND_PCM_FORMAT_S20_3LE,
-            SND_PCM_FORMAT_S20_3BE,
-            SND_PCM_FORMAT_U20_3LE,
-            SND_PCM_FORMAT_U20_3BE,
-            SND_PCM_FORMAT_S18_3LE,
-            SND_PCM_FORMAT_S18_3BE,
-            SND_PCM_FORMAT_U18_3LE,
-            SND_PCM_FORMAT_U18_3BE,*/,
+                SND_PCM_FORMAT_FLOAT64_LE,
+                SND_PCM_FORMAT_FLOAT64_BE,
+                SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
+                SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
+                SND_PCM_FORMAT_MU_LAW,
+                SND_PCM_FORMAT_A_LAW,
+                SND_PCM_FORMAT_IMA_ADPCM,
+                SND_PCM_FORMAT_MPEG,
+                SND_PCM_FORMAT_GSM,
+                SND_PCM_FORMAT_SPECIAL,
+                SND_PCM_FORMAT_S24_3LE,
+                SND_PCM_FORMAT_S24_3BE,
+                SND_PCM_FORMAT_U24_3LE,
+                SND_PCM_FORMAT_U24_3BE,
+                SND_PCM_FORMAT_S20_3LE,
+                SND_PCM_FORMAT_S20_3BE,
+                SND_PCM_FORMAT_U20_3LE,
+                SND_PCM_FORMAT_U20_3BE,
+                SND_PCM_FORMAT_S18_3LE,
+                SND_PCM_FORMAT_S18_3BE,
+                SND_PCM_FORMAT_U18_3LE,
+                SND_PCM_FORMAT_U18_3BE,*/,
             ];
 
         let mut supported_formats = Vec::new();
@@ -157,12 +152,14 @@ impl Device {
         check_errors(alsa::snd_pcm_hw_params_get_rate_min(hw_params.0,
                                                           &mut min_rate,
                                                           ptr::null_mut()))
-            .expect("unable to get minimum supported rete");
+            .map_err(err_msg)
+            .context(ErrorKind::CannotGetMinimumSupportedRate)?;
         let mut max_rate = mem::uninitialized();
         check_errors(alsa::snd_pcm_hw_params_get_rate_max(hw_params.0,
                                                           &mut max_rate,
                                                           ptr::null_mut()))
-            .expect("unable to get maximum supported rate");
+            .map_err(err_msg)
+            .context(ErrorKind::CannotGetMaximumSupportedRate)?;
 
         let sample_rates = if min_rate == max_rate {
             vec![(min_rate, max_rate)]
@@ -247,13 +244,13 @@ impl Device {
         Ok(output.into_iter())
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE)
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK)
         }
@@ -261,19 +258,11 @@ impl Device {
 
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedFormat::cmp_default_heuristics` order and select the greatest.
-    fn default_format(
-        &self,
-        stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<Format, DefaultFormatError>
-    {
+    fn default_format(&self, stream_t: alsa::snd_pcm_stream_t) -> Result<Format> {
         let mut formats: Vec<_> = unsafe {
-            match self.supported_formats(stream_t) {
-                Err(FormatsEnumerationError::DeviceNotAvailable) => {
-                    return Err(DefaultFormatError::DeviceNotAvailable);
-                },
-                Ok(fmts) => fmts.collect(),
-            }
-        };
+            self.supported_formats(stream_t)
+                .map(|fmts| fmts.collect())
+        }?;
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
@@ -288,15 +277,15 @@ impl Device {
                 }
                 Ok(format)
             },
-            None => Err(DefaultFormatError::StreamTypeNotSupported)
+            None => Err(ErrorKind::StreamTypeNotSupported.into())
         }
     }
 
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_input_format(&self) -> Result<Format> {
         self.default_format(alsa::SND_PCM_STREAM_CAPTURE)
     }
 
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_output_format(&self) -> Result<Format> {
         self.default_format(alsa::SND_PCM_STREAM_PLAYBACK)
     }
 }
@@ -616,25 +605,18 @@ impl EventLoop {
         }
     }
 
-    pub fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
+    pub fn build_input_stream(&self, device: &Device, format: &Format) -> Result<StreamId>
     {
         unsafe {
             let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
 
             let mut capture_handle = mem::uninitialized();
-            match alsa::snd_pcm_open(
+            check_errors(alsa::snd_pcm_open(
                 &mut capture_handle,
                 name.as_ptr(),
                 alsa::SND_PCM_STREAM_CAPTURE,
                 alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                e => check_errors(e).expect("Device unavailable")
-            }
+            )).map_err(err_msg).context(ErrorKind::DeviceNotAvailable)?;
             let hw_params = HwParams::alloc();
 
             set_hw_params_from_format(capture_handle, &hw_params, format);
@@ -676,25 +658,17 @@ impl EventLoop {
         }
     }
 
-    pub fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
-    {
+    pub fn build_output_stream(&self, device: &Device, format: &Format) -> Result<StreamId> {
         unsafe {
-            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
+            let name = ffi::CString::new(device.0.clone()).context(ErrorKind::NullInString)?;
 
             let mut playback_handle = mem::uninitialized();
-            match alsa::snd_pcm_open(
+            check_errors(alsa::snd_pcm_open(
                 &mut playback_handle,
                 name.as_ptr(),
                 alsa::SND_PCM_STREAM_PLAYBACK,
                 alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                e => check_errors(e).expect("Device unavailable")
-            }
+            )).map_err(err_msg).context(ErrorKind::DeviceNotAvailable)?;
             let hw_params = HwParams::alloc();
 
             set_hw_params_from_format(playback_handle, &hw_params, format);
@@ -926,19 +900,20 @@ impl<'a, T> OutputBuffer<'a, T> {
     }
 }
 
+/// Convert an error code into a `Result` with the value of `snd_strerror(code)`
 #[inline]
-fn check_errors(err: libc::c_int) -> Result<(), String> {
+fn check_errors(err: libc::c_int) -> StdResult<(), String> {
     use std::ffi;
 
     if err < 0 {
         unsafe {
             let s = ffi::CStr::from_ptr(alsa::snd_strerror(err))
-                .to_bytes()
-                .to_vec();
-            let s = String::from_utf8(s).expect("Streaming error occured");
+                .to_bytes();
+            let s = String::from_utf8_lossy(s).into_owned();
             return Err(s);
         }
     }
 
     Ok(())
 }
+

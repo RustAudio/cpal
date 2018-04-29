@@ -2,10 +2,10 @@ extern crate coreaudio;
 extern crate core_foundation_sys;
 
 use ChannelCount;
-use CreationError;
-use DefaultFormatError;
+use ErrorKind;
+use Error;
+use Result;
 use Format;
-use FormatsEnumerationError;
 use Sample;
 use SampleFormat;
 use SampleRate;
@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::slice;
+use std::result::Result as StdResult;
 
 use self::coreaudio::audio_unit::{AudioUnit, Scope, Element};
 use self::coreaudio::audio_unit::render_callback::{self, data};
@@ -104,10 +105,7 @@ impl Device {
     }
 
     // Logic re-used between `supported_input_formats` and `supported_output_formats`.
-    fn supported_formats(
-        &self,
-        scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedOutputFormats, FormatsEnumerationError>
+    fn supported_formats(&self, scope: AudioObjectPropertyScope) -> Result<SupportedOutputFormats>
     {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -211,20 +209,17 @@ impl Device {
         }
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats> {
         self.supported_formats(kAudioObjectPropertyScopeInput)
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats> {
         self.supported_formats(kAudioObjectPropertyScopeOutput)
     }
 
-    fn default_format(
-        &self,
-        scope: AudioObjectPropertyScope,
-    ) -> Result<Format, DefaultFormatError>
+    fn default_format(&self, scope: AudioObjectPropertyScope) -> Result<Format>
     {
-        fn default_format_error_from_os_status(status: OSStatus) -> Option<DefaultFormatError> {
+        fn default_format_error_from_os_status(status: OSStatus) -> Option<ErrorKind> {
             let err = match coreaudio::Error::from_os_status(status) {
                 Err(err) => err,
                 Ok(_) => return None,
@@ -234,8 +229,8 @@ impl Device {
                 coreaudio::Error::NoKnownSubtype |
                 coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
                 coreaudio::Error::AudioCodec(_) |
-                coreaudio::Error::AudioFormat(_) => Some(DefaultFormatError::StreamTypeNotSupported),
-                _ => Some(DefaultFormatError::DeviceNotAvailable),
+                coreaudio::Error::AudioFormat(_) => Some(ErrorKind::StreamTypeNotSupported),
+                _ => Some(ErrorKind::DeviceNotAvailable),
             }
         }
 
@@ -260,7 +255,7 @@ impl Device {
             if status != kAudioHardwareNoError as i32 {
                 let err = default_format_error_from_os_status(status)
                     .expect("no known error for OSStatus");
-                return Err(err);
+                return Err(err.into());
             }
 
             let sample_format = {
@@ -270,7 +265,7 @@ impl Device {
                 );
                 let flags = match audio_format {
                     Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
-                    _ => return Err(DefaultFormatError::StreamTypeNotSupported),
+                    _ => return Err(ErrorKind::StreamTypeNotSupported.into()),
                 };
                 let maybe_sample_format =
                     coreaudio::audio_unit::SampleFormat::from_flags_and_bytes_per_frame(
@@ -280,7 +275,7 @@ impl Device {
                 match maybe_sample_format {
                     Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
                     Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
-                    _ => return Err(DefaultFormatError::StreamTypeNotSupported),
+                    _ => return Err(ErrorKind::StreamTypeNotSupported.into()),
                 }
             };
 
@@ -293,11 +288,11 @@ impl Device {
         }
     }
 
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_input_format(&self) -> Result<Format> {
         self.default_format(kAudioObjectPropertyScopeInput)
     }
 
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_output_format(&self) -> Result<Format> {
         self.default_format(kAudioObjectPropertyScopeOutput)
     }
 }
@@ -328,15 +323,15 @@ struct StreamInner {
 }
 
 // TODO need stronger error identification
-impl From<coreaudio::Error> for CreationError {
-    fn from(err: coreaudio::Error) -> CreationError {
+impl From<coreaudio::Error> for Error {
+    fn from(err: coreaudio::Error) -> Error {
         match err {
             coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
             coreaudio::Error::NoKnownSubtype |
             coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
             coreaudio::Error::AudioCodec(_) |
-            coreaudio::Error::AudioFormat(_) => CreationError::FormatNotSupported,
-            _ => CreationError::DeviceNotAvailable,
+            coreaudio::Error::AudioFormat(_) => ErrorKind::FormatNotSupported.into(),
+            _ => ErrorKind::DeviceNotAvailable.into(),
         }
     }
 }
@@ -369,7 +364,7 @@ fn asbd_from_format(format: &Format) -> AudioStreamBasicDescription {
     asbd
 }
 
-fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
+fn audio_unit_from_device(device: &Device, input: bool) -> StdResult<AudioUnit, coreaudio::Error> {
     let mut audio_unit = {
         let au_type = if cfg!(target_os = "ios") {
             // The HalOutput unit isn't available in iOS unfortunately.
@@ -469,11 +464,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
+    pub fn build_input_stream(&self, device: &Device, format: &Format) -> Result<StreamId>
     {
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
@@ -484,8 +475,8 @@ impl EventLoop {
             // Get the current sample rate.
             let mut property_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyNominalSampleRate,
-	        mScope: kAudioObjectPropertyScopeGlobal,
-	        mElement: kAudioObjectPropertyElementMaster,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMaster,
             };
             let sample_rate: f64 = 0.0;
             let data_size = mem::size_of::<f64>() as u32;
@@ -499,16 +490,17 @@ impl EventLoop {
             );
             coreaudio::Error::from_os_status(status)?;
 
-            // If the requested sample rate is different to the device sample rate, update the device.
+            // If the requested sample rate is different to the device sample rate,
+            // update the device.
             if sample_rate as u32 != format.sample_rate.0 {
 
-                // In order to avoid breaking existing input streams we `panic!` if there is already an
-                // active input stream for this device with the actual sample rate.
+                // In order to avoid breaking existing input streams we `panic!` if there is
+                // already an active input stream for this device with the actual sample rate.
                 for stream in &*self.streams.lock().unwrap() {
                     if let Some(stream) = stream.as_ref() {
                         if stream.device_id == device.audio_device_id {
-                            panic!("cannot change device sample rate for stream as an existing stream \
-                                    is already running at the current sample rate.");
+                            panic!("cannot change device sample rate for stream as an existing \
+                                    stream is already running at the current sample rate.");
                         }
                     }
                 }
@@ -545,7 +537,7 @@ impl EventLoop {
                     .iter()
                     .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
                 let range_index = match maybe_index {
-                    None => return Err(CreationError::FormatNotSupported),
+                    None => return Err(ErrorKind::FormatNotSupported.into()),
                     Some(i) => i,
                 };
 
@@ -687,11 +679,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, CreationError>
+    pub fn build_output_stream(&self, device: &Device, format: &Format) -> Result<StreamId>
     {
         let mut audio_unit = audio_unit_from_device(device, false)?;
 

@@ -8,10 +8,8 @@ use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
-use CreationError;
-use DefaultFormatError;
+use Result;
 use Format;
-use FormatsEnumerationError;
 use Sample;
 use StreamData;
 use SupportedFormat;
@@ -87,12 +85,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();
@@ -195,12 +193,12 @@ impl Device {
     }
 
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
@@ -216,11 +214,11 @@ impl Device {
         )
     }
 
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_input_format(&self) -> Result<Format> {
         unimplemented!();
     }
 
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    pub fn default_output_format(&self) -> Result<Format> {
         unimplemented!();
     }
 }
