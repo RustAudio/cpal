@@ -19,7 +19,7 @@ use std::slice;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use failure::ResultExt;
+use failure::{Fail, ResultExt};
 
 use Result;
 use ErrorKind;
@@ -145,13 +145,7 @@ impl EventLoop {
                     &format_attempt.Format,
                     ptr::null(),
                 );
-                match check_result(hresult) {
-                    Err(e) => {
-                        (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
-                    },
-                    Ok(()) => (),
-                };
+                check_result(hresult).map_err(|e| e.context(ErrorKind::DeviceNotAvailable))?;
 
                 format_attempt.Format
             };
@@ -164,7 +158,7 @@ impl EventLoop {
                 match check_result(hresult) {
                     Err(e) => {
                         (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
+                        return Err(e.context(ErrorKind::DeviceNotAvailable).into());
                     },
                     Ok(()) => (),
                 };
@@ -181,7 +175,7 @@ impl EventLoop {
                 }
 
                 match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(e) => {
+                    Err(_e) => {
                         (*audio_client).Release();
                         panic!("Failed to call SetEventHandle");
                     },
@@ -202,7 +196,7 @@ impl EventLoop {
                 match check_result(hresult) {
                     Err(e) => {
                         (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
+                        return Err(e.context(ErrorKind::DeviceNotAvailable).into());
                     },
                     Ok(()) => (),
                 };
@@ -254,7 +248,7 @@ impl EventLoop {
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
                 Ok(client) => client,
-                Err(e) => return Err(e).context(ErrorKind::DeviceNotAvailable),
+                Err(e) => return Err(e.context(ErrorKind::DeviceNotAvailable).into()),
             };
 
             // Computing the format and initializing the device.
@@ -265,8 +259,8 @@ impl EventLoop {
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(ErrorKind::FormatNotSupported),
-                    Err(_) => return Err(e).context(ErrorKind::DeviceNotAvailable),
+                    Ok(false) => return Err(ErrorKind::FormatNotSupported.into()),
+                    Err(e) => return Err(e.context(ErrorKind::DeviceNotAvailable).into()),
                     _ => (),
                 }
 
@@ -280,7 +274,7 @@ impl EventLoop {
                 match check_result(hresult) {
                     Err(e) => {
                         (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
+                        return Err(e.context(ErrorKind::DeviceNotAvailable).into());
                     },
                     Ok(()) => (),
                 };
@@ -315,7 +309,7 @@ impl EventLoop {
                 match check_result(hresult) {
                     Err(e) => {
                         (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
+                        return Err(e.context(ErrorKind::DeviceNotAvailable).into());
                     },
                     Ok(()) => (),
                 };
@@ -334,7 +328,7 @@ impl EventLoop {
                 match check_result(hresult) {
                     Err(e) => {
                         (*audio_client).Release();
-                        return Err(e).context(ErrorKind::DeviceNotAvailable);
+                        return Err(e.context(ErrorKind::DeviceNotAvailable).into());
                     },
                     Ok(()) => (),
                 };
@@ -508,10 +502,11 @@ impl EventLoop {
                                     let hresult = (*capture_client).ReleaseBuffer(frames_available);
                                     if let Err(e) = check_result(hresult) {
                                         // Ignoring unavailable device error.
-                                        if ! e.raw_os_error()
-                                            == Some(AUDCLNT_E_DEVICE_INVALIDATED)
+                                        if ! (e.raw_os_error()
+                                            == Some(AUDCLNT_E_DEVICE_INVALIDATED))
                                         {
-                                            return Err(e).context(DeviceNotAvailable)
+                                            panic!("{:?}",
+                                                e.context(ErrorKind::DeviceNotAvailable));
                                         }
                                     };
                                 }};
