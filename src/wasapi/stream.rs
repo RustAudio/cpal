@@ -512,7 +512,7 @@ impl EventLoop {
                                             == Some(AUDCLNT_E_DEVICE_INVALIDATED)
                                         {
                                             return Err(e).context(DeviceNotAvailable)
-                                        },
+                                        }
                                     };
                                 }};
                             }
