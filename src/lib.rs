@@ -740,6 +740,28 @@ impl Error for CreationError {
     }
 }
 
+impl fmt::Display for DefaultFormatError {
+    #[inline]
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", self.description())
+    }
+}
+
+impl Error for DefaultFormatError {
+    #[inline]
+    fn description(&self) -> &str {
+        match self {
+            &DefaultFormatError::DeviceNotAvailable => {
+                CreationError::DeviceNotAvailable.description()
+            },
+
+            &DefaultFormatError::StreamTypeNotSupported => {
+                "The requested stream type is not supported by the device."
+            },
+        }
+    }
+}
+
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
 // of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
 //
