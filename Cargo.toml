@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Low-level cross-platform audio playing library in pure Rust."
 repository = "https://github.com/tomaka/cpal"
@@ -9,7 +9,7 @@ license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
 [dependencies]
-lazy_static = "0.2"
+lazy_static = "1.0"
 
 [dev-dependencies]
 hound = "3.0"
