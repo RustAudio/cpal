@@ -1,5 +1,7 @@
 # Unreleased
 
+- Implement `default_output_format` for emscripten backend.
+
 # Version 0.8.1 (2018-03-18)
 
 - Fix the handling of non-default sample rates for coreaudio input streams.

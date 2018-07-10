@@ -68,7 +68,6 @@ impl EventLoop {
                         stream: &stream,
                     };
 
-                    let id = StreamId(stream_id);
                     let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) });
                     let data = StreamData::Output { buffer: buffer };
                     user_cb(StreamId(stream_id), data);
@@ -204,6 +203,8 @@ impl Device {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
+        //       According to https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createBuffer
+        //       browsers must support 1 to 32 channels at leats and 8,000 Hz to 96,000 Hz.
         Ok(
             vec![
                 SupportedFormat {
@@ -221,7 +222,14 @@ impl Device {
     }
 
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        unimplemented!();
+        // TODO: because it is hard coded, see supported_output_formats.
+        Ok(
+            Format {
+                channels: 2,
+                sample_rate: ::SampleRate(44100),
+                data_type: ::SampleFormat::F32,
+            },
+        )
     }
 }
 
