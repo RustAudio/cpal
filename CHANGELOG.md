@@ -1,9 +1,10 @@
 # Unreleased
 
+- Fix resuming a paused stream on Windows (wasapi).
+
 # Version 0.8.1 (2018-03-18)
 
 - Fix the handling of non-default sample rates for coreaudio input streams.
-- Fix resuming a paused stream on Windows (wasapi).
 
 # Version 0.8.0 (2018-02-15)
 
