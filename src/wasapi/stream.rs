@@ -462,7 +462,7 @@ impl EventLoop {
                                 if v.playing {
                                     let hresult = (*v.audio_client).Stop();
                                     check_result(hresult).unwrap();
-                                    v.playing = true;
+                                    v.playing = false;
                                 }
                             }
                         },
