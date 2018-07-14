@@ -494,6 +494,13 @@ impl EventLoop {
                     let mut frames_available = {
                         let mut padding = mem::uninitialized();
                         let hresult = (*stream.audio_client).GetCurrentPadding(&mut padding);
+                        // Happens when a bluetooth headset was turned off, for example.
+                        if hresult == AUDCLNT_E_DEVICE_INVALIDATED {
+                            // The client code should switch to a different device eventually.
+                            // For now let's just skip the invalidated device.
+                            // Would be nice to inform the client code about the invalidation,
+                            // but throwing a panic isn't the most ergonomic way to do so.
+                            continue}
                         check_result(hresult).unwrap();
                         stream.max_frames_in_buffer - padding
                     };
