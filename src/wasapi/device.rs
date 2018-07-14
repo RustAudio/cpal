@@ -542,10 +542,6 @@ impl PartialEq for Device {
         //
         // In this code section we're trying to use the GetId method for the device comparison, cf.
         // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
-        //
-        // If `GetId` mysteriously fails then we fall back to pointer comparison
-        // (we could panic, treating the `GetId` failure as something unexpected,
-        // but I simply don't know how reliable the `GetId` on Windows is).
         unsafe {
             struct IdRAII (LPWSTR);
             /// RAII for device IDs.
@@ -556,25 +552,24 @@ impl PartialEq for Device {
             }
             let mut id1: LPWSTR = ptr::null_mut();
             let rc1 = (*self.device).GetId(&mut id1);
-            if rc1 == winerror::S_OK {
-                let id1 = IdRAII(id1);
-                let mut id2: LPWSTR = ptr::null_mut();
-                let rc2 = (*other.device).GetId(&mut id2);
-                if rc2 == winerror::S_OK {
-                    let id2 = IdRAII(id2);
-                    // 16-bit null-terminated comparison.
-                    let mut offset = 0;
-                    loop {
-                        let w1: WCHAR = *id1.0.offset(offset);
-                        let w2: WCHAR = *id2.0.offset(offset);
-                        if w1 == 0 && w2 == 0 {return true}
-                        if w1 != w2 {return false}
-                        offset += 1;
-                    }
-                }
+            // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
+            // Plus it won't do to change the device comparison logic unexpectedly.
+            if rc1 != winerror::S_OK {panic! ("cpal: GetId failure: {}", rc1)}
+            let id1 = IdRAII(id1);
+            let mut id2: LPWSTR = ptr::null_mut();
+            let rc2 = (*other.device).GetId(&mut id2);
+            if rc2 != winerror::S_OK {panic! ("cpal: GetId failure: {}", rc1)}
+            let id2 = IdRAII(id2);
+            // 16-bit null-terminated comparison.
+            let mut offset = 0;
+            loop {
+                let w1: WCHAR = *id1.0.offset(offset);
+                let w2: WCHAR = *id2.0.offset(offset);
+                if w1 == 0 && w2 == 0 {return true}
+                if w1 != w2 {return false}
+                offset += 1;
             }
         }
-        self.device == other.device
     }
 }
 
