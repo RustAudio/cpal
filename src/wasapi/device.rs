@@ -19,6 +19,7 @@ use COMMON_SAMPLE_RATES;
 use super::check_result;
 use super::com;
 use super::winapi::Interface;
+use super::winapi::ctypes::c_void;
 use super::winapi::shared::devpkey;
 use super::winapi::shared::ksmedia;
 use super::winapi::shared::guiddef::{
@@ -30,6 +31,9 @@ use super::winapi::shared::minwindef::{
 };
 use super::winapi::shared::mmreg;
 use super::winapi::shared::wtypes;
+// https://msdn.microsoft.com/en-us/library/cc230355.aspx
+use super::winapi::um::winnt::LPWSTR;
+use super::winapi::um::winnt::WCHAR;
 use super::winapi::um::coml2api;
 use super::winapi::um::audioclient::{
     IAudioClient,
@@ -531,6 +535,45 @@ impl Device {
 impl PartialEq for Device {
     #[inline]
     fn eq(&self, other: &Device) -> bool {
+        // Use case: In oder to check whether the default device has changed
+        // the client code might need to compare the previous default device with the current one.
+        // The pointer comparison (`self.device == other.device`) don't work there,
+        // because the pointers are different even when the default device stays the same.
+        //
+        // In this code section we're trying to use the GetId method for the device comparison, cf.
+        // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
+        //
+        // If `GetId` mysteriously fails then we fall back to pointer comparison
+        // (we could panic, treating the `GetId` failure as something unexpected,
+        // but I simply don't know how reliable the `GetId` on Windows is).
+        unsafe {
+            struct IdRAII (LPWSTR);
+            /// RAII for device IDs.
+            impl Drop for IdRAII {
+                fn drop(&mut self) {
+                    unsafe {CoTaskMemFree(self.0 as *mut c_void)}
+                }
+            }
+            let mut id1: LPWSTR = ptr::null_mut();
+            let rc1 = (*self.device).GetId(&mut id1);
+            if rc1 == winerror::S_OK {
+                let id1 = IdRAII(id1);
+                let mut id2: LPWSTR = ptr::null_mut();
+                let rc2 = (*other.device).GetId(&mut id2);
+                if rc2 == winerror::S_OK {
+                    let id2 = IdRAII(id2);
+                    // 16-bit null-terminated comparison.
+                    let mut offset = 0;
+                    loop {
+                        let w1: WCHAR = *id1.0.offset(offset);
+                        let w2: WCHAR = *id2.0.offset(offset);
+                        if w1 == 0 && w2 == 0 {return true}
+                        if w1 != w2 {return false}
+                        offset += 1;
+                    }
+                }
+            }
+        }
         self.device == other.device
     }
 }
