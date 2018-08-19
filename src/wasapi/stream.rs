@@ -111,7 +111,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-        _buffer_size: &mut BufferSize,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {
@@ -184,6 +184,7 @@ impl EventLoop {
 
                 max_frames_in_buffer
             };
+            *buffer_size = BufferSize::Fixed(max_frames_in_buffer as usize);
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
@@ -262,7 +263,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-        _buffer_size: &mut BufferSize,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {
@@ -352,6 +353,7 @@ impl EventLoop {
 
                 max_frames_in_buffer
             };
+            *buffer_size = BufferSize::Fixed(max_frames_in_buffer as usize);
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = {
