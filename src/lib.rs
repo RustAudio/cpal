@@ -52,7 +52,7 @@
 //! # let device = cpal::default_output_device().unwrap();
 //! # let format = device.supported_output_formats().unwrap().next().unwrap().with_max_sample_rate();
 //! # let event_loop = cpal::EventLoop::new();
-//! let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
+//! let stream_id = event_loop.build_output_stream(&device, &format, &mut cpal::BufferSize::Default).unwrap();
 //! ```
 //!
 //! The value returned by `build_output_stream()` is of type `StreamId` and is an identifier that
@@ -182,6 +182,19 @@ pub struct Format {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
     pub data_type: SampleFormat,
+}
+
+/// The buffer size to request when building an audio stream, if the backend supports buffer
+/// size requesting. Currently, only the alsa backend supports this (TODO).
+///
+/// Note that this is not guaranteed to return an audio stream of the specified size, in
+/// which case cpal will try to find the closest buffer size it can offer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BufferSize {
+    /// The default buffer size, which is ~200 ms.
+    Default,
+    /// The buffer size in frames to request.
+    Fixed(usize),
 }
 
 /// Describes a range of supported stream formats.
@@ -413,9 +426,10 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
-        self.0.build_input_stream(&device.0, format).map(StreamId)
+        self.0.build_input_stream(&device.0, format, buffer_size).map(StreamId)
     }
 
     /// Creates a new output stream that will play on the given device and with the given format.
@@ -429,9 +443,10 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
-        self.0.build_output_stream(&device.0, format).map(StreamId)
+        self.0.build_output_stream(&device.0, format, buffer_size).map(StreamId)
     }
 
     /// Instructs the audio device that it should start playing the stream with the given ID.

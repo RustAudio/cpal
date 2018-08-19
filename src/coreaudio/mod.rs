@@ -1,6 +1,7 @@
 extern crate coreaudio;
 extern crate core_foundation_sys;
 
+use BufferSize;
 use ChannelCount;
 use CreationError;
 use DefaultFormatError;
@@ -473,6 +474,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        _buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         // The scope and element for working with a device's input stream.
@@ -691,6 +693,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        _buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         let mut audio_unit = audio_unit_from_device(device, false)?;

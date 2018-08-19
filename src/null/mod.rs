@@ -2,6 +2,7 @@
 
 use std::marker::PhantomData;
 
+use BufferSize;
 use CreationError;
 use DefaultFormatError;
 use Format;
@@ -25,12 +26,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_input_stream(&self, _: &Device, _: &Format, _: &mut BufferSize) -> Result<StreamId, CreationError> {
         Err(CreationError::DeviceNotAvailable)
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(&self, _: &Device, _: &Format, _: &mut BufferSize) -> Result<StreamId, CreationError> {
         Err(CreationError::DeviceNotAvailable)
     }
 

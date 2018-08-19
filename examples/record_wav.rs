@@ -12,7 +12,7 @@ fn main() {
     let format = device.default_input_format().expect("Failed to get default input format");
     println!("Default input format: {:?}", format);
     let event_loop = cpal::EventLoop::new();
-    let stream_id = event_loop.build_input_stream(&device, &format)
+    let stream_id = event_loop.build_input_stream(&device, &format, &mut cpal::BufferSize::Default)
         .expect("Failed to build input stream");
     event_loop.play_stream(stream_id);
 

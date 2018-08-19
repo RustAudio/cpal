@@ -8,6 +8,7 @@ use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
+use BufferSize;
 use CreationError;
 use DefaultFormatError;
 use Format;
@@ -86,12 +87,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_input_stream(&self, _: &Device, _format: &Format, _buffer_size: &mut BufferSize) -> Result<StreamId, CreationError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(&self, _: &Device, _format: &Format, _buffer_size: &mut BufferSize) -> Result<StreamId, CreationError> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();

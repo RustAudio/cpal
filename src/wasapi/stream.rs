@@ -20,6 +20,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use BufferSize;
 use CreationError;
 use Format;
 use SampleFormat;
@@ -110,6 +111,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        _buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {
@@ -260,6 +262,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        _buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {

@@ -3,6 +3,7 @@ extern crate libc;
 
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
+use BufferSize;
 use ChannelCount;
 use CreationError;
 use DefaultFormatError;
@@ -620,6 +621,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {
@@ -637,11 +639,12 @@ impl EventLoop {
             }
             let hw_params = HwParams::alloc();
 
-            set_hw_params_from_format(capture_handle, &hw_params, format);
+            set_hw_params_from_format(capture_handle, &hw_params, format, buffer_size);
 
             let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
 
             let (buffer_len, period_len) = set_sw_params_from_format(capture_handle, format);
+            *buffer_size = BufferSize::Fixed(buffer_len / format.channels as usize);
 
             check_errors(alsa::snd_pcm_prepare(capture_handle))
                 .expect("could not get playback handle");
@@ -680,6 +683,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
         unsafe {
@@ -697,11 +701,12 @@ impl EventLoop {
             }
             let hw_params = HwParams::alloc();
 
-            set_hw_params_from_format(playback_handle, &hw_params, format);
+            set_hw_params_from_format(playback_handle, &hw_params, format, buffer_size);
 
             let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
 
             let (buffer_len, period_len) = set_sw_params_from_format(playback_handle, format);
+            *buffer_size = BufferSize::Fixed(buffer_len / format.channels as usize);
 
             check_errors(alsa::snd_pcm_prepare(playback_handle))
                 .expect("could not get playback handle");
@@ -759,6 +764,7 @@ unsafe fn set_hw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     hw_params: &HwParams,
     format: &Format,
+    buffer_size: &mut BufferSize,
 ) {
     check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0))
         .expect("Errors on pcm handle");
@@ -795,13 +801,25 @@ unsafe fn set_hw_params_from_format(
                                                       format.channels as
                                                           libc::c_uint))
         .expect("channel count could not be set");
-    let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
-        format.channels as alsa::snd_pcm_uframes_t /
-        5; // 200ms of buffer
-    check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
-                                                             hw_params.0,
-                                                             &mut max_buffer_size))
-        .unwrap();
+
+    match *buffer_size {
+        BufferSize::Default => {
+            let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
+                format.channels as alsa::snd_pcm_uframes_t /
+                5; // 200ms of buffer
+            check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
+                                                                     hw_params.0,
+                                                                     &mut max_buffer_size))
+                .unwrap();
+        },
+        BufferSize::Fixed(buf_size) => {
+            check_errors(alsa::snd_pcm_hw_params_set_buffer_size_near(pcm_handle,
+                                                                     hw_params.0,
+                                                                     &mut (buf_size as alsa::snd_pcm_uframes_t)))
+                .unwrap();
+        }
+    }
+
     check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0))
         .expect("hardware params could not be set");
 }
