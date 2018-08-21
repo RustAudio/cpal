@@ -185,13 +185,16 @@ pub struct Format {
 }
 
 /// The buffer size to request when building an audio stream, if the backend supports buffer
-/// size requesting. Currently, only the alsa backend supports this (TODO).
+/// size requesting.
 ///
 /// Note that this is not guaranteed to return an audio stream of the specified size, in
 /// which case cpal will try to find the closest buffer size it can offer.
+///
+/// NOTE: Currently, only the alsa backend supports buffer sizerequesting, and only the
+/// wasapi and the alsa backend support returning the actual buffer size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BufferSize {
-    /// The default buffer size, which is ~200 ms.
+    /// The default buffer size.
     Default,
     /// The buffer size in frames to request.
     Fixed(usize),
@@ -417,7 +420,8 @@ impl EventLoop {
 
     /// Creates a new input stream that will run from the given device and with the given format.
     ///
-    /// On success, returns an identifier for the stream.
+    /// On success, returns an identifier for the stream and modifies `buffer_size` to reflect the
+    /// actual buffer size.
     ///
     /// Can return an error if the device is no longer valid, or if the input stream format is not
     /// supported by the device.
@@ -434,7 +438,8 @@ impl EventLoop {
 
     /// Creates a new output stream that will play on the given device and with the given format.
     ///
-    /// On success, returns an identifier for the stream.
+    /// On success, returns an identifier for the stream and modifies `buffer_size` to reflect the
+    /// actual buffer size.
     ///
     /// Can return an error if the device is no longer valid, or if the output stream format is not
     /// supported by the device.
