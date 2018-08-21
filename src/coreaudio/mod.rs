@@ -474,9 +474,11 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-        _buffer_size: &mut BufferSize,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
+        *buffer_size = BufferSize::Default; // afaik there's no way to get the buffer size beforehand and it can change
+
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
         let element = Element::Input;
@@ -693,9 +695,11 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-        _buffer_size: &mut BufferSize,
+        buffer_size: &mut BufferSize,
     ) -> Result<StreamId, CreationError>
     {
+        *buffer_size = BufferSize::Default; // afaik there's no way to get the buffer size beforehand and it can change
+
         let mut audio_unit = audio_unit_from_device(device, false)?;
 
         // The scope and element for working with a device's output stream.

@@ -92,7 +92,9 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format, _buffer_size: &mut BufferSize) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(&self, _: &Device, _format: &Format, buffer_size: &mut BufferSize) -> Result<StreamId, CreationError> {
+        *buffer_size = BufferSize::Default; // TODO maybe not this?
+
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();
