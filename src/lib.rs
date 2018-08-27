@@ -678,6 +678,13 @@ impl From<Format> for SupportedFormat {
     }
 }
 
+impl Default for BufferSize {
+    #[inline]
+    fn default() -> BufferSize {
+        BufferSize::Default
+    }
+}
+
 impl Iterator for Devices {
     type Item = Device;
 
