@@ -19,3 +19,7 @@ Currently supported backends include:
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
 - Emscripten
+
+Note that on Linux, the ALSA development files are required. These are provided
+as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
+`alsa-lib-devel` on Fedora.
