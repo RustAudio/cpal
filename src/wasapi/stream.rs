@@ -449,21 +449,27 @@ impl EventLoop {
                             }
                         },
                         Command::PlayStream(stream_id) => {
-                            if let Some(v) = run_context.streams.get_mut(stream_id.0) {
-                                if !v.playing {
-                                    let hresult = (*v.audio_client).Start();
-                                    check_result(hresult).unwrap();
-                                    v.playing = true;
+                            match run_context.streams.iter_mut().find(|v| v.id == stream_id) {
+                                None => continue,
+                                Some(stream) => {
+                                    if !stream.playing {
+                                        let hresult = (*stream.audio_client).Start();
+                                        check_result(hresult).unwrap();
+                                        stream.playing = true;
+                                    }
                                 }
                             }
                         },
                         Command::PauseStream(stream_id) => {
-                            if let Some(v) = run_context.streams.get_mut(stream_id.0) {
-                                if v.playing {
-                                    let hresult = (*v.audio_client).Stop();
-                                    check_result(hresult).unwrap();
-                                    v.playing = false;
-                                }
+                            match run_context.streams.iter_mut().find(|v| v.id == stream_id) {
+                                None => continue,
+                                Some(stream) => {
+                                    if stream.playing {
+                                        let hresult = (*v.audio_client).Stop();
+                                        check_result(hresult).unwrap();
+                                        stream.playing = false;
+                                    }
+                                },
                             }
                         },
                     }
