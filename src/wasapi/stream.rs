@@ -465,7 +465,7 @@ impl EventLoop {
                                 None => continue,
                                 Some(stream) => {
                                     if stream.playing {
-                                        let hresult = (*v.audio_client).Stop();
+                                        let hresult = (*stream.audio_client).Stop();
                                         check_result(hresult).unwrap();
                                         stream.playing = false;
                                     }
