@@ -61,7 +61,10 @@ fn create_lib(cpal_asio_dir: &PathBuf) {
     let walk_a_dir = |dir_to_walk, paths: &mut Vec<PathBuf>| {
         for entry in WalkDir::new(&dir_to_walk).max_depth(1) {
             let entry = match entry {
-                Err(_) => continue,
+                Err(e) => {
+                    println!("error: {}", e);
+                continue
+                },
                 Ok(entry) => entry,
             };
             match entry.path().extension().and_then(|s| s.to_str()) {
