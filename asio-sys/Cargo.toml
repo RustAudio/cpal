@@ -5,9 +5,9 @@ authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 build = "build.rs"
 
 [target.'cfg(any(target_os = "windows"))'.build-dependencies]
-bindgen = "0.33.1"
+bindgen = "0.42.0"
 walkdir = "2"
-cc = "1.0.4"
+cc = "1.0.25"
 
 [dependencies]
 lazy_static = "1.0.0"
