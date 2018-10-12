@@ -17,7 +17,7 @@ hound = "3.4"
 
 [target.'cfg(any(target_os = "windows" ))'.dependencies]
 asio-sys = { version = "0.1", path = "asio-sys" }
-asio-utils = { version = "0.1", path = "srs/platform/windows/asio/asio_utils" }
+asio_utils = { version = "0.1", path = "src/platform/windows/asio/asio_utils" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
