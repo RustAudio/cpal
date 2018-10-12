@@ -181,9 +181,12 @@ impl EventLoop {
                                         {
                                             let $BuffersTypeIdent {
                                                 cpal: ref mut c_buffer,
-                                                channel: ref channels,
+                                                channel: ref mut channels,
                                             } = $Buffers;
                                             au::interleave(&channels, c_buffer);
+                                            for c in channels.iter_mut() {
+                                                c.clear();
+                                            }
                                         }
 
 

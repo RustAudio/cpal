@@ -13,6 +13,16 @@ mod tests;
 /// cpal: 123123123123
 /// cpal buffer must have a length of exactly sum( all asio channel lengths )
 /// this check is ommited for performance
+pub fn interleave<T>(channels: &[Vec<T>], target: &mut Vec<T>)
+where
+    T: std::marker::Copy,
+{
+    assert!(!channels.is_empty());
+    target.clear();
+    let frames = channels[0].len();
+    target.extend((0 .. frames).flat_map(|f| channels.iter().map(move |ch| ch[f])));
+}
+/*
 pub fn interleave<T>(channel_buffer: &[Vec<T>], cpal_buffer: &mut [T])
 where
     T: std::marker::Copy,
@@ -32,6 +42,7 @@ where
         }
     }
 }
+*/
 
 /// Function for deinterleaving because
 /// cpal writes to buffer interleaved
@@ -40,6 +51,20 @@ where
 /// More then stereo:
 /// cpal: 123123123123
 /// asio: 111122223333
+pub fn deinterleave<T>(cpal_buffer: &[T], asio_channels: &mut [Vec<T>])
+where
+    T: std::marker::Copy,
+{
+    for ch in asio_channels.iter_mut() {
+        ch.clear();
+    }
+    let num_channels = asio_channels.len();
+    let mut ch = (0 .. num_channels).cycle();
+    for &sample in cpal_buffer.iter() {
+        asio_channels[ch.next().unwrap()].push(sample);
+    }
+}
+/*
 pub fn deinterleave<T>(cpal_buffer: &[T], asio_channels: &mut [Vec<T>])
 where
     T: std::marker::Copy,
@@ -58,3 +83,4 @@ where
         }
     }
 }
+*/
