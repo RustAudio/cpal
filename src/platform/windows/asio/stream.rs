@@ -66,8 +66,12 @@ impl EventLoop {
         device: &Device,
         format: &Format,
         ) -> Result<StreamId, CreationError> {
-        let stream_type = sys::get_data_type(&device.driver_name).expect("Couldn't load data type");
-        match sys::prepare_input_stream(&device.driver_name) {
+            let Device {
+                drivers,
+                ..
+            } = device;
+        let stream_type = drivers.get_data_type().expect("Couldn't load data type");
+        match drivers.prepare_input_stream() {
             Ok(stream) => {
                 let num_channels = format.channels.clone();
                 let cpal_num_samples =
@@ -229,8 +233,12 @@ pub fn build_output_stream(
     device: &Device,
     format: &Format,
     ) -> Result<StreamId, CreationError> {
-    let stream_type = sys::get_data_type(&device.driver_name).expect("Couldn't load data type");
-    match sys::prepare_stream(&device.driver_name) {
+    let Device {
+        drivers,
+        ..
+    } = device;
+    let stream_type = drivers.get_data_type().expect("Couldn't load data type");
+    match drivers.prepare_output_stream() {
         Ok(stream) => {
             let num_channels = format.channels.clone();
 
