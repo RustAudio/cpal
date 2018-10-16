@@ -17,6 +17,7 @@ use std::os::raw::c_double;
 use errors::ASIOError;
 use std::mem;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use asio_import as ai;
 
@@ -33,6 +34,12 @@ lazy_static!{
     static ref buffer_callback: Mutex<Option<BufferCallback>> = Mutex::new(None);
 }
 
+lazy_static!{
+    static ref ASIO_DRIVERS: Mutex<Option<DriverWrapper>> = Mutex::new(None);
+}
+
+static STREAM_DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug)]
 pub struct Channel {
     pub ins: i64,
@@ -45,9 +52,7 @@ pub struct SampleRate {
 }
 
 #[derive(Debug, Clone)]
-pub struct Drivers {
-    drivers: Arc<Mutex<DriverWrapper>>,
-}
+pub struct Drivers;
 
 #[derive(Debug)]
 struct DriverWrapper {
@@ -151,19 +156,30 @@ extern "C" fn buffer_switch_time_info(
 
 impl Drivers {
     pub fn load(driver_name: &str) -> Result<Self, ASIOError> {
-        // Make owned CString to send to load driver
-        let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-        let raw = my_driver_name.into_raw();
-        unsafe {
-            let mut asio_drivers = ai::AsioDrivers::new();
-            let load_result = asio_drivers.loadDriver(raw);
-            // Take back ownership
-            my_driver_name = CString::from_raw(raw);
-            if load_result {
-                Ok(Drivers{ drivers: Arc::new(Mutex::new(DriverWrapper{drivers: asio_drivers})) })
-            } else {
-                Err(ASIOError::DriverLoadError)
-            }
+        let mut drivers = ASIO_DRIVERS.lock().unwrap();
+        match *drivers {
+            Some(_) => {
+                STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
+                Ok(Drivers{})
+            },
+            None => {
+                // Make owned CString to send to load driver
+                let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
+                let raw = my_driver_name.into_raw();
+                unsafe {
+                    let mut asio_drivers = ai::AsioDrivers::new();
+                    let load_result = asio_drivers.loadDriver(raw);
+                    // Take back ownership
+                    my_driver_name = CString::from_raw(raw);
+                    if load_result {
+                        *drivers = Some(DriverWrapper{drivers: asio_drivers});
+                        STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
+                        Ok(Drivers{})
+                    } else {
+                        Err(ASIOError::DriverLoadError)
+                    }
+                }
+            },
         }
     }
 
@@ -305,6 +321,7 @@ impl Drivers {
                     }
                     println!("channels: {:?}", num_channels);
 
+                    STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
                     return Ok(AsioStream {
                         buffer_infos: buffer_infos,
                         buffer_size: pref_b_size,
@@ -324,7 +341,9 @@ impl Drivers {
         result
     }
 
+    /// Creates the output stream
     pub fn prepare_output_stream(&self) -> Result<AsioStream, ASIOError> {
+        // Initialize data for FFI 
         let mut buffer_infos = [
             AsioBufferInfo {
                 is_input: 0,
@@ -358,7 +377,13 @@ impl Drivers {
         let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
 
         unsafe {
+            // Initialize ASIO stream
             ai::ASIOInit(&mut driver_info);
+            // Get the buffer sizes
+            // min possilbe size
+            // max possible size
+            // preferred size
+            // granularity
             ai::ASIOGetBufferSize(
                 &mut min_b_size,
                 &mut max_b_size,
@@ -388,15 +413,14 @@ impl Drivers {
                     }
                     println!("channels: {:?}", num_channels);
 
+                    STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
                     return Ok(AsioStream {
                         buffer_infos: buffer_infos,
                         buffer_size: pref_b_size,
                     });
                 }
                 Err(ASIOError::BufferError(format!(
-                    "failed to create buffers, 
-                                        error code: {}",
-                    buffer_result
+                    "failed to create buffers, error code: {}", buffer_result
                 )))
             } else {
                 Err(ASIOError::BufferError(
@@ -408,13 +432,37 @@ impl Drivers {
     }
 }
 
-impl Drop for DriverWrapper {
+impl Drop for Drivers {
     fn drop(&mut self) {
-        unsafe{
-            ai::destruct_AsioDrivers(&mut self.drivers);
+        println!("dropping drivers");
+        let count = STREAM_DRIVER_COUNT.fetch_sub(1, Ordering::SeqCst);
+        if count == 1 {
+            println!("Destroying driver");
+            unsafe{
+                if let Some(mut asio_drivers) = (*ASIO_DRIVERS.lock().unwrap()).take() {
+                    ai::destruct_AsioDrivers(&mut asio_drivers.drivers);
+                }
+            }
         }
     }
 }
+
+impl Drop for AsioStream {
+    fn drop(&mut self) {
+        println!("dropping stream");
+        let count = STREAM_DRIVER_COUNT.fetch_sub(1, Ordering::SeqCst);
+        if count == 1 {
+            println!("Destroying driver");
+            unsafe{
+                if let Some(mut asio_drivers) = (*ASIO_DRIVERS.lock().unwrap()).take() {
+                    ai::destruct_AsioDrivers(&mut asio_drivers.drivers);
+                }
+            }
+        }
+    }
+}
+
+unsafe impl Send for DriverWrapper {}
 
 impl BufferCallback {
     fn run(&mut self, index: i32) {
@@ -476,6 +524,7 @@ pub fn get_driver_list() -> Vec<String> {
 pub fn destroy_stream(stream: AsioStream) {
     unsafe {
         ai::ASIODisposeBuffers();
+        ai::ASIOExit();
     }
 }
 
