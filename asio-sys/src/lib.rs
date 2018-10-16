@@ -16,7 +16,7 @@ use std::os::raw::c_void;
 use std::os::raw::c_double;
 use errors::ASIOError;
 use std::mem;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use asio_import as ai;
 
@@ -44,9 +44,19 @@ pub struct SampleRate {
     pub rate: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct Drivers {
+    drivers: Arc<Mutex<DriverWrapper>>,
+}
+
+#[derive(Debug)]
+struct DriverWrapper {
+    pub drivers: ai::AsioDrivers,
+}
+
 pub struct AsioStream {
     pub buffer_infos: [AsioBufferInfo; 2],
-    driver: ai::AsioDrivers,
+    //driver: Driver,
     pub buffer_size: i32,
 }
 
@@ -138,9 +148,271 @@ extern "C" fn buffer_switch_time_info(
     params
 }
 
-impl AsioStream {
-    fn pop_driver(self) -> ai::AsioDrivers {
-        self.driver
+
+impl Drivers {
+    pub fn load(driver_name: &str) -> Result<Self, ASIOError> {
+        // Make owned CString to send to load driver
+        let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
+        let raw = my_driver_name.into_raw();
+        unsafe {
+            let mut asio_drivers = ai::AsioDrivers::new();
+            let load_result = asio_drivers.loadDriver(raw);
+            // Take back ownership
+            my_driver_name = CString::from_raw(raw);
+            if load_result {
+                Ok(Drivers{ drivers: Arc::new(Mutex::new(DriverWrapper{drivers: asio_drivers})) })
+            } else {
+                Err(ASIOError::DriverLoadError)
+            }
+        }
+    }
+
+    /// Returns the channels for the driver it's passed
+    ///
+    /// # Arguments
+    /// * `driver name` - Name of the driver
+    /// # Usage
+    /// Use the get_driver_list() to get the list of names
+    /// Then pass the one you want to get_channels
+    pub fn get_channels(&self) -> Channel {
+        let channel: Channel;
+
+        // Initialize memory for calls
+        let mut ins: c_long = 0;
+        let mut outs: c_long = 0;
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+
+        unsafe {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetChannels(&mut ins, &mut outs);
+            channel = Channel {
+                ins: ins as i64,
+                outs: outs as i64,
+            };
+        }
+
+        channel
+    }
+
+    pub fn get_sample_rate(&self) -> SampleRate {
+        let sample_rate: SampleRate;
+
+        // Initialize memory for calls
+        let mut rate: c_double = 0.0f64;
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+
+        unsafe {
+            ai::ASIOInit(&mut driver_info);
+            ai::get_sample_rate(&mut rate);
+            sample_rate = SampleRate { rate: rate as u32 };
+        }
+
+        sample_rate
+    }
+
+    pub fn get_data_type(&self) -> Result<AsioSampleType, ASIOError> {
+        let data_type: Result<AsioSampleType, ASIOError>;
+
+        // Initialize memory for calls
+        let mut channel_info = ai::ASIOChannelInfo {
+            channel: 0,
+            isInput: 0,
+            isActive: 0,
+            channelGroup: 0,
+            type_: 0,
+            name: [0 as c_char; 32],
+        };
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+
+        unsafe {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetChannelInfo(&mut channel_info);
+            data_type = num::FromPrimitive::from_i32(channel_info.type_)
+                .map_or(Err(ASIOError::TypeError), |t| Ok(t));
+        }
+
+        data_type
+    }
+
+    pub fn prepare_input_stream(&self) -> Result<AsioStream, ASIOError> {
+        let mut buffer_infos = [
+            AsioBufferInfo {
+                is_input: 1,
+                channel_num: 0,
+                buffers: [std::ptr::null_mut(); 2],
+            },
+            AsioBufferInfo {
+                is_input: 1,
+                channel_num: 1,
+                buffers: [std::ptr::null_mut(); 2],
+            },
+        ];
+        let num_channels = 2;
+        
+        let mut callbacks = AsioCallbacks {
+            buffer_switch: buffer_switch,
+            sample_rate_did_change: sample_rate_did_change,
+            asio_message: asio_message,
+            buffer_switch_time_info: buffer_switch_time_info,
+        };
+
+        let mut min_b_size: c_long = 0;
+        let mut max_b_size: c_long = 0;
+        let mut pref_b_size: c_long = 0;
+        let mut grans: c_long = 0;
+
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+
+
+        let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
+
+        unsafe {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetBufferSize(
+                &mut min_b_size,
+                &mut max_b_size,
+                &mut pref_b_size,
+                &mut grans,
+            );
+            result = if pref_b_size > 0 {
+                let mut buffer_info_convert = [
+                    mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[0]),
+                    mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[1]),
+                ];
+                let mut callbacks_convert =
+                    mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
+                let buffer_result = ai::ASIOCreateBuffers(
+                    buffer_info_convert.as_mut_ptr(),
+                    num_channels,
+                    pref_b_size,
+                    &mut callbacks_convert,
+                );
+                if buffer_result == 0 {
+                    let buffer_infos = [
+                        mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[0]),
+                        mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[1]),
+                    ];
+                    for d in &buffer_infos {
+                        println!("after {:?}", d);
+                    }
+                    println!("channels: {:?}", num_channels);
+
+                    return Ok(AsioStream {
+                        buffer_infos: buffer_infos,
+                        buffer_size: pref_b_size,
+                    });
+                }
+                Err(ASIOError::BufferError(format!(
+                    "failed to create buffers, 
+                                        error code: {}",
+                    buffer_result
+                )))
+            } else {
+                Err(ASIOError::BufferError(
+                    "Failed to get buffer size".to_owned(),
+                ))
+            };
+        }
+        result
+    }
+
+    pub fn prepare_output_stream(&self) -> Result<AsioStream, ASIOError> {
+        let mut buffer_infos = [
+            AsioBufferInfo {
+                is_input: 0,
+                channel_num: 0,
+                buffers: [std::ptr::null_mut(); 2],
+            },
+            AsioBufferInfo {
+                is_input: 0,
+                channel_num: 0,
+                buffers: [std::ptr::null_mut(); 2],
+            },
+        ];
+
+        let num_channels = 2;
+        let mut callbacks = AsioCallbacks {
+            buffer_switch: buffer_switch,
+            sample_rate_did_change: sample_rate_did_change,
+            asio_message: asio_message,
+            buffer_switch_time_info: buffer_switch_time_info,
+        };
+
+        let mut min_b_size: c_long = 0;
+        let mut max_b_size: c_long = 0;
+        let mut pref_b_size: c_long = 0;
+        let mut grans: c_long = 0;
+
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+
+        let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
+
+        unsafe {
+            ai::ASIOInit(&mut driver_info);
+            ai::ASIOGetBufferSize(
+                &mut min_b_size,
+                &mut max_b_size,
+                &mut pref_b_size,
+                &mut grans,
+            );
+            result = if pref_b_size > 0 {
+                let mut buffer_info_convert = [
+                    mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[0]),
+                    mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[1]),
+                ];
+                let mut callbacks_convert =
+                    mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
+                let buffer_result = ai::ASIOCreateBuffers(
+                    buffer_info_convert.as_mut_ptr(),
+                    num_channels,
+                    pref_b_size,
+                    &mut callbacks_convert,
+                );
+                if buffer_result == 0 {
+                    let buffer_infos = [
+                        mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[0]),
+                        mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[1]),
+                    ];
+                    for d in &buffer_infos {
+                        println!("after {:?}", d);
+                    }
+                    println!("channels: {:?}", num_channels);
+
+                    return Ok(AsioStream {
+                        buffer_infos: buffer_infos,
+                        buffer_size: pref_b_size,
+                    });
+                }
+                Err(ASIOError::BufferError(format!(
+                    "failed to create buffers, 
+                                        error code: {}",
+                    buffer_result
+                )))
+            } else {
+                Err(ASIOError::BufferError(
+                    "Failed to get buffer size".to_owned(),
+                ))
+            };
+        }
+        result
+    }
+}
+
+impl Drop for DriverWrapper {
+    fn drop(&mut self) {
+        unsafe{
+            ai::destruct_AsioDrivers(&mut self.drivers);
+        }
     }
 }
 
@@ -160,52 +432,9 @@ where
     let mut bc = buffer_callback.lock().unwrap();
     *bc = Some(BufferCallback(Box::new(callback)));
 }
-/// Returns the channels for the driver it's passed
-///
-/// # Arguments
-/// * `driver name` - Name of the driver
-/// # Usage
-/// Use the get_driver_list() to get the list of names
-/// Then pass the one you want to get_channels
-pub fn get_channels(driver_name: &str) -> Result<Channel, ASIOError> {
-    let channel: Result<Channel, ASIOError>;
-    // Make owned CString to send to load driver
-    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-    let raw = my_driver_name.into_raw();
-
-    // Initialize memory for calls
-    let mut ins: c_long = 0;
-    let mut outs: c_long = 0;
-    let mut driver_info = ai::ASIODriverInfo {
-        _bindgen_opaque_blob: [0u32; 43],
-    };
-
-    unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
-
-        let load_result = asio_drivers.loadDriver(raw);
-
-        // Take back ownership
-        my_driver_name = CString::from_raw(raw);
-
-        if load_result {
-            ai::ASIOInit(&mut driver_info);
-            ai::ASIOGetChannels(&mut ins, &mut outs);
-            asio_drivers.removeCurrentDriver();
-            channel = Ok(Channel {
-                ins: ins as i64,
-                outs: outs as i64,
-            });
-        } else {
-            channel = Err(ASIOError::NoResult(driver_name.to_owned()));
-        }
-        ai::destruct_AsioDrivers(&mut asio_drivers);
-    }
-
-    channel
-}
 
 /// Returns a list of all the ASIO drivers
+//TODO this needs to not create and remove drivers
 pub fn get_driver_list() -> Vec<String> {
     let mut driver_list: Vec<String> = Vec::new();
 
@@ -242,296 +471,11 @@ pub fn get_driver_list() -> Vec<String> {
     driver_list
 }
 
-pub fn get_sample_rate(driver_name: &str) -> Result<SampleRate, ASIOError> {
-    let sample_rate: Result<SampleRate, ASIOError>;
-    // Make owned CString to send to load driver
-    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-    let raw = my_driver_name.into_raw();
 
-    // Initialize memory for calls
-    let mut rate: c_double = 0.0f64;
-    let mut driver_info = ai::ASIODriverInfo {
-        _bindgen_opaque_blob: [0u32; 43],
-    };
-
-    unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
-
-        let load_result = asio_drivers.loadDriver(raw);
-
-        // Take back ownership
-        my_driver_name = CString::from_raw(raw);
-
-        if load_result {
-            ai::ASIOInit(&mut driver_info);
-            ai::get_sample_rate(&mut rate);
-            asio_drivers.removeCurrentDriver();
-            sample_rate = Ok(SampleRate { rate: rate as u32 });
-        } else {
-            sample_rate = Err(ASIOError::NoResult(driver_name.to_owned()));
-        }
-        ai::destruct_AsioDrivers(&mut asio_drivers);
-    }
-
-    sample_rate
-}
-
-pub fn get_data_type(driver_name: &str) -> Result<AsioSampleType, ASIOError> {
-    let data_type: Result<AsioSampleType, ASIOError>;
-    // Make owned CString to send to load driver
-    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-    let raw = my_driver_name.into_raw();
-
-    // Initialize memory for calls
-    let mut channel_info = ai::ASIOChannelInfo {
-        channel: 0,
-        isInput: 0,
-        isActive: 0,
-        channelGroup: 0,
-        type_: 0,
-        name: [0 as c_char; 32],
-    };
-    let mut driver_info = ai::ASIODriverInfo {
-        _bindgen_opaque_blob: [0u32; 43],
-    };
-
-    unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
-
-        let load_result = asio_drivers.loadDriver(raw);
-
-        // Take back ownership
-        my_driver_name = CString::from_raw(raw);
-
-        if load_result {
-            ai::ASIOInit(&mut driver_info);
-            ai::ASIOGetChannelInfo(&mut channel_info);
-            asio_drivers.removeCurrentDriver();
-            data_type = num::FromPrimitive::from_i32(channel_info.type_)
-                .map_or(Err(ASIOError::TypeError), |t| Ok(t));
-        } else {
-            data_type = Err(ASIOError::NoResult(driver_name.to_owned()));
-        }
-        ai::destruct_AsioDrivers(&mut asio_drivers);
-    }
-
-    data_type
-}
-
-pub fn prepare_input_stream(driver_name: &str) -> Result<AsioStream, ASIOError> {
-    let mut buffer_infos = [
-        AsioBufferInfo {
-            is_input: 1,
-            channel_num: 0,
-            buffers: [std::ptr::null_mut(); 2],
-        },
-        AsioBufferInfo {
-            is_input: 1,
-            channel_num: 1,
-            buffers: [std::ptr::null_mut(); 2],
-        },
-    ];
-    let num_channels = 2;
-    
-    let mut callbacks = AsioCallbacks {
-        buffer_switch: buffer_switch,
-        sample_rate_did_change: sample_rate_did_change,
-        asio_message: asio_message,
-        buffer_switch_time_info: buffer_switch_time_info,
-    };
-
-    let mut min_b_size: c_long = 0;
-    let mut max_b_size: c_long = 0;
-    let mut pref_b_size: c_long = 0;
-    let mut grans: c_long = 0;
-
-    let mut driver_info = ai::ASIODriverInfo {
-        _bindgen_opaque_blob: [0u32; 43],
-    };
-
-    // Make owned CString to send to load driver
-    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-    let raw = my_driver_name.into_raw();
-
-    let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
-
-    unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
-        let load_result = asio_drivers.loadDriver(raw);
-        // Take back ownership
-        my_driver_name = CString::from_raw(raw);
-        if !load_result {
-            return Err(ASIOError::DriverLoadError);
-        }
-
-        for d in &buffer_infos {
-            println!("before {:?}", d);
-        }
-
-        ai::ASIOInit(&mut driver_info);
-        ai::ASIOGetBufferSize(
-            &mut min_b_size,
-            &mut max_b_size,
-            &mut pref_b_size,
-            &mut grans,
-        );
-        result = if pref_b_size > 0 {
-            let mut buffer_info_convert = [
-                mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[0]),
-                mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[1]),
-            ];
-            let mut callbacks_convert =
-                mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
-            let buffer_result = ai::ASIOCreateBuffers(
-                buffer_info_convert.as_mut_ptr(),
-                num_channels,
-                pref_b_size,
-                &mut callbacks_convert,
-            );
-            if buffer_result == 0 {
-                let buffer_infos = [
-                    mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[0]),
-                    mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[1]),
-                ];
-                for d in &buffer_infos {
-                    println!("after {:?}", d);
-                }
-                println!("channels: {:?}", num_channels);
-
-                return Ok(AsioStream {
-                    buffer_infos: buffer_infos,
-                    driver: asio_drivers,
-                    buffer_size: pref_b_size,
-                });
-            }
-            Err(ASIOError::BufferError(format!(
-                "failed to create buffers, 
-                                       error code: {}",
-                buffer_result
-            )))
-        } else {
-            Err(ASIOError::BufferError(
-                "Failed to get buffer size".to_owned(),
-            ))
-        };
-
-        asio_drivers.removeCurrentDriver();
-        ai::destruct_AsioDrivers(&mut asio_drivers);
-    }
-    result
-}
-
-pub fn prepare_stream(driver_name: &str) -> Result<AsioStream, ASIOError> {
-    //let mut buffer_info = ai::ASIOBufferInfo{_bindgen_opaque_blob: [0u32; 6]};
-    let mut buffer_infos = [
-        AsioBufferInfo {
-            is_input: 0,
-            channel_num: 0,
-            buffers: [std::ptr::null_mut(); 2],
-        },
-        AsioBufferInfo {
-            is_input: 0,
-            channel_num: 0,
-            buffers: [std::ptr::null_mut(); 2],
-        },
-    ];
-
-    let num_channels = 2;
-    //let mut callbacks = ai::ASIOCallbacks{_bindgen_opaque_blob: [0u32; 8]};
-    let mut callbacks = AsioCallbacks {
-        buffer_switch: buffer_switch,
-        sample_rate_did_change: sample_rate_did_change,
-        asio_message: asio_message,
-        buffer_switch_time_info: buffer_switch_time_info,
-    };
-
-    let mut min_b_size: c_long = 0;
-    let mut max_b_size: c_long = 0;
-    let mut pref_b_size: c_long = 0;
-    let mut grans: c_long = 0;
-
-    let mut driver_info = ai::ASIODriverInfo {
-        _bindgen_opaque_blob: [0u32; 43],
-    };
-
-    // Make owned CString to send to load driver
-    let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-    let raw = my_driver_name.into_raw();
-
-    let mut result = Err(ASIOError::NoResult("not implimented".to_owned()));
-
-    unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
-        let load_result = asio_drivers.loadDriver(raw);
-        // Take back ownership
-        my_driver_name = CString::from_raw(raw);
-        if !load_result {
-            return Err(ASIOError::DriverLoadError);
-        }
-
-        for d in &buffer_infos {
-            println!("before {:?}", d);
-        }
-
-        ai::ASIOInit(&mut driver_info);
-        ai::ASIOGetBufferSize(
-            &mut min_b_size,
-            &mut max_b_size,
-            &mut pref_b_size,
-            &mut grans,
-        );
-        result = if pref_b_size > 0 {
-            let mut buffer_info_convert = [
-                mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[0]),
-                mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(buffer_infos[1]),
-            ];
-            let mut callbacks_convert =
-                mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
-            let buffer_result = ai::ASIOCreateBuffers(
-                buffer_info_convert.as_mut_ptr(),
-                num_channels,
-                pref_b_size,
-                &mut callbacks_convert,
-            );
-            if buffer_result == 0 {
-                let buffer_infos = [
-                    mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[0]),
-                    mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(buffer_info_convert[1]),
-                ];
-                for d in &buffer_infos {
-                    println!("after {:?}", d);
-                }
-                println!("channels: {:?}", num_channels);
-
-                return Ok(AsioStream {
-                    buffer_infos: buffer_infos,
-                    driver: asio_drivers,
-                    buffer_size: pref_b_size,
-                });
-            }
-            Err(ASIOError::BufferError(format!(
-                "failed to create buffers, 
-                                       error code: {}",
-                buffer_result
-            )))
-        } else {
-            Err(ASIOError::BufferError(
-                "Failed to get buffer size".to_owned(),
-            ))
-        };
-
-        asio_drivers.removeCurrentDriver();
-        ai::destruct_AsioDrivers(&mut asio_drivers);
-    }
-    result
-}
 
 pub fn destroy_stream(stream: AsioStream) {
     unsafe {
         ai::ASIODisposeBuffers();
-        let mut asio_drivers = stream.pop_driver();
-        asio_drivers.removeCurrentDriver();
-        ai::destruct_AsioDrivers(&mut asio_drivers);
     }
 }
 
