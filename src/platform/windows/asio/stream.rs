@@ -70,10 +70,10 @@ impl EventLoop {
                 drivers,
                 ..
             } = device;
+        let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-        match drivers.prepare_input_stream() {
+        match drivers.prepare_input_stream(num_channels as usize) {
             Ok(stream) => {
-                let num_channels = format.channels.clone();
                 let cpal_num_samples =
                     (stream.buffer_size as usize) * num_channels as usize;
                 {
@@ -237,11 +237,10 @@ pub fn build_output_stream(
         drivers,
         ..
     } = device;
+    let num_channels = format.channels.clone();
     let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-    match drivers.prepare_output_stream() {
+    match drivers.prepare_output_stream(num_channels as usize) {
         Ok(stream) => {
-            let num_channels = format.channels.clone();
-
             let cpal_num_samples =
                 (stream.buffer_size as usize) * num_channels as usize;
             {
