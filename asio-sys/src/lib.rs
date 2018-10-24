@@ -34,7 +34,7 @@ pub struct CbArgs<S, D> {
 struct BufferCallback(Box<FnMut(i32) + Send>);
 
 lazy_static! {
-    static ref buffer_callback: Mutex<Option<BufferCallback>> = Mutex::new(None);
+    static ref buffer_callback: Mutex<[Option<BufferCallback>; 2]> = Mutex::new([None, None]);
 }
 
 lazy_static! {
@@ -127,11 +127,20 @@ struct AsioCallbacks {
         direct_process: c_long,
     ) -> *mut ai::ASIOTime,
 }
-
-extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long) -> () {
+extern "C" fn buffer_switch_output(double_buffer_index: c_long, direct_process: c_long) -> () {
     let mut bc = buffer_callback.lock().unwrap();
+    println!("output");
 
-    if let Some(ref mut bc) = *bc {
+    if let Some(ref mut bc) = bc[0] {
+        bc.run(double_buffer_index);
+    }
+}
+
+extern "C" fn buffer_switch_input(double_buffer_index: c_long, direct_process: c_long) -> () {
+    let mut bc = buffer_callback.lock().unwrap();
+    println!("input");
+
+    if let Some(ref mut bc) = bc[1] {
         bc.run(double_buffer_index);
     }
 }
@@ -260,7 +269,7 @@ impl Drivers {
         ];
 
         let mut callbacks = AsioCallbacks {
-            buffer_switch: buffer_switch,
+            buffer_switch: buffer_switch_input,
             sample_rate_did_change: sample_rate_did_change,
             asio_message: asio_message,
             buffer_switch_time_info: buffer_switch_time_info,
@@ -337,7 +346,7 @@ impl Drivers {
         ];
 
         let mut callbacks = AsioCallbacks {
-            buffer_switch: buffer_switch,
+            buffer_switch: buffer_switch_output,
             sample_rate_did_change: sample_rate_did_change,
             asio_message: asio_message,
             buffer_switch_time_info: buffer_switch_time_info,
@@ -446,12 +455,18 @@ impl BufferCallback {
 
 unsafe impl Send for AsioStream {}
 
-pub fn set_callback<F: 'static>(mut callback: F) -> ()
+pub fn set_callback<F: 'static>(input: bool, mut callback: F) -> ()
 where
     F: FnMut(i32) + Send,
 {
     let mut bc = buffer_callback.lock().unwrap();
-    *bc = Some(BufferCallback(Box::new(callback)));
+    if input {
+        println!("Set input callback");
+        bc[1] = Some(BufferCallback(Box::new(callback)));
+    }else{
+        println!("Set output callback");
+        bc[0] = Some(BufferCallback(Box::new(callback)));
+    }
 }
 
 /// Returns a list of all the ASIO drivers
@@ -501,15 +516,15 @@ pub fn destroy_stream(stream: AsioStream) {
 
 pub fn play() {
     unsafe {
-        let result = ai::ASIOStart();
-        println!("start result: {}", result);
+        let result = asio_start();
+        println!("start result: {:?}", result);
     }
 }
 
 pub fn stop() {
     unsafe {
-        let result = ai::ASIOStop();
-        println!("start result: {}", result);
+        let result = asio_stop();
+        println!("stop result: {:?}", result);
     }
 }
 
@@ -565,5 +580,15 @@ unsafe fn asio_dispose_buffers() -> Result<(), AsioError> {
 
 unsafe fn asio_exit() -> Result<(), AsioError> {
     let result = ai::ASIOExit();
+    asio_result!(result)
+}
+
+unsafe fn asio_start() -> Result<(), AsioError> {
+    let result = ai::ASIOStart();
+    asio_result!(result)
+}
+
+unsafe fn asio_stop() -> Result<(), AsioError> {
+    let result = ai::ASIOStop();
     asio_result!(result)
 }

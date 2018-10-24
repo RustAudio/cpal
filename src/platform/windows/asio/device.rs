@@ -128,7 +128,15 @@ impl Iterator for Devices {
 // so returning first in list as default
 pub fn default_input_device() -> Option<Device> {
     let mut driver_list = sys::get_driver_list();
-    match driver_list.pop() {
+    // Remove
+    let d_name = driver_list.into_iter()
+        .filter(|d| d == "ASIO4ALL v2")
+        //.filter(|d| d.name() == "Dante Via (x64)")
+        //.filter(|d| d.name() == "Dante Virtual Soundcard (x64)")
+        .next();
+    //match driver_list.pop() {
+    match d_name {
+    // end remove
         Some(name) => {
             sys::Drivers::load(&name)
                 .or_else(|e| {
@@ -144,7 +152,15 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     let mut driver_list = sys::get_driver_list();
-    match driver_list.pop() {
+    // Remove
+    let d_name = driver_list.into_iter()
+        .filter(|d| d == "ASIO4ALL v2")
+        //.filter(|d| d.name() == "Dante Via (x64)")
+        //.filter(|d| d.name() == "Dante Virtual Soundcard (x64)")
+        .next();
+    //match driver_list.pop() {
+    match d_name {
+    // end remove
         Some(name) => {
             sys::Drivers::load(&name)
                 .or_else(|e| {
