@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use SampleFormat;
 
 pub struct EventLoop {
-    asio_stream: Arc<Mutex<Option<sys::AsioStream>>>,
-    stream_count: Arc<AtomicUsize>,
+    asio_streams: Arc<Mutex<Vec<Option<sys::AsioStream>>>>,
+    stream_count: AtomicUsize,
     callbacks: Arc<Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
 }
 
@@ -55,8 +55,8 @@ struct Buffers {
 impl EventLoop {
     pub fn new() -> EventLoop {
         EventLoop {
-            asio_stream: Arc::new(Mutex::new(None)),
-            stream_count: Arc::new(AtomicUsize::new(0)),
+            asio_streams: Arc::new(Mutex::new(Vec::new())),
+            stream_count: AtomicUsize::new(0),
             callbacks: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -77,11 +77,11 @@ impl EventLoop {
                 let cpal_num_samples =
                     (stream.buffer_size as usize) * num_channels as usize;
                 {
-                    *self.asio_stream.lock().unwrap() = Some(stream);
+                    self.asio_streams.lock().unwrap().push(Some(stream));
                 }
                 let count = self.stream_count.load(Ordering::SeqCst);
                 self.stream_count.store(count + 1, Ordering::SeqCst);
-                let asio_stream = self.asio_stream.clone();
+                let asio_streams = self.asio_streams.clone();
                 let callbacks = self.callbacks.clone();
                 let bytes_per_channel = format.data_type.sample_size();
                 
@@ -126,8 +126,8 @@ impl EventLoop {
                     }
                 };
 
-                sys::set_callback(move |index| unsafe {
-                    if let Some(ref asio_stream) = *asio_stream.lock().unwrap() {
+                sys::set_callback(true, move |index| unsafe {
+                    if let Some(ref asio_stream) = asio_streams.lock().unwrap()[count - 1] {
                         // Number of samples needed total
                         let mut callbacks = callbacks.lock().unwrap();
 
@@ -153,7 +153,6 @@ impl EventLoop {
                                             let buff_ptr = asio_stream
                                                             .buffer_infos[i]
                                                             .buffers[index as usize] as *mut $AsioType;
-                                                //.offset(asio_stream.buffer_size as isize * i as isize);
                                             let asio_buffer: &'static [$AsioType] =
                                                 std::slice::from_raw_parts(
                                                     buff_ptr,
@@ -244,11 +243,11 @@ pub fn build_output_stream(
             let cpal_num_samples =
                 (stream.buffer_size as usize) * num_channels as usize;
             {
-                *self.asio_stream.lock().unwrap() = Some(stream);
+                self.asio_streams.lock().unwrap().push(Some(stream));
             }
             let count = self.stream_count.load(Ordering::SeqCst);
             self.stream_count.store(count + 1, Ordering::SeqCst);
-            let asio_stream = self.asio_stream.clone();
+            let asio_streams = self.asio_streams.clone();
             let callbacks = self.callbacks.clone();
             let bytes_per_channel = format.data_type.sample_size();
             // Create buffers 
@@ -292,8 +291,8 @@ pub fn build_output_stream(
                 }
             };
 
-            sys::set_callback(move |index| unsafe {
-                if let Some(ref asio_stream) = *asio_stream.lock().unwrap() {
+            sys::set_callback(false, move |index| unsafe {
+                if let Some(ref asio_stream) = asio_streams.lock().unwrap()[count - 1] {
                     // Number of samples needed total
                     let mut callbacks = callbacks.lock().unwrap();
 
@@ -402,8 +401,8 @@ pub fn pause_stream(&self, stream: StreamId) {
     sys::stop();
 }
 pub fn destroy_stream(&self, stream_id: StreamId) {
-    let mut asio_stream_lock = self.asio_stream.lock().unwrap();
-    let old_stream = mem::replace(&mut *asio_stream_lock, None);
+    let mut asio_streams_lock = self.asio_streams.lock().unwrap();
+    let old_stream = mem::replace(asio_streams_lock.get_mut(stream_id.0 - 1).expect("stream count out of bounds"), None);
     if let Some(old_stream) = old_stream {
         sys::destroy_stream(old_stream);
     }
