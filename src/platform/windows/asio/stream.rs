@@ -371,12 +371,9 @@ pub fn build_output_stream(
                                 // the asio buffer
                                 // TODO need to check for Endian
                                 for (i, channel) in my_buffers.channel.iter().enumerate(){
-                                    let buff_ptr = (asio_stream
+                                    let buff_ptr = asio_stream
                                                     .buffer_infos[i]
-                                                    .buffers[index as usize] as *mut $AsioType)
-                                        // I'm not sure if this is needed anymore
-                                        // Why should we offset the pointer?
-                                        .offset(asio_stream.buffer_size as isize * i as isize);
+                                                    .buffers[index as usize] as *mut $AsioType;
                                     let asio_buffer: &'static mut [$AsioType] =
                                         std::slice::from_raw_parts_mut(
                                             buff_ptr,
