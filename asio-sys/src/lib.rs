@@ -34,7 +34,7 @@ pub struct CbArgs<S, D> {
 struct BufferCallback(Box<FnMut(i32) + Send>);
 
 lazy_static! {
-    static ref buffer_callback: Mutex<[Option<BufferCallback>; 2]> = Mutex::new([None, None]);
+    static ref buffer_callback: Mutex<Vec<Option<BufferCallback>>> = Mutex::new(Vec::new());
 }
 
 lazy_static! {
@@ -60,6 +60,11 @@ pub struct Drivers;
 #[derive(Debug)]
 struct DriverWrapper {
     pub drivers: ai::AsioDrivers,
+}
+
+pub struct AsioStreams {
+    pub input: Option<AsioStream>,
+    pub output: Option<AsioStream>,
 }
 
 pub struct AsioStream {
@@ -127,21 +132,13 @@ struct AsioCallbacks {
         direct_process: c_long,
     ) -> *mut ai::ASIOTime,
 }
-extern "C" fn buffer_switch_output(double_buffer_index: c_long, direct_process: c_long) -> () {
-    let mut bc = buffer_callback.lock().unwrap();
-    println!("output");
+extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long) -> () {
+    let mut bcs = buffer_callback.lock().unwrap();
 
-    if let Some(ref mut bc) = bc[0] {
-        bc.run(double_buffer_index);
-    }
-}
-
-extern "C" fn buffer_switch_input(double_buffer_index: c_long, direct_process: c_long) -> () {
-    let mut bc = buffer_callback.lock().unwrap();
-    println!("input");
-
-    if let Some(ref mut bc) = bc[1] {
-        bc.run(double_buffer_index);
+    for mut bc in bcs.iter_mut() {
+        if let Some(ref mut bc) = bc {
+            bc.run(double_buffer_index);
+        }
     }
 }
 
@@ -258,7 +255,7 @@ impl Drivers {
         }
     }
 
-    pub fn prepare_input_stream(&self, num_channels: usize) -> Result<AsioStream, AsioDriverError> {
+    pub fn prepare_input_stream(&self, output: Option<AsioStream>, mut num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
         let mut buffer_infos = vec![
             AsioBufferInfo {
                 is_input: 1,
@@ -267,74 +264,13 @@ impl Drivers {
             };
             num_channels
         ];
-
-        let mut callbacks = AsioCallbacks {
-            buffer_switch: buffer_switch_input,
-            sample_rate_did_change: sample_rate_did_change,
-            asio_message: asio_message,
-            buffer_switch_time_info: buffer_switch_time_info,
-        };
-
-        let mut min_b_size: c_long = 0;
-        let mut max_b_size: c_long = 0;
-        let mut pref_b_size: c_long = 0;
-        let mut grans: c_long = 0;
-
-        let mut result = Err(AsioDriverError::NoResult("not implimented".to_owned()));
-
-        unsafe {
-            asio_get_buffer_size(
-                &mut min_b_size,
-                &mut max_b_size,
-                &mut pref_b_size,
-                &mut grans,
-            ).expect("Failed getting buffers");
-            result = if pref_b_size > 0 {
-                let mut buffer_info_convert: Vec<ai::ASIOBufferInfo> = buffer_infos
-                    .into_iter()
-                    .map(|bi| mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(bi))
-                    .collect();
-                let mut callbacks_convert =
-                    mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
-                let buffer_result = asio_create_buffers(
-                    buffer_info_convert.as_mut_ptr(),
-                    num_channels as i32,
-                    pref_b_size,
-                    &mut callbacks_convert,
-                );
-                if buffer_result.is_ok() {
-                    let mut buffer_infos: Vec<AsioBufferInfo> = buffer_info_convert
-                        .into_iter()
-                        .map(|bi| mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(bi))
-                        .collect();
-                    for d in &buffer_infos {
-                        println!("after {:?}", d);
-                    }
-                    println!("channels: {:?}", num_channels);
-
-                    STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
-                    return Ok(AsioStream {
-                        buffer_infos: buffer_infos,
-                        buffer_size: pref_b_size,
-                    });
-                }
-                Err(AsioDriverError::BufferError(format!(
-                    "failed to create buffers, 
-                                        error \
-                     code: {:?}",
-                    buffer_result
-                )))
-            } else {
-                Err(AsioDriverError::BufferError(
-                    "Failed to get buffer size".to_owned(),
-                ))
-            };
-        }
-        result
+        
+        let streams = AsioStreams{input: Some(AsioStream{buffer_infos, buffer_size: 0}), output};
+        self.create_streams(streams)
     }
 
     /// Creates the output stream
-    pub fn prepare_output_stream(&self, num_channels: usize) -> Result<AsioStream, AsioDriverError> {
+    pub fn prepare_output_stream(&self, input: Option<AsioStream>, num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
         // Initialize data for FFI
         let mut buffer_infos = vec![
             AsioBufferInfo {
@@ -344,9 +280,66 @@ impl Drivers {
             };
             num_channels
         ];
+        let streams = AsioStreams{output: Some(AsioStream{buffer_infos, buffer_size: 0}), input};
+        self.create_streams(streams)
+    }
 
+    /// Creates the output stream
+    fn create_streams(&self, streams: AsioStreams) -> Result<AsioStreams, AsioDriverError> {
+        let AsioStreams {
+            input,
+            output,
+        } = streams;
+        match (input, output) {
+            (Some(input), Some(mut output)) => {
+                let split_point = input.buffer_infos.len();
+                let mut bi = input.buffer_infos;
+                bi.append(&mut output.buffer_infos);
+                self.create_buffers(bi)
+                    .map(|(mut bi, buffer_size)|{
+                        let out_bi = bi.split_off(split_point);
+                        let in_bi = bi;
+                        let output = Some(AsioStream{
+                            buffer_infos: out_bi,
+                            buffer_size,
+                        });
+                        let input = Some(AsioStream{
+                            buffer_infos: in_bi,
+                            buffer_size,
+                        });
+                        AsioStreams{output, input}
+                    })
+            },
+            (Some(input), None) => {
+                self.create_buffers(input.buffer_infos)
+                    .map(|(buffer_infos, buffer_size)| AsioStreams{
+                        input: Some(AsioStream{
+                            buffer_infos,
+                            buffer_size,
+                        }),
+                        output: None,
+                    })
+            },
+            (None, Some(output)) => {
+                self.create_buffers(output.buffer_infos)
+                    .map(|(buffer_infos, buffer_size)| AsioStreams{
+                        output: Some(AsioStream{
+                            buffer_infos,
+                            buffer_size,
+                        }),
+                        input: None,
+                    })
+            },
+            (None, None) => panic!("Trying to create streams without preparing"),
+        }
+
+    }
+
+    fn create_buffers(&self, buffer_infos: Vec<AsioBufferInfo>) 
+    -> Result<(Vec<AsioBufferInfo>, c_long), AsioDriverError>{
+        let num_channels = buffer_infos.len();
         let mut callbacks = AsioCallbacks {
-            buffer_switch: buffer_switch_output,
+            buffer_switch: buffer_switch,
             sample_rate_did_change: sample_rate_did_change,
             asio_message: asio_message,
             buffer_switch_time_info: buffer_switch_time_info,
@@ -357,7 +350,7 @@ impl Drivers {
         let mut pref_b_size: c_long = 0;
         let mut grans: c_long = 0;
 
-        let mut result = Err(AsioDriverError::NoResult("not implimented".to_owned()));
+        //let mut result = Err(AsioDriverError::NoResult("not implimented".to_owned()));
 
         unsafe {
             // Get the buffer sizes
@@ -371,20 +364,19 @@ impl Drivers {
                 &mut pref_b_size,
                 &mut grans,
             ).expect("Failed getting buffers");
-            result = if pref_b_size > 0 {
+            if pref_b_size > 0 {
                 let mut buffer_info_convert: Vec<ai::ASIOBufferInfo> = buffer_infos
                     .into_iter()
                     .map(|bi| mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(bi))
                     .collect();
                 let mut callbacks_convert =
                     mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
-                let buffer_result = asio_create_buffers(
+                asio_create_buffers(
                     buffer_info_convert.as_mut_ptr(),
                     num_channels as i32,
                     pref_b_size,
                     &mut callbacks_convert,
-                );
-                if buffer_result.is_ok() {
+                ).map(|_|{
                     let mut buffer_infos: Vec<AsioBufferInfo> = buffer_info_convert
                         .into_iter()
                         .map(|bi| mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(bi))
@@ -395,22 +387,17 @@ impl Drivers {
                     println!("channels: {:?}", num_channels);
 
                     STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
-                    return Ok(AsioStream {
-                        buffer_infos: buffer_infos,
-                        buffer_size: pref_b_size,
-                    });
-                }
-                Err(AsioDriverError::BufferError(format!(
-                    "failed to create buffers, error code: {:?}",
-                    buffer_result
-                )))
+                    (buffer_infos, pref_b_size)
+                }).map_err(|e|{
+                AsioDriverError::BufferError(format!(
+                    "failed to create buffers, error code: {:?}", e))
+                })
             } else {
                 Err(AsioDriverError::BufferError(
-                    "Failed to get buffer size".to_owned(),
+                    "bad buffer size".to_owned(),
                 ))
-            };
+            }
         }
-        result
     }
 }
 
@@ -428,7 +415,7 @@ impl Drop for Drivers {
         }
     }
 }
-
+/* TODO this should be tied to cpal streams and not AsioStreams
 impl Drop for AsioStream {
     fn drop(&mut self) {
         println!("dropping stream");
@@ -443,6 +430,7 @@ impl Drop for AsioStream {
         }
     }
 }
+*/
 
 unsafe impl Send for DriverWrapper {}
 
@@ -455,18 +443,12 @@ impl BufferCallback {
 
 unsafe impl Send for AsioStream {}
 
-pub fn set_callback<F: 'static>(input: bool, mut callback: F) -> ()
+pub fn set_callback<F: 'static>(mut callback: F) -> ()
 where
     F: FnMut(i32) + Send,
 {
     let mut bc = buffer_callback.lock().unwrap();
-    if input {
-        println!("Set input callback");
-        bc[1] = Some(BufferCallback(Box::new(callback)));
-    }else{
-        println!("Set output callback");
-        bc[0] = Some(BufferCallback(Box::new(callback)));
-    }
+    bc.push(Some(BufferCallback(Box::new(callback))));
 }
 
 /// Returns a list of all the ASIO drivers
