@@ -1,5 +1,5 @@
 extern crate asio_sys as sys;
-extern crate asio_utils as au;
+
 
 use std;
 use Format;
@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use SampleFormat;
+use super::asio_utils as au;
 
 pub struct EventLoop {
     asio_streams: Arc<Mutex<sys::AsioStreams>>,

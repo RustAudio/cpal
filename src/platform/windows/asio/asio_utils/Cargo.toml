@@ -1,6 +1,0 @@
-[package]
-name = "asio_utils"
-version = "0.1.0"
-authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
-
-[dependencies]
