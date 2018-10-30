@@ -17,6 +17,7 @@ use SampleFormat;
 
 pub struct EventLoop {
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
+    cpal_streams: Arc<Mutex<Vec<Option<Stream>>>>,
     stream_count: AtomicUsize,
     callbacks: Arc<Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
 }
@@ -29,6 +30,11 @@ pub struct InputBuffer<'a, T: 'a> {
 }
 pub struct OutputBuffer<'a, T: 'a> {
     buffer: &'a mut [T],
+}
+
+enum Stream{
+    Input,
+    Output,
 }
 
 #[derive(Default)]
@@ -56,6 +62,7 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         EventLoop {
             asio_streams: Arc::new(Mutex::new(sys::AsioStreams{input: None, output: None})),
+            cpal_streams: Arc::new(Mutex::new(Vec::new())),
             stream_count: AtomicUsize::new(0),
             callbacks: Arc::new(Mutex::new(Vec::new())),
         }
@@ -259,6 +266,7 @@ impl EventLoop {
                     }
                 }
             });
+            self.cpal_streams.lock().unwrap().push(Some(Stream::Input));
             StreamId(count)
         })
     }
@@ -414,9 +422,11 @@ pub fn build_output_stream(
                 }
             }
         });
+        self.cpal_streams.lock().unwrap().push(Some(Stream::Output));
         StreamId(count)
     })
 }
+
 
 pub fn play_stream(&self, stream: StreamId) {
     sys::play();
@@ -426,20 +436,17 @@ pub fn pause_stream(&self, stream: StreamId) {
     sys::stop();
 }
 
-// TODO the logic for this is wrong
-// We are not destroying AsioStreams but CPAL streams
-// Asio Streams should only be destroyed if there are no 
-// CPAL streams left
 pub fn destroy_stream(&self, stream_id: StreamId) {
-    /*
-    let mut asio_streams_lock = self.asio_streams.lock().unwrap();
-    let old_stream = mem::replace(asio_streams_lock.get_mut(stream_id.0 - 1).expect("stream count out of bounds"), None);
-    if let Some(old_stream) = old_stream {
-        sys::destroy_stream(old_stream);
+    let mut streams = self.cpal_streams.lock().unwrap();
+    streams.get_mut(stream_id.0 - 1).take();
+    let count = self.stream_count.load(Ordering::SeqCst);
+    self.stream_count.store(count - 1, Ordering::SeqCst);
+    if count == 1 {
+        *self.asio_streams.lock().unwrap() = sys::AsioStreams{ output: None, input: None };
+        sys::clean_up();
     }
-    */
-    unimplemented!()
 }
+
 pub fn run<F>(&self, mut callback: F) -> !
 where
 F: FnMut(StreamId, StreamData) + Send,
@@ -454,6 +461,12 @@ F: FnMut(StreamId, StreamData) + Send,
         // removed in --release
     }
 }
+}
+
+impl Drop for EventLoop {
+    fn drop(&mut self) {
+        sys::clean_up();
+    }
 }
 
 impl<'a, T> InputBuffer<'a, T> {
