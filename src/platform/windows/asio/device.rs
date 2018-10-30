@@ -45,7 +45,7 @@ impl Device {
     FormatsEnumerationError> {
             match self.default_input_format() {
                 Ok(f) => Ok(vec![SupportedFormat::from(f)].into_iter()),
-                Err(e) => Err(FormatsEnumerationError::DeviceNotAvailable),
+                Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
             }
     }
 
@@ -53,7 +53,7 @@ impl Device {
     FormatsEnumerationError> {
         match self.default_output_format() {
             Ok(f) => Ok(vec![SupportedFormat::from(f)].into_iter()),
-            Err(e) => Err(FormatsEnumerationError::DeviceNotAvailable),
+            Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
         }
     }
 
@@ -127,7 +127,7 @@ impl Iterator for Devices {
 // Asio doesn't have a concept of default
 // so returning first in list as default
 pub fn default_input_device() -> Option<Device> {
-    let mut driver_list = sys::get_driver_list();
+    let driver_list = sys::get_driver_list();
     // Remove
     let d_name = driver_list.into_iter()
         .filter(|d| d == "ASIO4ALL v2")
@@ -151,7 +151,7 @@ pub fn default_input_device() -> Option<Device> {
 }
 
 pub fn default_output_device() -> Option<Device> {
-    let mut driver_list = sys::get_driver_list();
+    let driver_list = sys::get_driver_list();
     // Remove
     let d_name = driver_list.into_iter()
         .filter(|d| d == "ASIO4ALL v2")
