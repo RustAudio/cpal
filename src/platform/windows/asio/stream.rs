@@ -5,11 +5,9 @@ use std;
 use Format;
 use CreationError;
 use StreamData;
-use std::marker::PhantomData;
 use super::Device;
-use std::cell::Cell;
-use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
+use UnknownTypeOutputBuffer;
 use std::sync::{Arc, Mutex};
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,9 +30,8 @@ pub struct OutputBuffer<'a, T: 'a> {
     buffer: &'a mut [T],
 }
 
-enum Stream{
-    Input,
-    Output,
+struct Stream{
+    playing: bool,
 }
 
 #[derive(Default)]
@@ -68,6 +65,9 @@ impl EventLoop {
         }
     }
 
+    /// Create a new CPAL Input Stream
+    /// If there is no ASIO Input Stream 
+    /// it will be created
     fn get_input_stream(&self, drivers: &sys::Drivers, num_channels: usize) -> Result<usize, CreationError> {
             let ref mut streams = *self.asio_streams.lock().unwrap();
             match streams.input {
@@ -130,8 +130,8 @@ impl EventLoop {
             let count = self.stream_count.load(Ordering::SeqCst);
             self.stream_count.store(count + 1, Ordering::SeqCst);
             let asio_streams = self.asio_streams.clone();
+            let cpal_streams = self.cpal_streams.clone();
             let callbacks = self.callbacks.clone();
-            let bytes_per_channel = format.data_type.sample_size();
             
             // Create buffers 
             let channel_len = cpal_num_samples 
@@ -175,11 +175,19 @@ impl EventLoop {
             };
 
             sys::set_callback(move |index| unsafe {
+                //if not playing return early
+                {
+                if let Some(s) = cpal_streams.lock().unwrap().get(count - 1){
+                    if let Some(s) = s{
+                        if !s.playing { return (); }
+                    }
+                }
+                }
                 if let Some(ref asio_stream) = asio_streams.lock().unwrap().input {
                     // Number of samples needed total
                     let mut callbacks = callbacks.lock().unwrap();
 
-                    // Assuming only one callback, probably needs to change
+                    // Theres only a single callback because theres only one event loop 
                     match callbacks.first_mut() {
                         Some(callback) => {
                             macro_rules! try_callback {
@@ -266,7 +274,7 @@ impl EventLoop {
                     }
                 }
             });
-            self.cpal_streams.lock().unwrap().push(Some(Stream::Input));
+            self.cpal_streams.lock().unwrap().push(Some(Stream{ playing: false }));
             StreamId(count)
         })
     }
@@ -287,8 +295,8 @@ pub fn build_output_stream(
         let count = self.stream_count.load(Ordering::SeqCst);
         self.stream_count.store(count + 1, Ordering::SeqCst);
         let asio_streams = self.asio_streams.clone();
+        let cpal_streams = self.cpal_streams.clone();
         let callbacks = self.callbacks.clone();
-        let bytes_per_channel = format.data_type.sample_size();
         // Create buffers 
         let channel_len = cpal_num_samples 
             / num_channels as usize;
@@ -331,11 +339,19 @@ pub fn build_output_stream(
         };
 
         sys::set_callback(move |index| unsafe {
+            //if not playing return early
+            {
+            if let Some(s) = cpal_streams.lock().unwrap().get(count - 1){
+                if let Some(s) = s{
+                    if !s.playing { return (); }
+                }
+            }
+            }
             if let Some(ref asio_stream) = asio_streams.lock().unwrap().output {
                 // Number of samples needed total
                 let mut callbacks = callbacks.lock().unwrap();
 
-                // Assuming only one callback, probably needs to change
+                // Theres only a single callback because theres only one event loop 
                 match callbacks.first_mut() {
                     Some(callback) => {
                         macro_rules! try_callback {
@@ -349,9 +365,6 @@ pub fn build_output_stream(
                                 $BuffersTypeIdent:ident
                                 ) => {
                                     let mut my_buffers = $Buffers;
-                                // Buffer that is filled by cpal.
-                                //let mut cpal_buffer: Vec<$SampleType> = vec![0 as $SampleType; cpal_num_samples];
-                                //  Call in block because of mut borrow
                                 {
                                     let buff = OutputBuffer{
                                         buffer: &mut my_buffers.cpal 
@@ -375,6 +388,25 @@ pub fn build_output_stream(
                                     au::deinterleave(&c_buffer[..], channels);
                                 }
 
+                                let silence = match index {
+                                    0 =>{
+                                        if !sys::SILENCE_FIRST.load(Ordering::SeqCst) {
+                                            sys::SILENCE_FIRST.store(true, Ordering::SeqCst);
+                                            sys::SILENCE_SECOND.store(false, Ordering::SeqCst);
+                                            true
+                                        }else{false}
+                                    },
+                                    1 =>{
+                                        if !sys::SILENCE_SECOND.load(Ordering::SeqCst) {
+                                            sys::SILENCE_SECOND.store(true, Ordering::SeqCst);
+                                            sys::SILENCE_FIRST.store(false, Ordering::SeqCst);
+                                            true
+                                        }else{false}
+                                    },
+                                    _ => unreachable!(),
+                                };
+
+
                                 // For each channel write the cpal data to
                                 // the asio buffer
                                 // TODO need to check for Endian
@@ -388,7 +420,8 @@ pub fn build_output_stream(
                                             asio_stream.buffer_size as usize);
                                     for (asio_s, cpal_s) in asio_buffer.iter_mut()
                                         .zip(channel){
-                                            *asio_s = (*cpal_s as i64 *
+                                            if silence { *asio_s = 0.0 as $AsioType; }
+                                            *asio_s += (*cpal_s as i64 *
                                                         ::std::$AsioTypeIdent::MAX as i64 /
                                                         ::std::$SampleTypeIdent::MAX as i64) as $AsioType;
                                         }
@@ -422,23 +455,40 @@ pub fn build_output_stream(
                 }
             }
         });
-        self.cpal_streams.lock().unwrap().push(Some(Stream::Output));
+        self.cpal_streams.lock().unwrap().push(Some(Stream{ playing: false }));
         StreamId(count)
     })
 }
 
 
-pub fn play_stream(&self, stream: StreamId) {
+pub fn play_stream(&self, stream_id: StreamId) {
+    let mut streams = self.cpal_streams.lock().unwrap();
+    if let Some(s) = streams.get_mut(stream_id.0).expect("Bad play stream index") {
+        s.playing = true;
+    }
+    // Calling play when already playing is a no-op
     sys::play();
 }
 
-pub fn pause_stream(&self, stream: StreamId) {
-    sys::stop();
+pub fn pause_stream(&self, stream_id: StreamId) {
+    let mut streams = self.cpal_streams.lock().unwrap();
+    if let Some(s) = streams.get_mut(stream_id.0).expect("Bad pause stream index") {
+        s.playing = false;
+    }
+    let any_playing = streams
+        .iter()
+        .filter(|s| if let Some(s) = s {
+            s.playing
+        } else {false} )
+        .next();
+    if let None = any_playing {
+        sys::stop();
+    }
 }
 
 pub fn destroy_stream(&self, stream_id: StreamId) {
     let mut streams = self.cpal_streams.lock().unwrap();
-    streams.get_mut(stream_id.0 - 1).take();
+    streams.get_mut(stream_id.0).take();
     let count = self.stream_count.load(Ordering::SeqCst);
     self.stream_count.store(count - 1, Ordering::SeqCst);
     if count == 1 {

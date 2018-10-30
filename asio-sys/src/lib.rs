@@ -19,7 +19,7 @@ use std::os::raw::c_char;
 use std::os::raw::c_double;
 use std::os::raw::c_long;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::sync::MutexGuard;
 
@@ -46,6 +46,8 @@ lazy_static! {
 }
 
 static STREAM_DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static SILENCE_FIRST: AtomicBool = AtomicBool::new(false);
+pub static SILENCE_SECOND: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
 pub struct Channel {
