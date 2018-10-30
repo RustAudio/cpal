@@ -6,3 +6,4 @@ pub use self::stream::{InputBuffer, OutputBuffer, EventLoop, StreamId};
 
 mod device;
 mod stream;
+mod asio_utils;

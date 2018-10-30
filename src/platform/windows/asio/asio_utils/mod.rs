@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::marker::Copy;
+
 /// Interleave the buffer from asio to cpal
 /// asio: LLLLRRRR
 /// cpal: LRLRLRLR
@@ -11,7 +13,7 @@ mod tests;
 /// this check is ommited for performance
 pub fn interleave<T>(channels: &[Vec<T>], target: &mut Vec<T>)
 where
-    T: std::marker::Copy,
+    T: Copy,
 {
     assert!(!channels.is_empty());
     target.clear();
@@ -28,7 +30,7 @@ where
 /// asio: 111122223333
 pub fn deinterleave<T>(cpal_buffer: &[T], asio_channels: &mut [Vec<T>])
 where
-    T: std::marker::Copy,
+    T: Copy,
 {
     for ch in asio_channels.iter_mut() {
         ch.clear();
