@@ -1,12 +1,30 @@
-pub enum Backend {
+use std::sync::Mutex;
+
+#[derive(Clone)]
+pub enum BackEnd {
     Wasapi,
     Asio,
 }
 
-// TODO This needs to be set once at run time
-// by the cpal user
-static backend: Backend = Backend::Asio;
+//static BACKEND: BackEnd = BackEnd::Asio;
 
-pub fn which_backend() -> &'static Backend {
-    &backend
+lazy_static! {
+    static ref BACK_END: Mutex<BackEnd> = Mutex::new(BackEnd::Wasapi);
 }
+
+pub fn which_backend() -> BackEnd {
+    (*BACK_END.lock().unwrap()).clone()
+}
+
+pub fn use_asio_backend() -> Result<(), BackEndError> {
+    *BACK_END.lock().unwrap() = BackEnd::Asio;
+    Ok(())
+}
+
+pub fn use_wasapi_backend() -> Result<(), BackEndError> {
+    *BACK_END.lock().unwrap() = BackEnd::Wasapi;
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct BackEndError;
