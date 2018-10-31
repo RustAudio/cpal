@@ -1,5 +1,5 @@
 use std;
-use os::windows::{Backend, which_backend};
+use os::windows::{BackEnd, which_backend};
 
 use CreationError;
 use DefaultFormatError;
@@ -52,13 +52,13 @@ pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 pub fn default_input_device() -> Option<Device> {
     match which_backend() {
-        &Backend::Wasapi => {
+        BackEnd::Wasapi => {
             match wasapi::default_input_device(){
                 Some(d) => Some( Device::Wasapi(d) ),
                 None => None
             }
         },
-        &Backend::Asio => {
+        BackEnd::Asio => {
             match asio::default_input_device(){
                 Some(d) => Some( Device::Asio(d) ),
                 None => None
@@ -69,13 +69,13 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     match which_backend() {
-        &Backend::Wasapi => {
+        BackEnd::Wasapi => {
             match wasapi::default_output_device(){
                 Some(d) => Some( Device::Wasapi(d) ),
                 None => None
             }
         },
-        &Backend::Asio => {
+        BackEnd::Asio => {
             match asio::default_output_device(){
                 Some(d) => Some( Device::Asio(d) ),
                 None => None
@@ -87,8 +87,8 @@ pub fn default_output_device() -> Option<Device> {
 impl Default for Devices {
     fn default() -> Devices {
         match which_backend() {
-            &Backend::Wasapi => Devices::Wasapi( wasapi::Devices::default() ),
-            &Backend::Asio => Devices::Asio( asio::Devices::default() ),
+            BackEnd::Wasapi => Devices::Wasapi( wasapi::Devices::default() ),
+            BackEnd::Asio => Devices::Asio( asio::Devices::default() ),
         }
     }
 }
@@ -164,8 +164,8 @@ impl Device {
 impl EventLoop {
     pub fn new() -> EventLoop {
         match which_backend() {
-            &Backend::Wasapi => EventLoop::Wasapi( wasapi::EventLoop::new() ),
-            &Backend::Asio => EventLoop::Asio( asio::EventLoop::new() ),
+            BackEnd::Wasapi => EventLoop::Wasapi( wasapi::EventLoop::new() ),
+            BackEnd::Asio => EventLoop::Asio( asio::EventLoop::new() ),
         }
     }
     

@@ -137,7 +137,7 @@ use std::ops::{Deref, DerefMut};
 mod null;
 mod samples_formats;
 
-mod os;
+pub mod os;
 #[cfg(any(windows, target_os = "linux", target_os = "freebsd",
               target_os = "macos", target_os = "ios", target_os = "emscripten"))]
 mod platform;
