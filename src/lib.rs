@@ -138,6 +138,8 @@ mod null;
 mod samples_formats;
 
 mod os;
+#[cfg(any(windows, target_os = "linux", target_os = "freebsd",
+              target_os = "macos", target_os = "ios", target_os = "emscripten"))]
 mod platform;
 
 /// An opaque type that identifies a device that is capable of either audio input or output.
