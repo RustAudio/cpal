@@ -96,7 +96,12 @@ impl Device {
 
 impl Default for Devices {
     fn default() -> Devices {
-        Devices{ drivers: sys::get_driver_list().into_iter() }
+        // Remove offline drivers
+        let driver_names: Vec<String> = sys::get_driver_list()
+            .into_iter()
+            .filter(|name| sys::Drivers::load(&name).is_ok())
+            .collect();
+        Devices{ drivers: driver_names.into_iter() }
 
     }
 }

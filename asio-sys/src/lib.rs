@@ -15,17 +15,12 @@ use errors::{AsioError, AsioDriverError, AsioErrorWrapper};
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::mem;
-use std::os::raw::c_char;
-use std::os::raw::c_double;
-use std::os::raw::c_long;
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_double, c_long, c_void};
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::sync::MutexGuard;
+use std::sync::{Mutex, MutexGuard};
 
 use asio_import as ai;
 
-const MAX_DRIVER: usize = 32;
 
 pub struct CbArgs<S, D> {
     pub stream_id: S,
@@ -39,8 +34,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref ASIO_DRIVERS: Mutex<DriverWrapper> = Mutex::new(DriverWrapper{
-        drivers: None,
+    static ref ASIO_DRIVERS: Mutex<AsioWrapper> = Mutex::new(AsioWrapper{
         state: AsioState::Offline,
     });
 }
@@ -64,8 +58,7 @@ pub struct SampleRate {
 pub struct Drivers;
 
 #[derive(Debug)]
-struct DriverWrapper {
-    drivers: Option<ai::AsioDrivers>,
+struct AsioWrapper {
     state: AsioState,
 }
 
@@ -77,6 +70,7 @@ enum AsioState {
     Prepared,
     Running,
 }
+
 
 pub struct AsioStreams {
     pub input: Option<AsioStream>,
@@ -132,7 +126,7 @@ pub enum AsioSampleType {
 pub struct AsioBufferInfo {
     pub is_input: c_long,
     pub channel_num: c_long,
-    pub buffers: [*mut std::os::raw::c_void; 2],
+    pub buffers: [*mut c_void; 2],
 }
 
 #[repr(C)]
@@ -148,7 +142,7 @@ struct AsioCallbacks {
         direct_process: c_long,
     ) -> *mut ai::ASIOTime,
 }
-extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long) -> () {
+extern "C" fn buffer_switch(double_buffer_index: c_long, _direct_process: c_long) -> () {
     let mut bcs = buffer_callback.lock().unwrap();
 
     for mut bc in bcs.iter_mut() {
@@ -158,57 +152,52 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
     }
 }
 
-extern "C" fn sample_rate_did_change(s_rate: c_double) -> () {}
+extern "C" fn sample_rate_did_change(_s_rate: c_double) -> () {}
 
 extern "C" fn asio_message(
-    selector: c_long, value: c_long, message: *mut (), opt: *mut c_double,
+    _selector: c_long, _value: c_long, _message: *mut (), _opt: *mut c_double,
 ) -> c_long {
     4 as c_long
 }
 
 extern "C" fn buffer_switch_time_info(
-    params: *mut ai::ASIOTime, double_buffer_index: c_long, direct_process: c_long,
+    params: *mut ai::ASIOTime, _double_buffer_index: c_long, _direct_process: c_long,
 ) -> *mut ai::ASIOTime {
     params
 }
 
-fn get_drivers() -> MutexGuard<'static, DriverWrapper> {
+fn get_drivers() -> MutexGuard<'static, AsioWrapper> {
     ASIO_DRIVERS.lock().unwrap()
 }
 
 impl Drivers {
+    #[allow(unused_assignments)]
     pub fn load(driver_name: &str) -> Result<Self, AsioDriverError> {
         let mut drivers = get_drivers();
-        match drivers.state {
-            AsioState::Offline => {
-                // Make owned CString to send to load driver
-                let mut my_driver_name =
-                    CString::new(driver_name).expect("Can't go from str to CString");
-                let raw = my_driver_name.into_raw();
-                let mut driver_info = ai::ASIODriverInfo {
-                    _bindgen_opaque_blob: [0u32; 43],
-                };
-                unsafe {
-                    let mut asio_drivers = ai::AsioDrivers::new();
-                    let load_result = asio_drivers.loadDriver(raw);
-                    if load_result { drivers.state = AsioState::Loaded; }
-                    let init_result = drivers.asio_init(&mut driver_info);
-                    // Take back ownership
-                    my_driver_name = CString::from_raw(raw);
-                    if load_result && init_result.is_ok() {
-                        println!("Creating drivers");
-                        drivers.drivers = Some(asio_drivers);
+        // Make owned CString to send to load driver
+        let mut my_driver_name =
+            CString::new(driver_name).expect("Can't go from str to CString");
+        let raw = my_driver_name.into_raw();
+        let mut driver_info = ai::ASIODriverInfo {
+            _bindgen_opaque_blob: [0u32; 43],
+        };
+        unsafe {
+            let load_result = drivers.load(raw);
+            // Take back ownership
+            my_driver_name = CString::from_raw(raw);
+            if load_result { 
+                match drivers.asio_init(&mut driver_info) {
+                    Ok(_) => {
                         STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
                         Ok(Drivers)
-                    } else {
+                    },
+                    Err(_) => {
                         Err(AsioDriverError::DriverLoadError)
-                    }
+                    },
                 }
-            },
-            _ => {
-                STREAM_DRIVER_COUNT.fetch_add(1, Ordering::SeqCst);
-                Ok(Drivers)
-            },
+            } else {
+                Err(AsioDriverError::DriverLoadError)
+            }
         }
     }
 
@@ -274,8 +263,8 @@ impl Drivers {
         }
     }
 
-    pub fn prepare_input_stream(&self, output: Option<AsioStream>, mut num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
-        let mut buffer_infos = vec![
+    pub fn prepare_input_stream(&self, output: Option<AsioStream>, num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
+        let buffer_infos = vec![
             AsioBufferInfo {
                 is_input: 1,
                 channel_num: 0,
@@ -291,7 +280,7 @@ impl Drivers {
     /// Creates the output stream
     pub fn prepare_output_stream(&self, input: Option<AsioStream>, num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
         // Initialize data for FFI
-        let mut buffer_infos = vec![
+        let buffer_infos = vec![
             AsioBufferInfo {
                 is_input: 0,
                 channel_num: 0,
@@ -363,7 +352,7 @@ impl Drivers {
     fn create_buffers(&self, buffer_infos: Vec<AsioBufferInfo>) 
     -> Result<(Vec<AsioBufferInfo>, c_long), AsioDriverError>{
         let num_channels = buffer_infos.len();
-        let mut callbacks = AsioCallbacks {
+        let callbacks = AsioCallbacks {
             buffer_switch: buffer_switch,
             sample_rate_did_change: sample_rate_did_change,
             asio_message: asio_message,
@@ -402,7 +391,7 @@ impl Drivers {
                     pref_b_size,
                     &mut callbacks_convert,
                 ).map(|_|{
-                    let mut buffer_infos: Vec<AsioBufferInfo> = buffer_info_convert
+                    let buffer_infos: Vec<AsioBufferInfo> = buffer_info_convert
                         .into_iter()
                         .map(|bi| mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(bi))
                         .collect();
@@ -427,27 +416,25 @@ impl Drivers {
 
 impl Drop for Drivers {
     fn drop(&mut self) {
-        println!("dropping drivers");
         let count = STREAM_DRIVER_COUNT.fetch_sub(1, Ordering::SeqCst);
         if count == 1 {
-            println!("Destroying driver");
             clean_up();
         }
     }
 }
 
-unsafe impl Send for DriverWrapper {}
+unsafe impl Send for AsioWrapper {}
 
 impl BufferCallback {
     fn run(&mut self, index: i32) {
-        let mut cb = &mut self.0;
+        let cb = &mut self.0;
         cb(index);
     }
 }
 
 unsafe impl Send for AsioStream {}
 
-pub fn set_callback<F: 'static>(mut callback: F) -> ()
+pub fn set_callback<F: 'static>(callback: F) -> ()
 where
     F: FnMut(i32) + Send,
 {
@@ -456,82 +443,36 @@ where
 }
 
 /// Returns a list of all the ASIO drivers
-//TODO this needs to not create and remove drivers
+#[allow(unused_assignments)]
 pub fn get_driver_list() -> Vec<String> {
-    let mut driver_list: Vec<String> = Vec::new();
+    const MAX_DRIVERS: usize = 100;
+    const CHAR_LEN: usize = 32;
 
-    let mut driver_names: [[c_char; MAX_DRIVER]; MAX_DRIVER] = [[0; MAX_DRIVER]; MAX_DRIVER];
-    let mut p_driver_name: [*mut i8; MAX_DRIVER] = [0 as *mut i8; MAX_DRIVER];
+    let mut driver_names: [[c_char; CHAR_LEN]; MAX_DRIVERS] = [[0; CHAR_LEN]; MAX_DRIVERS];
+    let mut p_driver_name: [*mut i8; MAX_DRIVERS] = [0 as *mut i8; MAX_DRIVERS];
 
-    for i in 0 .. MAX_DRIVER {
+    for i in 0 .. MAX_DRIVERS {
         p_driver_name[i] = driver_names[i].as_mut_ptr();
     }
 
+
     unsafe {
-        let mut asio_drivers = ai::AsioDrivers::new();
+        let num_drivers = ai::get_driver_names(p_driver_name.as_mut_ptr(), MAX_DRIVERS as i32);
 
-        let num_drivers =
-            asio_drivers.getDriverNames(p_driver_name.as_mut_ptr(), MAX_DRIVER as i32);
-
-        if num_drivers > 0 {
-            for i in 0 .. num_drivers {
+        (0..num_drivers)
+            .map(|i|{
                 let mut my_driver_name = CString::new("").unwrap();
                 let name = CStr::from_ptr(p_driver_name[i as usize]);
                 my_driver_name = name.to_owned();
-                match my_driver_name.into_string() {
-                    Ok(s) => driver_list.push(s),
-                    Err(_) => println!("Failed converting from CString"),
-                }
-            }
-        } else {
-            println!("No ASIO drivers found");
-        }
-
-        ai::destruct_AsioDrivers(&mut asio_drivers);
+                my_driver_name.into_string().expect("Failed to convert driver name")
+            })
+            .collect()
     }
-
-    driver_list
 }
 
 pub fn clean_up() {
     let mut drivers = get_drivers();
-    match drivers.state {
-        AsioState::Offline => (),
-        AsioState::Loaded => {
-            unsafe {
-                let mut old_drivers = drivers.drivers.take().unwrap();
-                ai::destruct_AsioDrivers(&mut old_drivers);
-            }
-            drivers.state = AsioState::Offline;
-        },
-        AsioState::Initialized => {
-            unsafe {
-                drivers.asio_exit().expect("Failed to exit asio");
-                let mut old_drivers = drivers.drivers.take().unwrap();
-                ai::destruct_AsioDrivers(&mut old_drivers);
-            }
-            drivers.state = AsioState::Offline;
-        },
-        AsioState::Prepared => {
-            unsafe {
-                drivers.asio_dispose_buffers().expect("Failed to dispose buffers");
-                drivers.asio_exit().expect("Failed to exit asio");
-                let mut old_drivers = drivers.drivers.take().unwrap();
-                ai::destruct_AsioDrivers(&mut old_drivers);
-            }
-            drivers.state = AsioState::Offline;
-        },
-        AsioState::Running => {
-            unsafe {
-                drivers.asio_stop();
-                drivers.asio_dispose_buffers().expect("Failed to dispose buffers");
-                drivers.asio_exit().expect("Failed to exit asio");
-                let mut old_drivers = drivers.drivers.take().unwrap();
-                ai::destruct_AsioDrivers(&mut old_drivers);
-            }
-            drivers.state = AsioState::Offline;
-        },
-    }
+    drivers.clean_up();
 }
 
 pub fn play() {
@@ -548,12 +489,32 @@ pub fn stop() {
     }
 }
 
-impl DriverWrapper {
+impl AsioWrapper {
+
+unsafe fn load(&mut self, raw: *mut i8) -> bool {
+    use AsioState::*;
+    self.clean_up();
+    if ai::load_asio_driver(raw) {
+        self.state = Loaded;
+        true
+    } else {
+        false
+    }
+}
+
+unsafe fn unload(&mut self) {
+    ai::remove_current_driver();
+}
+
 unsafe fn asio_init(&mut self, di: &mut ai::ASIODriverInfo) -> Result<(), AsioError> {
     if let AsioState::Loaded = self.state {
         let result = ai::ASIOInit(di);
         asio_result!(result)
             .map(|_| self.state = AsioState::Initialized)
+            .map_err(|e| {
+                self.state = AsioState::Offline;
+                e
+            })
     }else{
         Ok(())
     }
@@ -612,7 +573,7 @@ unsafe fn asio_create_buffers(
     match self.state {
         Offline | Loaded => return Err(AsioError::NoDrivers),
         Running => {
-            self.asio_stop();
+            self.asio_stop().expect("Asio failed to stop");
             self.asio_dispose_buffers().expect("Failed to dispose buffers");
             self.state = Initialized;
         },
@@ -652,7 +613,7 @@ unsafe fn asio_exit(&mut self) -> Result<(), AsioError> {
     }
     let result = ai::ASIOExit();
     asio_result!(result)
-        .map(|_| self.state = AsioState::Loaded)
+        .map(|_| self.state = AsioState::Offline)
 }
 
 unsafe fn asio_start(&mut self) -> Result<(), AsioError> {
@@ -677,5 +638,42 @@ unsafe fn asio_stop(&mut self) -> Result<(), AsioError> {
     let result = ai::ASIOStop();
     asio_result!(result)
         .map(|_| self.state = AsioState::Prepared)
+}
+
+fn clean_up(&mut self) {
+    match self.state {
+        AsioState::Offline => (),
+        AsioState::Loaded => {
+            unsafe {
+                self.asio_exit().expect("Failed to exit asio");
+                self.unload();
+            }
+            self.state = AsioState::Offline;
+        },
+        AsioState::Initialized => {
+            unsafe {
+                self.asio_exit().expect("Failed to exit asio");
+                self.unload();
+            }
+            self.state = AsioState::Offline;
+        },
+        AsioState::Prepared => {
+            unsafe {
+                self.asio_dispose_buffers().expect("Failed to dispose buffers");
+                self.asio_exit().expect("Failed to exit asio");
+                self.unload();
+            }
+            self.state = AsioState::Offline;
+        },
+        AsioState::Running => {
+            unsafe {
+                self.asio_stop().expect("Asio failed to stop");
+                self.asio_dispose_buffers().expect("Failed to dispose buffers");
+                self.asio_exit().expect("Failed to exit asio");
+                self.unload();
+            }
+            self.state = AsioState::Offline;
+        },
+    }
 }
 }
