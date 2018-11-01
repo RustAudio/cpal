@@ -163,7 +163,6 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .whitelist_type("ASIOCallbacks")
         .whitelist_type("ASIOSampleType")
         .whitelist_type("ASIOChannelInfo")
-        .whitelist_function("destruct_AsioDrivers")
         .whitelist_function("ASIOGetChannels")
         .whitelist_function("ASIOGetChannelInfo")
         .whitelist_function("ASIOGetBufferSize")
@@ -174,6 +173,9 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .whitelist_function("ASIOStop")
         .whitelist_function("ASIODisposeBuffers")
         .whitelist_function("ASIOExit")
+        .whitelist_function("load_asio_driver")
+        .whitelist_function("remove_current_driver")
+        .whitelist_function("get_driver_names")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
