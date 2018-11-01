@@ -62,9 +62,9 @@ impl Device {
         let sample_rate = SampleRate(self.drivers.get_sample_rate().rate);
         match self.drivers.get_data_type() {
                 Ok(sys::AsioSampleType::ASIOSTInt16MSB)   => Ok(SampleFormat::I16),
+                Ok(sys::AsioSampleType::ASIOSTInt32MSB)   => Ok(SampleFormat::I16),
                 Ok(sys::AsioSampleType::ASIOSTFloat32MSB) => Ok(SampleFormat::F32),
                 Ok(sys::AsioSampleType::ASIOSTInt16LSB)   => Ok(SampleFormat::I16),
-                // TODO This should not be set to 16bit but is for testing
                 Ok(sys::AsioSampleType::ASIOSTInt32LSB)   => Ok(SampleFormat::I16),
                 Ok(sys::AsioSampleType::ASIOSTFloat32LSB) => Ok(SampleFormat::F32),		
                 _ => Err(DefaultFormatError::StreamTypeNotSupported),
