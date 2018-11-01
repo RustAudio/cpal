@@ -10,6 +10,7 @@ keywords = ["audio", "sound"]
 
 [dependencies]
 lazy_static = "1.0"
+num-traits = "0.2.6"
 
 [dev-dependencies]
 hound = "3.0"

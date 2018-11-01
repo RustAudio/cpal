@@ -1,5 +1,5 @@
 extern crate asio_sys as sys;
-
+extern crate num_traits;
 
 use std;
 use Format;
@@ -13,6 +13,7 @@ use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use SampleFormat;
 use super::asio_utils as au;
+use self::num_traits::PrimInt;
 
 pub struct EventLoop {
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
@@ -54,6 +55,11 @@ struct Buffers {
     i16_buff: I16Buffer,
     u16_buff: U16Buffer,
     f32_buff: F32Buffer,
+}
+
+enum Endian {
+    Little,
+    Big,
 }
 
 impl EventLoop {
@@ -199,8 +205,11 @@ impl EventLoop {
                                     $AsioTypeIdent:ident,
                                     $Buffers:expr,
                                     $BuffersType:ty,
-                                    $BuffersTypeIdent:ident
+                                    $BuffersTypeIdent:ident,
+                                    $Endianness:expr,
+                                    $ConvertEndian:expr
                                     ) => {
+
 
                                     // For each channel write the cpal data to
                                     // the asio buffer
@@ -215,9 +224,10 @@ impl EventLoop {
                                                 buff_ptr,
                                                 asio_stream.buffer_size as usize);
                                         for asio_s in asio_buffer.iter(){
-                                            channel.push( (*asio_s as i64 *
+                                            channel.push( $ConvertEndian((*asio_s as i64 *
                                                             ::std::$SampleTypeIdent::MAX as i64 /
-                                                            ::std::$AsioTypeIdent::MAX as i64) as $SampleType);
+                                                            ::std::$AsioTypeIdent::MAX as i64) as $SampleType,
+                                                            $Endianness));
                                         }
                                     }
 
@@ -254,19 +264,43 @@ impl EventLoop {
                             match stream_type {
                                 sys::AsioSampleType::ASIOSTInt32LSB => {
                                     try_callback!(I16, i16, i16, i32, i32, 
-                                    buffers.i16_buff, I16Buffer, I16Buffer);
+                                    buffers.i16_buff, I16Buffer, I16Buffer, 
+                                    Endian::Little, convert_endian_to);
                                 }
                                 sys::AsioSampleType::ASIOSTInt16LSB => {
                                     try_callback!(I16, i16, i16, i16, i16, 
-                                    buffers.i16_buff, I16Buffer, I16Buffer);
+                                    buffers.i16_buff, I16Buffer, I16Buffer, 
+                                    Endian::Little, convert_endian_to);
+                                }
+                                sys::AsioSampleType::ASIOSTInt32MSB => {
+                                    try_callback!(I16, i16, i16, i32, i32, 
+                                    buffers.i16_buff, I16Buffer, I16Buffer, 
+                                    Endian::Big, convert_endian_to);
+                                }
+                                sys::AsioSampleType::ASIOSTInt16MSB => {
+                                    try_callback!(I16, i16, i16, i16, i16, 
+                                    buffers.i16_buff, I16Buffer, I16Buffer, 
+                                    Endian::Big, convert_endian_to);
                                 }
                                 sys::AsioSampleType::ASIOSTFloat32LSB => {
                                     try_callback!(F32, f32, f32, f32, f32, 
-                                    buffers.f32_buff, F32Buffer, F32Buffer);
+                                    buffers.f32_buff, F32Buffer, F32Buffer, 
+                                    Endian::Little, |a, _| a);
                                 }
                                 sys::AsioSampleType::ASIOSTFloat64LSB => {
                                     try_callback!(F32, f32, f32, f64, f64, 
-                                    buffers.f32_buff, F32Buffer, F32Buffer);
+                                    buffers.f32_buff, F32Buffer, F32Buffer,
+                                    Endian::Little, |a, _| a);
+                                }
+                                sys::AsioSampleType::ASIOSTFloat32MSB => {
+                                    try_callback!(F32, f32, f32, f32, f32, 
+                                    buffers.f32_buff, F32Buffer, F32Buffer, 
+                                    Endian::Big, |a, _| a);
+                                }
+                                sys::AsioSampleType::ASIOSTFloat64MSB => {
+                                    try_callback!(F32, f32, f32, f64, f64, 
+                                    buffers.f32_buff, F32Buffer, F32Buffer,
+                                    Endian::Big, |a, _| a);
                                 }
                                 _ => println!("unsupported format {:?}", stream_type),
                             }
@@ -363,7 +397,9 @@ pub fn build_output_stream(
                                 $AsioTypeIdent:ident,
                                 $Buffers:expr,
                                 $BuffersType:ty,
-                                $BuffersTypeIdent:ident
+                                $BuffersTypeIdent:ident,
+                                $Endianness:expr,
+                                $ConvertEndian:expr
                                 ) => {
                                     let mut my_buffers = $Buffers;
                                 {
@@ -422,9 +458,10 @@ pub fn build_output_stream(
                                     for (asio_s, cpal_s) in asio_buffer.iter_mut()
                                         .zip(channel){
                                             if silence { *asio_s = 0.0 as $AsioType; }
-                                            *asio_s += (*cpal_s as i64 *
+                                            *asio_s += $ConvertEndian((*cpal_s as i64 *
                                                         ::std::$AsioTypeIdent::MAX as i64 /
-                                                        ::std::$SampleTypeIdent::MAX as i64) as $AsioType;
+                                                        ::std::$SampleTypeIdent::MAX as i64) as $AsioType,
+                                                        $Endianness);
                                         }
 
                                 }
@@ -435,19 +472,43 @@ pub fn build_output_stream(
                         match stream_type {
                             sys::AsioSampleType::ASIOSTInt32LSB => {
                                 try_callback!(I16, i16, i16, i32, i32, 
-                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer);
+                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer,
+                                Endian::Little, convert_endian_from);
                             }
                             sys::AsioSampleType::ASIOSTInt16LSB => {
                                 try_callback!(I16, i16, i16, i16, i16, 
-                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer);
+                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer,
+                                Endian::Little, convert_endian_from);
+                            }
+                            sys::AsioSampleType::ASIOSTInt32MSB => {
+                                try_callback!(I16, i16, i16, i32, i32, 
+                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer,
+                                Endian::Big, convert_endian_from);
+                            }
+                            sys::AsioSampleType::ASIOSTInt16MSB => {
+                                try_callback!(I16, i16, i16, i16, i16, 
+                                &mut re_buffers.i16_buff, I16Buffer, I16Buffer,
+                                Endian::Big, convert_endian_from);
                             }
                             sys::AsioSampleType::ASIOSTFloat32LSB => {
                                 try_callback!(F32, f32, f32, f32, f32, 
-                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer);
+                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer,
+                                Endian::Little, |a, _| a);
                             }
                             sys::AsioSampleType::ASIOSTFloat64LSB => {
                                 try_callback!(F32, f32, f32, f64, f64, 
-                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer);
+                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer,
+                                Endian::Little, |a, _| a);
+                            }
+                            sys::AsioSampleType::ASIOSTFloat32MSB => {
+                                try_callback!(F32, f32, f32, f32, f32, 
+                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer,
+                                Endian::Big, |a, _| a);
+                            }
+                            sys::AsioSampleType::ASIOSTFloat64MSB => {
+                                try_callback!(F32, f32, f32, f64, f64, 
+                                &mut re_buffers.f32_buff, F32Buffer, F32Buffer,
+                                Endian::Big, |a, _| a);
                             }
                             _ => println!("unsupported format {:?}", stream_type),
                         }
@@ -538,4 +599,18 @@ impl<'a, T> OutputBuffer<'a, T> {
     }
 
     pub fn finish(self) {}
+}
+
+fn convert_endian_to<T: PrimInt>(sample: T, endian: Endian) -> T {
+    match endian {
+        Endian::Big => sample.to_be(),
+        Endian::Little => sample.to_le(),
+    }
+}
+
+fn convert_endian_from<T: PrimInt>(sample: T, endian: Endian) -> T {
+    match endian {
+        Endian::Big => T::from_be(sample),
+        Endian::Little => T::from_le(sample),
+    }
 }
