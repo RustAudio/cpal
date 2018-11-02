@@ -44,7 +44,19 @@ impl Device {
     pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, 
     FormatsEnumerationError> {
             match self.default_input_format() {
-                Ok(f) => Ok(vec![SupportedFormat::from(f)].into_iter()),
+                Ok(f) => {
+                let supported_formats: Vec<SupportedFormat> = [44100, 48000]
+                    .into_iter()
+                    .filter(|rate| self.drivers.can_sample_rate(**rate as u32) )
+                    .map(|rate| {
+                        let mut format = f.clone();
+                        format.sample_rate = SampleRate(*rate);
+                        SupportedFormat::from(format)
+                    })
+                    .collect();
+                //Ok(vec![SupportedFormat::from(f)].into_iter())
+                Ok(supported_formats.into_iter())
+                },
                 Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
             }
     }
@@ -52,7 +64,19 @@ impl Device {
     pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, 
     FormatsEnumerationError> {
         match self.default_output_format() {
-            Ok(f) => Ok(vec![SupportedFormat::from(f)].into_iter()),
+            Ok(f) => {
+                let supported_formats: Vec<SupportedFormat> = [44100, 48000]
+                    .into_iter()
+                    .filter(|rate| self.drivers.can_sample_rate(**rate as u32) )
+                    .map(|rate| {
+                        let mut format = f.clone();
+                        format.sample_rate = SampleRate(*rate);
+                        SupportedFormat::from(format)
+                    })
+                    .collect();
+                //Ok(vec![SupportedFormat::from(f)].into_iter())
+                Ok(supported_formats.into_iter())
+            },
             Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
         }
     }

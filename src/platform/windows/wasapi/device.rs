@@ -452,7 +452,6 @@ impl Device {
                 format.sample_rate = SampleRate(rate as _);
                 supported_formats.push(SupportedFormat::from(format.clone()));
             }
-
             Ok(supported_formats.into_iter())
         }
     }
