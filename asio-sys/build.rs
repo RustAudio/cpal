@@ -167,6 +167,8 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .whitelist_function("ASIOGetChannelInfo")
         .whitelist_function("ASIOGetBufferSize")
         .whitelist_function("get_sample_rate")
+        .whitelist_function("set_sample_rate")
+        .whitelist_function("can_sample_rate")
         .whitelist_function("ASIOInit")
         .whitelist_function("ASIOCreateBuffers")
         .whitelist_function("ASIOStart")

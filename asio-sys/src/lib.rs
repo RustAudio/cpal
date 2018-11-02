@@ -238,6 +238,24 @@ impl Drivers {
 
         sample_rate
     }
+    
+    pub fn set_sample_rate(&self, sample_rate: u32) -> Result<(), AsioError>{
+        // Initialize memory for calls
+        let rate: c_double = c_double::from(sample_rate);
+
+        unsafe {
+            get_drivers().asio_set_sample_rate(rate)
+        }
+    }
+    
+    pub fn can_sample_rate(&self, sample_rate: u32) -> bool {
+        // Initialize memory for calls
+        let rate: c_double = c_double::from(sample_rate);
+
+        unsafe {
+            get_drivers().asio_can_sample_rate(rate).is_ok()
+        }
+    }
 
     pub fn get_data_type(&self) -> Result<AsioSampleType, AsioDriverError> {
         // Initialize memory for calls
@@ -534,6 +552,24 @@ unsafe fn asio_get_sample_rate(&mut self, rate: &mut c_double) -> Result<(), Asi
         Err(AsioError::NoDrivers)
     } else {
         let result = ai::get_sample_rate(rate);
+        asio_result!(result)
+    }
+}
+
+unsafe fn asio_set_sample_rate(&mut self, rate: c_double) -> Result<(), AsioError> {
+    if let AsioState::Offline = self.state {
+        Err(AsioError::NoDrivers)
+    } else {
+        let result = ai::set_sample_rate(rate);
+        asio_result!(result)
+    }
+}
+
+unsafe fn asio_can_sample_rate(&mut self, rate: c_double) -> Result<(), AsioError> {
+    if let AsioState::Offline = self.state {
+        Err(AsioError::NoDrivers)
+    } else {
+        let result = ai::can_sample_rate(rate);
         asio_result!(result)
     }
 }

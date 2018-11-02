@@ -75,8 +75,15 @@ impl EventLoop {
     /// Create a new CPAL Input Stream
     /// If there is no ASIO Input Stream 
     /// it will be created
-    fn get_input_stream(&self, drivers: &sys::Drivers, num_channels: usize) -> Result<usize, CreationError> {
+    fn get_input_stream(&self, drivers: &sys::Drivers, num_channels: usize, sample_rate: u32) -> Result<usize, CreationError> {
             let ref mut streams = *self.asio_streams.lock().unwrap();
+            if sample_rate != drivers.get_sample_rate().rate {
+                if drivers.can_sample_rate(sample_rate) {
+                    drivers.set_sample_rate(sample_rate).expect("Unsupported sample rate");
+                } else {
+                    panic!("This sample rate {:?} is not supported", sample_rate);
+                }
+            }
             match streams.input {
                 Some(ref input) => Ok(input.buffer_size as usize),
                 None => {
@@ -98,8 +105,15 @@ impl EventLoop {
             }
     }
     
-    fn get_output_stream(&self, drivers: &sys::Drivers, num_channels: usize) -> Result<usize, CreationError> {
+    fn get_output_stream(&self, drivers: &sys::Drivers, num_channels: usize, sample_rate: u32) -> Result<usize, CreationError> {
             let ref mut streams = *self.asio_streams.lock().unwrap();
+            if sample_rate != drivers.get_sample_rate().rate {
+                if drivers.can_sample_rate(sample_rate) {
+                    drivers.set_sample_rate(sample_rate).expect("Unsupported sample rate");
+                } else {
+                    panic!("This sample rate {:?} is not supported", sample_rate);
+                }
+            }
             match streams.output {
                 Some(ref output) => Ok(output.buffer_size as usize),
                 None => {
@@ -132,7 +146,8 @@ impl EventLoop {
             } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-        self.get_input_stream(&drivers, num_channels as usize).map(|stream_buffer_size| {
+        let sample_rate = format.sample_rate.0;
+        self.get_input_stream(&drivers, num_channels as usize, sample_rate).map(|stream_buffer_size| {
             let cpal_num_samples = stream_buffer_size * num_channels as usize;
             let count = self.stream_count.load(Ordering::SeqCst);
             self.stream_count.store(count + 1, Ordering::SeqCst);
@@ -197,6 +212,26 @@ impl EventLoop {
                     // Theres only a single callback because theres only one event loop 
                     match callbacks.first_mut() {
                         Some(callback) => {
+                            macro_rules! convert_sample {
+                                ($AsioTypeIdent:ident,
+                                    u16,
+                                    $SampleTypeIdent:ident,
+                                    $Sample:expr
+                                ) => {
+                                    ((*$Sample as f64 + $AsioTypeIdent::MAX as f64) /
+                                    (::std::u16::MAX as f64 /
+                                    ::std::AsioTypeIdent::MAX as f64)) as u16
+                                };
+                                ($AsioTypeIdent:ident,
+                                    $SampleType:ty,
+                                    $SampleTypeIdent:ident,
+                                    $Sample:expr
+                                ) => {
+                                    (*$Sample as i64 *
+                                    ::std::$SampleTypeIdent::MAX as i64 /
+                                    ::std::$AsioTypeIdent::MAX as i64) as $SampleType
+                                };
+                            };
                             macro_rules! try_callback {
                                 ($SampleFormat:ident,
                                     $SampleType:ty,
@@ -224,10 +259,11 @@ impl EventLoop {
                                                 buff_ptr,
                                                 asio_stream.buffer_size as usize);
                                         for asio_s in asio_buffer.iter(){
-                                            channel.push( $ConvertEndian((*asio_s as i64 *
-                                                            ::std::$SampleTypeIdent::MAX as i64 /
-                                                            ::std::$AsioTypeIdent::MAX as i64) as $SampleType,
-                                                            $Endianness));
+                                            channel.push( $ConvertEndian(convert_sample!(
+                                                $AsioTypeIdent,
+                                                $SampleType,
+                                                $SampleTypeIdent,
+                                                asio_s), $Endianness));
                                         }
                                     }
 
@@ -325,7 +361,8 @@ pub fn build_output_stream(
     } = device;
     let num_channels = format.channels.clone();
     let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-    self.get_output_stream(&drivers, num_channels as usize).map(|stream_buffer_size| {
+    let sample_rate = format.sample_rate.0;
+    self.get_output_stream(&drivers, num_channels as usize, sample_rate).map(|stream_buffer_size| {
         let cpal_num_samples = stream_buffer_size * num_channels as usize;
         let count = self.stream_count.load(Ordering::SeqCst);
         self.stream_count.store(count + 1, Ordering::SeqCst);
@@ -335,7 +372,6 @@ pub fn build_output_stream(
         // Create buffers 
         let channel_len = cpal_num_samples 
             / num_channels as usize;
-        
         
         let mut re_buffers = match format.data_type{
             SampleFormat::I16 => {
@@ -385,6 +421,27 @@ pub fn build_output_stream(
             if let Some(ref asio_stream) = asio_streams.lock().unwrap().output {
                 // Number of samples needed total
                 let mut callbacks = callbacks.lock().unwrap();
+
+                macro_rules! convert_sample {
+                    ($AsioTypeIdent:ident,
+                        $AsioType:ty,
+                        u16,
+                        $Sample:expr
+                    ) => {
+                        ((*$Sample as i64 *
+                        ::std::$AsioTypeIdent::MAX as i64 /
+                        ::std::u16::MAX as i64) - $AsioTypeIdent::MAX as i64) as $AsioType
+                    };
+                    ($AsioTypeIdent:ident,
+                        $AsioType:ty,
+                        $SampleTypeIdent:ident,
+                        $Sample:expr
+                    ) => {
+                        (*$Sample as i64 *
+                        ::std::$AsioTypeIdent::MAX as i64 /
+                        ::std::$SampleTypeIdent::MAX as i64) as $AsioType
+                    };
+                };
 
                 // Theres only a single callback because theres only one event loop 
                 match callbacks.first_mut() {
@@ -446,7 +503,6 @@ pub fn build_output_stream(
 
                                 // For each channel write the cpal data to
                                 // the asio buffer
-                                // TODO need to check for Endian
                                 for (i, channel) in my_buffers.channel.iter().enumerate(){
                                     let buff_ptr = asio_stream
                                                     .buffer_infos[i]
@@ -458,9 +514,12 @@ pub fn build_output_stream(
                                     for (asio_s, cpal_s) in asio_buffer.iter_mut()
                                         .zip(channel){
                                             if silence { *asio_s = 0.0 as $AsioType; }
-                                            *asio_s += $ConvertEndian((*cpal_s as i64 *
-                                                        ::std::$AsioTypeIdent::MAX as i64 /
-                                                        ::std::$SampleTypeIdent::MAX as i64) as $AsioType,
+                                            *asio_s += $ConvertEndian(convert_sample!(
+                                                $AsioTypeIdent,
+                                                $AsioType,
+                                                $SampleTypeIdent,
+                                                cpal_s
+                                            ),
                                                         $Endianness);
                                         }
 
@@ -468,7 +527,6 @@ pub fn build_output_stream(
                             };
                         }
                         // Generic over types
-                        // TODO check for endianess
                         match stream_type {
                             sys::AsioSampleType::ASIOSTInt32LSB => {
                                 try_callback!(I16, i16, i16, i32, i32, 

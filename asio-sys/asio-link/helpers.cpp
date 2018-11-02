@@ -4,6 +4,14 @@ extern "C" ASIOError get_sample_rate(double * rate){
 	return ASIOGetSampleRate(reinterpret_cast<ASIOSampleRate *>(rate));
 }
 
+extern "C" ASIOError set_sample_rate(double rate){
+	return ASIOSetSampleRate(rate);
+}
+
+extern "C" ASIOError can_sample_rate(double rate){
+	return ASIOCanSampleRate(rate);
+}
+
 extern AsioDrivers* asioDrivers;
 bool loadAsioDriver(char *name);
 
