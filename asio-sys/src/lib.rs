@@ -71,7 +71,6 @@ enum AsioState {
     Running,
 }
 
-
 pub struct AsioStreams {
     pub input: Option<AsioStream>,
     pub output: Option<AsioStream>,
@@ -282,14 +281,15 @@ impl Drivers {
     }
 
     pub fn prepare_input_stream(&self, output: Option<AsioStream>, num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
-        let buffer_infos = vec![
-            AsioBufferInfo {
-                is_input: 1,
-                channel_num: 0,
-                buffers: [std::ptr::null_mut(); 2],
-            };
-            num_channels
-        ];
+        let buffer_infos = (0..num_channels)
+            .map(|i| {
+                AsioBufferInfo {
+                    is_input: 1,
+                    channel_num: i as c_long,
+                    buffers: [std::ptr::null_mut(); 2],
+                }
+            })
+            .collect();
         
         let streams = AsioStreams{input: Some(AsioStream{buffer_infos, buffer_size: 0}), output};
         self.create_streams(streams)
@@ -298,14 +298,15 @@ impl Drivers {
     /// Creates the output stream
     pub fn prepare_output_stream(&self, input: Option<AsioStream>, num_channels: usize) -> Result<AsioStreams, AsioDriverError> {
         // Initialize data for FFI
-        let buffer_infos = vec![
-            AsioBufferInfo {
-                is_input: 0,
-                channel_num: 0,
-                buffers: [std::ptr::null_mut(); 2],
-            };
-            num_channels
-        ];
+        let buffer_infos = (0..num_channels)
+            .map(|i| {
+                AsioBufferInfo {
+                    is_input: 0,
+                    channel_num: i as c_long,
+                    buffers: [std::ptr::null_mut(); 2],
+                }
+            })
+            .collect();
         let streams = AsioStreams{output: Some(AsioStream{buffer_infos, buffer_size: 0}), input};
         self.create_streams(streams)
     }
@@ -397,10 +398,13 @@ impl Drivers {
                 &mut grans,
             ).expect("Failed getting buffers");
             if pref_b_size > 0 {
+                /*
                 let mut buffer_info_convert: Vec<ai::ASIOBufferInfo> = buffer_infos
                     .into_iter()
                     .map(|bi| mem::transmute::<AsioBufferInfo, ai::ASIOBufferInfo>(bi))
                     .collect();
+                    */
+                let mut buffer_info_convert = mem::transmute::<Vec<AsioBufferInfo>, Vec<ai::ASIOBufferInfo>>(buffer_infos);
                 let mut callbacks_convert =
                     mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
                 drivers.asio_create_buffers(
@@ -409,10 +413,7 @@ impl Drivers {
                     pref_b_size,
                     &mut callbacks_convert,
                 ).map(|_|{
-                    let buffer_infos: Vec<AsioBufferInfo> = buffer_info_convert
-                        .into_iter()
-                        .map(|bi| mem::transmute::<ai::ASIOBufferInfo, AsioBufferInfo>(bi))
-                        .collect();
+                    let buffer_infos = mem::transmute::<Vec<ai::ASIOBufferInfo>, Vec<AsioBufferInfo>>(buffer_info_convert);
                     for d in &buffer_infos {
                         println!("after {:?}", d);
                     }

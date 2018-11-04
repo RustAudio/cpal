@@ -1,4 +1,5 @@
 #include "helpers.hpp"
+#include <stdio.h>
 
 extern "C" ASIOError get_sample_rate(double * rate){
 	return ASIOGetSampleRate(reinterpret_cast<ASIOSampleRate *>(rate));
