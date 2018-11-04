@@ -75,7 +75,14 @@ impl EventLoop {
     /// Create a new CPAL Input Stream
     /// If there is no ASIO Input Stream 
     /// it will be created
-    fn get_input_stream(&self, drivers: &sys::Drivers, num_channels: usize, sample_rate: u32) -> Result<usize, CreationError> {
+    fn get_input_stream(&self, drivers: &sys::Drivers, format: &Format) -> Result<usize, CreationError> {
+        let Format {
+            channels,
+            sample_rate,
+            ..
+        } = format;
+        let num_channels = *channels as usize;
+        let sample_rate = sample_rate.0;
             let ref mut streams = *self.asio_streams.lock().unwrap();
             if sample_rate != drivers.get_sample_rate().rate {
                 if drivers.can_sample_rate(sample_rate) {
@@ -105,7 +112,14 @@ impl EventLoop {
             }
     }
     
-    fn get_output_stream(&self, drivers: &sys::Drivers, num_channels: usize, sample_rate: u32) -> Result<usize, CreationError> {
+    fn get_output_stream(&self, drivers: &sys::Drivers, format: &Format) -> Result<usize, CreationError> {
+        let Format {
+            channels,
+            sample_rate,
+            ..
+        } = format;
+        let num_channels = *channels as usize;
+        let sample_rate = sample_rate.0;
             let ref mut streams = *self.asio_streams.lock().unwrap();
             if sample_rate != drivers.get_sample_rate().rate {
                 if drivers.can_sample_rate(sample_rate) {
@@ -146,8 +160,7 @@ impl EventLoop {
             } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-        let sample_rate = format.sample_rate.0;
-        self.get_input_stream(&drivers, num_channels as usize, sample_rate).map(|stream_buffer_size| {
+        self.get_input_stream(&drivers, format).map(|stream_buffer_size| {
             let cpal_num_samples = stream_buffer_size * num_channels as usize;
             let count = self.stream_count.load(Ordering::SeqCst);
             self.stream_count.store(count + 1, Ordering::SeqCst);
@@ -361,8 +374,7 @@ pub fn build_output_stream(
     } = device;
     let num_channels = format.channels.clone();
     let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-    let sample_rate = format.sample_rate.0;
-    self.get_output_stream(&drivers, num_channels as usize, sample_rate).map(|stream_buffer_size| {
+    self.get_output_stream(&drivers, format).map(|stream_buffer_size| {
         let cpal_num_samples = stream_buffer_size * num_channels as usize;
         let count = self.stream_count.load(Ordering::SeqCst);
         self.stream_count.store(count + 1, Ordering::SeqCst);
