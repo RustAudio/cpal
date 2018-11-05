@@ -43,7 +43,7 @@ lazy_static! {
 }
 
 /// Globally available state of the ASIO driver.
-/// This allows all calls the the driver to ensure 
+/// This allows all calls the the driver to ensure
 /// they are calling in the correct state.
 /// It also prevents multiple calls happening at once.
 lazy_static! {
@@ -53,14 +53,14 @@ lazy_static! {
 }
 
 /// Count of active device and streams.
-/// Used to clean up the driver connection 
+/// Used to clean up the driver connection
 /// when there are no active connections.
 static STREAM_DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Tracks which buffer needs to be silenced.
 pub static SILENCE_FIRST: AtomicBool = AtomicBool::new(false);
 pub static SILENCE_SECOND: AtomicBool = AtomicBool::new(false);
 
-/// Amount of input and output 
+/// Amount of input and output
 /// channels available.
 #[derive(Debug)]
 pub struct Channel {
@@ -80,15 +80,15 @@ pub struct SampleRate {
 #[derive(Debug, Clone)]
 pub struct Drivers;
 
-/// Tracks the current state of the 
+/// Tracks the current state of the
 /// ASIO drivers.
 #[derive(Debug)]
 struct AsioWrapper {
     state: AsioState,
 }
 
-/// All possible states of the 
-/// ASIO driver. Mapped to the 
+/// All possible states of the
+/// ASIO driver. Mapped to the
 /// FSM in the ASIO SDK docs.
 #[derive(Debug)]
 enum AsioState {
@@ -119,7 +119,7 @@ pub struct AsioStream {
 
 /// All the possible types from ASIO.
 /// This is a direct copy of the ASIOSampleType
-/// inside ASIO SDK. 
+/// inside ASIO SDK.
 #[derive(Debug, FromPrimitive)]
 #[repr(C)]
 pub enum AsioSampleType {
@@ -190,7 +190,7 @@ struct AsioCallbacks {
 /// double_buffer_index is either 0 or 1
 /// indicating which buffer to fill
 extern "C" fn buffer_switch(double_buffer_index: c_long, _direct_process: c_long) -> () {
-    // This lock is probably unavoidable 
+    // This lock is probably unavoidable
     // but locks in the audio stream is not great
     let mut bcs = buffer_callback.lock().unwrap();
 
@@ -263,7 +263,7 @@ impl Drivers {
         }
     }
 
-    /// Returns the number of input and output 
+    /// Returns the number of input and output
     /// channels for the active drivers
     pub fn get_channels(&self) -> Channel {
         let channel: Channel;
@@ -359,7 +359,7 @@ impl Drivers {
     /// Because only the latest call
     /// to ASIOCreateBuffers is relevant this
     /// call will destroy all past active buffers
-    /// and recreate them. For this reason we take 
+    /// and recreate them. For this reason we take
     /// the output stream if it exists.
     /// num_channels is the number of input channels.
     /// This returns a full AsioStreams with both input
@@ -393,7 +393,7 @@ impl Drivers {
     /// Because only the latest call
     /// to ASIOCreateBuffers is relevant this
     /// call will destroy all past active buffers
-    /// and recreate them. For this reason we take 
+    /// and recreate them. For this reason we take
     /// the input stream if it exists.
     /// num_channels is the number of output channels.
     /// This returns a full AsioStreams with both input
@@ -489,7 +489,7 @@ impl Drivers {
 
     /// Ask ASIO to allocate the buffers
     /// and give the callback pointers.
-    /// This will destroy any already allocated 
+    /// This will destroy any already allocated
     /// buffers.
     /// The prefered buffer size from ASIO is used.
     fn create_buffers(
@@ -577,7 +577,6 @@ impl BufferCallback {
         cb(index);
     }
 }
-
 
 /// Adds a callback to the list of active callbacks
 pub fn set_callback<F: 'static>(callback: F) -> ()
@@ -683,8 +682,7 @@ impl AsioWrapper {
     unsafe fn asio_init(&mut self, di: &mut ai::ASIODriverInfo) -> Result<(), AsioError> {
         if let AsioState::Loaded = self.state {
             let result = ai::ASIOInit(di);
-            asio_result!(result)
-                .map(|_| self.state = AsioState::Initialized)
+            asio_result!(result).map(|_| self.state = AsioState::Initialized)
         } else {
             Ok(())
         }
@@ -748,7 +746,7 @@ impl AsioWrapper {
             asio_result!(result)
         }
     }
-    
+
     /// Gets the buffer sizes.
     /// Needs to be atleast Loaded.
     unsafe fn asio_get_buffer_size(
