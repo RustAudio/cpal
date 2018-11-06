@@ -289,6 +289,10 @@ pub enum FormatsEnumerationError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+    /// We called something the C-Layer did not understand
+    InvalidArgument,
+    /// The C-Layer returned an error we don't know about
+    Unknown
 }
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
@@ -309,6 +313,11 @@ pub enum CreationError {
     DeviceNotAvailable,
     /// The required format is not supported.
     FormatNotSupported,
+    /// An ALSA device function was called with a feature it does not support
+    /// (trying to use capture capabilities on an output only format yields this)
+    InvalidArgument,
+    /// The C-Layer returned an error we don't know about
+    Unknown,
 }
 
 /// An iterator yielding all `Device`s currently available to the system.
@@ -714,6 +723,12 @@ impl Error for FormatsEnumerationError {
             &FormatsEnumerationError::DeviceNotAvailable => {
                 "The requested device is no longer available (for example, it has been unplugged)."
             },
+            &FormatsEnumerationError::InvalidArgument => {
+                "Invalid argument passed to the Backend (This happens when trying to read for example capture capabilities but the device does not support it -> dmix on Linux)"
+            },
+            &FormatsEnumerationError::Unknown => {
+                "An unknown error in the Backend occured"
+            },
         }
     }
 }
@@ -735,6 +750,14 @@ impl Error for CreationError {
 
             &CreationError::FormatNotSupported => {
                 "The requested samples format is not supported by the device."
+            },
+
+            &CreationError::InvalidArgument => {
+                "The requested device does not support this capability (invalid argument)"
+            }
+
+            &CreationError::Unknown => {
+                "An unknown error in the Backend occured"
             },
         }
     }
