@@ -38,6 +38,7 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=User32");
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=asio");
+    println!("cargo:rustc-cfg=asio");
 
     // Check if bindings exist
     // if they dont create them

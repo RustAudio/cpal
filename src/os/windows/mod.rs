@@ -16,6 +16,7 @@ pub fn which_backend() -> BackEnd {
     (*BACK_END.lock().unwrap()).clone()
 }
 
+#[cfg(asio)]
 pub fn use_asio_backend() -> Result<(), BackEndError> {
     *BACK_END.lock().unwrap() = BackEnd::Asio;
     Ok(())

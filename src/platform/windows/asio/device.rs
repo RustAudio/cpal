@@ -1,4 +1,3 @@
-extern crate asio_sys as sys;
 use std;
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
@@ -10,6 +9,7 @@ use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
 use SupportedFormat;
+use super::sys;
 
 /// A ASIO Device
 #[derive(Debug, Clone)]
@@ -133,11 +133,7 @@ impl Device {
 
 impl Default for Devices {
     fn default() -> Devices {
-        // Remove offline drivers
-        let driver_names: Vec<String> = sys::get_driver_list()
-            .into_iter()
-            .filter(|name| sys::Drivers::load(&name).is_ok())
-            .collect();
+        let driver_names = online_devices();
         Devices {
             drivers: driver_names.into_iter(),
         }
@@ -168,7 +164,17 @@ impl Iterator for Devices {
 /// Asio doesn't have a concept of default
 /// so returning first in list as default
 pub fn default_input_device() -> Option<Device> {
-    let mut driver_list = sys::get_driver_list();
+    first_device()
+}
+
+/// Asio doesn't have a concept of default
+/// so returning first in list as default
+pub fn default_output_device() -> Option<Device> {
+    first_device()
+}
+
+fn first_device() -> Option<Device> {
+    let mut driver_list = online_devices();
     match driver_list.pop() {
         Some(name) => sys::Drivers::load(&name)
             .or_else(|e| {
@@ -180,17 +186,10 @@ pub fn default_input_device() -> Option<Device> {
     }
 }
 
-/// Asio doesn't have a concept of default
-/// so returning first in list as default
-pub fn default_output_device() -> Option<Device> {
-    let mut driver_list = sys::get_driver_list();
-    match driver_list.pop() {
-        Some(name) => sys::Drivers::load(&name)
-            .or_else(|e| {
-                eprintln!("{}", e);
-                Err(e)
-            }).ok()
-            .map(|drivers| Device { drivers, name }),
-        None => None,
-    }
+/// Remove offline drivers
+fn online_devices() -> Vec<String> {
+    sys::get_driver_list()
+        .into_iter()
+        .filter(|name| sys::Drivers::load(&name).is_ok())
+        .collect()
 }
