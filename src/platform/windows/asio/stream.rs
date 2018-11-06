@@ -58,11 +58,13 @@ struct I16Buffer {
 // TODO This never gets used as there is
 // no usigned variants of ASIO buffers
 // and can probably be removed.
+/*
 #[derive(Default)]
 struct U16Buffer {
     cpal: Vec<u16>,
     channel: Vec<Vec<u16>>,
 }
+*/
 #[derive(Default)]
 struct F32Buffer {
     cpal: Vec<f32>,
@@ -70,7 +72,7 @@ struct F32Buffer {
 }
 struct Buffers {
     i16_buff: I16Buffer,
-    u16_buff: U16Buffer,
+    //u16_buff: U16Buffer,
     f32_buff: F32Buffer,
 }
 
@@ -222,22 +224,10 @@ impl EventLoop {
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
-                        u16_buff: U16Buffer::default(),
-                        f32_buff: F32Buffer::default(),
-                    },
-                    SampleFormat::U16 => Buffers {
-                        i16_buff: I16Buffer::default(),
-                        u16_buff: U16Buffer {
-                            cpal: vec![0 as u16; cpal_num_samples],
-                            channel: (0 .. num_channels)
-                                .map(|_| Vec::with_capacity(channel_len))
-                                .collect(),
-                        },
                         f32_buff: F32Buffer::default(),
                     },
                     SampleFormat::F32 => Buffers {
                         i16_buff: I16Buffer::default(),
-                        u16_buff: U16Buffer::default(),
                         f32_buff: F32Buffer {
                             cpal: vec![0 as f32; cpal_num_samples],
                             channel: (0 .. num_channels)
@@ -245,6 +235,7 @@ impl EventLoop {
                                 .collect(),
                         },
                     },
+                    _ => unimplemented!(),
                 };
 
                 // Set the input callback.
@@ -521,22 +512,10 @@ impl EventLoop {
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
-                        u16_buff: U16Buffer::default(),
-                        f32_buff: F32Buffer::default(),
-                    },
-                    SampleFormat::U16 => Buffers {
-                        i16_buff: I16Buffer::default(),
-                        u16_buff: U16Buffer {
-                            cpal: vec![0 as u16; cpal_num_samples],
-                            channel: (0 .. num_channels)
-                                .map(|_| Vec::with_capacity(channel_len))
-                                .collect(),
-                        },
                         f32_buff: F32Buffer::default(),
                     },
                     SampleFormat::F32 => Buffers {
                         i16_buff: I16Buffer::default(),
-                        u16_buff: U16Buffer::default(),
                         f32_buff: F32Buffer {
                             cpal: vec![0 as f32; cpal_num_samples],
                             channel: (0 .. num_channels)
@@ -544,6 +523,7 @@ impl EventLoop {
                                 .collect(),
                         },
                     },
+                    _ => unimplemented!(),
                 };
 
                 sys::set_callback(move |index| unsafe {
