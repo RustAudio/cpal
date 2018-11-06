@@ -9,8 +9,11 @@ use StreamData;
 
 use Format;
 
-#[cfg(windows)]
+#[cfg(all(windows, asio))]
 mod asio;
+
+#[cfg(all(windows, not(asio)))]
+use null as asio;
 
 #[cfg(windows)]
 mod wasapi;
@@ -32,11 +35,13 @@ pub enum StreamId{
     Asio(asio::StreamId),
 }
 
+#[allow(dead_code)]
 pub enum InputBuffer<'a, T: 'a>{
     Wasapi(wasapi::InputBuffer<'a, T>),
     Asio(asio::InputBuffer<'a, T>),
 }
 
+#[allow(dead_code)]
 pub enum OutputBuffer<'a, T: 'a>{
     Wasapi(wasapi::OutputBuffer<'a, T>),
     Asio(asio::OutputBuffer<'a, T>),
@@ -133,7 +138,10 @@ impl Device {
     FormatsEnumerationError> {
         match self {
             &Device::Wasapi(ref d) => d.supported_input_formats(),
+            #[cfg(all(windows, asio))]
             &Device::Asio(ref d) => d.supported_input_formats(),
+            #[cfg(not(all(windows, asio)))]
+            &Device::Asio(_) => unreachable!(),
         }
     }
     
@@ -141,7 +149,10 @@ impl Device {
     FormatsEnumerationError> {
         match self {
             &Device::Wasapi(ref d) => d.supported_output_formats(),
+            #[cfg(all(windows, asio))]
             &Device::Asio(ref d) => d.supported_output_formats(),
+            #[cfg(not(all(windows, asio)))]
+            &Device::Asio(_) => unreachable!(),
         }
     }
 
