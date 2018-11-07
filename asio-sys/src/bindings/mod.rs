@@ -15,14 +15,6 @@ use num;
 // Bindings import
 use self::asio_import as ai;
 
-// TODO I dont think this is needed anymore
-/*
-pub struct CbArgs<S, D> {
-    pub stream_id: S,
-    pub data: D,
-}
-*/
-
 /// Holds the pointer to the callbacks that come from cpal
 struct BufferCallback(Box<FnMut(i32) + Send>);
 
@@ -231,16 +223,14 @@ impl Drivers {
     pub fn load(driver_name: &str) -> Result<Self, AsioDriverError> {
         let mut drivers = get_drivers();
         // Make owned CString to send to load driver
-        let mut my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
-        let raw = my_driver_name.into_raw();
+        let my_driver_name = CString::new(driver_name).expect("Can't go from str to CString");
         let mut driver_info = ai::ASIODriverInfo {
             _bindgen_opaque_blob: [0u32; 43],
         };
         unsafe {
             // Destroy old drivers and load new drivers.
-            let load_result = drivers.load(raw);
-            // Take back ownership
-            my_driver_name = CString::from_raw(raw);
+            //let load_result = drivers.load(raw);
+            let load_result = drivers.load(my_driver_name.as_ptr() as *mut i8);
             if load_result {
                 // Initialize ASIO
                 match drivers.asio_init(&mut driver_info) {

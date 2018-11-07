@@ -11,14 +11,14 @@ pub enum AsioDriverError {
 
 #[derive(Debug)]
 pub enum AsioError {
-            NoDrivers, 
-            HardwareMalfunction,
-            InvalidInput, 
-            BadMode, 
-            HardwareStuck, 
-            NoRate, 
-            ASE_NoMemory, 
-            UnknownError, 
+    NoDrivers,
+    HardwareMalfunction,
+    InvalidInput,
+    BadMode,
+    HardwareStuck,
+    NoRate,
+    ASE_NoMemory,
+    UnknownError,
 }
 
 #[derive(Debug)]
@@ -62,7 +62,7 @@ impl fmt::Display for AsioError {
         match *self {
             AsioError::NoDrivers => {
                 write!(f, "hardware input or output is not present or available")
-            },
+            }
             AsioError::HardwareMalfunction => write!(
                 f,
                 "hardware is malfunctioning (can be returned by any ASIO function)"
@@ -89,7 +89,7 @@ impl Error for AsioError {
             AsioError::NoDrivers => "hardware input or output is not present or available",
             AsioError::HardwareMalfunction => {
                 "hardware is malfunctioning (can be returned by any ASIO function)"
-            },
+            }
             AsioError::InvalidInput => "input parameter invalid",
             AsioError::BadMode => "hardware is in a bad mode or used in a bad mode",
             AsioError::HardwareStuck => "hardware is not running when sample position is inquired",
