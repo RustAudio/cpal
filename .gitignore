@@ -3,10 +3,3 @@
 .cargo/
 .DS_Store
 recorded.wav
-asio-sys/target
-asio-sys/Cargo.lock
-asio-sys/.cargo/
-asio-sys/.DS_Store
-*~
-*.swap
-*.swo
