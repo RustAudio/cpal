@@ -8,9 +8,6 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 
-[profile.release]
-debug = true
-
 [dependencies]
 lazy_static = "1.0"
 num-traits = "0.2.6"
