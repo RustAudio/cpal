@@ -715,7 +715,10 @@ impl EventLoop {
                             au::deinterleave(&c_buffer[..], channels);
                         }
 
-                        // Silence the buffer that is about to be used
+                        // Silence the buffer that is about to be used.
+                        // This checks if any other callbacks have already
+                        // silenced this buffer. If not it will silence it
+                        // and set the opposite buffer half to unsilenced.
                         let silence = match index {
                             0 => {
                                 if !sys::SILENCE_FIRST.load(Ordering::SeqCst) {
