@@ -1,4 +1,4 @@
-use super::{deinterleave, deinterleave_index, interleave};
+use super::{deinterleave, interleave};
 
 #[test]
 fn interleave_two() {
@@ -6,7 +6,7 @@ fn interleave_two() {
     let goal = vec![1, 2, 1, 2, 1, 2, 1, 2];
     let mut result = vec![0; 8];
 
-    interleave(&a[..], &mut result[..]);
+    interleave(&a[..], &mut result);
 
     assert_eq!(goal, result);
 }
@@ -17,7 +17,7 @@ fn interleave_three() {
     let goal = vec![1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3];
     let mut result = vec![0; 12];
 
-    interleave(&a[..], &mut result[..]);
+    interleave(&a[..], &mut result);
 
     assert_eq!(goal, result);
 }
@@ -28,7 +28,7 @@ fn interleave_none() {
     let goal = Vec::<i32>::new();
     let mut result = Vec::<i32>::new();
 
-    interleave(&a[..], &mut result[..]);
+    interleave(&a[..], &mut result);
 
     assert_eq!(goal, result);
 }
@@ -39,7 +39,7 @@ fn interleave_two_diff() {
     let goal = vec![1, 5, 2, 6, 3, 7, 4, 8];
     let mut result = vec![0; 8];
 
-    interleave(&a[..], &mut result[..]);
+    interleave(&a[..], &mut result);
 
     assert_eq!(goal, result);
 }

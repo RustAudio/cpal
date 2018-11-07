@@ -8,14 +8,14 @@ use std;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use CreationError;
 use Format;
 use SampleFormat;
 use StreamData;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
-use std::thread;
-use std::time::Duration;
 
 /// Controls all streams
 pub struct EventLoop {
@@ -26,8 +26,7 @@ pub struct EventLoop {
     /// Total stream count
     stream_count: AtomicUsize,
     /// The CPAL callback that the user gives to fill the buffers.
-    /// TODO This should probably not be in a Vec as there can only be one
-    callbacks: Arc<Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
+    callbacks: Arc<Mutex<Option<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
 }
 
 /// Id for each stream.
@@ -85,7 +84,7 @@ impl EventLoop {
             // This is why the Id's count from one not zero
             // because at this point there is no streams
             stream_count: AtomicUsize::new(0),
-            callbacks: Arc::new(Mutex::new(Vec::new())),
+            callbacks: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -93,7 +92,9 @@ impl EventLoop {
     /// If there is no ASIO Input Stream
     /// it will be created.
     fn get_input_stream(
-        &self, drivers: &sys::Drivers, format: &Format,
+        &self,
+        drivers: &sys::Drivers,
+        format: &Format,
     ) -> Result<usize, CreationError> {
         let Format {
             channels,
@@ -111,7 +112,7 @@ impl EventLoop {
                     .set_sample_rate(sample_rate)
                     .expect("Unsupported sample rate");
             } else {
-                panic!("This sample rate {:?} is not supported", sample_rate);
+               return Err(CreationError::FormatNotSupported);
             }
         }
         // Either create a stream if thers none or had back the
@@ -133,7 +134,7 @@ impl EventLoop {
                         println!("Error preparing stream: {}", e);
                         CreationError::DeviceNotAvailable
                     })
-            },
+            }
         }
     }
 
@@ -141,7 +142,9 @@ impl EventLoop {
     /// If there is no ASIO Output Stream
     /// it will be created.
     fn get_output_stream(
-        &self, drivers: &sys::Drivers, format: &Format,
+        &self,
+        drivers: &sys::Drivers,
+        format: &Format,
     ) -> Result<usize, CreationError> {
         let Format {
             channels,
@@ -182,13 +185,15 @@ impl EventLoop {
                         println!("Error preparing stream: {}", e);
                         CreationError::DeviceNotAvailable
                     })
-            },
+            }
         }
     }
 
     /// Builds a new cpal input stream  
     pub fn build_input_stream(
-        &self, device: &Device, format: &Format,
+        &self,
+        device: &Device,
+        format: &Format,
     ) -> Result<StreamId, CreationError> {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
@@ -212,7 +217,7 @@ impl EventLoop {
                     SampleFormat::I16 => Buffers {
                         i16_buff: I16Buffer {
                             cpal: vec![0 as i16; cpal_num_samples],
-                            channel: (0 .. num_channels)
+                            channel: (0..num_channels)
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
@@ -222,7 +227,7 @@ impl EventLoop {
                         i16_buff: I16Buffer::default(),
                         f32_buff: F32Buffer {
                             cpal: vec![0 as f32; cpal_num_samples],
-                            channel: (0 .. num_channels)
+                            channel: (0..num_channels)
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
@@ -253,27 +258,35 @@ impl EventLoop {
 
                         // Theres only a single callback because theres only one event loop
                         // TODO is 64bit necessary. Might be using more memory then needed
-                        match callbacks.first_mut() {
+                        match callbacks.as_mut() {
                             Some(callback) => {
                                 // Macro to convert sample from ASIO to CPAL type
                                 macro_rules! convert_sample {
-                                    // Unsigned types required different conversion
+                                    // floats types required different conversion
                                     ($AsioTypeIdent:ident,
-                                    u16,
+                                    f32,
                                     $SampleTypeIdent:ident,
                                     $Sample:expr
-                                ) => {
-                                        ((*$Sample as f64 + $AsioTypeIdent::MAX as f64)
-                                            / (::std::u16::MAX as f64
-                                                / ::std::AsioTypeIdent::MAX as f64)) as u16
+                                    ) => {
+                                        (*$Sample as f64 
+                                            / ::std::$SampleTypeIdent::MAX as f64) as f32 
+                                    };
+                                    ($AsioTypeIdent:ident,
+                                    f64,
+                                    $SampleTypeIdent:ident,
+                                    $Sample:expr
+                                    ) => {
+                                        *$Sample as f64
+                                            / ::std::$SampleTypeIdent::MAX as f64
                                     };
                                     ($AsioTypeIdent:ident,
                                     $SampleType:ty,
                                     $SampleTypeIdent:ident,
                                     $Sample:expr
-                                ) => {
+                                    ) => {
                                         (*$Sample as i64 * ::std::$SampleTypeIdent::MAX as i64
-                                            / ::std::$AsioTypeIdent::MAX as i64) as $SampleType
+                                            / ::std::$AsioTypeIdent::MAX as i64)
+                                            as $SampleType
                                     };
                                 };
                                 // This creates gets the buffer and interleaves it.
@@ -293,7 +306,8 @@ impl EventLoop {
                                         // For each channel write the asio buffer to
                                         // the cpal buffer
 
-                                        for (i, channel) in $Buffers.channel.iter_mut().enumerate()
+                                        for (i, channel) in
+                                            $Buffers.channel.iter_mut().enumerate()
                                         {
                                             let buff_ptr = asio_stream.buffer_infos[i].buffers
                                                 [index as usize]
@@ -340,7 +354,9 @@ impl EventLoop {
                                                 buffer: UnknownTypeInputBuffer::$SampleFormat(
                                                     ::InputBuffer {
                                                         buffer: Some(
-                                                            super::super::InputBuffer::Asio(buff),
+                                                            super::super::InputBuffer::Asio(
+                                                                buff,
+                                                            ),
                                                         ),
                                                     },
                                                 ),
@@ -363,7 +379,7 @@ impl EventLoop {
                                             Endian::Little,
                                             convert_endian_to
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt16LSB => {
                                         try_callback!(
                                             I16,
@@ -377,7 +393,7 @@ impl EventLoop {
                                             Endian::Little,
                                             convert_endian_to
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt32MSB => {
                                         try_callback!(
                                             I16,
@@ -391,7 +407,7 @@ impl EventLoop {
                                             Endian::Big,
                                             convert_endian_to
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt16MSB => {
                                         try_callback!(
                                             I16,
@@ -405,7 +421,7 @@ impl EventLoop {
                                             Endian::Big,
                                             convert_endian_to
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat32LSB => {
                                         try_callback!(
                                             F32,
@@ -419,7 +435,7 @@ impl EventLoop {
                                             Endian::Little,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat64LSB => {
                                         try_callback!(
                                             F32,
@@ -433,7 +449,7 @@ impl EventLoop {
                                             Endian::Little,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat32MSB => {
                                         try_callback!(
                                             F32,
@@ -447,7 +463,7 @@ impl EventLoop {
                                             Endian::Big,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat64MSB => {
                                         try_callback!(
                                             F32,
@@ -461,10 +477,10 @@ impl EventLoop {
                                             Endian::Big,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     _ => println!("unsupported format {:?}", stream_type),
                                 }
-                            },
+                            }
                             None => return (),
                         }
                     }
@@ -480,7 +496,9 @@ impl EventLoop {
 
     /// Create the an output cpal stream.
     pub fn build_output_stream(
-        &self, device: &Device, format: &Format,
+        &self,
+        device: &Device,
+        format: &Format,
     ) -> Result<StreamId, CreationError> {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
@@ -499,7 +517,7 @@ impl EventLoop {
                     SampleFormat::I16 => Buffers {
                         i16_buff: I16Buffer {
                             cpal: vec![0 as i16; cpal_num_samples],
-                            channel: (0 .. num_channels)
+                            channel: (0..num_channels)
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
@@ -509,7 +527,7 @@ impl EventLoop {
                         i16_buff: I16Buffer::default(),
                         f32_buff: F32Buffer {
                             cpal: vec![0 as f32; cpal_num_samples],
-                            channel: (0 .. num_channels)
+                            channel: (0..num_channels)
                                 .map(|_| Vec::with_capacity(channel_len))
                                 .collect(),
                         },
@@ -538,39 +556,46 @@ impl EventLoop {
                         // Convert sample depending on the sample type
                         macro_rules! convert_sample {
                             ($AsioTypeIdent:ident,
-                        $AsioType:ty,
-                        u16,
-                        $Sample:expr
-                    ) => {
-                                ((*$Sample as i64 * ::std::$AsioTypeIdent::MAX as i64
-                                    / ::std::u16::MAX as i64)
-                                    - $AsioTypeIdent::MAX as i64) as $AsioType
+                            f32,
+                            $SampleTypeIdent:ident,
+                            $Sample:expr
+                            ) => {
+                                (*$Sample as f64
+                                    / ::std::$SampleTypeIdent::MAX as f64) as f32 
                             };
                             ($AsioTypeIdent:ident,
-                        $AsioType:ty,
-                        $SampleTypeIdent:ident,
-                        $Sample:expr
-                    ) => {
+                            f64,
+                            $SampleTypeIdent:ident,
+                            $Sample:expr
+                            ) => {
+                                *$Sample as f64
+                                    / ::std::$SampleTypeIdent::MAX as f64
+                            };
+                            ($AsioTypeIdent:ident,
+                            $AsioType:ty,
+                            $SampleTypeIdent:ident,
+                            $Sample:expr
+                            ) => {
                                 (*$Sample as i64 * ::std::$AsioTypeIdent::MAX as i64
                                     / ::std::$SampleTypeIdent::MAX as i64) as $AsioType
                             };
                         };
 
                         // Theres only a single callback because theres only one event loop
-                        match callbacks.first_mut() {
+                        match callbacks.as_mut() {
                             Some(callback) => {
                                 macro_rules! try_callback {
                                     ($SampleFormat:ident,
-                                $SampleType:ty,
-                                $SampleTypeIdent:ident,
-                                $AsioType:ty,
-                                $AsioTypeIdent:ident,
-                                $Buffers:expr,
-                                $BuffersType:ty,
-                                $BuffersTypeIdent:ident,
-                                $Endianness:expr,
-                                $ConvertEndian:expr
-                                ) => {
+                                    $SampleType:ty,
+                                    $SampleTypeIdent:ident,
+                                    $AsioType:ty,
+                                    $AsioTypeIdent:ident,
+                                    $Buffers:expr,
+                                    $BuffersType:ty,
+                                    $BuffersTypeIdent:ident,
+                                    $Endianness:expr,
+                                    $ConvertEndian:expr
+                                    ) => {
                                         let mut my_buffers = $Buffers;
                                         {
                                             // Wrap the cpal buffer
@@ -675,7 +700,7 @@ impl EventLoop {
                                             Endian::Little,
                                             convert_endian_from
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt16LSB => {
                                         try_callback!(
                                             I16,
@@ -689,7 +714,7 @@ impl EventLoop {
                                             Endian::Little,
                                             convert_endian_from
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt32MSB => {
                                         try_callback!(
                                             I16,
@@ -703,7 +728,7 @@ impl EventLoop {
                                             Endian::Big,
                                             convert_endian_from
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTInt16MSB => {
                                         try_callback!(
                                             I16,
@@ -717,7 +742,7 @@ impl EventLoop {
                                             Endian::Big,
                                             convert_endian_from
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat32LSB => {
                                         try_callback!(
                                             F32,
@@ -731,7 +756,7 @@ impl EventLoop {
                                             Endian::Little,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat64LSB => {
                                         try_callback!(
                                             F32,
@@ -745,7 +770,7 @@ impl EventLoop {
                                             Endian::Little,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat32MSB => {
                                         try_callback!(
                                             F32,
@@ -759,7 +784,7 @@ impl EventLoop {
                                             Endian::Big,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     sys::AsioSampleType::ASIOSTFloat64MSB => {
                                         try_callback!(
                                             F32,
@@ -773,10 +798,10 @@ impl EventLoop {
                                             Endian::Big,
                                             |a, _| a
                                         );
-                                    },
+                                    }
                                     _ => println!("unsupported format {:?}", stream_type),
                                 }
-                            },
+                            }
                             None => return (),
                         }
                     }
@@ -842,10 +867,10 @@ impl EventLoop {
         F: FnMut(StreamId, StreamData) + Send,
     {
         let callback: &mut (FnMut(StreamId, StreamData) + Send) = &mut callback;
-        self.callbacks
+        // Transmute needed to convince the compiler that the callback has a static lifetime
+        *self.callbacks
             .lock()
-            .unwrap()
-            .push(unsafe { mem::transmute(callback) });
+            .unwrap() = Some(unsafe { mem::transmute(callback) });
         loop {
             // A sleep here to prevent the loop being
             // removed in --release

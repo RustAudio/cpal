@@ -15,6 +15,10 @@ pub fn interleave<T>(channels: &[Vec<T>], target: &mut Vec<T>)
 where
     T: Copy,
 {
+    assert!(
+    target.len() % channels.len() == 0,
+    "the length of the interleaved buffer must be a multiple of the expected number of channels"
+    );
     assert!(!channels.is_empty());
     target.clear();
     let frames = channels[0].len();
@@ -32,6 +36,10 @@ pub fn deinterleave<T>(cpal_buffer: &[T], asio_channels: &mut [Vec<T>])
 where
     T: Copy,
 {
+    assert!(
+    cpal_buffer.len() % asio_channels.len() == 0,
+    "the length of the interleaved buffer must be a multiple of the expected number of channels"
+    );
     for ch in asio_channels.iter_mut() {
         ch.clear();
     }
