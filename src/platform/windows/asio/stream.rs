@@ -88,24 +88,19 @@ impl EventLoop {
         }
     }
 
-    /// Create a new CPAL Input Stream.
-    /// If there is no ASIO Input Stream
-    /// it will be created.
-    fn get_input_stream(
+    fn check_format(
         &self,
         drivers: &sys::Drivers,
         format: &Format,
-    ) -> Result<usize, CreationError> {
+        num_asio_channels: u16, 
+    ) -> Result<(), CreationError> {
         let Format {
             channels,
             sample_rate,
-            ..
+            data_type,
         } = format;
-        let num_channels = *channels as usize;
         // Try and set the sample rate to what the user selected.
-        // If they try and use and unavailable rate then panic
         let sample_rate = sample_rate.0;
-        let ref mut streams = *self.asio_streams.lock().unwrap();
         if sample_rate != drivers.get_sample_rate().rate {
             if drivers.can_sample_rate(sample_rate) {
                 drivers
@@ -115,6 +110,35 @@ impl EventLoop {
                 return Err(CreationError::FormatNotSupported);
             }
         }
+        // unsigned formats are not supported by asio
+        match data_type {
+            SampleFormat::I16 | SampleFormat::F32 => (),
+            SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
+        }
+        if *channels > num_asio_channels {
+            return Err(CreationError::FormatNotSupported);
+        }
+        Ok(())
+    }
+
+    /// Create a new CPAL Input Stream.
+    /// If there is no ASIO Input Stream
+    /// it will be created.
+    fn get_input_stream(
+        &self,
+        drivers: &sys::Drivers,
+        format: &Format,
+        device: &Device,
+    ) -> Result<usize, CreationError> {
+        match device.default_input_format() {
+            Ok(f) => {
+                let num_asio_channels = f.channels;
+                self.check_format(drivers, format, num_asio_channels)
+            },
+            Err(_) => Err(CreationError::FormatNotSupported),
+        }?;
+        let num_channels = format.channels as usize;
+        let ref mut streams = *self.asio_streams.lock().unwrap();
         // Either create a stream if thers none or had back the
         // size of the current one.
         match streams.input {
@@ -145,27 +169,17 @@ impl EventLoop {
         &self,
         drivers: &sys::Drivers,
         format: &Format,
+        device: &Device,
     ) -> Result<usize, CreationError> {
-        let Format {
-            channels,
-            sample_rate,
-            ..
-        } = format;
-        let num_channels = *channels as usize;
-        // Try and set the sample rate to what the user selected.
-        // If they try and use and unavailable rate then panic
-        // TODO factor this into a function as it happens for both input and output
-        let sample_rate = sample_rate.0;
+        match device.default_output_format() {
+            Ok(f) => {
+                let num_asio_channels = f.channels;
+                self.check_format(drivers, format, num_asio_channels)
+            },
+            Err(_) => Err(CreationError::FormatNotSupported),
+        }?;
+        let num_channels = format.channels as usize;
         let ref mut streams = *self.asio_streams.lock().unwrap();
-        if sample_rate != drivers.get_sample_rate().rate {
-            if drivers.can_sample_rate(sample_rate) {
-                drivers
-                    .set_sample_rate(sample_rate)
-                    .expect("Unsupported sample rate");
-            } else {
-                return Err(CreationError::FormatNotSupported);
-            }
-        }
         // Either create a stream if thers none or had back the
         // size of the current one.
         match streams.output {
@@ -198,7 +212,7 @@ impl EventLoop {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-        let input_stream = self.get_input_stream(&drivers, format);
+        let input_stream = self.get_input_stream(&drivers, format, device);
         input_stream.map(|stream_buffer_size| {
             let cpal_num_samples = stream_buffer_size * num_channels as usize;
             let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
@@ -490,7 +504,7 @@ impl EventLoop {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
-        let output_stream = self.get_output_stream(&drivers, format);
+        let output_stream = self.get_output_stream(&drivers, format, device);
         output_stream.map(|stream_buffer_size| {
             let cpal_num_samples = stream_buffer_size * num_channels as usize;
             let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
