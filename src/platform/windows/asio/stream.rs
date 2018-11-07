@@ -163,7 +163,7 @@ impl EventLoop {
                     .set_sample_rate(sample_rate)
                     .expect("Unsupported sample rate");
             } else {
-                panic!("This sample rate {:?} is not supported", sample_rate);
+                return Err(CreationError::FormatNotSupported);
             }
         }
         // Either create a stream if thers none or had back the
@@ -240,7 +240,7 @@ impl EventLoop {
             sys::set_callback(move |index| unsafe {
                 // if not playing return early
                 {
-                    if let Some(s) = cpal_streams.lock().unwrap().get(count - 1) {
+                    if let Some(s) = cpal_streams.lock().unwrap().get(count) {
                         if let Some(s) = s {
                             if !s.playing {
                                 return ();
@@ -525,7 +525,7 @@ impl EventLoop {
             sys::set_callback(move |index| unsafe {
                 // if not playing return early
                 {
-                    if let Some(s) = cpal_streams.lock().unwrap().get(count - 1) {
+                    if let Some(s) = cpal_streams.lock().unwrap().get(count) {
                         if let Some(s) = s {
                             if !s.playing {
                                 return ();
