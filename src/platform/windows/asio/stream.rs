@@ -55,16 +55,7 @@ struct I16Buffer {
     cpal: Vec<i16>,
     channel: Vec<Vec<i16>>,
 }
-// TODO This never gets used as there is
-// no usigned variants of ASIO buffers
-// and can probably be removed.
-/*
-#[derive(Default)]
-struct U16Buffer {
-    cpal: Vec<u16>,
-    channel: Vec<Vec<u16>>,
-}
-*/
+
 #[derive(Default)]
 struct F32Buffer {
     cpal: Vec<f32>,
@@ -203,8 +194,7 @@ impl EventLoop {
         self.get_input_stream(&drivers, format)
             .map(|stream_buffer_size| {
                 let cpal_num_samples = stream_buffer_size * num_channels as usize;
-                let count = self.stream_count.load(Ordering::SeqCst);
-                self.stream_count.store(count + 1, Ordering::SeqCst);
+                let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
                 let asio_streams = self.asio_streams.clone();
                 let cpal_streams = self.cpal_streams.clone();
                 let callbacks = self.callbacks.clone();
@@ -496,8 +486,7 @@ impl EventLoop {
         self.get_output_stream(&drivers, format)
             .map(|stream_buffer_size| {
                 let cpal_num_samples = stream_buffer_size * num_channels as usize;
-                let count = self.stream_count.load(Ordering::SeqCst);
-                self.stream_count.store(count + 1, Ordering::SeqCst);
+                let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
                 let asio_streams = self.asio_streams.clone();
                 let cpal_streams = self.cpal_streams.clone();
                 let callbacks = self.callbacks.clone();
@@ -836,8 +825,7 @@ impl EventLoop {
     pub fn destroy_stream(&self, stream_id: StreamId) {
         let mut streams = self.cpal_streams.lock().unwrap();
         streams.get_mut(stream_id.0).take();
-        let count = self.stream_count.load(Ordering::SeqCst);
-        self.stream_count.store(count - 1, Ordering::SeqCst);
+        let count = self.stream_count.fetch_sub(1, Ordering::SeqCst);
         if count == 1 {
             *self.asio_streams.lock().unwrap() = sys::AsioStreams {
                 output: None,
