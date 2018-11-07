@@ -5,7 +5,6 @@ pub mod errors;
 use self::errors::{AsioDriverError, AsioError, AsioErrorWrapper};
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::mem;
 use std::os::raw::{c_char, c_double, c_long, c_void};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -478,15 +477,17 @@ impl Drivers {
     /// buffers.
     /// The prefered buffer size from ASIO is used.
     fn create_buffers(
-        &self, buffer_infos: Vec<AsioBufferInfo>,
+        &self, mut buffer_infos: Vec<AsioBufferInfo>,
     ) -> Result<(Vec<AsioBufferInfo>, c_long), AsioDriverError> {
         let num_channels = buffer_infos.len();
-        let callbacks = AsioCallbacks {
+        let mut callbacks = AsioCallbacks {
             buffer_switch: buffer_switch,
             sample_rate_did_change: sample_rate_did_change,
             asio_message: asio_message,
             buffer_switch_time_info: buffer_switch_time_info,
         };
+        // To pass as ai::ASIOCallbacks
+        let callbacks: *mut _ = &mut callbacks;
 
         let mut min_b_size: c_long = 0;
         let mut max_b_size: c_long = 0;
@@ -509,22 +510,14 @@ impl Drivers {
                     &mut grans,
                 ).expect("Failed getting buffers");
             if pref_b_size > 0 {
-                // Convert Rust structs to opaque ASIO structs
-                let mut buffer_info_convert =
-                    mem::transmute::<Vec<AsioBufferInfo>, Vec<ai::ASIOBufferInfo>>(buffer_infos);
-                let mut callbacks_convert =
-                    mem::transmute::<AsioCallbacks, ai::ASIOCallbacks>(callbacks);
                 drivers
                     .asio_create_buffers(
-                        buffer_info_convert.as_mut_ptr(),
+                        //buffer_info_convert.as_mut_ptr(),
+                        buffer_infos.as_mut_ptr() as *mut _,
                         num_channels as i32,
                         pref_b_size,
-                        &mut callbacks_convert,
+                        callbacks as *mut _,
                     ).map(|_| {
-                        let buffer_infos = mem::transmute::<
-                            Vec<ai::ASIOBufferInfo>,
-                            Vec<AsioBufferInfo>,
-                        >(buffer_info_convert);
                         (buffer_infos, pref_b_size)
                     }).map_err(|e| {
                         AsioDriverError::BufferError(format!(
@@ -616,18 +609,14 @@ pub fn clean_up() {
 /// Starts input and output streams playing
 pub fn play() {
     unsafe {
-        // TODO handle result instead of printing
-        let result = get_drivers().asio_start();
-        println!("start result: {:?}", result);
+        get_drivers().asio_start().expect("Failed to start asio playing");
     }
 }
 
 /// Stops input and output streams playing
 pub fn stop() {
     unsafe {
-        // TODO handle result instead of printing
-        let result = get_drivers().asio_stop();
-        println!("stop result: {:?}", result);
+        get_drivers().asio_stop().expect("Failed to stop asio");
     }
 }
 
@@ -643,7 +632,7 @@ impl AsioWrapper {
     /// Load the driver.
     /// Unloads the previous driver.
     /// Sets state to Loaded on success.
-    unsafe fn load(&mut self, raw: *mut i8) -> bool {
+    unsafe fn load(&mut self, raw: *mut c_char) -> bool {
         use self::AsioState::*;
         self.clean_up();
         if ai::load_asio_driver(raw) {
@@ -752,7 +741,7 @@ impl AsioWrapper {
     /// will be destoryed.
     unsafe fn asio_create_buffers(
         &mut self, buffer_info_convert: *mut ai::ASIOBufferInfo, num_channels: i32,
-        pref_b_size: c_long, callbacks_convert: &mut ai::ASIOCallbacks,
+        pref_b_size: c_long, callbacks_convert: *mut ai::ASIOCallbacks,
     ) -> Result<(), AsioError> {
         use self::AsioState::*;
         match self.state {
