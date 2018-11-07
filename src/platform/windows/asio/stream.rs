@@ -14,6 +14,8 @@ use SampleFormat;
 use StreamData;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
+use std::thread;
+use std::time::Duration;
 
 /// Controls all streams
 pub struct EventLoop {
@@ -812,9 +814,8 @@ impl EventLoop {
         }
         let any_playing = streams
             .iter()
-            .filter(|s| if let Some(s) = s { s.playing } else { false })
-            .next();
-        if let None = any_playing {
+            .any(|s| if let Some(s) = s { s.playing } else { false });
+        if any_playing {
             sys::stop();
         }
     }
@@ -846,8 +847,9 @@ impl EventLoop {
             .unwrap()
             .push(unsafe { mem::transmute(callback) });
         loop {
-            // Might need a sleep here to prevent the loop being
+            // A sleep here to prevent the loop being
             // removed in --release
+            thread::sleep(Duration::new(1u64, 0u32));
         }
     }
 }
