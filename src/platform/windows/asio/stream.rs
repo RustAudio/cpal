@@ -281,19 +281,61 @@ impl EventLoop {
                 // Macro to convert sample from ASIO to CPAL type
                 macro_rules! convert_sample {
                     // floats types required different conversion
+                    (f32,
+                    f32,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        *$Sample
+                    };
+                    (f64,
+                    f64,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        *$Sample
+                    };
+                    (f64,
+                    f32,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        *$Sample as f32
+                    };
+                    (f32,
+                    f64,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        *$Sample as f64
+                    };
                     ($AsioTypeIdent:ident,
                     f32,
                     $SampleTypeIdent:ident,
                     $Sample:expr
                     ) => {
-                        (*$Sample as f64 / ::std::$SampleTypeIdent::MAX as f64) as f32
+                        (*$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64) as f32
                     };
                     ($AsioTypeIdent:ident,
                     f64,
                     $SampleTypeIdent:ident,
                     $Sample:expr
                     ) => {
-                        *$Sample as f64 / ::std::$SampleTypeIdent::MAX as f64
+                        *$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64
+                    };
+                    (f32,
+                    $SampleType:ty,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType 
+                    };
+                    (f64,
+                    $SampleType:ty,
+                    $SampleTypeIdent:ident,
+                    $Sample:expr
+                    ) => {
+                        (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
                     };
                     ($AsioTypeIdent:ident,
                     $SampleType:ty,
@@ -565,6 +607,48 @@ impl EventLoop {
 
                 // Convert sample depending on the sample type
                 macro_rules! convert_sample {
+                    ($AsioTypeIdent:ident,
+                    f64,
+                    f64,
+                    $Sample:expr
+                    ) => {
+                        *$Sample
+                    };
+                    ($AsioTypeIdent:ident,
+                    f32,
+                    f32,
+                    $Sample:expr
+                    ) => {
+                        *$Sample
+                    };
+                    ($AsioTypeIdent:ident,
+                    f64,
+                    f32,
+                    $Sample:expr
+                    ) => {
+                        *$Sample as f64 
+                    };
+                    ($AsioTypeIdent:ident,
+                    f32,
+                    f64,
+                    $Sample:expr
+                    ) => {
+                        *$Sample as f32 
+                    };
+                    ($AsioTypeIdent:ident,
+                    $AsioType:ty,
+                    f32,
+                    $Sample:expr
+                    ) => {
+                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType 
+                    };
+                    ($AsioTypeIdent:ident,
+                    $AsioType:ty,
+                    f64,
+                    $Sample:expr
+                    ) => {
+                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType 
+                    };
                     ($AsioTypeIdent:ident,
                     f32,
                     $SampleTypeIdent:ident,
