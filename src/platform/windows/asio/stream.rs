@@ -424,7 +424,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Little,
-                            convert_endian_to
+                            convert_endian_from
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt16LSB => {
@@ -438,7 +438,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Little,
-                            convert_endian_to
+                            convert_endian_from
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt32MSB => {
@@ -452,7 +452,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Big,
-                            convert_endian_to
+                            convert_endian_from
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt16MSB => {
@@ -466,7 +466,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Big,
-                            convert_endian_to
+                            convert_endian_from
                         );
                     }
                     sys::AsioSampleType::ASIOSTFloat32LSB => {
@@ -781,7 +781,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Little,
-                            convert_endian_from
+                            convert_endian_to
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt16LSB => {
@@ -795,7 +795,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Little,
-                            convert_endian_from
+                            convert_endian_to
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt32MSB => {
@@ -809,7 +809,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Big,
-                            convert_endian_from
+                            convert_endian_to
                         );
                     }
                     sys::AsioSampleType::ASIOSTInt16MSB => {
@@ -823,7 +823,7 @@ impl EventLoop {
                             I16Buffer,
                             I16Buffer,
                             Endian::Big,
-                            convert_endian_from
+                            convert_endian_to
                         );
                     }
                     sys::AsioSampleType::ASIOSTFloat32LSB => {
