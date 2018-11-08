@@ -50,21 +50,26 @@ impl Device {
     pub fn supported_input_formats(
         &self,
     ) -> Result<SupportedInputFormats, FormatsEnumerationError> {
-        match self.default_input_format() {
-            Ok(f) => {
-                // Can this device support both 44100 and 48000
-                let supported_formats: Vec<SupportedFormat> = [44100, 48000]
-                    .into_iter()
-                    .filter(|rate| self.drivers.can_sample_rate(**rate as u32))
-                    .map(|rate| {
-                        let mut format = f.clone();
-                        format.sample_rate = SampleRate(*rate);
-                        SupportedFormat::from(format)
-                    }).collect();
-                Ok(supported_formats.into_iter())
-            },
-            Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
+        // Retrieve the default format for the total supported channels and supported sample
+        // format.
+        let mut f = match self.default_input_format() {
+            Err(_) => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            Ok(f) => f,
+        };
+
+        // Collect a format for every combination of supported sample rate and number of channels.
+        let mut supported_formats = vec![];
+        for &rate in ::COMMON_SAMPLE_RATES {
+            if !self.drivers.can_sample_rate(rate.0 as u32) {
+                continue;
+            }
+            for channels in 1..f.channels + 1 {
+                f.channels = channels;
+                f.sample_rate = rate;
+                supported_formats.push(SupportedFormat::from(f.clone()));
+            }
         }
+        Ok(supported_formats.into_iter())
     }
 
     /// Gets the supported output formats.
@@ -73,22 +78,26 @@ impl Device {
     pub fn supported_output_formats(
         &self,
     ) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
-        match self.default_output_format() {
-            Ok(f) => {
-                // Can this device support both 44100 and 48000
-                let supported_formats: Vec<SupportedFormat> = [44100, 48000]
-                    .into_iter()
-                    .filter(|rate| self.drivers.can_sample_rate(**rate as u32))
-                    .map(|rate| {
-                        let mut format = f.clone();
-                        format.sample_rate = SampleRate(*rate);
-                        SupportedFormat::from(format)
-                    }).collect();
-                //Ok(vec![SupportedFormat::from(f)].into_iter())
-                Ok(supported_formats.into_iter())
-            },
-            Err(_) => Err(FormatsEnumerationError::DeviceNotAvailable),
+        // Retrieve the default format for the total supported channels and supported sample
+        // format.
+        let mut f = match self.default_output_format() {
+            Err(_) => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            Ok(f) => f,
+        };
+
+        // Collect a format for every combination of supported sample rate and number of channels.
+        let mut supported_formats = vec![];
+        for &rate in ::COMMON_SAMPLE_RATES {
+            if !self.drivers.can_sample_rate(rate.0 as u32) {
+                continue;
+            }
+            for channels in 1..f.channels + 1 {
+                f.channels = channels;
+                f.sample_rate = rate;
+                supported_formats.push(SupportedFormat::from(f.clone()));
+            }
         }
+        Ok(supported_formats.into_iter())
     }
 
     /// Returns the default input format
