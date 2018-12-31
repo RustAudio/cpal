@@ -91,7 +91,8 @@ impl Device {
             alsa::SND_PCM_NONBLOCK,
         ) {
             -2 |
-            -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            -16 |
+            -22 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
             e => check_errors(e).expect("device not available")
         }
 
