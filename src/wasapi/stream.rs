@@ -1,4 +1,3 @@
-use super::Device;
 use super::check_result;
 use super::com;
 use super::winapi::shared::basetsd::UINT32;
@@ -6,17 +5,20 @@ use super::winapi::shared::ksmedia;
 use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
 use super::winapi::shared::mmreg;
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED};
-use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK};
+use super::winapi::um::audiosessiontypes::{
+    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+};
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
 use super::winapi::um::winnt;
+use super::Device;
 
+use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::slice;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -24,8 +26,8 @@ use CreationError;
 use Format;
 use SampleFormat;
 use StreamData;
-use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
+use UnknownTypeOutputBuffer;
 
 pub struct EventLoop {
     // Data used by the `run()` function implementation. The mutex is kept lock permanently by
@@ -98,9 +100,9 @@ impl EventLoop {
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
             run_context: Mutex::new(RunContext {
-                                        streams: Vec::new(),
-                                        handles: vec![pending_scheduled_event],
-                                    }),
+                streams: Vec::new(),
+                handles: vec![pending_scheduled_event],
+            }),
             next_stream_id: AtomicUsize::new(0),
             commands: Mutex::new(Vec::new()),
         }
@@ -110,8 +112,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
-    {
+    ) -> Result<StreamId, CreationError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -119,8 +120,9 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(CreationError::DeviceNotAvailable),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(CreationError::DeviceNotAvailable);
+                }
                 e => e.unwrap(),
             };
 
@@ -147,15 +149,14 @@ impl EventLoop {
                     ptr::null(),
                 );
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -168,15 +169,14 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -195,7 +195,7 @@ impl EventLoop {
                     Err(_) => {
                         (*audio_client).Release();
                         panic!("Failed to call SetEventHandle")
-                    },
+                    }
                     Ok(_) => (),
                 };
 
@@ -204,22 +204,22 @@ impl EventLoop {
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = {
-                let mut capture_client: *mut audioclient::IAudioCaptureClient = mem::uninitialized();
+                let mut capture_client: *mut audioclient::IAudioCaptureClient =
+                    mem::uninitialized();
                 let hresult = (*audio_client).GetService(
                     &audioclient::IID_IAudioCaptureClient,
                     &mut capture_client as *mut *mut audioclient::IAudioCaptureClient as *mut _,
                 );
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -246,7 +246,7 @@ impl EventLoop {
                     sample_format: format.data_type,
                 };
 
-                self.commands.lock().unwrap().push(Command::NewStream(inner));
+                self.commands.lock().push(Command::NewStream(inner));
 
                 let result = synchapi::SetEvent(self.pending_scheduled_event);
                 assert!(result != 0);
@@ -260,8 +260,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
-    {
+    ) -> Result<StreamId, CreationError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -269,8 +268,9 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(CreationError::DeviceNotAvailable),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(CreationError::DeviceNotAvailable);
+                }
                 e => e.unwrap(),
             };
 
@@ -288,22 +288,23 @@ impl EventLoop {
                 }
 
                 // finally initializing the audio client
-                let hresult = (*audio_client).Initialize(share_mode,
-                                                         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                                         0,
-                                                         0,
-                                                         &format_attempt.Format,
-                                                         ptr::null());
+                let hresult = (*audio_client).Initialize(
+                    share_mode,
+                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                    0,
+                    0,
+                    &format_attempt.Format,
+                    ptr::null(),
+                );
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -322,7 +323,7 @@ impl EventLoop {
                     Err(_) => {
                         (*audio_client).Release();
                         panic!("Failed to call SetEventHandle")
-                    },
+                    }
                     Ok(_) => (),
                 };
 
@@ -335,15 +336,14 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -353,21 +353,20 @@ impl EventLoop {
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = {
                 let mut render_client: *mut audioclient::IAudioRenderClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(&audioclient::IID_IAudioRenderClient,
-                                                         &mut render_client as
-                                                             *mut *mut audioclient::IAudioRenderClient as
-                                                             *mut _);
+                let hresult = (*audio_client).GetService(
+                    &audioclient::IID_IAudioRenderClient,
+                    &mut render_client as *mut *mut audioclient::IAudioRenderClient as *mut _,
+                );
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(CreationError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         panic!("{:?}", e);
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -394,7 +393,7 @@ impl EventLoop {
                     sample_format: format.data_type,
                 };
 
-                self.commands.lock().unwrap().push(Command::NewStream(inner));
+                self.commands.lock().push(Command::NewStream(inner));
 
                 let result = synchapi::SetEvent(self.pending_scheduled_event);
                 assert!(result != 0);
@@ -407,10 +406,7 @@ impl EventLoop {
     #[inline]
     pub fn destroy_stream(&self, stream_id: StreamId) {
         unsafe {
-            self.commands
-                .lock()
-                .unwrap()
-                .push(Command::DestroyStream(stream_id));
+            self.commands.lock().push(Command::DestroyStream(stream_id));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -418,7 +414,8 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
+    where
+        F: FnMut(StreamId, StreamData),
     {
         self.run_inner(&mut callback);
     }
@@ -427,27 +424,27 @@ impl EventLoop {
         unsafe {
             // We keep `run_context` locked forever, which guarantees that two invocations of
             // `run()` cannot run simultaneously.
-            let mut run_context = self.run_context.lock().unwrap();
+            let mut run_context = self.run_context.lock();
 
             loop {
                 // Process the pending commands.
-                let mut commands_lock = self.commands.lock().unwrap();
+                let mut commands_lock = self.commands.lock();
                 for command in commands_lock.drain(..) {
                     match command {
                         Command::NewStream(stream_inner) => {
                             let event = stream_inner.event;
                             run_context.streams.push(stream_inner);
                             run_context.handles.push(event);
-                        },
+                        }
                         Command::DestroyStream(stream_id) => {
                             match run_context.streams.iter().position(|v| v.id == stream_id) {
                                 None => continue,
                                 Some(p) => {
                                     run_context.handles.remove(p + 1);
                                     run_context.streams.remove(p);
-                                },
+                                }
                             }
-                        },
+                        }
                         Command::PlayStream(stream_id) => {
                             match run_context.streams.iter_mut().find(|v| v.id == stream_id) {
                                 None => continue,
@@ -459,7 +456,7 @@ impl EventLoop {
                                     }
                                 }
                             }
-                        },
+                        }
                         Command::PauseStream(stream_id) => {
                             match run_context.streams.iter_mut().find(|v| v.id == stream_id) {
                                 None => continue,
@@ -469,9 +466,9 @@ impl EventLoop {
                                         check_result(hresult).unwrap();
                                         stream.playing = false;
                                     }
-                                },
+                                }
                             }
-                        },
+                        }
                     }
                 }
                 drop(commands_lock);
@@ -479,11 +476,13 @@ impl EventLoop {
                 // Wait for any of the handles to be signalled, which means that the corresponding
                 // sound needs a buffer.
                 debug_assert!(run_context.handles.len() <= winnt::MAXIMUM_WAIT_OBJECTS as usize);
-                let result = synchapi::WaitForMultipleObjectsEx(run_context.handles.len() as u32,
-                                                                run_context.handles.as_ptr(),
-                                                                FALSE,
-                                                                winbase::INFINITE, /* TODO: allow setting a timeout */
-                                                                FALSE /* irrelevant parameter here */);
+                let result = synchapi::WaitForMultipleObjectsEx(
+                    run_context.handles.len() as u32,
+                    run_context.handles.as_ptr(),
+                    FALSE,
+                    winbase::INFINITE, /* TODO: allow setting a timeout */
+                    FALSE,             /* irrelevant parameter here */
+                );
 
                 // Notifying the corresponding task handler.
                 debug_assert!(result >= winbase::WAIT_OBJECT_0);
@@ -513,22 +512,22 @@ impl EventLoop {
 
                     // Obtaining a pointer to the buffer.
                     match stream.client_flow {
-
                         AudioClientFlow::Capture { capture_client } => {
                             // Get the available data in the shared buffer.
                             let mut buffer: *mut BYTE = mem::uninitialized();
                             let mut flags = mem::uninitialized();
                             let hresult = (*capture_client).GetBuffer(
-                               &mut buffer,
-                               &mut frames_available,
-                               &mut flags,
-                               ptr::null_mut(),
-                               ptr::null_mut(),
+                                &mut buffer,
+                                &mut frames_available,
+                                &mut flags,
+                                ptr::null_mut(),
+                                ptr::null_mut(),
                             );
                             check_result(hresult).unwrap();
                             debug_assert!(!buffer.is_null());
-                            let buffer_len = frames_available as usize 
-                                * stream.bytes_per_frame as usize / sample_size;
+                            let buffer_len = frames_available as usize
+                                * stream.bytes_per_frame as usize
+                                / sample_size;
 
                             // Simplify the capture callback sample format branches.
                             macro_rules! capture_callback {
@@ -536,18 +535,22 @@ impl EventLoop {
                                     let buffer_data = buffer as *mut _ as *const $T;
                                     let slice = slice::from_raw_parts(buffer_data, buffer_len);
                                     let input_buffer = InputBuffer { buffer: slice };
-                                    let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                        buffer: Some(input_buffer),
-                                    });
-                                    let data = StreamData::Input { buffer: unknown_buffer };
+                                    let unknown_buffer =
+                                        UnknownTypeInputBuffer::$Variant(::InputBuffer {
+                                            buffer: Some(input_buffer),
+                                        });
+                                    let data = StreamData::Input {
+                                        buffer: unknown_buffer,
+                                    };
                                     callback(stream_id, data);
 
                                     // Release the buffer.
                                     let hresult = (*capture_client).ReleaseBuffer(frames_available);
                                     match check_result(hresult) {
                                         // Ignoring unavailable device error.
-                                        Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                                        },
+                                        Err(ref e)
+                                            if e.raw_os_error()
+                                                == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {}
                                         e => e.unwrap(),
                                     };
                                 }};
@@ -558,19 +561,18 @@ impl EventLoop {
                                 SampleFormat::I16 => capture_callback!(i16, I16),
                                 SampleFormat::U16 => capture_callback!(u16, U16),
                             }
-                        },
+                        }
 
                         AudioClientFlow::Render { render_client } => {
                             let mut buffer: *mut BYTE = mem::uninitialized();
-                            let hresult = (*render_client).GetBuffer(
-                                frames_available,
-                                &mut buffer as *mut *mut _,
-                            );
+                            let hresult = (*render_client)
+                                .GetBuffer(frames_available, &mut buffer as *mut *mut _);
                             // FIXME: can return `AUDCLNT_E_DEVICE_INVALIDATED`
-                            check_result(hresult).unwrap(); 
+                            check_result(hresult).unwrap();
                             debug_assert!(!buffer.is_null());
-                            let buffer_len = frames_available as usize 
-                                * stream.bytes_per_frame as usize / sample_size;
+                            let buffer_len = frames_available as usize
+                                * stream.bytes_per_frame as usize
+                                / sample_size;
 
                             // Simplify the render callback sample format branches.
                             macro_rules! render_callback {
@@ -583,10 +585,13 @@ impl EventLoop {
                                         frames: frames_available,
                                         marker: PhantomData,
                                     };
-                                    let unknown_buffer = UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
-                                        target: Some(output_buffer)
-                                    });
-                                    let data = StreamData::Output { buffer: unknown_buffer };
+                                    let unknown_buffer =
+                                        UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
+                                            target: Some(output_buffer),
+                                        });
+                                    let data = StreamData::Output {
+                                        buffer: unknown_buffer,
+                                    };
                                     callback(stream_id, data);
                                 }};
                             }
@@ -596,7 +601,7 @@ impl EventLoop {
                                 SampleFormat::I16 => render_callback!(i16, I16),
                                 SampleFormat::U16 => render_callback!(u16, U16),
                             }
-                        },
+                        }
                     }
                 }
             }
@@ -606,7 +611,7 @@ impl EventLoop {
     #[inline]
     pub fn play_stream(&self, stream: StreamId) {
         unsafe {
-            self.commands.lock().unwrap().push(Command::PlayStream(stream));
+            self.commands.lock().push(Command::PlayStream(stream));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -615,7 +620,7 @@ impl EventLoop {
     #[inline]
     pub fn pause_stream(&self, stream: StreamId) {
         unsafe {
-            self.commands.lock().unwrap().push(Command::PauseStream(stream));
+            self.commands.lock().push(Command::PauseStream(stream));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }
@@ -631,10 +636,8 @@ impl Drop for EventLoop {
     }
 }
 
-unsafe impl Send for EventLoop {
-}
-unsafe impl Sync for EventLoop {
-}
+unsafe impl Send for EventLoop {}
+unsafe impl Sync for EventLoop {}
 
 // The content of a stream ID is a number that was fetched from `next_stream_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -675,8 +678,7 @@ pub struct OutputBuffer<'a, T: 'a> {
     marker: PhantomData<&'a mut [T]>,
 }
 
-unsafe impl<'a, T> Send for OutputBuffer<'a, T> {
-}
+unsafe impl<'a, T> Send for OutputBuffer<'a, T> {}
 
 impl<'a, T> InputBuffer<'a, T> {
     #[inline]
@@ -707,7 +709,7 @@ impl<'a, T> OutputBuffer<'a, T> {
             let hresult = match self.stream.client_flow {
                 AudioClientFlow::Render { render_client } => {
                     (*render_client).ReleaseBuffer(self.frames as u32, 0)
-                },
+                }
                 _ => unreachable!(),
             };
             match check_result(hresult) {
@@ -740,7 +742,7 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
             let extensible_size = mem::size_of::<mmreg::WAVEFORMATEXTENSIBLE>();
             let ex_size = mem::size_of::<mmreg::WAVEFORMATEX>();
             (extensible_size - ex_size) as WORD
-        },
+        }
         SampleFormat::U16 => return None,
     };
     let waveformatex = mmreg::WAVEFORMATEX {

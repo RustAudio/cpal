@@ -1,12 +1,12 @@
+use parking_lot::Mutex;
 use std::mem;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
-use std::sync::Mutex;
 use stdweb;
-use stdweb::Reference;
 use stdweb::unstable::TryInto;
-use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
+use stdweb::web::TypedArray;
+use stdweb::Reference;
 
 use CreationError;
 use DefaultFormatError;
@@ -35,12 +35,15 @@ impl EventLoop {
     pub fn new() -> EventLoop {
         stdweb::initialize();
 
-        EventLoop { streams: Mutex::new(Vec::new()) }
+        EventLoop {
+            streams: Mutex::new(Vec::new()),
+        }
     }
 
     #[inline]
     pub fn run<F>(&self, callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
+    where
+        F: FnMut(StreamId, StreamData),
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
         // of this callback is to fill the content of the audio buffers.
@@ -49,14 +52,15 @@ impl EventLoop {
         // and to the `callback` parameter that was passed to `run`.
 
         fn callback_fn<F>(user_data_ptr: *mut c_void)
-            where F: FnMut(StreamId, StreamData)
+        where
+            F: FnMut(StreamId, StreamData),
         {
             unsafe {
                 let user_data_ptr2 = user_data_ptr as *mut (&EventLoop, F);
                 let user_data = &mut *user_data_ptr2;
                 let user_cb = &mut user_data.1;
 
-                let streams = user_data.0.streams.lock().unwrap().clone();
+                let streams = user_data.0.streams.lock().clone();
                 for (stream_id, stream) in streams.iter().enumerate() {
                     let stream = match stream.as_ref() {
                         Some(v) => v,
@@ -68,7 +72,9 @@ impl EventLoop {
                         stream: &stream,
                     };
 
-                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) });
+                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer {
+                        target: Some(buffer),
+                    });
                     let data = StreamData::Output { buffer: buffer };
                     user_cb(StreamId(stream_id), data);
                 }
@@ -86,15 +92,23 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_input_stream(
+        &self,
+        _: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, CreationError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(
+        &self,
+        _: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, CreationError> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
-        let mut streams = self.streams.lock().unwrap();
+        let mut streams = self.streams.lock();
         let stream_id = if let Some(pos) = streams.iter().position(|v| v.is_none()) {
             streams[pos] = Some(stream);
             pos
@@ -109,12 +123,12 @@ impl EventLoop {
 
     #[inline]
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        self.streams.lock().unwrap()[stream_id.0] = None;
+        self.streams.lock()[stream_id.0] = None;
     }
 
     #[inline]
     pub fn play_stream(&self, stream_id: StreamId) {
-        let streams = self.streams.lock().unwrap();
+        let streams = self.streams.lock();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
@@ -124,7 +138,7 @@ impl EventLoop {
 
     #[inline]
     pub fn pause_stream(&self, stream_id: StreamId) {
-        let streams = self.streams.lock().unwrap();
+        let streams = self.streams.lock();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
@@ -142,11 +156,12 @@ fn is_webaudio_available() -> bool {
     stdweb::initialize();
 
     js!(if (!AudioContext) {
-            return false;
-        } else {
-            return true;
-        }).try_into()
-        .unwrap()
+        return false;
+    } else {
+        return true;
+    })
+    .try_into()
+    .unwrap()
 }
 
 // Content is false if the iterator is empty.
@@ -194,27 +209,28 @@ impl Device {
     }
 
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(
+        &self,
+    ) -> Result<SupportedInputFormats, FormatsEnumerationError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(
+        &self,
+    ) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
         //       According to https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createBuffer
         //       browsers must support 1 to 32 channels at leats and 8,000 Hz to 96,000 Hz.
-        Ok(
-            vec![
-                SupportedFormat {
-                    channels: 2,
-                    min_sample_rate: ::SampleRate(44100),
-                    max_sample_rate: ::SampleRate(44100),
-                    data_type: ::SampleFormat::F32,
-                },
-            ].into_iter(),
-        )
+        Ok(vec![SupportedFormat {
+            channels: 2,
+            min_sample_rate: ::SampleRate(44100),
+            max_sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        }]
+        .into_iter())
     }
 
     pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
@@ -223,13 +239,11 @@ impl Device {
 
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         // TODO: because it is hard coded, see supported_output_formats.
-        Ok(
-            Format {
-                channels: 2,
-                sample_rate: ::SampleRate(44100),
-                data_type: ::SampleFormat::F32,
-            },
-        )
+        Ok(Format {
+            channels: 2,
+            sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        })
     }
 }
 
@@ -241,7 +255,8 @@ pub struct InputBuffer<'a, T: 'a> {
 }
 
 pub struct OutputBuffer<'a, T: 'a>
-    where T: Sample
+where
+    T: Sample,
 {
     temporary_buffer: Vec<T>,
     stream: &'a Reference,
@@ -254,12 +269,12 @@ impl<'a, T> InputBuffer<'a, T> {
     }
 
     #[inline]
-    pub fn finish(self) {
-    }
+    pub fn finish(self) {}
 }
 
 impl<'a, T> OutputBuffer<'a, T>
-    where T: Sample
+where
+    T: Sample,
 {
     #[inline]
     pub fn buffer(&mut self) -> &mut [T] {
@@ -278,8 +293,10 @@ impl<'a, T> OutputBuffer<'a, T>
         let typed_array = {
             let t_slice: &[T] = self.temporary_buffer.as_slice();
             let u8_slice: &[u8] = unsafe {
-                from_raw_parts(t_slice.as_ptr() as *const _,
-                               t_slice.len() * mem::size_of::<T>())
+                from_raw_parts(
+                    t_slice.as_ptr() as *const _,
+                    t_slice.len() * mem::size_of::<T>(),
+                )
             };
             let typed_array: TypedArray<u8> = u8_slice.into();
             typed_array

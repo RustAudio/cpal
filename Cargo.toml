@@ -1,29 +1,58 @@
 [package]
-name = "cpal"
-version = "0.8.2"
-authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
+authors = [
+    "The CPAL contributors",
+    "Pierre Krieger <pierre.krieger1708@gmail.com>",
+]
 description = "Low-level cross-platform audio playing library in pure Rust."
-repository = "https://github.com/tomaka/cpal"
 documentation = "https://docs.rs/cpal"
+keywords = [
+    "audio",
+    "sound",
+]
 license = "Apache-2.0"
-keywords = ["audio", "sound"]
+name = "cpal"
+repository = "https://github.com/tomaka/cpal"
+version = "0.8.2"
 
 [dependencies]
 lazy_static = "1.0"
+parking_lot = "0.7"
 
 [dev-dependencies]
 hound = "3.0"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winuser"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-alsa-sys = { version = "0.1", path = "alsa-sys" }
+[target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\"))".dependencies]
 libc = "0.2"
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-coreaudio-rs = { version = "0.9.0", default-features = false, features = ["audio_unit", "core_audio"] }
-core-foundation-sys = "0.5.1" # For linking to CoreFoundation.framework and handling device name `CFString`s.
+[target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\"))".dependencies.alsa-sys]
+path = "alsa-sys"
+version = "0.1"
+[target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
+core-foundation-sys = "0.5.1"
 
-[target.'cfg(target_os = "emscripten")'.dependencies]
-stdweb = { version = "0.1.3", default-features = false }
+[target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies.coreaudio-rs]
+default-features = false
+features = [
+    "audio_unit",
+    "core_audio",
+]
+version = "0.9.0"
+[target."cfg(target_os = \"emscripten\")".dependencies.stdweb]
+default-features = false
+version = "0.1.3"
+[target."cfg(target_os = \"windows\")".dependencies.winapi]
+features = [
+    "audiosessiontypes",
+    "audioclient",
+    "coml2api",
+    "combaseapi",
+    "debug",
+    "devpkey",
+    "handleapi",
+    "ksmedia",
+    "mmdeviceapi",
+    "objbase",
+    "std",
+    "synchapi",
+    "winuser",
+]
+version = "0.3"
