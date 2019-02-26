@@ -27,7 +27,7 @@ libc = "0.2"
 path = "alsa-sys"
 version = "0.1"
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
-core-foundation-sys = "0.5.1"
+core-foundation-sys = "0.6.2"
 
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies.coreaudio-rs]
 default-features = false
@@ -38,7 +38,7 @@ features = [
 version = "0.9.0"
 [target."cfg(target_os = \"emscripten\")".dependencies.stdweb]
 default-features = false
-version = "0.1.3"
+version = "0.4.14"
 [target."cfg(target_os = \"windows\")".dependencies.winapi]
 features = [
     "audiosessiontypes",
