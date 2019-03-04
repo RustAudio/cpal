@@ -91,8 +91,11 @@ impl Device {
             alsa::SND_PCM_NONBLOCK,
         ) {
             -2 |
-            -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-            e => check_errors(e).expect("device not available")
+            -16 | /* determined empirically */ 
+            -22 /* Common error in Alsa */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            e => {
+                check_errors(e).expect("device not available")
+            }
         }
 
         let hw_params = HwParams::alloc();
