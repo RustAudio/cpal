@@ -27,3 +27,6 @@ core-foundation-sys = "0.5.1" # For linking to CoreFoundation.framework and hand
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 stdweb = { version = "0.1.3", default-features = false }
+
+[features]
+expensive_tests = []

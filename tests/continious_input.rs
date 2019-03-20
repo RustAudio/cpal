@@ -1,4 +1,5 @@
-#[test] #[ignore] // this test waits for 10 minutes
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]  // this test waits for 10 minutes
 fn long_input() {
     // Prepare test conditions.
 
