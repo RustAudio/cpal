@@ -1,4 +1,4 @@
-#[test]
+#[test] #[ignore] // this test waits for 10 minutes
 fn long_input() {
     // Prepare test conditions.
 
