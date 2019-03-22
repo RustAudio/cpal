@@ -1,5 +1,6 @@
 use std;
 use std::ffi::OsString;
+use std::fmt;
 use std::io::Error as IoError;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -549,6 +550,15 @@ impl Clone for Device {
             device: self.device,
             future_audio_client: self.future_audio_client.clone(),
         }
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Device")
+            .field("device", &self.device)
+            .field("name", &self.name())
+            .finish()
     }
 }
 
