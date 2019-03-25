@@ -543,11 +543,10 @@ impl EventLoop {
 
                     match stream_type {
                         StreamType::Input => {
-                            // Simplify shared logic across the sample format branches.
-                            macro_rules! read_buffer {
-                                ($T:ty, $Variant:ident) => {{
+                            match stream_inner.sample_format {
+                                SampleFormat::F32 => {
                                     // The buffer to read into.
-                                    let mut buffer: Vec<$T> = iter::repeat(mem::uninitialized())
+                                    let mut buffer: Vec<f32> = iter::repeat(0.0)
                                         .take(available)
                                         .collect();
                                     let err = alsa::snd_pcm_readi(
@@ -559,18 +558,13 @@ impl EventLoop {
                                     let input_buffer = InputBuffer {
                                         buffer: &buffer,
                                     };
-                                    let buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
+                                    let buffer = UnknownTypeInputBuffer::F32(::InputBuffer {
                                         buffer: Some(input_buffer),
                                     });
                                     let stream_data = StreamData::Input { buffer: buffer };
                                     callback(stream_id, stream_data);
-                                }};
-                            }
-
-                            match stream_inner.sample_format {
-                                SampleFormat::I16 => read_buffer!(i16, I16),
-                                SampleFormat::U16 => read_buffer!(u16, U16),
-                                SampleFormat::F32 => read_buffer!(f32, F32),
+                                },
+                                _ => unimplemented!(),
                             }
                         },
                         StreamType::Output => {
