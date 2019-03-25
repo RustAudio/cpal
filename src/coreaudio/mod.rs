@@ -15,6 +15,7 @@ use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
 
 use std::ffi::CStr;
+use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
@@ -299,6 +300,15 @@ impl Device {
 
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         self.default_format(kAudioObjectPropertyScopeOutput)
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Device")
+            .field("audio_device_id", &self.audio_device_id)
+            .field("name", &self.name())
+            .finish()
     }
 }
 

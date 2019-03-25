@@ -395,6 +395,12 @@ impl Device {
     }
 }
 
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
 impl EventLoop {
     /// Initializes a new events loop.
     #[inline]
