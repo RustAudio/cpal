@@ -46,7 +46,7 @@
 //!     .with_max_sample_rate();
 //! ```
 //!
-//! Now that we have everything, we can create a stream from our event loop:
+//! Now that we have everything for the stream, we can create it from our event loop:
 //!
 //! ```no_run
 //! # let device = cpal::default_output_device().unwrap();
@@ -66,7 +66,7 @@
 //! event_loop.play_stream(stream_id);
 //! ```
 //!
-//! Once everything is ready! Now we call `run()` on the `event_loop` to begin processing.
+//! Now everything is ready! We call `run()` on the `event_loop` to begin processing.
 //!
 //! ```no_run
 //! # let event_loop = cpal::EventLoop::new();
@@ -79,12 +79,12 @@
 //! > separate thread.
 //!
 //! While `run()` is running, the audio device of the user will from time to time call the callback
-//! that you passed to this function. The callback gets passed the stream ID an instance of type
+//! that you passed to this function. The callback gets passed the stream ID and an instance of type
 //! `StreamData` that represents the data that must be read from or written to. The inner
 //! `UnknownTypeOutputBuffer` can be one of `I16`, `U16` or `F32` depending on the format that was
 //! passed to `build_output_stream`.
 //!
-//! In this example, we simply simply fill the given output buffer with zeroes.
+//! In this example, we simply fill the given output buffer with zeroes.
 //!
 //! ```no_run
 //! use cpal::{StreamData, UnknownTypeOutputBuffer};
