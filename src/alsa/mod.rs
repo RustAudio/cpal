@@ -517,7 +517,7 @@ impl EventLoop {
                     }
 
                     // Determine the number of samples that are available to read/write.
-                    let available = {
+                    let available_samples = {
                         let available = alsa::snd_pcm_avail(stream_inner.channel); // TODO: what about snd_pcm_avail_update?
 
                         if available == -32 {
@@ -533,7 +533,7 @@ impl EventLoop {
                         }
                     };
 
-                    if available < stream_inner.period_len {
+                    if available_samples < stream_inner.period_len {
                         i_descriptor += stream_inner.num_descriptors as isize;
                         i_stream += 1;
                         continue;
@@ -541,19 +541,19 @@ impl EventLoop {
 
                     let stream_id = stream_inner.id.clone();
 
+                    let available_frames = available_samples / stream_inner.num_channels as usize;
+
                     match stream_type {
                         StreamType::Input => {
                             // Simplify shared logic across the sample format branches.
                             macro_rules! read_buffer {
                                 ($T:ty, $Variant:ident) => {{
                                     // The buffer to read into.
-                                    let mut buffer: Vec<$T> = iter::repeat(mem::uninitialized())
-                                        .take(available)
-                                        .collect();
+                                    let mut buffer: Vec<$T> = vec![Default::default(); available_samples];
                                     let err = alsa::snd_pcm_readi(
                                         stream_inner.channel,
                                         buffer.as_mut_ptr() as *mut _,
-                                        available as _,
+                                        available_frames as alsa::snd_pcm_uframes_t,
                                     );
                                     check_errors(err as _).expect("snd_pcm_readi error");
                                     let input_buffer = InputBuffer {
@@ -579,9 +579,7 @@ impl EventLoop {
                                 SampleFormat::I16 => {
                                     let buffer = OutputBuffer {
                                         stream_inner: stream_inner,
-                                        buffer: iter::repeat(mem::uninitialized())
-                                            .take(available)
-                                            .collect(),
+                                        buffer: vec![Default::default(); available_samples],
                                     };
 
                                     UnknownTypeOutputBuffer::I16(::OutputBuffer { target: Some(buffer) })
@@ -589,9 +587,7 @@ impl EventLoop {
                                 SampleFormat::U16 => {
                                     let buffer = OutputBuffer {
                                         stream_inner: stream_inner,
-                                        buffer: iter::repeat(mem::uninitialized())
-                                            .take(available)
-                                            .collect(),
+                                        buffer: vec![Default::default(); available_samples],
                                     };
 
                                     UnknownTypeOutputBuffer::U16(::OutputBuffer { target: Some(buffer) })
@@ -599,8 +595,7 @@ impl EventLoop {
                                 SampleFormat::F32 => {
                                     let buffer = OutputBuffer {
                                         stream_inner: stream_inner,
-                                        // Note that we don't use `mem::uninitialized` because of sNaN.
-                                        buffer: iter::repeat(0.0).take(available).collect(),
+                                        buffer: vec![Default::default(); available_samples]
                                     };
 
                                     UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) })
