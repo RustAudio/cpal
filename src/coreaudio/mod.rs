@@ -671,8 +671,7 @@ impl EventLoop {
                         Some(cb) => cb,
                         None => return Ok(()),
                     };
-                    let buffer = InputBuffer { buffer: data_slice };
-                    let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: Some(buffer) });
+                    let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Input { buffer: unknown_type_buffer };
                     callback(StreamId(stream_id), stream_data);
                 }};
@@ -748,8 +747,7 @@ impl EventLoop {
                             return Ok(());
                         }
                     };
-                    let buffer = OutputBuffer { buffer: data_slice };
-                    let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { target: Some(buffer) });
+                    let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Output { buffer: unknown_type_buffer };
                     callback(StreamId(stream_id), stream_data);
                 }};
@@ -796,44 +794,5 @@ impl EventLoop {
             stream.audio_unit.stop().unwrap();
             stream.playing = false;
         }
-    }
-}
-
-pub struct InputBuffer<'a, T: 'a> {
-    buffer: &'a [T],
-}
-
-pub struct OutputBuffer<'a, T: 'a> {
-    buffer: &'a mut [T],
-}
-
-impl<'a, T> InputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&self) -> &[T] {
-        &self.buffer
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        // Nothing to be done.
-    }
-}
-
-impl<'a, T> OutputBuffer<'a, T>
-    where T: Sample
-{
-    #[inline]
-    pub fn buffer(&mut self) -> &mut [T] {
-        &mut self.buffer
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        // Do nothing. We wrote directly to the buffer.
     }
 }

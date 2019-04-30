@@ -535,9 +535,8 @@ impl EventLoop {
                                 ($T:ty, $Variant:ident) => {{
                                     let buffer_data = buffer as *mut _ as *const $T;
                                     let slice = slice::from_raw_parts(buffer_data, buffer_len);
-                                    let input_buffer = InputBuffer { buffer: slice };
                                     let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                        buffer: Some(input_buffer),
+                                        buffer: slice,
                                     });
                                     let data = StreamData::Input { buffer: unknown_buffer };
                                     callback(stream_id, data);
@@ -576,19 +575,24 @@ impl EventLoop {
                             macro_rules! render_callback {
                                 ($T:ty, $Variant:ident) => {{
                                     let buffer_data = buffer as *mut $T;
-                                    let output_buffer = OutputBuffer {
-                                        stream: stream,
-                                        buffer_data: buffer_data,
-                                        buffer_len: buffer_len,
-                                        frames: frames_available,
-                                        marker: PhantomData,
-                                    };
+                                    let slice = slice::from_raw_parts_mut(buffer_data, buffer_len);
                                     let unknown_buffer = UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
-                                        target: Some(output_buffer)
+                                        buffer: slice
                                     });
                                     let data = StreamData::Output { buffer: unknown_buffer };
                                     callback(stream_id, data);
-                                }};
+                                    let hresult = match stream.client_flow {
+                                        AudioClientFlow::Render { render_client } => {
+                                            (*render_client).ReleaseBuffer(frames_available as u32, 0)
+                                        },
+                                        _ => unreachable!(),
+                                    };
+                                    match check_result(hresult) {
+                                        // Ignoring the error that is produced if the device has been disconnected.
+                                        Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => (),
+                                        e => e.unwrap(),
+                                    };
+                                }} 
                             }
 
                             match stream.sample_format {
@@ -657,64 +661,6 @@ impl Drop for StreamInner {
         unsafe {
             (*self.audio_client).Release();
             handleapi::CloseHandle(self.event);
-        }
-    }
-}
-
-pub struct InputBuffer<'a, T: 'a> {
-    buffer: &'a [T],
-}
-
-pub struct OutputBuffer<'a, T: 'a> {
-    stream: &'a mut StreamInner,
-
-    buffer_data: *mut T,
-    buffer_len: usize,
-    frames: UINT32,
-
-    marker: PhantomData<&'a mut [T]>,
-}
-
-unsafe impl<'a, T> Send for OutputBuffer<'a, T> {
-}
-
-impl<'a, T> InputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&self) -> &[T] {
-        &self.buffer
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        // Nothing to be done.
-    }
-}
-
-impl<'a, T> OutputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.buffer_data, self.buffer_len) }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.buffer_len
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        unsafe {
-            let hresult = match self.stream.client_flow {
-                AudioClientFlow::Render { render_client } => {
-                    (*render_client).ReleaseBuffer(self.frames as u32, 0)
-                },
-                _ => unreachable!(),
-            };
-            match check_result(hresult) {
-                // Ignoring the error that is produced if the device has been disconnected.
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => (),
-                e => e.unwrap(),
-            };
         }
     }
 }
