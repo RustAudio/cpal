@@ -92,7 +92,10 @@ impl Device {
         ) {
             -2 |
             -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-            e => check_errors(e).expect("device not available")
+            -22 => return Err(FormatsEnumerationError::InvalidArgument),
+            e => if check_errors(e).is_err() {
+                return Err(FormatsEnumerationError::Unknown)
+            }
         }
 
         let hw_params = HwParams::alloc();
@@ -271,6 +274,14 @@ impl Device {
                 Err(FormatsEnumerationError::DeviceNotAvailable) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
                 },
+                Err(FormatsEnumerationError::InvalidArgument) => {
+                    // this happens sometimes when querying for input and output capabilities but
+                    // the device supports only one
+                    return Err(DefaultFormatError::StreamTypeNotSupported);
+                }
+                Err(FormatsEnumerationError::Unknown) => {
+                    return Err(DefaultFormatError::DeviceNotAvailable);
+                }
                 Ok(fmts) => fmts.collect(),
             }
         };
@@ -628,7 +639,10 @@ impl EventLoop {
                 alsa::SND_PCM_NONBLOCK,
             ) {
                 -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                e => check_errors(e).expect("Device unavailable")
+                -22 => return Err(CreationError::InvalidArgument),
+                e => if check_errors(e).is_err() {
+                    return Err(CreationError::Unknown);
+                }
             }
             let hw_params = HwParams::alloc();
 
@@ -688,7 +702,10 @@ impl EventLoop {
                 alsa::SND_PCM_NONBLOCK,
             ) {
                 -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                e => check_errors(e).expect("Device unavailable")
+                -22 => return Err(CreationError::InvalidArgument),
+                e => if check_errors(e).is_err() {
+                    return Err(CreationError::Unknown);
+                }
             }
             let hw_params = HwParams::alloc();
 
