@@ -15,7 +15,7 @@ use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
 
-use std::{cmp, ffi, iter, mem, ptr};
+use std::{cmp, ffi, mem, ptr};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
@@ -381,6 +381,11 @@ struct StreamInner {
     // A file descriptor opened with `eventfd`.
     // It is used to wait for resume signal.
     resume_trigger: Trigger,
+
+    // Lazily allocated buffer that is reused inside the loop.
+    // Zero-allocate a new buffer (the fastest way to have zeroed memory) at the first time this is
+    // used.
+    buffer: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -554,67 +559,78 @@ impl EventLoop {
 
                     let available_frames = available_samples / stream_inner.num_channels as usize;
 
+                    let buffer_size = stream_inner.sample_format.sample_size() * available_samples;
+                    // Could be written with a match with improved borrow checking
+                    if stream_inner.buffer.is_none() {
+                        stream_inner.buffer = Some(vec![0u8; buffer_size]);
+                    } else {
+                        stream_inner.buffer.as_mut().unwrap().resize(buffer_size, 0u8);
+                    }
+                    let buffer = stream_inner.buffer.as_mut().unwrap();
+
                     match stream_type {
                         StreamType::Input => {
-                            // Simplify shared logic across the sample format branches.
-                            macro_rules! read_buffer {
-                                ($T:ty, $Variant:ident) => {{
-                                    // The buffer to read into.
-                                    let mut buffer: Vec<$T> = vec![Default::default(); available_samples];
-                                    let err = alsa::snd_pcm_readi(
-                                        stream_inner.channel,
-                                        buffer.as_mut_ptr() as *mut _,
-                                        available_frames as alsa::snd_pcm_uframes_t,
-                                    );
-                                    check_errors(err as _).expect("snd_pcm_readi error");
-                                    let input_buffer = InputBuffer {
-                                        buffer: &buffer,
-                                    };
-                                    let buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                        buffer: Some(input_buffer),
-                                    });
-                                    let stream_data = StreamData::Input { buffer: buffer };
-                                    callback(stream_id, stream_data);
-                                }};
-                            }
+                            let err = alsa::snd_pcm_readi(
+                                stream_inner.channel,
+                                buffer.as_mut_ptr() as *mut _,
+                                available_frames as alsa::snd_pcm_uframes_t,
+                            );
+                            check_errors(err as _).expect("snd_pcm_readi error");
 
-                            match stream_inner.sample_format {
-                                SampleFormat::I16 => read_buffer!(i16, I16),
-                                SampleFormat::U16 => read_buffer!(u16, U16),
-                                SampleFormat::F32 => read_buffer!(f32, F32),
-                            }
+                            let input_buffer = match stream_inner.sample_format {
+                                SampleFormat::I16 => UnknownTypeInputBuffer::I16(::InputBuffer {
+                                    buffer: cast_input_buffer(buffer),
+                                }),
+                                SampleFormat::U16 => UnknownTypeInputBuffer::U16(::InputBuffer {
+                                    buffer: cast_input_buffer(buffer),
+                                }),
+                                SampleFormat::F32 => UnknownTypeInputBuffer::F32(::InputBuffer {
+                                    buffer: cast_input_buffer(buffer),
+                                }),
+                            };
+                            let stream_data = StreamData::Input {
+                                buffer: input_buffer,
+                            };
+                            callback(stream_id, stream_data);
                         },
                         StreamType::Output => {
-                            // We're now sure that we're ready to write data.
-                            let buffer = match stream_inner.sample_format {
-                                SampleFormat::I16 => {
-                                    let buffer = OutputBuffer {
-                                        stream_inner: stream_inner,
-                                        buffer: vec![Default::default(); available_samples],
-                                    };
+                            {
+                                // We're now sure that we're ready to write data.
+                                let output_buffer = match stream_inner.sample_format {
+                                    SampleFormat::I16 => UnknownTypeOutputBuffer::I16(::OutputBuffer {
+                                        buffer: cast_output_buffer(buffer),
+                                    }),
+                                    SampleFormat::U16 => UnknownTypeOutputBuffer::U16(::OutputBuffer {
+                                        buffer: cast_output_buffer(buffer),
+                                    }),
+                                    SampleFormat::F32 => UnknownTypeOutputBuffer::F32(::OutputBuffer {
+                                        buffer: cast_output_buffer(buffer),
+                                    }),
+                                };
 
-                                    UnknownTypeOutputBuffer::I16(::OutputBuffer { target: Some(buffer) })
-                                },
-                                SampleFormat::U16 => {
-                                    let buffer = OutputBuffer {
-                                        stream_inner: stream_inner,
-                                        buffer: vec![Default::default(); available_samples],
-                                    };
+                                let stream_data = StreamData::Output {
+                                    buffer: output_buffer,
+                                };
+                                callback(stream_id, stream_data);
+                            }
+                            loop {
+                                let result = alsa::snd_pcm_writei(
+                                    stream_inner.channel,
+                                    buffer.as_ptr() as *const _,
+                                    available_frames as alsa::snd_pcm_uframes_t,
+                                );
 
-                                    UnknownTypeOutputBuffer::U16(::OutputBuffer { target: Some(buffer) })
-                                },
-                                SampleFormat::F32 => {
-                                    let buffer = OutputBuffer {
-                                        stream_inner: stream_inner,
-                                        buffer: vec![Default::default(); available_samples]
-                                    };
-
-                                    UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) })
-                                },
-                            };
-
-                            let stream_data = StreamData::Output { buffer: buffer };
-                            callback(stream_id, stream_data);
+                                if result == -32 {
+                                    // buffer underrun
+                                    alsa::snd_pcm_prepare(stream_inner.channel);
+                                } else if result < 0 {
+                                    check_errors(result as libc::c_int)
+                                        .expect("could not write pcm");
+                                } else {
+                                    assert_eq!(result as usize, available_frames);
+                                    break;
+                                }
+                            }
                         },
                     }
                 }
@@ -675,6 +691,7 @@ impl EventLoop {
                 can_pause: can_pause,
                 is_paused: false,
                 resume_trigger: Trigger::new(),
+                buffer: None,
             };
 
             check_errors(alsa::snd_pcm_start(capture_handle))
@@ -738,6 +755,7 @@ impl EventLoop {
                 can_pause: can_pause,
                 is_paused: false,
                 resume_trigger: Trigger::new(),
+                buffer: None,
             };
 
             self.push_command(Command::NewStream(stream_inner));
@@ -851,15 +869,6 @@ unsafe fn set_sw_params_from_format(
     (buffer_len, period_len)
 }
 
-pub struct InputBuffer<'a, T: 'a> {
-    buffer: &'a [T],
-}
-
-pub struct OutputBuffer<'a, T: 'a> {
-    stream_inner: &'a mut StreamInner,
-    buffer: Vec<T>,
-}
-
 /// Wrapper around `hw_params`.
 struct HwParams(*mut alsa::snd_pcm_hw_params_t);
 
@@ -891,53 +900,6 @@ impl Drop for StreamInner {
     }
 }
 
-impl<'a, T> InputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&self) -> &[T] {
-        &self.buffer
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        // Nothing to be done.
-    }
-}
-
-impl<'a, T> OutputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&mut self) -> &mut [T] {
-        &mut self.buffer
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    pub fn finish(self) {
-        let to_write = (self.buffer.len() / self.stream_inner.num_channels as usize) as
-            alsa::snd_pcm_uframes_t;
-
-        unsafe {
-            loop {
-                let result = alsa::snd_pcm_writei(self.stream_inner.channel,
-                                                  self.buffer.as_ptr() as *const _,
-                                                  to_write);
-
-                if result == -32 {
-                    // buffer underrun
-                    alsa::snd_pcm_prepare(self.stream_inner.channel);
-                } else if result < 0 {
-                    check_errors(result as libc::c_int).expect("could not write pcm");
-                } else {
-                    assert_eq!(result as alsa::snd_pcm_uframes_t, to_write);
-                    break;
-                }
-            }
-        }
-    }
-}
-
 #[inline]
 fn check_errors(err: libc::c_int) -> Result<(), String> {
     use std::ffi;
@@ -953,4 +915,18 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Cast a byte slice into a (immutable) slice of desired type.
+/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
+unsafe fn cast_input_buffer<T>(v: &[u8]) -> &[T] {
+    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
+    std::slice::from_raw_parts(v.as_ptr() as *const T, v.len() / std::mem::size_of::<T>())
+}
+
+/// Cast a byte slice into a mutable slice of desired type.
+/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
+unsafe fn cast_output_buffer<T>(v: &mut [u8]) -> &mut [T] {
+    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
+    std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }

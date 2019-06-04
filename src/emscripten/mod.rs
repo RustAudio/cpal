@@ -12,7 +12,6 @@ use CreationError;
 use DefaultFormatError;
 use Format;
 use FormatsEnumerationError;
-use Sample;
 use StreamData;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
@@ -63,14 +62,47 @@ impl EventLoop {
                         None => continue,
                     };
 
-                    let buffer = OutputBuffer {
-                        temporary_buffer: vec![0.0; 44100 * 2 / 3],
-                        stream: &stream,
+                    let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
+
+                    {
+                        let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
+                        let data = StreamData::Output { buffer: buffer };
+                        user_cb(StreamId(stream_id), data);
+                        // TODO: directly use a TypedArray<f32> once this is supported by stdweb
+                    }
+
+                    let typed_array = {
+                        let f32_slice = temporary_buffer.as_slice();
+                        let u8_slice: &[u8] = unsafe {
+                            from_raw_parts(f32_slice.as_ptr() as *const _,
+                                        f32_slice.len() * mem::size_of::<f32>())
+                        };
+                        let typed_array: TypedArray<u8> = u8_slice.into();
+                        typed_array
                     };
 
-                    let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { target: Some(buffer) });
-                    let data = StreamData::Output { buffer: buffer };
-                    user_cb(StreamId(stream_id), data);
+                    let num_channels = 2u32; // TODO: correct value
+                    debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
+
+                    js!(
+                        var src_buffer = new Float32Array(@{typed_array}.buffer);
+                        var context = @{stream};
+                        var buf_len = @{temporary_buffer.len() as u32};
+                        var num_channels = @{num_channels};
+
+                        var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
+                        for (var channel = 0; channel < num_channels; ++channel) {
+                            var buffer_content = buffer.getChannelData(channel);
+                            for (var i = 0; i < buf_len / num_channels; ++i) {
+                                buffer_content[i] = src_buffer[i * num_channels + channel];
+                            }
+                        }
+
+                        var node = context.createBufferSource();
+                        node.buffer = buffer;
+                        node.connect(context.destination);
+                        node.start();
+                    );
                 }
 
                 set_timeout(|| callback_fn::<F>(user_data_ptr), 330);
@@ -235,77 +267,3 @@ impl Device {
 
 pub type SupportedInputFormats = ::std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = ::std::vec::IntoIter<SupportedFormat>;
-
-pub struct InputBuffer<'a, T: 'a> {
-    marker: ::std::marker::PhantomData<&'a T>,
-}
-
-pub struct OutputBuffer<'a, T: 'a>
-    where T: Sample
-{
-    temporary_buffer: Vec<T>,
-    stream: &'a Reference,
-}
-
-impl<'a, T> InputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&self) -> &[T] {
-        unimplemented!()
-    }
-
-    #[inline]
-    pub fn finish(self) {
-    }
-}
-
-impl<'a, T> OutputBuffer<'a, T>
-    where T: Sample
-{
-    #[inline]
-    pub fn buffer(&mut self) -> &mut [T] {
-        &mut self.temporary_buffer
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.temporary_buffer.len()
-    }
-
-    #[inline]
-    pub fn finish(self) {
-        // TODO: directly use a TypedArray<f32> once this is supported by stdweb
-
-        let typed_array = {
-            let t_slice: &[T] = self.temporary_buffer.as_slice();
-            let u8_slice: &[u8] = unsafe {
-                from_raw_parts(t_slice.as_ptr() as *const _,
-                               t_slice.len() * mem::size_of::<T>())
-            };
-            let typed_array: TypedArray<u8> = u8_slice.into();
-            typed_array
-        };
-
-        let num_channels = 2u32; // TODO: correct value
-        debug_assert_eq!(self.temporary_buffer.len() % num_channels as usize, 0);
-
-        js!(
-            var src_buffer = new Float32Array(@{typed_array}.buffer);
-            var context = @{self.stream};
-            var buf_len = @{self.temporary_buffer.len() as u32};
-            var num_channels = @{num_channels};
-
-            var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
-            for (var channel = 0; channel < num_channels; ++channel) {
-                var buffer_content = buffer.getChannelData(channel);
-                for (var i = 0; i < buf_len / num_channels; ++i) {
-                    buffer_content[i] = src_buffer[i * num_channels + channel];
-                }
-            }
-
-            var node = context.createBufferSource();
-            node.buffer = buffer;
-            node.connect(context.destination);
-            node.start();
-        );
-    }
-}

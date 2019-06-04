@@ -133,30 +133,3 @@ pub struct InputBuffer<'a, T: 'a> {
 pub struct OutputBuffer<'a, T: 'a> {
     marker: PhantomData<&'a mut T>,
 }
-
-impl<'a, T> InputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&self) -> &[T] {
-        unimplemented!()
-    }
-
-    #[inline]
-    pub fn finish(self) {
-    }
-}
-
-impl<'a, T> OutputBuffer<'a, T> {
-    #[inline]
-    pub fn buffer(&mut self) -> &mut [T] {
-        unimplemented!()
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    pub fn finish(self) {
-    }
-}

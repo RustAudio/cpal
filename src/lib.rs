@@ -211,31 +211,27 @@ pub enum StreamData<'a> {
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
 /// same way as reading from a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
+// TODO: remove the wrapper and just use slices in next major version
 pub struct InputBuffer<'a, T: 'a>
 where
     T: Sample,
 {
-    // Always contains something, taken by `Drop`
-    // TODO: change that
-    buffer: Option<cpal_impl::InputBuffer<'a, T>>,
+    buffer: &'a [T],
 }
 
-/// Represents a buffer that must be filled with audio data.
-///
-/// You should destroy this object as soon as possible. Data is only sent to the audio device when
-/// this object is destroyed.
+/// Represents a buffer that must be filled with audio data. The buffer in unfilled state may
+/// contain garbage values.
 ///
 /// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
 /// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
+// TODO: remove the wrapper and just use slices
 #[must_use]
 pub struct OutputBuffer<'a, T: 'a>
 where
     T: Sample,
 {
-    // Always contains something, taken by `Drop`
-    // TODO: change that
-    target: Option<cpal_impl::OutputBuffer<'a, T>>,
+    buffer: &'a mut [T],
 }
 
 /// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
@@ -595,16 +591,7 @@ impl<'a, T> Deref for InputBuffer<'a, T>
 
     #[inline]
     fn deref(&self) -> &[T] {
-        self.buffer.as_ref().unwrap().buffer()
-    }
-}
-
-impl<'a, T> Drop for InputBuffer<'a, T>
-    where T: Sample
-{
-    #[inline]
-    fn drop(&mut self) {
-        self.buffer.take().unwrap().finish();
+        self.buffer
     }
 }
 
@@ -624,16 +611,7 @@ impl<'a, T> DerefMut for OutputBuffer<'a, T>
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
-        self.target.as_mut().unwrap().buffer()
-    }
-}
-
-impl<'a, T> Drop for OutputBuffer<'a, T>
-    where T: Sample
-{
-    #[inline]
-    fn drop(&mut self) {
-        self.target.take().unwrap().finish();
+        self.buffer
     }
 }
 
@@ -654,9 +632,9 @@ impl<'a> UnknownTypeOutputBuffer<'a> {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            &UnknownTypeOutputBuffer::U16(ref buf) => buf.target.as_ref().unwrap().len(),
-            &UnknownTypeOutputBuffer::I16(ref buf) => buf.target.as_ref().unwrap().len(),
-            &UnknownTypeOutputBuffer::F32(ref buf) => buf.target.as_ref().unwrap().len(),
+            &UnknownTypeOutputBuffer::U16(ref buf) => buf.len(),
+            &UnknownTypeOutputBuffer::I16(ref buf) => buf.len(),
+            &UnknownTypeOutputBuffer::F32(ref buf) => buf.len(),
         }
     }
 }
