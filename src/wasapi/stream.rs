@@ -5,7 +5,7 @@ use super::winapi::shared::basetsd::UINT32;
 use super::winapi::shared::ksmedia;
 use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
 use super::winapi::shared::mmreg;
-use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED};
+use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
 use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK};
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
@@ -533,6 +533,9 @@ impl EventLoop {
                                ptr::null_mut(),
                             );
                             check_result(hresult).unwrap();
+
+                            if hresult == AUDCLNT_S_BUFFER_EMPTY { continue; }
+
                             debug_assert!(!buffer.is_null());
                             let buffer_len = frames_available as usize 
                                 * stream.bytes_per_frame as usize / sample_size;
