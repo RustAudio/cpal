@@ -789,13 +789,15 @@ unsafe fn set_hw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     hw_params: &HwParams,
     format: &Format,
-) {
-    check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0))
-        .expect("Errors on pcm handle");
-    check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
+) -> Result<(), String> {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
+        return Err("Errors on pcm handle".to_string());
+    }
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
                                                     hw_params.0,
-                                                    alsa::SND_PCM_ACCESS_RW_INTERLEAVED))
-        .expect("handle not acessible");
+                                                    alsa::SND_PCM_ACCESS_RW_INTERLEAVED)) {
+        return Err("Handle not acessible".to_string());
+    }
 
     let data_type = if cfg!(target_endian = "big") {
         match format.data_type {
@@ -811,20 +813,23 @@ unsafe fn set_hw_params_from_format(
         }
     };
 
-    check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
                                                     hw_params.0,
-                                                    data_type))
-        .expect("format could not be set");
-    check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
+                                                    data_type)) {
+        return Err("Format could not be set".to_string());
+    }
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
                                                   hw_params.0,
                                                   format.sample_rate.0 as libc::c_uint,
-                                                  0))
-        .expect("sample rate could not be set");
-    check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
+                                                  0)) {
+        return Err("Sample rate could not be set".to_string());
+    }
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
                                                       hw_params.0,
                                                       format.channels as
-                                                          libc::c_uint))
-        .expect("channel count could not be set");
+                                                                      libc::c_uint)) {
+        return Err("Channel count could not be set".to_string());
+    }
     let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
         format.channels as alsa::snd_pcm_uframes_t /
         5; // 200ms of buffer
@@ -832,8 +837,11 @@ unsafe fn set_hw_params_from_format(
                                                              hw_params.0,
                                                              &mut max_buffer_size))
         .unwrap();
-    check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0))
-        .expect("hardware params could not be set");
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0)) {
+        return Err("Hardware params could not be set.".to_string());
+    }
+
+    Ok(())
 }
 
 unsafe fn set_sw_params_from_format(
