@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.8.2 (2019-06-06)
+
 - Fix resuming a paused stream on Windows (wasapi).
 - Implement `default_output_format` for emscripten backend.
 
