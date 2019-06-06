@@ -1,7 +1,10 @@
 # Unreleased
 
-# Version 0.8.2 (2019-06-06)
+# Version 0.9.0 (2019-06-06)
 
+- Better buffer handling
+- Fix logic error in frame/sample size
+- Added error handling for unknown ALSA device errors 
 - Fix resuming a paused stream on Windows (wasapi).
 - Implement `default_output_format` for emscripten backend.
 
