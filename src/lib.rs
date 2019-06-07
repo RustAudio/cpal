@@ -114,10 +114,10 @@
 
 #![recursion_limit = "512"]
 
+extern crate failure;
 #[cfg(target_os = "windows")]
 #[macro_use]
 extern crate lazy_static;
-
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
 #[macro_use]
@@ -129,7 +129,7 @@ pub use samples_formats::{Sample, SampleFormat};
               target_os = "macos", target_os = "ios", target_os = "emscripten")))]
 use null as cpal_impl;
 
-use std::error::Error;
+use failure::Fail;
 use std::fmt;
 use std::iter;
 use std::ops::{Deref, DerefMut};
@@ -280,39 +280,50 @@ pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
 pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 
 /// Error that can happen when enumerating the list of supported formats.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum FormatsEnumerationError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// We called something the C-Layer did not understand
+    #[fail(display = "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")]
     InvalidArgument,
     /// The C-Layer returned an error we don't know about
+    #[fail(display = "An unknown error in the backend occured.")]
     Unknown
 }
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum DefaultFormatError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// Returned if e.g. the default input format was requested on an output-only audio device.
+    #[fail(display = "The requested stream type is not supported by the device.")]
     StreamTypeNotSupported,
 }
 
 /// Error that can happen when creating a `Voice`.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum CreationError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// The required format is not supported.
+    #[fail(display = "The requested stream format is not supported by the device.")]
     FormatNotSupported,
-    /// An ALSA device function was called with a feature it does not support
-    /// (trying to use capture capabilities on an output only format yields this)
+    /// We called something the C-Layer did not understand
+    ///
+    /// On ALSA device functions called with a feature they do not support will yield this. E.g.
+    /// Trying to use capture capabilities on an output only format yields this.
+    #[fail(display = "The requested device does not support this capability (invalid argument)")]
     InvalidArgument,
     /// The C-Layer returned an error we don't know about
+    #[fail(display = "An unknown error in the Backend occured")]
     Unknown,
 }
 
@@ -690,82 +701,6 @@ impl Iterator for SupportedOutputFormats {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
-    }
-}
-
-impl fmt::Display for FormatsEnumerationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for FormatsEnumerationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &FormatsEnumerationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-            &FormatsEnumerationError::InvalidArgument => {
-                "Invalid argument passed to the Backend (This happens when trying to read for example capture capabilities but the device does not support it -> dmix on Linux)"
-            },
-            &FormatsEnumerationError::Unknown => {
-                "An unknown error in the Backend occured"
-            },
-        }
-    }
-}
-
-impl fmt::Display for CreationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for CreationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &CreationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-
-            &CreationError::FormatNotSupported => {
-                "The requested samples format is not supported by the device."
-            },
-
-            &CreationError::InvalidArgument => {
-                "The requested device does not support this capability (invalid argument)"
-            }
-
-            &CreationError::Unknown => {
-                "An unknown error in the Backend occured"
-            },
-        }
-    }
-}
-
-impl fmt::Display for DefaultFormatError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for DefaultFormatError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &DefaultFormatError::DeviceNotAvailable => {
-                CreationError::DeviceNotAvailable.description()
-            },
-
-            &DefaultFormatError::StreamTypeNotSupported => {
-                "The requested stream type is not supported by the device."
-            },
-        }
     }
 }
 
