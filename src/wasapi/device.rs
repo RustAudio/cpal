@@ -234,7 +234,7 @@ pub unsafe fn is_format_supported(
     match (*waveformatex_ptr).wFormatTag {
         mmreg::WAVE_FORMAT_PCM | mmreg::WAVE_FORMAT_IEEE_FLOAT => {
             let mut closest_waveformatex = *waveformatex_ptr;
-            let mut closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
+            let closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
             is_supported(waveformatex_ptr, closest_waveformatex_ptr)
         },
         mmreg::WAVE_FORMAT_EXTENSIBLE => {
@@ -243,7 +243,7 @@ pub unsafe fn is_format_supported(
             let mut closest_waveformatextensible = *waveformatextensible_ptr;
             let closest_waveformatextensible_ptr =
                 &mut closest_waveformatextensible as *mut _;
-            let mut closest_waveformatex_ptr =
+            let closest_waveformatex_ptr =
                 closest_waveformatextensible_ptr as *mut mmreg::WAVEFORMATEX;
             is_supported(waveformatex_ptr, closest_waveformatex_ptr)
         },

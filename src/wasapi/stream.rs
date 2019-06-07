@@ -12,7 +12,6 @@ use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
 use super::winapi::um::winnt;
 
-use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::slice;
