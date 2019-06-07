@@ -602,7 +602,7 @@ impl<'a, T> Deref for OutputBuffer<'a, T>
 
     #[inline]
     fn deref(&self) -> &[T] {
-        panic!("It is forbidden to read from the audio buffer");
+        self.buffer
     }
 }
 
