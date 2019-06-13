@@ -16,6 +16,7 @@ use std::mem;
 use std::ptr;
 use std::slice;
 use std::sync::Mutex;
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -40,8 +41,7 @@ pub struct EventLoop {
     // Commands processed by the `run()` method that is currently running.
     // `pending_scheduled_event` must be signalled whenever a command is added here, so that it
     // will get picked up.
-    // TODO: use a lock-free container
-    commands: Mutex<Vec<Command>>,
+    commands: Sender<Command>,
 
     // This event is signalled after a new entry is added to `commands`, so that the `run()`
     // method can be notified.
@@ -55,6 +55,8 @@ struct RunContext {
     // Handles corresponding to the `event` field of each element of `voices`. Must always be in
     // sync with `voices`, except that the first element is always `pending_scheduled_event`.
     handles: Vec<winnt::HANDLE>,
+
+    commands: Receiver<Command>,
 }
 
 enum Command {
@@ -94,14 +96,17 @@ impl EventLoop {
         let pending_scheduled_event =
             unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
 
+        let (tx, rx) = channel();
+
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
             run_context: Mutex::new(RunContext {
                                         streams: Vec::new(),
                                         handles: vec![pending_scheduled_event],
+                                        commands: rx,
                                     }),
             next_stream_id: AtomicUsize::new(0),
-            commands: Mutex::new(Vec::new()),
+            commands: tx,
         }
     }
 
@@ -245,10 +250,7 @@ impl EventLoop {
                     sample_format: format.data_type,
                 };
 
-                self.commands.lock().unwrap().push(Command::NewStream(inner));
-
-                let result = synchapi::SetEvent(self.pending_scheduled_event);
-                assert!(result != 0);
+                self.push_command(Command::NewStream(inner));
             };
 
             Ok(new_stream_id)
@@ -393,10 +395,7 @@ impl EventLoop {
                     sample_format: format.data_type,
                 };
 
-                self.commands.lock().unwrap().push(Command::NewStream(inner));
-
-                let result = synchapi::SetEvent(self.pending_scheduled_event);
-                assert!(result != 0);
+                self.push_command(Command::NewStream(inner));
             };
 
             Ok(new_stream_id)
@@ -405,14 +404,7 @@ impl EventLoop {
 
     #[inline]
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        unsafe {
-            self.commands
-                .lock()
-                .unwrap()
-                .push(Command::DestroyStream(stream_id));
-            let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
-        }
+        self.push_command(Command::DestroyStream(stream_id));
     }
 
     #[inline]
@@ -427,11 +419,13 @@ impl EventLoop {
             // We keep `run_context` locked forever, which guarantees that two invocations of
             // `run()` cannot run simultaneously.
             let mut run_context = self.run_context.lock().unwrap();
+            // Force a deref so that borrow checker can operate on each field independently.
+            // Shadow the name because we don't use (or drop) it otherwise.
+            let run_context = &mut *run_context;
 
             loop {
                 // Process the pending commands.
-                let mut commands_lock = self.commands.lock().unwrap();
-                for command in commands_lock.drain(..) {
+                for command in run_context.commands.try_iter() {
                     match command {
                         Command::NewStream(stream_inner) => {
                             let event = stream_inner.event;
@@ -473,7 +467,6 @@ impl EventLoop {
                         },
                     }
                 }
-                drop(commands_lock);
 
                 // Wait for any of the handles to be signalled, which means that the corresponding
                 // sound needs a buffer.
@@ -618,17 +611,19 @@ impl EventLoop {
 
     #[inline]
     pub fn play_stream(&self, stream: StreamId) {
-        unsafe {
-            self.commands.lock().unwrap().push(Command::PlayStream(stream));
-            let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
-        }
+        self.push_command(Command::PlayStream(stream));
     }
 
     #[inline]
     pub fn pause_stream(&self, stream: StreamId) {
+        self.push_command(Command::PauseStream(stream));
+    }
+
+    #[inline]
+    fn push_command(&self, command: Command) {
+        // Safe to unwrap: sender outlives receiver.
+        self.commands.send(command).unwrap();
         unsafe {
-            self.commands.lock().unwrap().push(Command::PauseStream(stream));
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert!(result != 0);
         }

@@ -17,6 +17,7 @@ use UnknownTypeOutputBuffer;
 
 use std::{cmp, ffi, mem, ptr};
 use std::sync::Mutex;
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec::IntoIter as VecIntoIter;
 
@@ -325,8 +326,7 @@ pub struct EventLoop {
     run_context: Mutex<RunContext>,
 
     // Commands processed by the `run()` method that is currently running.
-    // TODO: use a lock-free container
-    commands: Mutex<Vec<Command>>,
+    commands: Sender<Command>,
 }
 
 unsafe impl Send for EventLoop {
@@ -347,6 +347,8 @@ struct RunContext {
     descriptors: Vec<libc::pollfd>,
     // List of streams that are written in `descriptors`.
     streams: Vec<StreamInner>,
+
+    commands: Receiver<Command>,
 }
 
 struct StreamInner {
@@ -404,16 +406,19 @@ impl EventLoop {
             },
         ];
 
+        let (tx, rx) = channel();
+
         let run_context = Mutex::new(RunContext {
                                          descriptors: initial_descriptors,
                                          streams: Vec::new(),
+                                         commands: rx,
                                      });
 
         EventLoop {
             next_stream_id: AtomicUsize::new(0),
             pending_trigger: pending_trigger,
             run_context,
-            commands: Mutex::new(Vec::new()),
+            commands: tx,
         }
     }
 
@@ -431,55 +436,52 @@ impl EventLoop {
 
             loop {
                 {
-                    let mut commands_lock = self.commands.lock().unwrap();
-                    if !commands_lock.is_empty() {
-                        for command in commands_lock.drain(..) {
-                            match command {
-                                Command::DestroyStream(stream_id) => {
-                                    run_context.streams.retain(|s| s.id != stream_id);
-                                },
-                                Command::PlayStream(stream_id) => {
-                                    if let Some(stream) = run_context.streams.iter_mut()
-                                        .find(|stream| stream.can_pause && stream.id == stream_id)
-                                    {
-                                        alsa::snd_pcm_pause(stream.channel, 0);
-                                        stream.is_paused = false;
-                                    }
-                                },
-                                Command::PauseStream(stream_id) => {
-                                    if let Some(stream) = run_context.streams.iter_mut()
-                                        .find(|stream| stream.can_pause && stream.id == stream_id)
-                                    {
-                                        alsa::snd_pcm_pause(stream.channel, 1);
-                                        stream.is_paused = true;
-                                    }
-                                },
-                                Command::NewStream(stream_inner) => {
-                                    run_context.streams.push(stream_inner);
-                                },
-                            }
-                        }
-
-                        run_context.descriptors = vec![
-                            libc::pollfd {
-                                fd: self.pending_trigger.read_fd(),
-                                events: libc::POLLIN,
-                                revents: 0,
+                    for command in run_context.commands.try_iter() {
+                        match command {
+                            Command::DestroyStream(stream_id) => {
+                                run_context.streams.retain(|s| s.id != stream_id);
                             },
-                        ];
-                        for stream in run_context.streams.iter() {
-                            run_context.descriptors.reserve(stream.num_descriptors);
-                            let len = run_context.descriptors.len();
-                            let filled = alsa::snd_pcm_poll_descriptors(stream.channel,
-                                                                        run_context
-                                                                            .descriptors
-                                                                            .as_mut_ptr()
-                                                                            .offset(len as isize),
-                                                                        stream.num_descriptors as
-                                                                            libc::c_uint);
-                            debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
-                            run_context.descriptors.set_len(len + stream.num_descriptors);
+                            Command::PlayStream(stream_id) => {
+                                if let Some(stream) = run_context.streams.iter_mut()
+                                    .find(|stream| stream.can_pause && stream.id == stream_id)
+                                {
+                                    alsa::snd_pcm_pause(stream.channel, 0);
+                                    stream.is_paused = false;
+                                }
+                            },
+                            Command::PauseStream(stream_id) => {
+                                if let Some(stream) = run_context.streams.iter_mut()
+                                    .find(|stream| stream.can_pause && stream.id == stream_id)
+                                {
+                                    alsa::snd_pcm_pause(stream.channel, 1);
+                                    stream.is_paused = true;
+                                }
+                            },
+                            Command::NewStream(stream_inner) => {
+                                run_context.streams.push(stream_inner);
+                            },
                         }
+                    }
+
+                    run_context.descriptors = vec![
+                        libc::pollfd {
+                            fd: self.pending_trigger.read_fd(),
+                            events: libc::POLLIN,
+                            revents: 0,
+                        },
+                    ];
+                    for stream in run_context.streams.iter() {
+                        run_context.descriptors.reserve(stream.num_descriptors);
+                        let len = run_context.descriptors.len();
+                        let filled = alsa::snd_pcm_poll_descriptors(stream.channel,
+                                                                    run_context
+                                                                        .descriptors
+                                                                        .as_mut_ptr()
+                                                                        .offset(len as isize),
+                                                                    stream.num_descriptors as
+                                                                        libc::c_uint);
+                        debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
+                        run_context.descriptors.set_len(len + stream.num_descriptors);
                     }
                 }
 
@@ -765,7 +767,8 @@ impl EventLoop {
 
     #[inline]
     fn push_command(&self, command: Command) {
-        self.commands.lock().unwrap().push(command);
+        // Safe to unwrap: sender outlives receiver.
+        self.commands.send(command).unwrap();
         self.pending_trigger.wakeup();
     }
 
