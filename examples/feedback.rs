@@ -20,7 +20,7 @@ fn main() {
     println!("Using default output device: \"{}\"", output_device.name());
 
     // We'll try and use the same format between streams to keep it simple
-    let mut format = input_device.default_output_format().expect("Failed to get default format");
+    let mut format = input_device.default_input_format().expect("Failed to get default format");
     format.data_type = cpal::SampleFormat::F32;
 
     // Build streams.
