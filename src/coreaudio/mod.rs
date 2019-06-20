@@ -224,18 +224,25 @@ impl Device {
         scope: AudioObjectPropertyScope,
     ) -> Result<Format, DefaultFormatError>
     {
-        fn default_format_error_from_os_status(status: OSStatus) -> Option<DefaultFormatError> {
+        fn default_format_error_from_os_status(status: OSStatus) -> Result<(), DefaultFormatError> {
             let err = match coreaudio::Error::from_os_status(status) {
                 Err(err) => err,
-                Ok(_) => return None,
+                Ok(_) => return Ok(()),
             };
             match err {
-                coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
-                coreaudio::Error::NoKnownSubtype |
                 coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
                 coreaudio::Error::AudioCodec(_) |
-                coreaudio::Error::AudioFormat(_) => Some(DefaultFormatError::StreamTypeNotSupported),
-                _ => Some(DefaultFormatError::DeviceNotAvailable),
+                coreaudio::Error::AudioFormat(_) => {
+                    Err(DefaultFormatError::StreamTypeNotSupported)
+                }
+                coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::NoConnection) => {
+                    Err(DefaultFormatError::DeviceNotAvailable)
+                }
+                err => {
+                    let description = format!("{}", std::error::Error::description(&err));
+                    let err = BackendSpecificError { description };
+                    Err(err.into())
+                }
             }
         }
 
@@ -256,12 +263,7 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 &asbd as *const _ as *mut _,
             );
-
-            if status != kAudioHardwareNoError as i32 {
-                let err = default_format_error_from_os_status(status)
-                    .expect("no known error for OSStatus");
-                return Err(err);
-            }
+            default_format_error_from_os_status(status)?;
 
             let sample_format = {
                 let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(

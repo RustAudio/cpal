@@ -313,8 +313,7 @@ impl Device {
                     return Err(DefaultFormatError::StreamTypeNotSupported);
                 }
                 Err(SupportedFormatsError::BackendSpecific { err }) => {
-                    unimplemented!();
-                    //return Err(err.into());
+                    return Err(err.into());
                 }
                 Ok(fmts) => fmts.collect(),
             }

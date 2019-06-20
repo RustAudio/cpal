@@ -522,9 +522,15 @@ impl Device {
         com::com_initialized();
 
         let lock = match self.ensure_future_audio_client() {
-            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                return Err(DefaultFormatError::DeviceNotAvailable),
-            e => e.unwrap(),
+            Ok(lock) => lock,
+            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                return Err(DefaultFormatError::DeviceNotAvailable)
+            }
+            Err(e) => {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
         };
         let client = lock.unwrap().0;
 
@@ -534,7 +540,11 @@ impl Device {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
                 },
-                Err(e) => panic!("{:?}", e),
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                },
                 Ok(()) => (),
             };
 

@@ -347,6 +347,12 @@ pub enum DefaultFormatError {
     /// Returned if e.g. the default input format was requested on an output-only audio device.
     #[fail(display = "The requested stream type is not supported by the device.")]
     StreamTypeNotSupported,
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
 /// Error that can happen when creating a `Stream`.
@@ -762,6 +768,12 @@ impl From<BackendSpecificError> for DeviceNameError {
 impl From<BackendSpecificError> for SupportedFormatsError {
     fn from(err: BackendSpecificError) -> Self {
         SupportedFormatsError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for DefaultFormatError {
+    fn from(err: BackendSpecificError) -> Self {
+        DefaultFormatError::BackendSpecific { err }
     }
 }
 
