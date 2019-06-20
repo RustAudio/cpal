@@ -1,4 +1,4 @@
-use SupportedFormat;
+use {BackendSpecificError, DevicesError, SupportedFormat};
 use std::mem;
 use std::ptr::null;
 use std::vec::IntoIter as VecIntoIter;
@@ -64,18 +64,25 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
 
 pub struct Devices(VecIntoIter<AudioDeviceID>);
 
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        let devices = unsafe {
+            match audio_devices() {
+                Ok(devices) => devices,
+                Err(os_status) => {
+                    let description = format!("{}", os_status);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+            }
+        };
+        Ok(Devices(devices.into_iter()))
+    }
+}
+
 unsafe impl Send for Devices {
 }
 unsafe impl Sync for Devices {
-}
-
-impl Default for Devices {
-    fn default() -> Self {
-        let devices = unsafe {
-            audio_devices().expect("failed to get audio output devices")
-        };
-        Devices(devices.into_iter())
-    }
 }
 
 impl Iterator for Devices {

@@ -1,3 +1,4 @@
+use {BackendSpecificError, DevicesError};
 use super::Device;
 use super::alsa;
 use super::check_errors;
@@ -13,6 +14,28 @@ pub struct Devices {
     next_str: *const *const u8,
 }
 
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        unsafe {
+            // TODO: check in which situation this can fail.
+            let card = -1; // -1 means all cards.
+            let iface = b"pcm\0"; // Interface identification.
+            let mut hints = mem::uninitialized(); // Array of device name hints.
+            let res = alsa::snd_device_name_hint(card, iface.as_ptr() as *const _, &mut hints);
+            if let Err(description) = check_errors(res) {
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            let hints = hints as *const *const u8;
+            let devices = Devices {
+                global_list: hints,
+                next_str: hints,
+            };
+            Ok(devices)
+        }
+    }
+}
+
 unsafe impl Send for Devices {
 }
 unsafe impl Sync for Devices {
@@ -23,24 +46,6 @@ impl Drop for Devices {
     fn drop(&mut self) {
         unsafe {
             alsa::snd_device_name_free_hint(self.global_list as *mut _);
-        }
-    }
-}
-
-impl Default for Devices {
-    fn default() -> Devices {
-        unsafe {
-            // TODO: check in which situation this can fail.
-            let card = -1; // -1 means all cards.
-            let iface = b"pcm\0"; // Interface identification.
-            let mut hints = mem::uninitialized(); // Array of device name hints.
-            let res = alsa::snd_device_name_hint(card, iface.as_ptr() as *const _, &mut hints);
-            check_errors(res).unwrap();
-            let hints = hints as *const *const u8;
-            Devices {
-                global_list: hints,
-                next_str: hints,
-            }
         }
     }
 }

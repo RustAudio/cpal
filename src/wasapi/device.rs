@@ -9,7 +9,9 @@ use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use BackendSpecificError;
 use DefaultFormatError;
+use DevicesError;
 use Format;
 use SupportedFormatsError;
 use SampleFormat;
@@ -18,6 +20,7 @@ use SupportedFormat;
 use COMMON_SAMPLE_RATES;
 
 use super::check_result;
+use super::check_result_backend_specific;
 use super::com;
 use super::winapi::Interface;
 use super::winapi::ctypes::c_void;
@@ -688,6 +691,32 @@ pub struct Devices {
     next_item: u32,
 }
 
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        unsafe {
+            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
+            // can fail because of wrong parameters (should never happen) or out of memory
+            check_result_backend_specific(
+                (*ENUMERATOR.0).EnumAudioEndpoints(
+                    eAll,
+                    DEVICE_STATE_ACTIVE,
+                    &mut collection,
+                )
+            )?;
+
+            let mut count = mem::uninitialized();
+            // can fail if the parameter is null, which should never happen
+            check_result_backend_specific((*collection).GetCount(&mut count))?;
+
+            Devices {
+                collection: collection,
+                total_count: count,
+                next_item: 0,
+            }
+        }
+    }
+}
+
 unsafe impl Send for Devices {
 }
 unsafe impl Sync for Devices {
@@ -698,32 +727,6 @@ impl Drop for Devices {
     fn drop(&mut self) {
         unsafe {
             (*self.collection).Release();
-        }
-    }
-}
-
-impl Default for Devices {
-    fn default() -> Devices {
-        unsafe {
-            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
-            // can fail because of wrong parameters (should never happen) or out of memory
-            check_result(
-                (*ENUMERATOR.0).EnumAudioEndpoints(
-                    eAll,
-                    DEVICE_STATE_ACTIVE,
-                    &mut collection,
-                )
-            ).unwrap();
-
-            let mut count = mem::uninitialized();
-            // can fail if the parameter is null, which should never happen
-            check_result((*collection).GetCount(&mut count)).unwrap();
-
-            Devices {
-                collection: collection,
-                total_count: count,
-                next_item: 0,
-            }
         }
     }
 }

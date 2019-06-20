@@ -279,6 +279,37 @@ pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
 /// See [`Device::supported_output_formats()`](struct.Device.html#method.supported_output_formats).
 pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 
+/// Some error has occurred that is specific to the backend from which it was produced.
+///
+/// This error is often used as a catch-all in cases where:
+///
+/// - It is unclear exactly what error might be produced by the backend API.
+/// - It does not make sense to add a variant to the enclosing error type.
+/// - No error was expected to occur at all, but we return an error to avoid the possibility of a
+///   `panic!` caused by some unforseen or unknown reason.
+///
+/// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
+/// cross-platform manner, please create an issue or submit a pull request with a patch that adds
+/// the necessary error variant to the appropriate error enum.
+#[derive(Debug, Fail)]
+#[fail(display = "A backend-specific error has occurred: {}", description)]
+pub struct BackendSpecificError {
+    pub description: String
+}
+
+/// An error that might occur while attempting to enumerate the available devices on a system.
+#[derive(Debug, Fail)]
+pub enum DevicesError {
+    /// Some error that is specific to the backend from which it was produced.
+    ///
+    /// Note: This error is often used when
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug, Fail)]
 pub enum SupportedFormatsError {
@@ -331,34 +362,34 @@ pub enum BuildStreamError {
 ///
 /// Can be empty if the system does not support audio in general.
 #[inline]
-pub fn devices() -> Devices {
-    Devices(Default::default())
+pub fn devices() -> Result<Devices, DevicesError> {
+    Ok(Devices(cpal_impl::Devices::new()?))
 }
 
 /// An iterator yielding all `Device`s currently available to the system that support one or more
 /// input stream formats.
 ///
 /// Can be empty if the system does not support audio input.
-pub fn input_devices() -> InputDevices {
+pub fn input_devices() -> Result<InputDevices, DevicesError> {
     fn supports_input(device: &Device) -> bool {
         device.supported_input_formats()
             .map(|mut iter| iter.next().is_some())
             .unwrap_or(false)
     }
-    devices().filter(supports_input)
+    Ok(devices()?.filter(supports_input))
 }
 
 /// An iterator yielding all `Device`s currently available to the system that support one or more
 /// output stream formats.
 ///
 /// Can be empty if the system does not support audio output.
-pub fn output_devices() -> OutputDevices {
+pub fn output_devices() -> Result<OutputDevices, DevicesError> {
     fn supports_output(device: &Device) -> bool {
         device.supported_output_formats()
             .map(|mut iter| iter.next().is_some())
             .unwrap_or(false)
     }
-    devices().filter(supports_output)
+    Ok(devices()?.filter(supports_output))
 }
 
 /// The default input audio device on the system.
@@ -701,6 +732,12 @@ impl Iterator for SupportedOutputFormats {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
+    }
+}
+
+impl From<BackendSpecificError> for DevicesError {
+    fn from(err: BackendSpecificError) -> Self {
+        DevicesError::BackendSpecific { err }
     }
 }
 

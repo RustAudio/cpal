@@ -10,6 +10,7 @@ use stdweb::web::set_timeout;
 
 use BuildStreamError;
 use DefaultFormatError;
+use DevicesError;
 use Format;
 use SupportedFormatsError;
 use StreamData;
@@ -183,6 +184,13 @@ fn is_webaudio_available() -> bool {
 
 // Content is false if the iterator is empty.
 pub struct Devices(bool);
+
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        Ok(Self::default())
+    }
+}
+
 impl Default for Devices {
     fn default() -> Devices {
         // We produce an empty iterator if the WebAudio API isn't available.

@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 
 use BuildStreamError;
 use DefaultFormatError;
+use DevicesError;
 use Format;
 use SupportedFormatsError;
 use StreamData;
@@ -55,6 +56,12 @@ pub struct StreamId;
 
 #[derive(Default)]
 pub struct Devices;
+
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        Ok(Devices)
+    }
+}
 
 impl Iterator for Devices {
     type Item = Device;

@@ -4,7 +4,7 @@ fn main() {
     println!("Default Input Device:\n  {:?}", cpal::default_input_device().map(|e| e.name()));
     println!("Default Output Device:\n  {:?}", cpal::default_output_device().map(|e| e.name()));
 
-    let devices = cpal::devices();
+    let devices = cpal::devices().expect("failed to enumerate devices");
     println!("Devices: ");
     for (device_index, device) in devices.enumerate() {
         println!("{}. \"{}\"",
