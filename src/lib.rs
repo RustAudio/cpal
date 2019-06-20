@@ -308,6 +308,17 @@ pub enum DevicesError {
     }
 }
 
+/// An error that may occur while attempting to retrieve a device name.
+#[derive(Debug, Fail)]
+pub enum DeviceNameError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug, Fail)]
 pub enum SupportedFormatsError {
@@ -410,7 +421,7 @@ pub fn default_output_device() -> Option<Device> {
 impl Device {
     /// The human-readable name of the device.
     #[inline]
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()
     }
 
@@ -739,6 +750,12 @@ impl Iterator for SupportedOutputFormats {
 impl From<BackendSpecificError> for DevicesError {
     fn from(err: BackendSpecificError) -> Self {
         DevicesError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for DeviceNameError {
+    fn from(err: BackendSpecificError) -> Self {
+        DeviceNameError::BackendSpecific { err }
     }
 }
 

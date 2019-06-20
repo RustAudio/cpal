@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use BackendSpecificError;
 use DefaultFormatError;
+use DeviceNameError;
 use DevicesError;
 use Format;
 use SupportedFormatsError;
@@ -297,7 +298,7 @@ unsafe impl Sync for Device {
 }
 
 impl Device {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         unsafe {
             // Open the device's property store.
             let mut property_store = ptr::null_mut();
@@ -305,15 +306,24 @@ impl Device {
 
             // Get the endpoint's friendly-name property.
             let mut property_value = mem::zeroed();
-            check_result(
+            if let Err(err) = check_result(
                 (*property_store).GetValue(
                     &devpkey::DEVPKEY_Device_FriendlyName as *const _ as *const _,
                     &mut property_value
                 )
-            ).expect("failed to get friendly-name from property store");
+            ) {
+                let description = format!("failed to retrieve name from property store: {}", err);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             // Read the friendly-name from the union data field, expecting a *const u16.
-            assert_eq!(property_value.vt, wtypes::VT_LPWSTR as _);
+            if property_value.vt != wtypes::VT_LPWSTR as _ {
+                let description =
+                    format!("property store produced invalid data: {:?}", property_value.vt);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             let ptr_usize: usize = *(&property_value.data as *const _ as *const usize);
             let ptr_utf16 = ptr_usize as *const u16;
 
@@ -326,12 +336,15 @@ impl Device {
             // Create the utf16 slice and covert it into a string.
             let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
             let name_os_string: OsString = OsStringExt::from_wide(name_slice);
-            let name_string = name_os_string.into_string().unwrap();
+            let name_string = match name_os_string.into_string() {
+                Ok(string) => string,
+                Err(os_string) => os_string.to_string_lossy().into(),
+            };
 
             // Clean up the property.
             PropVariantClear(&mut property_value);
 
-            name_string
+            Ok(name_string)
         }
     }
 

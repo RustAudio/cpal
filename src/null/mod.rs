@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use BuildStreamError;
 use DefaultFormatError;
 use DevicesError;
+use DeviceNameError;
 use Format;
 use SupportedFormatsError;
 use StreamData;
@@ -107,8 +108,8 @@ impl Device {
     }
 
     #[inline]
-    pub fn name(&self) -> String {
-        "null".to_owned()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok("null".to_owned())
     }
 }
 

@@ -5,6 +5,7 @@ use ChannelCount;
 use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
+use DeviceNameError;
 use Format;
 use SupportedFormatsError;
 use Sample;
@@ -76,7 +77,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioDevicePropertyScopeOutput,
@@ -93,16 +94,17 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 &device_name as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                return format!("<OSStatus: {:?}>", status);
-            }
+            check_os_status(status)?;
+
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
             if c_string == null() {
-                return "<null>".into();
+                let description = "core foundation unexpectedly returned null string".to_string();
+                let err = BackendSpecificError { description };
+                return Err(err.into());
             }
             CStr::from_ptr(c_string as *mut _)
         };
-        c_str.to_string_lossy().into_owned()
+        Ok(c_str.to_string_lossy().into_owned())
     }
 
     // Logic re-used between `supported_input_formats` and `supported_output_formats`.

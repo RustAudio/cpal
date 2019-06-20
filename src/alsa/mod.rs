@@ -7,6 +7,7 @@ use ChannelCount;
 use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
+use DeviceNameError;
 use Format;
 use SupportedFormatsError;
 use SampleFormat;
@@ -74,8 +75,8 @@ pub struct Device(String);
 
 impl Device {
     #[inline]
-    pub fn name(&self) -> String {
-        self.0.clone()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok(self.0.clone())
     }
 
     unsafe fn supported_formats(

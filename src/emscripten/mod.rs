@@ -10,6 +10,7 @@ use stdweb::web::set_timeout;
 
 use BuildStreamError;
 use DefaultFormatError;
+use DeviceNameError;
 use DevicesError;
 use Format;
 use SupportedFormatsError;
@@ -229,8 +230,8 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn name(&self) -> String {
-        "Default Device".to_owned()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok("Default Device".to_owned())
     }
 
     #[inline]
