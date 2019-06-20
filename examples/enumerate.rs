@@ -1,15 +1,15 @@
 extern crate cpal;
 
 fn main() {
-    println!("Default Input Device:\n  {:?}", cpal::default_input_device().map(|e| e.name()));
-    println!("Default Output Device:\n  {:?}", cpal::default_output_device().map(|e| e.name()));
+    println!("Default Input Device:\n  {:?}", cpal::default_input_device().map(|e| e.name().unwrap()));
+    println!("Default Output Device:\n  {:?}", cpal::default_output_device().map(|e| e.name().unwrap()));
 
     let devices = cpal::devices().expect("failed to enumerate devices");
     println!("Devices: ");
     for (device_index, device) in devices.enumerate() {
         println!("{}. \"{}\"",
                  device_index + 1,
-                 device.name());
+                 device.name().unwrap());
 
         // Input formats
         if let Ok(fmt) = device.default_input_format() {

@@ -16,8 +16,8 @@ fn main() {
     // Default devices.
     let input_device = cpal::default_input_device().expect("Failed to get default input device");
     let output_device = cpal::default_output_device().expect("Failed to get default output device");
-    println!("Using default input device: \"{}\"", input_device.name());
-    println!("Using default output device: \"{}\"", output_device.name());
+    println!("Using default input device: \"{}\"", input_device.name().unwrap());
+    println!("Using default output device: \"{}\"", output_device.name().unwrap());
 
     // We'll try and use the same format between streams to keep it simple
     let mut format = input_device.default_input_format().expect("Failed to get default format");
