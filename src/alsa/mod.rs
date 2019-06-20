@@ -7,7 +7,7 @@ use ChannelCount;
 use CreationError;
 use DefaultFormatError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
@@ -80,7 +80,7 @@ impl Device {
     unsafe fn supported_formats(
         &self,
         stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<VecIntoIter<SupportedFormat>, FormatsEnumerationError>
+    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
     {
         let mut handle = mem::uninitialized();
         let device_name = ffi::CString::new(&self.0[..]).expect("Unable to get device name");
@@ -92,10 +92,10 @@ impl Device {
             alsa::SND_PCM_NONBLOCK,
         ) {
             -2 |
-            -16 /* determined empirically */ => return Err(FormatsEnumerationError::DeviceNotAvailable),
-            -22 => return Err(FormatsEnumerationError::InvalidArgument),
+            -16 /* determined empirically */ => return Err(SupportedFormatsError::DeviceNotAvailable),
+            -22 => return Err(SupportedFormatsError::InvalidArgument),
             e => if check_errors(e).is_err() {
-                return Err(FormatsEnumerationError::Unknown)
+                return Err(SupportedFormatsError::Unknown)
             }
         }
 
@@ -251,13 +251,13 @@ impl Device {
         Ok(output.into_iter())
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE)
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK)
         }
@@ -272,15 +272,15 @@ impl Device {
     {
         let mut formats: Vec<_> = unsafe {
             match self.supported_formats(stream_t) {
-                Err(FormatsEnumerationError::DeviceNotAvailable) => {
+                Err(SupportedFormatsError::DeviceNotAvailable) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
                 },
-                Err(FormatsEnumerationError::InvalidArgument) => {
+                Err(SupportedFormatsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities but
                     // the device supports only one
                     return Err(DefaultFormatError::StreamTypeNotSupported);
                 }
-                Err(FormatsEnumerationError::Unknown) => {
+                Err(SupportedFormatsError::Unknown) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
                 }
                 Ok(fmts) => fmts.collect(),

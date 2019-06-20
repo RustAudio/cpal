@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use CreationError;
 use DefaultFormatError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
 
@@ -80,12 +80,12 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unimplemented!()
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         unimplemented!()
     }
 

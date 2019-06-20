@@ -281,7 +281,7 @@ pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug, Fail)]
-pub enum FormatsEnumerationError {
+pub enum SupportedFormatsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
@@ -386,7 +386,7 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         Ok(SupportedInputFormats(self.0.supported_input_formats()?))
     }
 
@@ -394,7 +394,7 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         Ok(SupportedOutputFormats(self.0.supported_output_formats()?))
     }
 

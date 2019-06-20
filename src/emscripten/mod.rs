@@ -11,7 +11,7 @@ use stdweb::web::set_timeout;
 use CreationError;
 use DefaultFormatError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
@@ -226,12 +226,12 @@ impl Device {
     }
 
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use DefaultFormatError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use SupportedFormat;
@@ -165,7 +165,7 @@ unsafe fn data_flow_from_immendpoint(endpoint: *const IMMEndpoint) -> EDataFlow 
 pub unsafe fn is_format_supported(
     client: *const IAudioClient,
     waveformatex_ptr: *const mmreg::WAVEFORMATEX,
-) -> Result<bool, FormatsEnumerationError>
+) -> Result<bool, SupportedFormatsError>
 {
 
 
@@ -213,7 +213,7 @@ pub unsafe fn is_format_supported(
         // has been found, but not an exact match) so we also treat this as unsupported.
         match (result, check_result(result)) {
             (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                return Err(FormatsEnumerationError::DeviceNotAvailable);
+                return Err(SupportedFormatsError::DeviceNotAvailable);
             },
             (_, Err(_)) => {
                 Ok(false)
@@ -386,14 +386,14 @@ impl Device {
     // number of channels seems to be supported. Any more or less returns an invalid
     // parameter error. Thus we just assume that the default number of channels is the only
     // number supported.
-    fn supported_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    fn supported_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         // initializing COM because we call `CoTaskMemFree` to release the format.
         com::com_initialized();
 
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
             Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                return Err(FormatsEnumerationError::DeviceNotAvailable),
+                return Err(SupportedFormatsError::DeviceNotAvailable),
             e => e.unwrap(),
         };
         let client = lock.unwrap().0;
@@ -403,7 +403,7 @@ impl Device {
             let mut default_waveformatex_ptr = WaveFormatExPtr(mem::uninitialized());
             match check_result((*client).GetMixFormat(&mut default_waveformatex_ptr.0)) {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                    return Err(FormatsEnumerationError::DeviceNotAvailable);
+                    return Err(SupportedFormatsError::DeviceNotAvailable);
                 },
                 Err(e) => panic!("{:?}", e),
                 Ok(()) => (),
@@ -462,7 +462,7 @@ impl Device {
         }
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         if self.data_flow() == eCapture {
             self.supported_formats()
         // If it's an output device, assume no input formats.
@@ -471,7 +471,7 @@ impl Device {
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         if self.data_flow() == eRender {
             self.supported_formats()
         // If it's an input device, assume no output formats.

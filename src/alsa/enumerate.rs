@@ -30,13 +30,13 @@ impl Drop for Devices {
 impl Default for Devices {
     fn default() -> Devices {
         unsafe {
-            let mut hints = mem::uninitialized();
-            // TODO: check in which situation this can fail
-            check_errors(alsa::snd_device_name_hint(-1, b"pcm\0".as_ptr() as *const _, &mut hints))
-                .unwrap();
-
+            // TODO: check in which situation this can fail.
+            let card = -1; // -1 means all cards.
+            let iface = b"pcm\0"; // Interface identification.
+            let mut hints = mem::uninitialized(); // Array of device name hints.
+            let res = alsa::snd_device_name_hint(card, iface.as_ptr() as *const _, &mut hints);
+            check_errors(res).unwrap();
             let hints = hints as *const *const u8;
-
             Devices {
                 global_list: hints,
                 next_str: hints,

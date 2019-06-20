@@ -5,7 +5,7 @@ use ChannelCount;
 use CreationError;
 use DefaultFormatError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use Sample;
 use SampleFormat;
 use SampleRate;
@@ -108,7 +108,7 @@ impl Device {
     fn supported_formats(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedOutputFormats, FormatsEnumerationError>
+    ) -> Result<SupportedOutputFormats, SupportedFormatsError>
     {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -212,11 +212,11 @@ impl Device {
         }
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         self.supported_formats(kAudioObjectPropertyScopeInput)
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         self.supported_formats(kAudioObjectPropertyScopeOutput)
     }
 
