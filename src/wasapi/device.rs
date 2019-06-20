@@ -187,7 +187,7 @@ pub unsafe fn is_format_supported(
         (_, Err(ref e))
             if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
             (*audio_client).Release();
-            return Err(CreationError::DeviceNotAvailable);
+            return Err(BuildStreamError::DeviceNotAvailable);
         },
         (_, Err(e)) => {
             (*audio_client).Release();
@@ -195,7 +195,7 @@ pub unsafe fn is_format_supported(
         },
         (winerror::S_FALSE, _) => {
             (*audio_client).Release();
-            return Err(CreationError::FormatNotSupported);
+            return Err(BuildStreamError::FormatNotSupported);
         },
         (_, Ok(())) => (),
     };

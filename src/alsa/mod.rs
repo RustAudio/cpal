@@ -4,7 +4,7 @@ extern crate libc;
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
 use ChannelCount;
-use CreationError;
+use BuildStreamError;
 use DefaultFormatError;
 use Format;
 use SupportedFormatsError;
@@ -644,7 +644,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         unsafe {
             let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
@@ -656,10 +656,10 @@ impl EventLoop {
                 alsa::SND_PCM_STREAM_CAPTURE,
                 alsa::SND_PCM_NONBLOCK,
             ) {
-                -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                -22 => return Err(CreationError::InvalidArgument),
+                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
+                -22 => return Err(BuildStreamError::InvalidArgument),
                 e => if check_errors(e).is_err() {
-                    return Err(CreationError::Unknown);
+                    return Err(BuildStreamError::Unknown);
                 }
             }
             let hw_params = HwParams::alloc();
@@ -708,7 +708,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         unsafe {
             let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
@@ -720,10 +720,10 @@ impl EventLoop {
                 alsa::SND_PCM_STREAM_PLAYBACK,
                 alsa::SND_PCM_NONBLOCK,
             ) {
-                -16 /* determined empirically */ => return Err(CreationError::DeviceNotAvailable),
-                -22 => return Err(CreationError::InvalidArgument),
+                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
+                -22 => return Err(BuildStreamError::InvalidArgument),
                 e => if check_errors(e).is_err() {
-                    return Err(CreationError::Unknown);
+                    return Err(BuildStreamError::Unknown);
                 }
             }
             let hw_params = HwParams::alloc();

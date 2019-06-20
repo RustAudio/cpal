@@ -2,7 +2,7 @@ extern crate coreaudio;
 extern crate core_foundation_sys;
 
 use ChannelCount;
-use CreationError;
+use BuildStreamError;
 use DefaultFormatError;
 use Format;
 use SupportedFormatsError;
@@ -338,15 +338,15 @@ struct StreamInner {
 }
 
 // TODO need stronger error identification
-impl From<coreaudio::Error> for CreationError {
-    fn from(err: coreaudio::Error) -> CreationError {
+impl From<coreaudio::Error> for BuildStreamError {
+    fn from(err: coreaudio::Error) -> BuildStreamError {
         match err {
             coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
             coreaudio::Error::NoKnownSubtype |
             coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
             coreaudio::Error::AudioCodec(_) |
-            coreaudio::Error::AudioFormat(_) => CreationError::FormatNotSupported,
-            _ => CreationError::DeviceNotAvailable,
+            coreaudio::Error::AudioFormat(_) => BuildStreamError::FormatNotSupported,
+            _ => BuildStreamError::DeviceNotAvailable,
         }
     }
 }
@@ -483,7 +483,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
@@ -555,7 +555,7 @@ impl EventLoop {
                     .iter()
                     .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
                 let range_index = match maybe_index {
-                    None => return Err(CreationError::FormatNotSupported),
+                    None => return Err(BuildStreamError::FormatNotSupported),
                     Some(i) => i,
                 };
 
@@ -700,7 +700,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         let mut audio_unit = audio_unit_from_device(device, false)?;
 

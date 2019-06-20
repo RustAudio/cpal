@@ -160,7 +160,7 @@ mod cpal_impl;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Device(cpal_impl::Device);
 
-/// Collection of voices managed together.
+/// Collection of streams managed together.
 ///
 /// Created with the [`new`](struct.EventLoop.html#method.new) method.
 pub struct EventLoop(cpal_impl::EventLoop);
@@ -306,9 +306,9 @@ pub enum DefaultFormatError {
     StreamTypeNotSupported,
 }
 
-/// Error that can happen when creating a `Voice`.
+/// Error that can happen when creating a `Stream`.
 #[derive(Debug, Fail)]
-pub enum CreationError {
+pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
@@ -435,7 +435,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         self.0.build_input_stream(&device.0, format).map(StreamId)
     }
@@ -451,7 +451,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         self.0.build_output_stream(&device.0, format).map(StreamId)
     }
