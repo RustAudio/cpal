@@ -395,9 +395,15 @@ impl Device {
 
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
-            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                return Err(SupportedFormatsError::DeviceNotAvailable),
-            e => e.unwrap(),
+            Ok(lock) => lock,
+            Err(e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                return Err(SupportedFormatsError::DeviceNotAvailable)
+            }
+            Err(e) => {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            },
         };
         let client = lock.unwrap().0;
 
@@ -405,11 +411,15 @@ impl Device {
             // Retrieve the pointer to the default WAVEFORMATEX.
             let mut default_waveformatex_ptr = WaveFormatExPtr(mem::uninitialized());
             match check_result((*client).GetMixFormat(&mut default_waveformatex_ptr.0)) {
+                Ok(()) => (),
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(SupportedFormatsError::DeviceNotAvailable);
                 },
-                Err(e) => panic!("{:?}", e),
-                Ok(()) => (),
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                },
             };
 
             // If the default format can't succeed we have no hope of finding other formats.
@@ -453,8 +463,15 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let mut format = format_from_waveformatex_ptr(default_waveformatex_ptr.0)
-                .expect("could not create a cpal::Format from a WAVEFORMATEX");
+            let mut format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
+                Some(fmt) => fmt,
+                None => {
+                    let description =
+                        "could not create a `cpal::Format` from a `WAVEFORMATEX`".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+            };
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
                 format.sample_rate = SampleRate(rate as _);

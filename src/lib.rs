@@ -300,9 +300,7 @@ pub struct BackendSpecificError {
 /// An error that might occur while attempting to enumerate the available devices on a system.
 #[derive(Debug, Fail)]
 pub enum DevicesError {
-    /// Some error that is specific to the backend from which it was produced.
-    ///
-    /// Note: This error is often used when
+    /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
         #[fail(cause)]
@@ -320,9 +318,12 @@ pub enum SupportedFormatsError {
     /// We called something the C-Layer did not understand
     #[fail(display = "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")]
     InvalidArgument,
-    /// The C-Layer returned an error we don't know about
-    #[fail(display = "An unknown error in the backend occured.")]
-    Unknown
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
@@ -738,6 +739,12 @@ impl Iterator for SupportedOutputFormats {
 impl From<BackendSpecificError> for DevicesError {
     fn from(err: BackendSpecificError) -> Self {
         DevicesError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for SupportedFormatsError {
+    fn from(err: BackendSpecificError) -> Self {
+        SupportedFormatsError::BackendSpecific { err }
     }
 }
 

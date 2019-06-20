@@ -2,6 +2,7 @@ extern crate coreaudio;
 extern crate core_foundation_sys;
 
 use ChannelCount;
+use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
 use Format;
@@ -126,9 +127,8 @@ impl Device {
                 null(),
                 &data_size as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let mut audio_buffer_list: Vec<u8> = vec![];
             audio_buffer_list.reserve_exact(data_size as usize);
             let status = AudioObjectGetPropertyData(
@@ -139,9 +139,8 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 audio_buffer_list.as_mut_ptr() as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
 
             // If there's no buffers, skip.
@@ -176,9 +175,8 @@ impl Device {
                 null(),
                 &data_size as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
             let mut ranges: Vec<u8> = vec![];
             ranges.reserve_exact(data_size as usize);
@@ -190,9 +188,8 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 ranges.as_mut_ptr() as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
@@ -793,6 +790,16 @@ impl EventLoop {
         if stream.playing {
             stream.audio_unit.stop().unwrap();
             stream.playing = false;
+        }
+    }
+}
+
+fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
+    match coreaudio::Error::from_os_status(os_status) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let description = std::error::Error::description(&err).to_string();
+            Err(BackendSpecificError { description })
         }
     }
 }

@@ -4,6 +4,7 @@ extern crate libc;
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
 use ChannelCount;
+use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
 use Format;
@@ -83,7 +84,14 @@ impl Device {
     ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
     {
         let mut handle = mem::uninitialized();
-        let device_name = ffi::CString::new(&self.0[..]).expect("Unable to get device name");
+        let device_name = match ffi::CString::new(&self.0[..]) {
+            Ok(name) => name,
+            Err(err) => {
+                let description = format!("failed to retrieve device name: {}", err);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+        };
 
         match alsa::snd_pcm_open(
             &mut handle,
@@ -94,14 +102,18 @@ impl Device {
             -2 |
             -16 /* determined empirically */ => return Err(SupportedFormatsError::DeviceNotAvailable),
             -22 => return Err(SupportedFormatsError::InvalidArgument),
-            e => if check_errors(e).is_err() {
-                return Err(SupportedFormatsError::Unknown)
+            e => if let Err(description) = check_errors(e) {
+                let err = BackendSpecificError { description };
+                return Err(err.into())
             }
         }
 
         let hw_params = HwParams::alloc();
         match check_errors(alsa::snd_pcm_hw_params_any(handle, hw_params.0)) {
-            Err(_) => return Ok(Vec::new().into_iter()),
+            Err(description) => {
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             Ok(_) => (),
         };
 
@@ -158,15 +170,26 @@ impl Device {
         }
 
         let mut min_rate = mem::uninitialized();
-        check_errors(alsa::snd_pcm_hw_params_get_rate_min(hw_params.0,
-                                                          &mut min_rate,
-                                                          ptr::null_mut()))
-            .expect("unable to get minimum supported rete");
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_min(
+            hw_params.0,
+            &mut min_rate,
+            ptr::null_mut(),
+        )) {
+            let description = format!("unable to get minimum supported rate: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
         let mut max_rate = mem::uninitialized();
-        check_errors(alsa::snd_pcm_hw_params_get_rate_max(hw_params.0,
-                                                          &mut max_rate,
-                                                          ptr::null_mut()))
-            .expect("unable to get maximum supported rate");
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_max(
+            hw_params.0,
+            &mut max_rate,
+            ptr::null_mut(),
+        )) {
+            let description = format!("unable to get maximum supported rate: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
 
         let sample_rates = if min_rate == max_rate {
             vec![(min_rate, max_rate)]
@@ -212,11 +235,19 @@ impl Device {
         };
 
         let mut min_channels = mem::uninitialized();
-        check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels))
-            .expect("unable to get minimum supported channel count");
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)) {
+            let description = format!("unable to get minimum supported channel count: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
         let mut max_channels = mem::uninitialized();
-        check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels))
-            .expect("unable to get maximum supported channel count");
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)) {
+            let description = format!("unable to get maximum supported channel count: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
         let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
         let supported_channels = (min_channels .. max_channels + 1)
             .filter_map(|num| if alsa::snd_pcm_hw_params_test_channels(
@@ -280,8 +311,9 @@ impl Device {
                     // the device supports only one
                     return Err(DefaultFormatError::StreamTypeNotSupported);
                 }
-                Err(SupportedFormatsError::Unknown) => {
-                    return Err(DefaultFormatError::DeviceNotAvailable);
+                Err(SupportedFormatsError::BackendSpecific { err }) => {
+                    unimplemented!();
+                    //return Err(err.into());
                 }
                 Ok(fmts) => fmts.collect(),
             }
