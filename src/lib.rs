@@ -70,8 +70,8 @@
 //!
 //! ```no_run
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |_stream_id, _stream_data| {
-//!     // read or write stream data here
+//! event_loop.run(move |_stream_id, _stream_event| {
+//!     // react to stream events and read or write stream data here
 //! });
 //! ```
 //!
@@ -90,7 +90,16 @@
 //! use cpal::{StreamData, UnknownTypeOutputBuffer};
 //!
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |_stream_id, mut stream_data| {
+//! event_loop.run(move |stream_id, stream_event| {
+//!     let stream_data = match stream_event {
+//!         cpal::StreamEvent::Data(data) => data,
+//!         cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
+//!             eprintln!("stream {:?} closed due to an error: {}", stream_id, err);
+//!             return;
+//!         }
+//!         _ => return,
+//!     };
+//!
 //!     match stream_data {
 //!         StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
 //!             for elem in buffer.iter_mut() {
@@ -206,6 +215,31 @@ pub enum StreamData<'a> {
     },
 }
 
+/// Events that may be emitted to the user via the callback submitted to `EventLoop::run`.
+pub enum StreamEvent<'a> {
+    /// Some data is ready to be processed.
+    Data(StreamData<'a>),
+    /// The stream has received a **Play** command.
+    Play,
+    /// The stream has received a **Pause** command.
+    ///
+    /// No **Data** events should occur until a subsequent **Play** command is received.
+    Pause,
+    /// The stream was closed, either because the user destroyed it or because of an error.
+    ///
+    /// The stream event callback will not be called again after this event occurs.
+    Close(StreamCloseCause),
+}
+
+/// The cause behind why a stream was closed.
+#[derive(Debug)]
+pub enum StreamCloseCause {
+    /// The stream was closed as the user called `destroy_stream`.
+    UserDestroyed,
+    /// The stream was closed due to an error occurring.
+    Error(StreamError),
+}
+
 /// Represents a buffer containing audio data that may be read.
 ///
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
@@ -291,7 +325,7 @@ pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
 /// cross-platform manner, please create an issue or submit a pull request with a patch that adds
 /// the necessary error variant to the appropriate error enum.
-#[derive(Debug, Fail)]
+#[derive(Clone, Debug, Fail)]
 #[fail(display = "A backend-specific error has occurred: {}", description)]
 pub struct BackendSpecificError {
     pub description: String
@@ -404,6 +438,24 @@ pub enum PlayStreamError {
 /// them immediately.
 #[derive(Debug, Fail)]
 pub enum PauseStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// Errors that might occur while a stream is running.
+///
+/// These errors are delivered to the user callback via
+/// `StreamEvent::Close(StreamCloseCause::Error(_))`
+#[derive(Debug, Fail)]
+pub enum StreamError {
+    /// The device no longer exists. This can happen if the device is disconnected while the
+    /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    DeviceNotAvailable,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
@@ -591,7 +643,7 @@ impl EventLoop {
     /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData) + Send
+        where F: FnMut(StreamId, StreamEvent) + Send
     {
         self.0.run(move |id, data| callback(StreamId(id), data))
     }
@@ -789,6 +841,18 @@ impl Iterator for SupportedOutputFormats {
     }
 }
 
+impl From<StreamError> for StreamCloseCause {
+    fn from(err: StreamError) -> Self {
+        StreamCloseCause::Error(err)
+    }
+}
+
+impl<'a> From<StreamCloseCause> for StreamEvent<'a> {
+    fn from(cause: StreamCloseCause) -> Self {
+        StreamEvent::Close(cause)
+    }
+}
+
 impl From<BackendSpecificError> for DevicesError {
     fn from(err: BackendSpecificError) -> Self {
         DevicesError::BackendSpecific { err }
@@ -828,6 +892,18 @@ impl From<BackendSpecificError> for PlayStreamError {
 impl From<BackendSpecificError> for PauseStreamError {
     fn from(err: BackendSpecificError) -> Self {
         PauseStreamError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for StreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        StreamError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for StreamCloseCause {
+    fn from(err: BackendSpecificError) -> Self {
+        StreamCloseCause::Error(err.into())
     }
 }
 
