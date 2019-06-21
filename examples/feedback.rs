@@ -49,7 +49,16 @@ fn main() -> Result<(), failure::Error> {
 
     // Run the event loop on a separate thread.
     std::thread::spawn(move || {
-        event_loop.run(move |id, data| {
+        event_loop.run(move |id, event| {
+            let data = match event {
+                cpal::StreamEvent::Data(data) => data,
+                cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
+                    eprintln!("stream {:?} closed due to an error: {}", id, err);
+                    return;
+                }
+                _ => return,
+            };
+
             match data {
                 cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::F32(buffer) } => {
                     assert_eq!(id, input_stream_id);

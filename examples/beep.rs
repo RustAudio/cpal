@@ -17,7 +17,16 @@ fn main() -> Result<(), failure::Error> {
         (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
-    event_loop.run(move |_, data| {
+    event_loop.run(move |id, event| {
+        let data = match event {
+            cpal::StreamEvent::Data(data) => data,
+            cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
+                eprintln!("stream {:?} closed due to an error: {}", id, err);
+                return;
+            }
+            _ => return,
+        };
+
         match data {
             cpal::StreamData::Output { buffer: cpal::UnknownTypeOutputBuffer::U16(mut buffer) } => {
                 for sample in buffer.chunks_mut(format.channels as usize) {

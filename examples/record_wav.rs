@@ -30,7 +30,16 @@ fn main() -> Result<(), failure::Error> {
     let writer_2 = writer.clone();
     let recording_2 = recording.clone();
     std::thread::spawn(move || {
-        event_loop.run(move |_, data| {
+        event_loop.run(move |id, event| {
+            let data = match event {
+                cpal::StreamEvent::Data(data) => data,
+                cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
+                    eprintln!("stream {:?} closed due to an error: {}", id, err);
+                    return;
+                }
+                _ => return,
+            };
+
             // If we're done recording, return early.
             if !recording_2.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
