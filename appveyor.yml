@@ -7,9 +7,6 @@ environment:
       target: x86_64-pc-windows-msvc
     - channel: nightly
       target: x86_64-pc-windows-msvc
-    # GNU
-    - channel: stable
-      target: x86_64-pc-windows-gnu
 
 matrix:
   allow_failures:
