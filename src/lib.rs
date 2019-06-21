@@ -23,7 +23,7 @@
 //! `default_*_device()` functions return an `Option` in case no device is available for that
 //! stream type on the system.
 //!
-//! ```
+//! ```no_run
 //! let device = cpal::default_output_device().expect("no output device available");
 //! ```
 //!
@@ -60,10 +60,10 @@
 //!
 //! Now we must start the stream. This is done with the `play_stream()` method on the event loop.
 //!
-//! ```
+//! ```no_run
 //! # let event_loop: cpal::EventLoop = return;
 //! # let stream_id: cpal::StreamId = return;
-//! event_loop.play_stream(stream_id);
+//! event_loop.play_stream(stream_id).expect("failed to play_stream");
 //! ```
 //!
 //! Now everything is ready! We call `run()` on the `event_loop` to begin processing.
