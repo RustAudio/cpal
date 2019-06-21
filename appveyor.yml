@@ -1,16 +1,25 @@
+os: Visual Studio 2015
+
+environment:
+  matrix:
+    # MSVC
+    - channel: stable
+      target: x86_64-pc-windows-msvc
+    - channel: nightly
+      target: x86_64-pc-windows-msvc
+
+matrix:
+  allow_failures:
+    - channel: nightly
+
 install:
-  - ps: Start-FileDownload 'https://static.rust-lang.org/dist/rust-nightly-i686-pc-windows-gnu.exe'
-  - ps: Start-FileDownload 'https://static.rust-lang.org/cargo-dist/cargo-nightly-i686-pc-windows-gnu.tar.gz'
-  - rust-nightly-i686-pc-windows-gnu.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
-  - 7z e cargo-nightly-i686-pc-windows-gnu.tar.gz
-  - 7z x cargo-nightly-i686-pc-windows-gnu.tar
-  - SET PATH=%PATH%;C:\Program Files (x86)\Rust\bin
-  - SET PATH=%PATH%;%CD%\cargo-nightly-i686-pc-windows-gnu\bin
-  - rustc -V
-  - cargo -V
+  - appveyor DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
+  - rustup-init -yv --default-toolchain %channel% --default-host %target%
+  - set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+  - rustc -vV
+  - cargo -vV
 
 build: false
 
 test_script:
-  - cargo build --verbose
-#  - cargo test --verbose
+- cargo test --verbose %cargoflags%

@@ -2,11 +2,14 @@ extern crate coreaudio;
 extern crate core_foundation_sys;
 
 use ChannelCount;
-use CreationError;
+use BackendSpecificError;
+use BuildStreamError;
 use DefaultFormatError;
+use DeviceNameError;
 use Format;
-use FormatsEnumerationError;
-use Sample;
+use PauseStreamError;
+use PlayStreamError;
+use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
@@ -51,7 +54,6 @@ use self::coreaudio::sys::{
     kAudioFormatFlagIsFloat,
     kAudioFormatFlagIsPacked,
     kAudioFormatLinearPCM,
-    kAudioHardwareNoError,
     kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeOutput,
     kAudioOutputUnitProperty_CurrentDevice,
@@ -75,7 +77,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioDevicePropertyScopeOutput,
@@ -92,23 +94,24 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 &device_name as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                return format!("<OSStatus: {:?}>", status);
-            }
+            check_os_status(status)?;
+
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
             if c_string == null() {
-                return "<null>".into();
+                let description = "core foundation unexpectedly returned null string".to_string();
+                let err = BackendSpecificError { description };
+                return Err(err.into());
             }
             CStr::from_ptr(c_string as *mut _)
         };
-        c_str.to_string_lossy().into_owned()
+        Ok(c_str.to_string_lossy().into_owned())
     }
 
     // Logic re-used between `supported_input_formats` and `supported_output_formats`.
     fn supported_formats(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedOutputFormats, FormatsEnumerationError>
+    ) -> Result<SupportedOutputFormats, SupportedFormatsError>
     {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -126,9 +129,8 @@ impl Device {
                 null(),
                 &data_size as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let mut audio_buffer_list: Vec<u8> = vec![];
             audio_buffer_list.reserve_exact(data_size as usize);
             let status = AudioObjectGetPropertyData(
@@ -139,9 +141,8 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 audio_buffer_list.as_mut_ptr() as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
 
             // If there's no buffers, skip.
@@ -176,9 +177,8 @@ impl Device {
                 null(),
                 &data_size as *const _ as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
             let mut ranges: Vec<u8> = vec![];
             ranges.reserve_exact(data_size as usize);
@@ -190,9 +190,8 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 ranges.as_mut_ptr() as *mut _,
             );
-            if status != kAudioHardwareNoError as i32 {
-                unimplemented!();
-            }
+            check_os_status(status)?;
+
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
@@ -212,11 +211,11 @@ impl Device {
         }
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         self.supported_formats(kAudioObjectPropertyScopeInput)
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         self.supported_formats(kAudioObjectPropertyScopeOutput)
     }
 
@@ -225,18 +224,25 @@ impl Device {
         scope: AudioObjectPropertyScope,
     ) -> Result<Format, DefaultFormatError>
     {
-        fn default_format_error_from_os_status(status: OSStatus) -> Option<DefaultFormatError> {
+        fn default_format_error_from_os_status(status: OSStatus) -> Result<(), DefaultFormatError> {
             let err = match coreaudio::Error::from_os_status(status) {
                 Err(err) => err,
-                Ok(_) => return None,
+                Ok(_) => return Ok(()),
             };
             match err {
-                coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
-                coreaudio::Error::NoKnownSubtype |
                 coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
                 coreaudio::Error::AudioCodec(_) |
-                coreaudio::Error::AudioFormat(_) => Some(DefaultFormatError::StreamTypeNotSupported),
-                _ => Some(DefaultFormatError::DeviceNotAvailable),
+                coreaudio::Error::AudioFormat(_) => {
+                    Err(DefaultFormatError::StreamTypeNotSupported)
+                }
+                coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::NoConnection) => {
+                    Err(DefaultFormatError::DeviceNotAvailable)
+                }
+                err => {
+                    let description = format!("{}", std::error::Error::description(&err));
+                    let err = BackendSpecificError { description };
+                    Err(err.into())
+                }
             }
         }
 
@@ -257,12 +263,7 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 &asbd as *const _ as *mut _,
             );
-
-            if status != kAudioHardwareNoError as i32 {
-                let err = default_format_error_from_os_status(status)
-                    .expect("no known error for OSStatus");
-                return Err(err);
-            }
+            default_format_error_from_os_status(status)?;
 
             let sample_format = {
                 let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
@@ -338,15 +339,15 @@ struct StreamInner {
 }
 
 // TODO need stronger error identification
-impl From<coreaudio::Error> for CreationError {
-    fn from(err: coreaudio::Error) -> CreationError {
+impl From<coreaudio::Error> for BuildStreamError {
+    fn from(err: coreaudio::Error) -> BuildStreamError {
         match err {
             coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat |
             coreaudio::Error::NoKnownSubtype |
             coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported) |
             coreaudio::Error::AudioCodec(_) |
-            coreaudio::Error::AudioFormat(_) => CreationError::FormatNotSupported,
-            _ => CreationError::DeviceNotAvailable,
+            coreaudio::Error::AudioFormat(_) => BuildStreamError::FormatNotSupported,
+            _ => BuildStreamError::DeviceNotAvailable,
         }
     }
 }
@@ -483,7 +484,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
@@ -512,13 +513,16 @@ impl EventLoop {
             // If the requested sample rate is different to the device sample rate, update the device.
             if sample_rate as u32 != format.sample_rate.0 {
 
-                // In order to avoid breaking existing input streams we `panic!` if there is already an
-                // active input stream for this device with the actual sample rate.
+                // In order to avoid breaking existing input streams we return an error if there is
+                // already an active input stream for this device with the actual sample rate.
                 for stream in &*self.streams.lock().unwrap() {
                     if let Some(stream) = stream.as_ref() {
                         if stream.device_id == device.audio_device_id {
-                            panic!("cannot change device sample rate for stream as an existing stream \
-                                    is already running at the current sample rate.");
+                            let description = "cannot change device sample rate for stream as an \
+                                existing stream is already running at the current sample rate"
+                                .into();
+                            let err = BackendSpecificError { description };
+                            return Err(err.into());
                         }
                     }
                 }
@@ -555,7 +559,7 @@ impl EventLoop {
                     .iter()
                     .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
                 let range_index = match maybe_index {
-                    None => return Err(CreationError::FormatNotSupported),
+                    None => return Err(BuildStreamError::FormatNotSupported),
                     Some(i) => i,
                 };
 
@@ -617,7 +621,9 @@ impl EventLoop {
                 let timer = ::std::time::Instant::now();
                 while sample_rate != reported_rate {
                     if timer.elapsed() > ::std::time::Duration::from_secs(1) {
-                        panic!("timeout waiting for sample rate update for device");
+                        let description = "timeout waiting for sample rate update for device".into();
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     }
                     ::std::thread::sleep(::std::time::Duration::from_millis(5));
                 }
@@ -700,7 +706,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         let mut audio_unit = audio_unit_from_device(device, false)?;
 
@@ -776,23 +782,43 @@ impl EventLoop {
         streams[stream_id.0] = None;
     }
 
-    pub fn play_stream(&self, stream: StreamId) {
+    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         let mut streams = self.streams.lock().unwrap();
         let stream = streams[stream.0].as_mut().unwrap();
 
         if !stream.playing {
-            stream.audio_unit.start().unwrap();
+            if let Err(e) = stream.audio_unit.start() {
+                let description = format!("{}", std::error::Error::description(&e));
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             stream.playing = true;
         }
+        Ok(())
     }
 
-    pub fn pause_stream(&self, stream: StreamId) {
+    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.streams.lock().unwrap();
         let stream = streams[stream.0].as_mut().unwrap();
 
         if stream.playing {
-            stream.audio_unit.stop().unwrap();
+            if let Err(e) = stream.audio_unit.stop() {
+                let description = format!("{}", std::error::Error::description(&e));
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             stream.playing = false;
+        }
+        Ok(())
+    }
+}
+
+fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
+    match coreaudio::Error::from_os_status(os_status) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let description = std::error::Error::description(&err).to_string();
+            Err(BackendSpecificError { description })
         }
     }
 }

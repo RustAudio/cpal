@@ -8,10 +8,14 @@ use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
-use CreationError;
+use BuildStreamError;
 use DefaultFormatError;
+use DeviceNameError;
+use DevicesError;
 use Format;
-use FormatsEnumerationError;
+use PauseStreamError;
+use PlayStreamError;
+use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
@@ -118,12 +122,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, CreationError> {
+    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();
@@ -145,23 +149,25 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, stream_id: StreamId) {
+    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
             .expect("invalid stream ID");
         js!(@{stream}.resume());
+        Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream_id: StreamId) {
+    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
             .expect("invalid stream ID");
         js!(@{stream}.suspend());
+        Ok(())
     }
 }
 
@@ -183,6 +189,13 @@ fn is_webaudio_available() -> bool {
 
 // Content is false if the iterator is empty.
 pub struct Devices(bool);
+
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        Ok(Self::default())
+    }
+}
+
 impl Default for Devices {
     fn default() -> Devices {
         // We produce an empty iterator if the WebAudio API isn't available.
@@ -221,17 +234,17 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn name(&self) -> String {
-        "Default Device".to_owned()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok("Default Device".to_owned())
     }
 
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that

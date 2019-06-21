@@ -9,15 +9,19 @@ use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use BackendSpecificError;
 use DefaultFormatError;
+use DeviceNameError;
+use DevicesError;
 use Format;
-use FormatsEnumerationError;
+use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use SupportedFormat;
 use COMMON_SAMPLE_RATES;
 
 use super::check_result;
+use super::check_result_backend_specific;
 use super::com;
 use super::winapi::Interface;
 use super::winapi::ctypes::c_void;
@@ -165,7 +169,7 @@ unsafe fn data_flow_from_immendpoint(endpoint: *const IMMEndpoint) -> EDataFlow 
 pub unsafe fn is_format_supported(
     client: *const IAudioClient,
     waveformatex_ptr: *const mmreg::WAVEFORMATEX,
-) -> Result<bool, FormatsEnumerationError>
+) -> Result<bool, SupportedFormatsError>
 {
 
 
@@ -187,7 +191,7 @@ pub unsafe fn is_format_supported(
         (_, Err(ref e))
             if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
             (*audio_client).Release();
-            return Err(CreationError::DeviceNotAvailable);
+            return Err(BuildStreamError::DeviceNotAvailable);
         },
         (_, Err(e)) => {
             (*audio_client).Release();
@@ -195,7 +199,7 @@ pub unsafe fn is_format_supported(
         },
         (winerror::S_FALSE, _) => {
             (*audio_client).Release();
-            return Err(CreationError::FormatNotSupported);
+            return Err(BuildStreamError::FormatNotSupported);
         },
         (_, Ok(())) => (),
     };
@@ -213,7 +217,7 @@ pub unsafe fn is_format_supported(
         // has been found, but not an exact match) so we also treat this as unsupported.
         match (result, check_result(result)) {
             (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                return Err(FormatsEnumerationError::DeviceNotAvailable);
+                return Err(SupportedFormatsError::DeviceNotAvailable);
             },
             (_, Err(_)) => {
                 Ok(false)
@@ -294,7 +298,7 @@ unsafe impl Sync for Device {
 }
 
 impl Device {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         unsafe {
             // Open the device's property store.
             let mut property_store = ptr::null_mut();
@@ -302,15 +306,24 @@ impl Device {
 
             // Get the endpoint's friendly-name property.
             let mut property_value = mem::zeroed();
-            check_result(
+            if let Err(err) = check_result(
                 (*property_store).GetValue(
                     &devpkey::DEVPKEY_Device_FriendlyName as *const _ as *const _,
                     &mut property_value
                 )
-            ).expect("failed to get friendly-name from property store");
+            ) {
+                let description = format!("failed to retrieve name from property store: {}", err);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             // Read the friendly-name from the union data field, expecting a *const u16.
-            assert_eq!(property_value.vt, wtypes::VT_LPWSTR as _);
+            if property_value.vt != wtypes::VT_LPWSTR as _ {
+                let description =
+                    format!("property store produced invalid data: {:?}", property_value.vt);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             let ptr_usize: usize = *(&property_value.data as *const _ as *const usize);
             let ptr_utf16 = ptr_usize as *const u16;
 
@@ -323,12 +336,15 @@ impl Device {
             // Create the utf16 slice and covert it into a string.
             let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
             let name_os_string: OsString = OsStringExt::from_wide(name_slice);
-            let name_string = name_os_string.into_string().unwrap();
+            let name_string = match name_os_string.into_string() {
+                Ok(string) => string,
+                Err(os_string) => os_string.to_string_lossy().into(),
+            };
 
             // Clean up the property.
             PropVariantClear(&mut property_value);
 
-            name_string
+            Ok(name_string)
         }
     }
 
@@ -386,15 +402,21 @@ impl Device {
     // number of channels seems to be supported. Any more or less returns an invalid
     // parameter error. Thus we just assume that the default number of channels is the only
     // number supported.
-    fn supported_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    fn supported_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         // initializing COM because we call `CoTaskMemFree` to release the format.
         com::com_initialized();
 
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
-            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                return Err(FormatsEnumerationError::DeviceNotAvailable),
-            e => e.unwrap(),
+            Ok(lock) => lock,
+            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                return Err(SupportedFormatsError::DeviceNotAvailable)
+            }
+            Err(e) => {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            },
         };
         let client = lock.unwrap().0;
 
@@ -402,11 +424,15 @@ impl Device {
             // Retrieve the pointer to the default WAVEFORMATEX.
             let mut default_waveformatex_ptr = WaveFormatExPtr(mem::uninitialized());
             match check_result((*client).GetMixFormat(&mut default_waveformatex_ptr.0)) {
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                    return Err(FormatsEnumerationError::DeviceNotAvailable);
-                },
-                Err(e) => panic!("{:?}", e),
                 Ok(()) => (),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(SupportedFormatsError::DeviceNotAvailable);
+                },
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                },
             };
 
             // If the default format can't succeed we have no hope of finding other formats.
@@ -450,8 +476,15 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let mut format = format_from_waveformatex_ptr(default_waveformatex_ptr.0)
-                .expect("could not create a cpal::Format from a WAVEFORMATEX");
+            let mut format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
+                Some(fmt) => fmt,
+                None => {
+                    let description =
+                        "could not create a `cpal::Format` from a `WAVEFORMATEX`".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+            };
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
                 format.sample_rate = SampleRate(rate as _);
@@ -462,7 +495,7 @@ impl Device {
         }
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         if self.data_flow() == eCapture {
             self.supported_formats()
         // If it's an output device, assume no input formats.
@@ -471,7 +504,7 @@ impl Device {
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         if self.data_flow() == eRender {
             self.supported_formats()
         // If it's an input device, assume no output formats.
@@ -489,9 +522,15 @@ impl Device {
         com::com_initialized();
 
         let lock = match self.ensure_future_audio_client() {
-            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                return Err(DefaultFormatError::DeviceNotAvailable),
-            e => e.unwrap(),
+            Ok(lock) => lock,
+            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                return Err(DefaultFormatError::DeviceNotAvailable)
+            }
+            Err(e) => {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
         };
         let client = lock.unwrap().0;
 
@@ -501,7 +540,11 @@ impl Device {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
                 },
-                Err(e) => panic!("{:?}", e),
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                },
                 Ok(()) => (),
             };
 
@@ -688,6 +731,32 @@ pub struct Devices {
     next_item: u32,
 }
 
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        unsafe {
+            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
+            // can fail because of wrong parameters (should never happen) or out of memory
+            check_result_backend_specific(
+                (*ENUMERATOR.0).EnumAudioEndpoints(
+                    eAll,
+                    DEVICE_STATE_ACTIVE,
+                    &mut collection,
+                )
+            )?;
+
+            let mut count = mem::uninitialized();
+            // can fail if the parameter is null, which should never happen
+            check_result_backend_specific((*collection).GetCount(&mut count))?;
+
+            Ok(Devices {
+                collection: collection,
+                total_count: count,
+                next_item: 0,
+            })
+        }
+    }
+}
+
 unsafe impl Send for Devices {
 }
 unsafe impl Sync for Devices {
@@ -698,32 +767,6 @@ impl Drop for Devices {
     fn drop(&mut self) {
         unsafe {
             (*self.collection).Release();
-        }
-    }
-}
-
-impl Default for Devices {
-    fn default() -> Devices {
-        unsafe {
-            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
-            // can fail because of wrong parameters (should never happen) or out of memory
-            check_result(
-                (*ENUMERATOR.0).EnumAudioEndpoints(
-                    eAll,
-                    DEVICE_STATE_ACTIVE,
-                    &mut collection,
-                )
-            ).unwrap();
-
-            let mut count = mem::uninitialized();
-            // can fail if the parameter is null, which should never happen
-            check_result((*collection).GetCount(&mut count)).unwrap();
-
-            Devices {
-                collection: collection,
-                total_count: count,
-                next_item: 0,
-            }
         }
     }
 }

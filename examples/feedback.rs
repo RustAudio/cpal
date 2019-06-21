@@ -7,26 +7,27 @@
 //! precisely synchronised.
 
 extern crate cpal;
+extern crate failure;
 
 const LATENCY_MS: f32 = 150.0;
 
-fn main() {
+fn main() -> Result<(), failure::Error> {
     let event_loop = cpal::EventLoop::new();
 
     // Default devices.
-    let input_device = cpal::default_input_device().expect("Failed to get default input device");
-    let output_device = cpal::default_output_device().expect("Failed to get default output device");
-    println!("Using default input device: \"{}\"", input_device.name());
-    println!("Using default output device: \"{}\"", output_device.name());
+    let input_device = cpal::default_input_device().expect("failed to get default input device");
+    let output_device = cpal::default_output_device().expect("failed to get default output device");
+    println!("Using default input device: \"{}\"", input_device.name()?);
+    println!("Using default output device: \"{}\"", output_device.name()?);
 
     // We'll try and use the same format between streams to keep it simple
-    let mut format = input_device.default_input_format().expect("Failed to get default format");
+    let mut format = input_device.default_input_format()?;
     format.data_type = cpal::SampleFormat::F32;
 
     // Build streams.
     println!("Attempting to build both streams with `{:?}`.", format);
-    let input_stream_id = event_loop.build_input_stream(&input_device, &format).unwrap();
-    let output_stream_id = event_loop.build_output_stream(&output_device, &format).unwrap();
+    let input_stream_id = event_loop.build_input_stream(&input_device, &format)?;
+    let output_stream_id = event_loop.build_output_stream(&output_device, &format)?;
     println!("Successfully built streams.");
 
     // Create a delay in case the input and output devices aren't synced.
@@ -38,13 +39,13 @@ fn main() {
 
     // Fill the samples with 0.0 equal to the length of the delay.
     for _ in 0..latency_samples {
-        tx.send(0.0).unwrap();
+        tx.send(0.0)?;
     }
 
     // Play the streams.
     println!("Starting the input and output streams with `{}` milliseconds of latency.", LATENCY_MS);
-    event_loop.play_stream(input_stream_id.clone());
-    event_loop.play_stream(output_stream_id.clone());
+    event_loop.play_stream(input_stream_id.clone())?;
+    event_loop.play_stream(output_stream_id.clone())?;
 
     // Run the event loop on a separate thread.
     std::thread::spawn(move || {
@@ -87,4 +88,5 @@ fn main() {
     println!("Playing for 3 seconds... ");
     std::thread::sleep(std::time::Duration::from_secs(3));
     println!("Done!");
+    Ok(())
 }

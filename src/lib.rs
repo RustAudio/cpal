@@ -23,7 +23,7 @@
 //! `default_*_device()` functions return an `Option` in case no device is available for that
 //! stream type on the system.
 //!
-//! ```
+//! ```no_run
 //! let device = cpal::default_output_device().expect("no output device available");
 //! ```
 //!
@@ -60,10 +60,10 @@
 //!
 //! Now we must start the stream. This is done with the `play_stream()` method on the event loop.
 //!
-//! ```
+//! ```no_run
 //! # let event_loop: cpal::EventLoop = return;
 //! # let stream_id: cpal::StreamId = return;
-//! event_loop.play_stream(stream_id);
+//! event_loop.play_stream(stream_id).expect("failed to play_stream");
 //! ```
 //!
 //! Now everything is ready! We call `run()` on the `event_loop` to begin processing.
@@ -114,10 +114,10 @@
 
 #![recursion_limit = "512"]
 
+extern crate failure;
 #[cfg(target_os = "windows")]
 #[macro_use]
 extern crate lazy_static;
-
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
 #[macro_use]
@@ -129,7 +129,7 @@ pub use samples_formats::{Sample, SampleFormat};
               target_os = "macos", target_os = "ios", target_os = "emscripten")))]
 use null as cpal_impl;
 
-use std::error::Error;
+use failure::Fail;
 use std::fmt;
 use std::iter;
 use std::ops::{Deref, DerefMut};
@@ -160,7 +160,7 @@ mod cpal_impl;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Device(cpal_impl::Device);
 
-/// Collection of voices managed together.
+/// Collection of streams managed together.
 ///
 /// Created with the [`new`](struct.EventLoop.html#method.new) method.
 pub struct EventLoop(cpal_impl::EventLoop);
@@ -279,75 +279,171 @@ pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
 /// See [`Device::supported_output_formats()`](struct.Device.html#method.supported_output_formats).
 pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 
+/// Some error has occurred that is specific to the backend from which it was produced.
+///
+/// This error is often used as a catch-all in cases where:
+///
+/// - It is unclear exactly what error might be produced by the backend API.
+/// - It does not make sense to add a variant to the enclosing error type.
+/// - No error was expected to occur at all, but we return an error to avoid the possibility of a
+///   `panic!` caused by some unforseen or unknown reason.
+///
+/// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
+/// cross-platform manner, please create an issue or submit a pull request with a patch that adds
+/// the necessary error variant to the appropriate error enum.
+#[derive(Debug, Fail)]
+#[fail(display = "A backend-specific error has occurred: {}", description)]
+pub struct BackendSpecificError {
+    pub description: String
+}
+
+/// An error that might occur while attempting to enumerate the available devices on a system.
+#[derive(Debug, Fail)]
+pub enum DevicesError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// An error that may occur while attempting to retrieve a device name.
+#[derive(Debug, Fail)]
+pub enum DeviceNameError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
 /// Error that can happen when enumerating the list of supported formats.
-#[derive(Debug)]
-pub enum FormatsEnumerationError {
+#[derive(Debug, Fail)]
+pub enum SupportedFormatsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// We called something the C-Layer did not understand
+    #[fail(display = "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")]
     InvalidArgument,
-    /// The C-Layer returned an error we don't know about
-    Unknown
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum DefaultFormatError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// Returned if e.g. the default input format was requested on an output-only audio device.
+    #[fail(display = "The requested stream type is not supported by the device.")]
     StreamTypeNotSupported,
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
-/// Error that can happen when creating a `Voice`.
-#[derive(Debug)]
-pub enum CreationError {
+/// Error that can happen when creating a `Stream`.
+#[derive(Debug, Fail)]
+pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// The required format is not supported.
+    #[fail(display = "The requested stream format is not supported by the device.")]
     FormatNotSupported,
-    /// An ALSA device function was called with a feature it does not support
-    /// (trying to use capture capabilities on an output only format yields this)
+    /// We called something the C-Layer did not understand
+    ///
+    /// On ALSA device functions called with a feature they do not support will yield this. E.g.
+    /// Trying to use capture capabilities on an output only format yields this.
+    #[fail(display = "The requested device does not support this capability (invalid argument)")]
     InvalidArgument,
-    /// The C-Layer returned an error we don't know about
-    Unknown,
+    /// Occurs if adding a new Stream ID would cause an integer overflow.
+    #[fail(display = "Adding a new stream ID would cause an overflow")]
+    StreamIdOverflow,
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// Errors that might occur when calling `play_stream`.
+///
+/// As of writing this, only macOS may immediately return an error while calling this method. This
+/// is because both the alsa and wasapi backends only enqueue these commands and do not process
+/// them immediately.
+#[derive(Debug, Fail)]
+pub enum PlayStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// Errors that might occur when calling `pause_stream`.
+///
+/// As of writing this, only macOS may immediately return an error while calling this method. This
+/// is because both the alsa and wasapi backends only enqueue these commands and do not process
+/// them immediately.
+#[derive(Debug, Fail)]
+pub enum PauseStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
 /// An iterator yielding all `Device`s currently available to the system.
 ///
 /// Can be empty if the system does not support audio in general.
 #[inline]
-pub fn devices() -> Devices {
-    Devices(Default::default())
+pub fn devices() -> Result<Devices, DevicesError> {
+    Ok(Devices(cpal_impl::Devices::new()?))
 }
 
 /// An iterator yielding all `Device`s currently available to the system that support one or more
 /// input stream formats.
 ///
 /// Can be empty if the system does not support audio input.
-pub fn input_devices() -> InputDevices {
+pub fn input_devices() -> Result<InputDevices, DevicesError> {
     fn supports_input(device: &Device) -> bool {
         device.supported_input_formats()
             .map(|mut iter| iter.next().is_some())
             .unwrap_or(false)
     }
-    devices().filter(supports_input)
+    Ok(devices()?.filter(supports_input))
 }
 
 /// An iterator yielding all `Device`s currently available to the system that support one or more
 /// output stream formats.
 ///
 /// Can be empty if the system does not support audio output.
-pub fn output_devices() -> OutputDevices {
+pub fn output_devices() -> Result<OutputDevices, DevicesError> {
     fn supports_output(device: &Device) -> bool {
         device.supported_output_formats()
             .map(|mut iter| iter.next().is_some())
             .unwrap_or(false)
     }
-    devices().filter(supports_output)
+    Ok(devices()?.filter(supports_output))
 }
 
 /// The default input audio device on the system.
@@ -367,7 +463,7 @@ pub fn default_output_device() -> Option<Device> {
 impl Device {
     /// The human-readable name of the device.
     #[inline]
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()
     }
 
@@ -375,7 +471,7 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         Ok(SupportedInputFormats(self.0.supported_input_formats()?))
     }
 
@@ -383,7 +479,7 @@ impl Device {
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         Ok(SupportedOutputFormats(self.0.supported_output_formats()?))
     }
 
@@ -424,7 +520,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         self.0.build_input_stream(&device.0, format).map(StreamId)
     }
@@ -440,7 +536,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError>
+    ) -> Result<StreamId, BuildStreamError>
     {
         self.0.build_output_stream(&device.0, format).map(StreamId)
     }
@@ -456,7 +552,7 @@ impl EventLoop {
     /// If the stream does not exist, this function can either panic or be a no-op.
     ///
     #[inline]
-    pub fn play_stream(&self, stream: StreamId) {
+    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         self.0.play_stream(stream.0)
     }
 
@@ -471,7 +567,7 @@ impl EventLoop {
     /// If the stream does not exist, this function can either panic or be a no-op.
     ///
     #[inline]
-    pub fn pause_stream(&self, stream: StreamId) {
+    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         self.0.pause_stream(stream.0)
     }
 
@@ -693,79 +789,45 @@ impl Iterator for SupportedOutputFormats {
     }
 }
 
-impl fmt::Display for FormatsEnumerationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
+impl From<BackendSpecificError> for DevicesError {
+    fn from(err: BackendSpecificError) -> Self {
+        DevicesError::BackendSpecific { err }
     }
 }
 
-impl Error for FormatsEnumerationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &FormatsEnumerationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-            &FormatsEnumerationError::InvalidArgument => {
-                "Invalid argument passed to the Backend (This happens when trying to read for example capture capabilities but the device does not support it -> dmix on Linux)"
-            },
-            &FormatsEnumerationError::Unknown => {
-                "An unknown error in the Backend occured"
-            },
-        }
+impl From<BackendSpecificError> for DeviceNameError {
+    fn from(err: BackendSpecificError) -> Self {
+        DeviceNameError::BackendSpecific { err }
     }
 }
 
-impl fmt::Display for CreationError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
+impl From<BackendSpecificError> for SupportedFormatsError {
+    fn from(err: BackendSpecificError) -> Self {
+        SupportedFormatsError::BackendSpecific { err }
     }
 }
 
-impl Error for CreationError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &CreationError::DeviceNotAvailable => {
-                "The requested device is no longer available (for example, it has been unplugged)."
-            },
-
-            &CreationError::FormatNotSupported => {
-                "The requested samples format is not supported by the device."
-            },
-
-            &CreationError::InvalidArgument => {
-                "The requested device does not support this capability (invalid argument)"
-            }
-
-            &CreationError::Unknown => {
-                "An unknown error in the Backend occured"
-            },
-        }
+impl From<BackendSpecificError> for DefaultFormatError {
+    fn from(err: BackendSpecificError) -> Self {
+        DefaultFormatError::BackendSpecific { err }
     }
 }
 
-impl fmt::Display for DefaultFormatError {
-    #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
+impl From<BackendSpecificError> for BuildStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        BuildStreamError::BackendSpecific { err }
     }
 }
 
-impl Error for DefaultFormatError {
-    #[inline]
-    fn description(&self) -> &str {
-        match self {
-            &DefaultFormatError::DeviceNotAvailable => {
-                CreationError::DeviceNotAvailable.description()
-            },
+impl From<BackendSpecificError> for PlayStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        PlayStreamError::BackendSpecific { err }
+    }
+}
 
-            &DefaultFormatError::StreamTypeNotSupported => {
-                "The requested stream type is not supported by the device."
-            },
-        }
+impl From<BackendSpecificError> for PauseStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        PauseStreamError::BackendSpecific { err }
     }
 }
 

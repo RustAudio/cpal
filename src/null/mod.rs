@@ -2,10 +2,14 @@
 
 use std::marker::PhantomData;
 
-use CreationError;
+use BuildStreamError;
 use DefaultFormatError;
+use DevicesError;
+use DeviceNameError;
 use Format;
-use FormatsEnumerationError;
+use PauseStreamError;
+use PlayStreamError;
+use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
 
@@ -25,13 +29,13 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
-        Err(CreationError::DeviceNotAvailable)
+    pub fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, BuildStreamError> {
+        Err(BuildStreamError::DeviceNotAvailable)
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, CreationError> {
-        Err(CreationError::DeviceNotAvailable)
+    pub fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, BuildStreamError> {
+        Err(BuildStreamError::DeviceNotAvailable)
     }
 
     #[inline]
@@ -40,12 +44,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, _: StreamId) {
+    pub fn play_stream(&self, _: StreamId) -> Result<(), PlayStreamError> {
         panic!()
     }
 
     #[inline]
-    pub fn pause_stream(&self, _: StreamId) {
+    pub fn pause_stream(&self, _: StreamId) -> Result<(), PauseStreamError> {
         panic!()
     }
 }
@@ -55,6 +59,12 @@ pub struct StreamId;
 
 #[derive(Default)]
 pub struct Devices;
+
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
+        Ok(Devices)
+    }
+}
 
 impl Iterator for Devices {
     type Item = Device;
@@ -80,12 +90,12 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unimplemented!()
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         unimplemented!()
     }
 
@@ -100,8 +110,8 @@ impl Device {
     }
 
     #[inline]
-    pub fn name(&self) -> String {
-        "null".to_owned()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok("null".to_owned())
     }
 }
 
