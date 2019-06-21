@@ -409,7 +409,7 @@ impl Device {
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
-            Err(e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+            Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                 return Err(SupportedFormatsError::DeviceNotAvailable)
             }
             Err(e) => {
@@ -748,11 +748,11 @@ impl Devices {
             // can fail if the parameter is null, which should never happen
             check_result_backend_specific((*collection).GetCount(&mut count))?;
 
-            Devices {
+            Ok(Devices {
                 collection: collection,
                 total_count: count,
                 next_item: 0,
-            }
+            })
         }
     }
 }

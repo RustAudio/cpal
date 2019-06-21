@@ -21,10 +21,10 @@ fn check_result(result: HRESULT) -> Result<(), IoError> {
 
 fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificError> {
     match check_result(result) {
-        Ok(()) => Ok(())
+        Ok(()) => Ok(()),
         Err(err) => {
             let description = format!("{}", err);
-            return BackendSpecificError { description }
+            return Err(BackendSpecificError { description });
         }
     }
 }
