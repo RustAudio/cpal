@@ -13,6 +13,8 @@ use DefaultFormatError;
 use DeviceNameError;
 use DevicesError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
@@ -147,23 +149,25 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, stream_id: StreamId) {
+    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
             .expect("invalid stream ID");
         js!(@{stream}.resume());
+        Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream_id: StreamId) {
+    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
             .and_then(|v| v.as_ref())
             .expect("invalid stream ID");
         js!(@{stream}.suspend());
+        Ok(())
     }
 }
 

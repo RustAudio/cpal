@@ -7,6 +7,8 @@ use BuildStreamError;
 use DefaultFormatError;
 use DeviceNameError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SupportedFormatsError;
 use Sample;
 use SampleFormat;
@@ -782,24 +784,34 @@ impl EventLoop {
         streams[stream_id.0] = None;
     }
 
-    pub fn play_stream(&self, stream: StreamId) {
+    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         let mut streams = self.streams.lock().unwrap();
         let stream = streams[stream.0].as_mut().unwrap();
 
         if !stream.playing {
-            stream.audio_unit.start().unwrap();
+            if let Err(e) = stream.audio_unit.start() {
+                let description = format!("{}", std::error::Error::description(e));
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             stream.playing = true;
         }
+        Ok(())
     }
 
-    pub fn pause_stream(&self, stream: StreamId) {
+    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.streams.lock().unwrap();
         let stream = streams[stream.0].as_mut().unwrap();
 
         if stream.playing {
-            stream.audio_unit.stop().unwrap();
+            if let Err(e) = stream.audio_unit.stop() {
+                let description = format!("{}", std::error::Error::description(e));
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
             stream.playing = false;
         }
+        Ok(())
     }
 }
 

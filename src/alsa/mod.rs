@@ -9,6 +9,8 @@ use BuildStreamError;
 use DefaultFormatError;
 use DeviceNameError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
@@ -837,13 +839,15 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, stream_id: StreamId) {
+    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         self.push_command(Command::PlayStream(stream_id));
+        Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream_id: StreamId) {
+    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream(stream_id));
+        Ok(())
     }
 }
 

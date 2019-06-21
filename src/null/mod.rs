@@ -7,6 +7,8 @@ use DefaultFormatError;
 use DevicesError;
 use DeviceNameError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SupportedFormatsError;
 use StreamData;
 use SupportedFormat;
@@ -42,12 +44,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, _: StreamId) {
+    pub fn play_stream(&self, _: StreamId) -> Result<(), PlayStreamError> {
         panic!()
     }
 
     #[inline]
-    pub fn pause_stream(&self, _: StreamId) {
+    pub fn pause_stream(&self, _: StreamId) -> Result<(), PauseStreamError> {
         panic!()
     }
 }

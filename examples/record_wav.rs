@@ -14,7 +14,7 @@ fn main() {
     let event_loop = cpal::EventLoop::new();
     let stream_id = event_loop.build_input_stream(&device, &format)
         .expect("Failed to build input stream");
-    event_loop.play_stream(stream_id);
+    event_loop.play_stream(stream_id).unwrap();
 
     // The WAV file we're recording to.
     const PATH: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");

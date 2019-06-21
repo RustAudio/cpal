@@ -23,6 +23,8 @@ use std::sync::atomic::Ordering;
 use BackendSpecificError;
 use BuildStreamError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SampleFormat;
 use StreamData;
 use UnknownTypeOutputBuffer;
@@ -642,13 +644,15 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, stream: StreamId) {
+    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         self.push_command(Command::PlayStream(stream));
+        Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream: StreamId) {
+    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream(stream));
+        Ok(())
     }
 
     #[inline]

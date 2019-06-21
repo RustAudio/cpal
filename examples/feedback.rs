@@ -43,8 +43,8 @@ fn main() {
 
     // Play the streams.
     println!("Starting the input and output streams with `{}` milliseconds of latency.", LATENCY_MS);
-    event_loop.play_stream(input_stream_id.clone());
-    event_loop.play_stream(output_stream_id.clone());
+    event_loop.play_stream(input_stream_id.clone()).unwrap();
+    event_loop.play_stream(output_stream_id.clone()).unwrap();
 
     // Run the event loop on a separate thread.
     std::thread::spawn(move || {

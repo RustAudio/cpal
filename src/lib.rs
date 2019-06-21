@@ -382,6 +382,36 @@ pub enum BuildStreamError {
     }
 }
 
+/// Errors that might occur when calling `play_stream`.
+///
+/// As of writing this, only macOS may immediately return an error while calling this method. This
+/// is because both the alsa and wasapi backends only enqueue these commands and do not process
+/// them immediately.
+#[derive(Debug, Fail)]
+pub enum PlayStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// Errors that might occur when calling `pause_stream`.
+///
+/// As of writing this, only macOS may immediately return an error while calling this method. This
+/// is because both the alsa and wasapi backends only enqueue these commands and do not process
+/// them immediately.
+#[derive(Debug, Fail)]
+pub enum PauseStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
 /// An iterator yielding all `Device`s currently available to the system.
 ///
 /// Can be empty if the system does not support audio in general.
@@ -522,7 +552,7 @@ impl EventLoop {
     /// If the stream does not exist, this function can either panic or be a no-op.
     ///
     #[inline]
-    pub fn play_stream(&self, stream: StreamId) {
+    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         self.0.play_stream(stream.0)
     }
 
@@ -537,7 +567,7 @@ impl EventLoop {
     /// If the stream does not exist, this function can either panic or be a no-op.
     ///
     #[inline]
-    pub fn pause_stream(&self, stream: StreamId) {
+    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         self.0.pause_stream(stream.0)
     }
 
@@ -786,6 +816,18 @@ impl From<BackendSpecificError> for DefaultFormatError {
 impl From<BackendSpecificError> for BuildStreamError {
     fn from(err: BackendSpecificError) -> Self {
         BuildStreamError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for PlayStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        PlayStreamError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for PauseStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        PauseStreamError::BackendSpecific { err }
     }
 }
 

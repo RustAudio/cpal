@@ -5,7 +5,7 @@ fn main() {
     let format = device.default_output_format().expect("Failed to get default output format");
     let event_loop = cpal::EventLoop::new();
     let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
-    event_loop.play_stream(stream_id.clone());
+    event_loop.play_stream(stream_id.clone()).unwrap();
 
     let sample_rate = format.sample_rate.0 as f32;
     let mut sample_clock = 0f32;
