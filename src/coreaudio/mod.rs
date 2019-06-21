@@ -10,7 +10,6 @@ use Format;
 use PauseStreamError;
 use PlayStreamError;
 use SupportedFormatsError;
-use Sample;
 use SampleFormat;
 use SampleRate;
 use StreamData;
@@ -55,7 +54,6 @@ use self::coreaudio::sys::{
     kAudioFormatFlagIsFloat,
     kAudioFormatFlagIsPacked,
     kAudioFormatLinearPCM,
-    kAudioHardwareNoError,
     kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeOutput,
     kAudioOutputUnitProperty_CurrentDevice,
@@ -790,7 +788,7 @@ impl EventLoop {
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", std::error::Error::description(e));
+                let description = format!("{}", std::error::Error::description(&e));
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -805,7 +803,7 @@ impl EventLoop {
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", std::error::Error::description(e));
+                let description = format!("{}", std::error::Error::description(&e));
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
