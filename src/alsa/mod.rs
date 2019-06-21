@@ -690,29 +690,41 @@ impl EventLoop {
             ) {
                 -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
                 -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if check_errors(e).is_err() {
-                    return Err(BuildStreamError::Unknown);
+                e => if let Err(description) = check_errors(e) {
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
                 }
             }
             let hw_params = HwParams::alloc();
 
-            set_hw_params_from_format(capture_handle, &hw_params, format);
+            set_hw_params_from_format(capture_handle, &hw_params, format)
+                .map_err(|description| BackendSpecificError { description })?;
 
             let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
 
-            let (buffer_len, period_len) = set_sw_params_from_format(capture_handle, format);
+            let (buffer_len, period_len) = set_sw_params_from_format(capture_handle, format)
+                .map_err(|description| BackendSpecificError { description })?;
 
-            check_errors(alsa::snd_pcm_prepare(capture_handle))
-                .expect("could not get playback handle");
+            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(capture_handle)) {
+                let description = format!("could not get capture handle: {}", desc);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             let num_descriptors = {
                 let num_descriptors = alsa::snd_pcm_poll_descriptors_count(capture_handle);
-                debug_assert!(num_descriptors >= 1);
+                if num_descriptors == 0 {
+                    let description = "poll descriptor count for capture stream was 0".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
                 num_descriptors as usize
             };
 
             let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
+            if new_stream_id.0 == usize::max_value() {
+                return Err(BuildStreamError::StreamIdOverflow);
+            }
 
             let stream_inner = StreamInner {
                 id: new_stream_id.clone(),
@@ -728,8 +740,11 @@ impl EventLoop {
                 buffer: None,
             };
 
-            check_errors(alsa::snd_pcm_start(capture_handle))
-                .expect("could not start capture stream");
+            if let Err(desc) = check_errors(alsa::snd_pcm_start(capture_handle)) {
+                let description = format!("could not start capture stream: {}", desc);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             self.push_command(Command::NewStream(stream_inner));
             Ok(new_stream_id)
@@ -754,29 +769,41 @@ impl EventLoop {
             ) {
                 -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
                 -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if check_errors(e).is_err() {
-                    return Err(BuildStreamError::Unknown);
+                e => if let Err(description) = check_errors(e) {
+                    let err = BackendSpecificError { description };
+                    return Err(err.into())
                 }
             }
             let hw_params = HwParams::alloc();
 
-            set_hw_params_from_format(playback_handle, &hw_params, format);
+            set_hw_params_from_format(playback_handle, &hw_params, format)
+                .map_err(|description| BackendSpecificError { description })?;
 
             let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
 
-            let (buffer_len, period_len) = set_sw_params_from_format(playback_handle, format);
+            let (buffer_len, period_len) = set_sw_params_from_format(playback_handle, format)
+                .map_err(|description| BackendSpecificError { description })?;
 
-            check_errors(alsa::snd_pcm_prepare(playback_handle))
-                .expect("could not get playback handle");
+            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(playback_handle)) {
+                let description = format!("could not get playback handle: {}", desc);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             let num_descriptors = {
                 let num_descriptors = alsa::snd_pcm_poll_descriptors_count(playback_handle);
-                debug_assert!(num_descriptors >= 1);
+                if num_descriptors == 0 {
+                    let description = "poll descriptor count for playback stream was 0".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
                 num_descriptors as usize
             };
 
             let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
+            if new_stream_id.0 == usize::max_value() {
+                return Err(BuildStreamError::StreamIdOverflow);
+            }
 
             let stream_inner = StreamInner {
                 id: new_stream_id.clone(),
@@ -826,12 +853,12 @@ unsafe fn set_hw_params_from_format(
     format: &Format,
 ) -> Result<(), String> {
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
-        return Err("Errors on pcm handle".to_string());
+        return Err(format!("errors on pcm handle: {}", e));
     }
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
                                                     hw_params.0,
                                                     alsa::SND_PCM_ACCESS_RW_INTERLEAVED)) {
-        return Err("Handle not acessible".to_string());
+        return Err(format!("handle not acessible: {}", e));
     }
 
     let data_type = if cfg!(target_endian = "big") {
@@ -851,29 +878,34 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
                                                     hw_params.0,
                                                     data_type)) {
-        return Err("Format could not be set".to_string());
+        return Err(format!("format could not be set: {}", e));
     }
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
                                                   hw_params.0,
                                                   format.sample_rate.0 as libc::c_uint,
                                                   0)) {
-        return Err("Sample rate could not be set".to_string());
+        return Err(format!("sample rate could not be set: {}", e));
     }
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
                                                       hw_params.0,
                                                       format.channels as
                                                                       libc::c_uint)) {
-        return Err("Channel count could not be set".to_string());
+        return Err(format!("channel count could not be set: {}", e));
     }
+
+    // TODO: Review this. 200ms seems arbitrary...
     let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
         format.channels as alsa::snd_pcm_uframes_t /
         5; // 200ms of buffer
-    check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
                                                              hw_params.0,
                                                              &mut max_buffer_size))
-        .unwrap();
+    {
+        return Err(format!("max buffer size could not be set: {}", e));
+    }
+
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0)) {
-        return Err("Hardware params could not be set.".to_string());
+        return Err(format!("hardware params could not be set: {}", e));
     }
 
     Ok(())
@@ -882,34 +914,42 @@ unsafe fn set_hw_params_from_format(
 unsafe fn set_sw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     format: &Format,
-) -> (usize, usize)
+) -> Result<(usize, usize), String>
 {
     let mut sw_params = mem::uninitialized(); // TODO: RAII
-    check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)).unwrap();
-    check_errors(alsa::snd_pcm_sw_params_current(pcm_handle, sw_params)).unwrap();
-    check_errors(alsa::snd_pcm_sw_params_set_start_threshold(pcm_handle,
-                                                             sw_params,
-                                                             0))
-        .unwrap();
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
+        return Err(format!("snd_pcm_sw_params_malloc failed: {}", e));
+    }
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_current(pcm_handle, sw_params)) {
+        return Err(format!("snd_pcm_sw_params_current failed: {}", e));
+    }
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, 0)) {
+        return Err(format!("snd_pcm_sw_params_set_start_threshold failed: {}", e));
+    }
 
     let (buffer_len, period_len) = {
         let mut buffer = mem::uninitialized();
         let mut period = mem::uninitialized();
-        check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period))
-            .expect("could not initialize buffer");
-        assert!(buffer != 0);
-        check_errors(alsa::snd_pcm_sw_params_set_avail_min(pcm_handle,
-                                                           sw_params,
-                                                           period))
-            .unwrap();
+        if let Err(e) = check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period)) {
+            return Err(format!("failed to initialize buffer: {}", e));
+        }
+        if buffer == 0 {
+            return Err(format!("initialization resulted in a null buffer"));
+        }
+        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(pcm_handle, sw_params, period)) {
+            return Err(format!("snd_pcm_sw_params_set_avail_min failed: {}", e));
+        }
         let buffer = buffer as usize * format.channels as usize;
         let period = period as usize * format.channels as usize;
         (buffer, period)
     };
 
-    check_errors(alsa::snd_pcm_sw_params(pcm_handle, sw_params)).unwrap();
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params(pcm_handle, sw_params)) {
+        return Err(format!("snd_pcm_sw_params failed: {}", e));
+    }
+
     alsa::snd_pcm_sw_params_free(sw_params);
-    (buffer_len, period_len)
+    Ok((buffer_len, period_len))
 }
 
 /// Wrapper around `hw_params`.
@@ -945,8 +985,6 @@ impl Drop for StreamInner {
 
 #[inline]
 fn check_errors(err: libc::c_int) -> Result<(), String> {
-    use std::ffi;
-
     if err < 0 {
         unsafe {
             let s = ffi::CStr::from_ptr(alsa::snd_strerror(err))

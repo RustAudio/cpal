@@ -20,6 +20,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use BackendSpecificError;
 use BuildStreamError;
 use Format;
 use SampleFormat;
@@ -123,9 +124,14 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
+                Ok(client) => client,
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(BuildStreamError::DeviceNotAvailable),
-                e => e.unwrap(),
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
             };
 
             // Computing the format and initializing the device.
@@ -158,7 +164,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("{}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -179,7 +187,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("{}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -192,16 +202,17 @@ impl EventLoop {
                 let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
                 if event == ptr::null_mut() {
                     (*audio_client).Release();
-                    panic!("Failed to create event");
+                    let description = format!("failed to create event");
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
                 }
 
-                match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(_) => {
-                        (*audio_client).Release();
-                        panic!("Failed to call SetEventHandle")
-                    },
-                    Ok(_) => (),
-                };
+                if let Err(e) = check_result((*audio_client).SetEventHandle(event)) {
+                    (*audio_client).Release();
+                    let description = format!("failed to call SetEventHandle: {}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
 
                 event
             };
@@ -222,7 +233,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("failed to build capture client: {}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -231,7 +244,9 @@ impl EventLoop {
             };
 
             let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
+            if new_stream_id.0 == usize::max_value() {
+                return Err(BuildStreamError::StreamIdOverflow);
+            }
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
@@ -270,9 +285,14 @@ impl EventLoop {
 
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
+                Ok(client) => client,
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
                     return Err(BuildStreamError::DeviceNotAvailable),
-                e => e.unwrap(),
+                Err(e) => {
+                    let description = format!("{}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
             };
 
             // Computing the format and initializing the device.
@@ -303,7 +323,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("{}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -316,13 +338,17 @@ impl EventLoop {
                 let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
                 if event == ptr::null_mut() {
                     (*audio_client).Release();
-                    panic!("Failed to create event");
+                    let description = format!("failed to create event");
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
                 }
 
                 match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(_) => {
+                    Err(e) => {
                         (*audio_client).Release();
-                        panic!("Failed to call SetEventHandle")
+                        let description = format!("failed to call SetEventHandle: {}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(_) => (),
                 };
@@ -343,7 +369,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("failed to obtain buffer size: {}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -367,7 +395,9 @@ impl EventLoop {
                     },
                     Err(e) => {
                         (*audio_client).Release();
-                        panic!("{:?}", e);
+                        let description = format!("failed to build render client: {}", e);
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     },
                     Ok(()) => (),
                 };
@@ -376,7 +406,9 @@ impl EventLoop {
             };
 
             let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            assert_ne!(new_stream_id.0, usize::max_value()); // check for overflows
+            if new_stream_id.0 == usize::max_value() {
+                return Err(BuildStreamError::StreamIdOverflow);
+            }
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.

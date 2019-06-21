@@ -513,13 +513,16 @@ impl EventLoop {
             // If the requested sample rate is different to the device sample rate, update the device.
             if sample_rate as u32 != format.sample_rate.0 {
 
-                // In order to avoid breaking existing input streams we `panic!` if there is already an
-                // active input stream for this device with the actual sample rate.
+                // In order to avoid breaking existing input streams we return an error if there is
+                // already an active input stream for this device with the actual sample rate.
                 for stream in &*self.streams.lock().unwrap() {
                     if let Some(stream) = stream.as_ref() {
                         if stream.device_id == device.audio_device_id {
-                            panic!("cannot change device sample rate for stream as an existing stream \
-                                    is already running at the current sample rate.");
+                            let description = "cannot change device sample rate for stream as an \
+                                existing stream is already running at the current sample rate"
+                                .into();
+                            let err = BackendSpecificError { description };
+                            return Err(err.into());
                         }
                     }
                 }
@@ -618,7 +621,9 @@ impl EventLoop {
                 let timer = ::std::time::Instant::now();
                 while sample_rate != reported_rate {
                     if timer.elapsed() > ::std::time::Duration::from_secs(1) {
-                        panic!("timeout waiting for sample rate update for device");
+                        let description = "timeout waiting for sample rate update for device".into();
+                        let err = BackendSpecificError { description };
+                        return Err(err.into());
                     }
                     ::std::thread::sleep(::std::time::Duration::from_millis(5));
                 }

@@ -371,9 +371,15 @@ pub enum BuildStreamError {
     /// Trying to use capture capabilities on an output only format yields this.
     #[fail(display = "The requested device does not support this capability (invalid argument)")]
     InvalidArgument,
-    /// The C-Layer returned an error we don't know about
-    #[fail(display = "An unknown error in the Backend occured")]
-    Unknown,
+    /// Occurs if adding a new Stream ID would cause an integer overflow.
+    #[fail(display = "Adding a new stream ID would cause an overflow")]
+    StreamIdOverflow,
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
 }
 
 /// An iterator yielding all `Device`s currently available to the system.
@@ -774,6 +780,12 @@ impl From<BackendSpecificError> for SupportedFormatsError {
 impl From<BackendSpecificError> for DefaultFormatError {
     fn from(err: BackendSpecificError) -> Self {
         DefaultFormatError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for BuildStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        BuildStreamError::BackendSpecific { err }
     }
 }
 
