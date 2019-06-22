@@ -10,7 +10,7 @@ use Format;
 use PauseStreamError;
 use PlayStreamError;
 use SupportedFormatsError;
-use StreamData;
+use StreamEvent;
 use SupportedFormat;
 
 pub struct EventLoop;
@@ -23,7 +23,7 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, _callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
+        where F: FnMut(StreamId, StreamEvent)
     {
         loop { /* TODO: don't spin */ }
     }
