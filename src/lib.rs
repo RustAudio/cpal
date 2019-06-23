@@ -219,12 +219,6 @@ pub enum StreamData<'a> {
 pub enum StreamEvent<'a> {
     /// Some data is ready to be processed.
     Data(StreamData<'a>),
-    /// The stream has received a **Play** command.
-    Play,
-    /// The stream has received a **Pause** command.
-    ///
-    /// No **Data** events should occur until a subsequent **Play** command is received.
-    Pause,
     /// The stream was closed, either because the user destroyed it or because of an error.
     ///
     /// The stream event callback will not be called again after this event occurs.

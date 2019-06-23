@@ -12,7 +12,6 @@ use PlayStreamError;
 use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
-use StreamCloseCause;
 use StreamData;
 use StreamEvent;
 use SupportedFormat;
@@ -336,9 +335,7 @@ enum UserCallback {
     Active(&'static mut (FnMut(StreamId, StreamEvent) + Send)),
     // A queue of events that have occurred but that have not yet been emitted to the user as we
     // don't yet have a callback to do so.
-    Inactive {
-        pending_events: Vec<(StreamId, StreamEvent<'static>)>
-    },
+    Inactive,
 }
 
 struct StreamInner {
@@ -440,7 +437,7 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
         EventLoop {
-            user_callback: Arc::new(Mutex::new(UserCallback::Inactive { pending_events: vec![] })),
+            user_callback: Arc::new(Mutex::new(UserCallback::Inactive)),
             streams: Mutex::new(Vec::new()),
         }
     }
@@ -451,20 +448,10 @@ impl EventLoop {
     {
         {
             let mut guard = self.user_callback.lock().unwrap();
-            let pending_events = match *guard {
-                UserCallback::Inactive { ref mut pending_events } => {
-                    mem::replace(pending_events, vec![])
-                }
-                UserCallback::Active(_) => {
-                    panic!("`EventLoop::run` was called when the event loop was already running");
-                }
-            };
-
-            let callback: &mut (FnMut(StreamId, StreamEvent) + Send) = &mut callback;
-            for (stream_id, event) in pending_events {
-                callback(stream_id, event);
+            if let UserCallback::Active(_) = *guard {
+                panic!("`EventLoop::run` was called when the event loop was already running");
             }
-
+            let callback: &mut (FnMut(StreamId, StreamEvent) + Send) = &mut callback;
             *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
         }
 
@@ -474,7 +461,7 @@ impl EventLoop {
         }
 
         // It is critical that we remove the callback before returning (currently not possible).
-        // *self.user_callback.lock().unwrap() = UserCallback::Inactive { pending_events: vec![] };
+        // *self.user_callback.lock().unwrap() = UserCallback::Inactive;
     }
 
     fn next_stream_id(&self) -> usize {
@@ -698,7 +685,7 @@ impl EventLoop {
                     let data_slice = slice::from_raw_parts(data as *const $SampleType, data_len);
                     let callback = match *user_callback {
                         UserCallback::Active(ref mut cb) => cb,
-                        UserCallback::Inactive { .. } => return Ok(()),
+                        UserCallback::Inactive => return Ok(()),
                     };
                     let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Input { buffer: unknown_type_buffer };
@@ -770,7 +757,7 @@ impl EventLoop {
                     let data_slice = slice::from_raw_parts_mut(data as *mut $SampleType, data_len);
                     let callback = match *user_callback {
                         UserCallback::Active(ref mut cb) => cb,
-                        UserCallback::Inactive { .. } => {
+                        UserCallback::Inactive => {
                             for sample in data_slice.iter_mut() {
                                 *sample = $equilibrium;
                             }
@@ -802,22 +789,11 @@ impl EventLoop {
         Ok(StreamId(stream_id))
     }
 
-    fn emit_or_enqueue_event(&self, id: StreamId, event: StreamEvent<'static>) {
-        let mut guard = self.user_callback.lock().unwrap();
-        match *guard {
-            UserCallback::Active(ref mut callback) => callback(id, event),
-            UserCallback::Inactive { ref mut pending_events } => pending_events.push((id, event)),
-        }
-    }
-
     pub fn destroy_stream(&self, stream_id: StreamId) {
         {
             let mut streams = self.streams.lock().unwrap();
             streams[stream_id.0] = None;
         }
-        // Emit the `Close` event to the user.
-        let event = StreamEvent::Close(StreamCloseCause::UserDestroyed);
-        self.emit_or_enqueue_event(stream_id, event);
     }
 
     pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
@@ -825,10 +801,6 @@ impl EventLoop {
         let stream = streams[stream_id.0].as_mut().unwrap();
 
         if !stream.playing {
-            // Emit the `Play` event to the user. This should not block, as the stream should not
-            // yet be playing if this is being called.
-            self.emit_or_enqueue_event(stream_id, StreamEvent::Play);
-
             if let Err(e) = stream.audio_unit.start() {
                 let description = format!("{}", std::error::Error::description(&e));
                 let err = BackendSpecificError { description };
@@ -849,9 +821,6 @@ impl EventLoop {
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
-
-            // Emit the `Pause` event to the user.
-            self.emit_or_enqueue_event(stream_id, StreamEvent::Pause);
 
             stream.playing = false;
         }

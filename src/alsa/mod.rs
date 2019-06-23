@@ -14,7 +14,6 @@ use PlayStreamError;
 use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
-use StreamCloseCause;
 use StreamData;
 use StreamError;
 use StreamEvent;
@@ -473,7 +472,7 @@ impl EventLoop {
             let run_context = &mut *run_context;
 
             'stream_loop: loop {
-                process_commands(run_context, callback);
+                process_commands(run_context);
 
                 reset_descriptors_with_pending_command_trigger(
                     &mut run_context.descriptors,
@@ -827,22 +826,16 @@ impl EventLoop {
 }
 
 // Process any pending `Command`s within the `RunContext`'s queue.
-fn process_commands(
-    run_context: &mut RunContext,
-    callback: &mut dyn FnMut(StreamId, StreamEvent),
-) {
+fn process_commands(run_context: &mut RunContext) {
     for command in run_context.commands.try_iter() {
         match command {
             Command::DestroyStream(stream_id) => {
                 run_context.streams.retain(|s| s.id != stream_id);
-                let event = StreamCloseCause::UserDestroyed.into();
-                callback(stream_id, event);
             },
             Command::PlayStream(stream_id) => {
                 if let Some(stream) = run_context.streams.iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
-                    callback(stream_id, StreamEvent::Play);
                     unsafe {
                         alsa::snd_pcm_pause(stream.channel, 0);
                     }
@@ -853,7 +846,6 @@ fn process_commands(
                 if let Some(stream) = run_context.streams.iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
-                    callback(stream_id, StreamEvent::Pause);
                     unsafe {
                         alsa::snd_pcm_pause(stream.channel, 1);
                     }

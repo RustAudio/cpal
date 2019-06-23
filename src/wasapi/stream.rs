@@ -26,7 +26,6 @@ use Format;
 use PauseStreamError;
 use PlayStreamError;
 use SampleFormat;
-use StreamCloseCause;
 use StreamData;
 use StreamError;
 use StreamEvent;
@@ -758,8 +757,6 @@ fn process_commands(
                         run_context.streams.remove(p);
                     },
                 }
-                let event = StreamEvent::Close(StreamCloseCause::UserDestroyed);
-                callback(stream_id, event);
             },
             Command::PlayStream(stream_id) => {
                 match run_context.streams.iter().position(|s| s.id == stream_id) {
@@ -772,8 +769,6 @@ fn process_commands(
                             match stream_error_from_hresult(hresult) {
                                 Ok(()) => {
                                     run_context.streams[p].playing = true;
-                                    let event = StreamEvent::Play;
-                                    callback(stream_id, event);
                                 }
                                 Err(err) => {
                                     let event = StreamEvent::Close(err.into());
@@ -797,8 +792,6 @@ fn process_commands(
                             match stream_error_from_hresult(hresult) {
                                 Ok(()) => {
                                     run_context.streams[p].playing = false;
-                                    let event = StreamEvent::Pause;
-                                    callback(stream_id, event);
                                 }
                                 Err(err) => {
                                     let event = StreamEvent::Close(err.into());
