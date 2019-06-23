@@ -9,14 +9,17 @@
 extern crate cpal;
 extern crate failure;
 
+use cpal::{Device, EventLoop, Host};
+
 const LATENCY_MS: f32 = 150.0;
 
 fn main() -> Result<(), failure::Error> {
-    let event_loop = cpal::EventLoop::new();
+    let host = cpal::default_host();
+    let event_loop = host.event_loop();
 
     // Default devices.
-    let input_device = cpal::default_input_device().expect("failed to get default input device");
-    let output_device = cpal::default_output_device().expect("failed to get default output device");
+    let input_device = host.default_input_device().expect("failed to get default input device");
+    let output_device = host.default_output_device().expect("failed to get default output device");
     println!("Using default input device: \"{}\"", input_device.name()?);
     println!("Using default output device: \"{}\"", output_device.name()?);
 

@@ -7,16 +7,21 @@ use ChannelCount;
 use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
+use Device as DeviceTrait;
 use DeviceNameError;
+use DevicesError;
+use EventLoop as EventLoopTrait;
 use Format;
+use Host as HostTrait;
 use PauseStreamError;
 use PlayStreamError;
-use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
+use SupportedFormatsError;
 use StreamData;
 use StreamDataResult;
 use StreamError;
+use StreamId as StreamIdTrait;
 use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
@@ -32,6 +37,109 @@ pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
 
 mod enumerate;
 
+/// The default linux and freebsd host type.
+#[derive(Debug)]
+pub struct Host;
+
+impl Host {
+    pub fn new() -> Result<Self, crate::HostUnavailable> {
+        Ok(Host)
+    }
+}
+
+impl HostTrait for Host {
+    type Devices = Devices;
+    type Device = Device;
+    type EventLoop = EventLoop;
+
+    fn is_available() -> bool {
+        // Assume ALSA is always available on linux/freebsd.
+        true
+    }
+
+    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+        Devices::new()
+    }
+
+    fn default_input_device(&self) -> Option<Self::Device> {
+        default_input_device()
+    }
+
+    fn default_output_device(&self) -> Option<Self::Device> {
+        default_output_device()
+    }
+
+    fn event_loop(&self) -> Self::EventLoop {
+        EventLoop::new()
+    }
+}
+
+impl DeviceTrait for Device {
+    type SupportedInputFormats = SupportedInputFormats;
+    type SupportedOutputFormats = SupportedOutputFormats;
+
+    fn name(&self) -> Result<String, DeviceNameError> {
+        Device::name(self)
+    }
+
+    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+        Device::supported_input_formats(self)
+    }
+
+    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+        Device::supported_output_formats(self)
+    }
+
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_input_format(self)
+    }
+
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_output_format(self)
+    }
+}
+
+impl EventLoopTrait for EventLoop {
+    type Device = Device;
+    type StreamId = StreamId;
+
+    fn build_input_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError> {
+        EventLoop::build_input_stream(self, device, format)
+    }
+
+    fn build_output_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError> {
+        EventLoop::build_output_stream(self, device, format)
+    }
+
+    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError> {
+        EventLoop::play_stream(self, stream)
+    }
+
+    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError> {
+        EventLoop::pause_stream(self, stream)
+    }
+
+    fn destroy_stream(&self, stream: Self::StreamId) {
+        EventLoop::destroy_stream(self, stream)
+    }
+
+    fn run<F>(&self, callback: F) -> !
+    where
+        F: FnMut(Self::StreamId, StreamDataResult) + Send,
+    {
+        EventLoop::run(self, callback)
+    }
+}
+
+impl StreamIdTrait for StreamId {}
 
 struct Trigger {
     // [read fd, write fd]
@@ -79,7 +187,7 @@ pub struct Device(String);
 
 impl Device {
     #[inline]
-    pub fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, DeviceNameError> {
         Ok(self.0.clone())
     }
 
@@ -287,13 +395,13 @@ impl Device {
         Ok(output.into_iter())
     }
 
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE)
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         unsafe {
             self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK)
         }
@@ -340,11 +448,11 @@ impl Device {
         }
     }
 
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
         self.default_format(alsa::SND_PCM_STREAM_CAPTURE)
     }
 
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         self.default_format(alsa::SND_PCM_STREAM_PLAYBACK)
     }
 }
@@ -434,7 +542,7 @@ enum StreamType { Input, Output }
 
 impl EventLoop {
     #[inline]
-    pub fn new() -> EventLoop {
+    fn new() -> EventLoop {
         let pending_command_trigger = Trigger::new();
 
         let mut initial_descriptors = vec![];
@@ -460,7 +568,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn run<F>(&self, mut callback: F) -> !
+    fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(StreamId, StreamDataResult)
     {
         self.run_inner(&mut callback)
@@ -645,7 +753,7 @@ impl EventLoop {
         panic!("`cpal::EventLoop::run` API currently disallows returning");
     }
 
-    pub fn build_input_stream(
+    fn build_input_stream(
         &self,
         device: &Device,
         format: &Format,
@@ -724,7 +832,7 @@ impl EventLoop {
         }
     }
 
-    pub fn build_output_stream(
+    fn build_output_stream(
         &self,
         device: &Device,
         format: &Format,
@@ -805,18 +913,18 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn destroy_stream(&self, stream_id: StreamId) {
+    fn destroy_stream(&self, stream_id: StreamId) {
         self.push_command(Command::DestroyStream(stream_id));
     }
 
     #[inline]
-    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
+    fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         self.push_command(Command::PlayStream(stream_id));
         Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
+    fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream(stream_id));
         Ok(())
     }

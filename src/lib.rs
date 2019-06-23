@@ -2,19 +2,25 @@
 //!
 //! Here are some concepts cpal exposes:
 //!
-//! - A `Device` is an audio device that may have any number of input and output streams.
-//! - A stream is an open audio channel. Input streams allow you to receive audio data, output
-//!   streams allow you to play audio data. You must choose which `Device` runs your stream before
-//!   you create one.
-//! - An `EventLoop` is a collection of streams being run by one or more `Device`. Each stream must
-//!   belong to an `EventLoop`, and all the streams that belong to an `EventLoop` are managed
-//!   together.
+//! - A [**Host**](./trait.Host.html) provides access to the available audio devices on the system.
+//!   Some platforms have more than one host available, but every platform supported by CPAL has at
+//!   least one [**DefaultHost**](./trait.Host.html) that is guaranteed to be available.
+//! - A [**Device**](./trait.Device.html) is an audio device that may have any number of input and
+//!   output streams.
+//! - A stream is an open flow of audio data. Input streams allow you to receive audio data, output
+//!   streams allow you to play audio data. You must choose which **Device** will run your stream
+//!   before you can create one. Often, a default device can be retrieved via the **Host**.
+//! - An [**EventLoop**](./trait.EventLoop.html) is a collection of streams being run by one or
+//!   more **Device**s under a single **Host**. Each stream must belong to an **EventLoop**, and
+//!   all the streams that belong to an **EventLoop** are managed together.
 //!
-//! The first step is to create an `EventLoop`:
+//! The first step is to initialise the `Host` (for accessing audio devices) and create an
+//! `EventLoop`:
 //!
 //! ```
-//! use cpal::EventLoop;
-//! let event_loop = EventLoop::new();
+//! use cpal::Host;
+//! let host = cpal::default_host();
+//! let event_loop = host.event_loop();
 //! ```
 //!
 //! Then choose a `Device`. The easiest way is to use the default input or output `Device` via the
@@ -24,7 +30,9 @@
 //! stream type on the system.
 //!
 //! ```no_run
-//! let device = cpal::default_output_device().expect("no output device available");
+//! # use cpal::Host;
+//! # let host = cpal::default_host();
+//! let device = host.default_output_device().expect("no output device available");
 //! ```
 //!
 //! Before we can create a stream, we must decide what the format of the audio samples is going to
@@ -38,7 +46,9 @@
 //! > has been disconnected.
 //!
 //! ```no_run
-//! # let device = cpal::default_output_device().unwrap();
+//! use cpal::{Device, Host};
+//! # let host = cpal::default_host();
+//! # let device = host.default_output_device().unwrap();
 //! let mut supported_formats_range = device.supported_output_formats()
 //!     .expect("error while querying formats");
 //! let format = supported_formats_range.next()
@@ -49,9 +59,11 @@
 //! Now that we have everything for the stream, we can create it from our event loop:
 //!
 //! ```no_run
-//! # let device = cpal::default_output_device().unwrap();
+//! use cpal::{Device, EventLoop, Host};
+//! # let host = cpal::default_host();
+//! # let event_loop = host.event_loop();
+//! # let device = host.default_output_device().unwrap();
 //! # let format = device.supported_output_formats().unwrap().next().unwrap().with_max_sample_rate();
-//! # let event_loop = cpal::EventLoop::new();
 //! let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
 //! ```
 //!
@@ -61,15 +73,19 @@
 //! Now we must start the stream. This is done with the `play_stream()` method on the event loop.
 //!
 //! ```no_run
-//! # let event_loop: cpal::EventLoop = return;
-//! # let stream_id: cpal::StreamId = return;
+//! # use cpal::{EventLoop, Host};
+//! # let host = cpal::default_host();
+//! # let event_loop = host.event_loop();
+//! # let stream_id = unimplemented!();
 //! event_loop.play_stream(stream_id).expect("failed to play_stream");
 //! ```
 //!
 //! Now everything is ready! We call `run()` on the `event_loop` to begin processing.
 //!
 //! ```no_run
-//! # let event_loop = cpal::EventLoop::new();
+//! # use cpal::{EventLoop, Host};
+//! # let host = cpal::default_host();
+//! # let event_loop = host.event_loop();
 //! event_loop.run(move |_stream_id, _stream_result| {
 //!     // react to stream events and read or write stream data here
 //! });
@@ -87,9 +103,9 @@
 //! In this example, we simply fill the given output buffer with zeroes.
 //!
 //! ```no_run
-//! use cpal::{StreamData, UnknownTypeOutputBuffer};
-//!
-//! # let event_loop = cpal::EventLoop::new();
+//! use cpal::{EventLoop, Host, StreamData, UnknownTypeOutputBuffer};
+//! # let host = cpal::default_host();
+//! # let event_loop = host.event_loop();
 //! event_loop.run(move |stream_id, stream_result| {
 //!     let stream_data = match stream_result {
 //!         Ok(data) => data,
@@ -132,51 +148,203 @@ extern crate lazy_static;
 #[macro_use]
 extern crate stdweb;
 
+pub use platform::{ALL_HOSTS, DefaultHost, HostId, available_hosts, default_host, host_from_id};
 pub use samples_formats::{Sample, SampleFormat};
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd",
-              target_os = "macos", target_os = "ios", target_os = "emscripten")))]
-use null as cpal_impl;
-
 use failure::Fail;
-use std::fmt;
-use std::iter;
 use std::ops::{Deref, DerefMut};
 
-mod null;
+mod host;
+pub mod platform;
 mod samples_formats;
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-#[path = "alsa/mod.rs"]
-mod cpal_impl;
+/// A **Host** provides access to the available audio devices on the system.
+///
+/// Each platform may have a number of available hosts depending on the system, each with their own
+/// pros and cons.
+///
+/// For example, WASAPI is the standard audio host API that ships with the Windows operating
+/// system. However, due to historical limitations with respect to performance and flexibility,
+/// Steinberg created the ASIO API providing better audio device support for pro audio and
+/// low-latency applications. As a result, it is common for some devices and device capabilities to
+/// only be available via ASIO, while others are only available via WASAPI.
+///
+/// Another great example is the Linux platform. While the ALSA host API is the lowest-level API
+/// available to almost all distributions of Linux, its flexibility is limited as it requires that
+/// each process have exclusive access to the devices with which they establish streams. PortAudio
+/// is another popular host API that aims to solve this issue by providing user-space mixing,
+/// however it has its own limitations w.r.t. low-latency and high-performance audio applications.
+/// JACK is yet another host API that is more suitable to pro-audio applications, however it is
+/// less readily available by default in many Linux distributions and is known to be tricky to
+/// setup.
+pub trait Host {
+    /// The type used for enumerating available devices by the host.
+    type Devices: Iterator<Item = Self::Device>;
+    /// The `Device` type yielded by the host.
+    type Device: Device;
+    /// The event loop type used by the `Host`
+    type EventLoop: EventLoop<Device = Self::Device>;
 
-#[cfg(windows)]
-#[path = "wasapi/mod.rs"]
-mod cpal_impl;
+    /// Whether or not the host is available on the system.
+    fn is_available() -> bool;
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-#[path = "coreaudio/mod.rs"]
-mod cpal_impl;
+    /// An iterator yielding all `Device`s currently available to the host on the system.
+    ///
+    /// Can be empty if the system does not support audio in general.
+    fn devices(&self) -> Result<Self::Devices, DevicesError>;
 
-#[cfg(target_os = "emscripten")]
-#[path = "emscripten/mod.rs"]
-mod cpal_impl;
+    /// The default input audio device on the system.
+    ///
+    /// Returns `None` if no input device is available.
+    fn default_input_device(&self) -> Option<Self::Device>;
 
-/// An opaque type that identifies a device that is capable of either audio input or output.
+    /// The default output audio device on the system.
+    ///
+    /// Returns `None` if no output device is available.
+    fn default_output_device(&self) -> Option<Self::Device>;
+
+    /// Initialise the event loop, ready for managing audio streams.
+    fn event_loop(&self) -> Self::EventLoop;
+
+    /// An iterator yielding all `Device`s currently available to the system that support one or more
+    /// input stream formats.
+    ///
+    /// Can be empty if the system does not support audio input.
+    fn input_devices(&self) -> Result<InputDevices<Self::Devices>, DevicesError> {
+        fn supports_input<D: Device>(device: &D) -> bool {
+            device.supported_input_formats()
+                .map(|mut iter| iter.next().is_some())
+                .unwrap_or(false)
+        }
+        Ok(self.devices()?.filter(supports_input::<Self::Device>))
+    }
+
+    /// An iterator yielding all `Device`s currently available to the system that support one or more
+    /// output stream formats.
+    ///
+    /// Can be empty if the system does not support audio output.
+    fn output_devices(&self) -> Result<OutputDevices<Self::Devices>, DevicesError> {
+        fn supports_output<D: Device>(device: &D) -> bool {
+            device.supported_output_formats()
+                .map(|mut iter| iter.next().is_some())
+                .unwrap_or(false)
+        }
+        Ok(self.devices()?.filter(supports_output::<Self::Device>))
+    }
+}
+
+/// A device that is capable of audio input and/or output.
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore all the
-/// methods that involve a device return a `Result`.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Device(cpal_impl::Device);
+/// methods that involve a device return a `Result` allowing the user to handle this case.
+pub trait Device {
+    /// The iterator type yielding supported input stream formats.
+    type SupportedInputFormats: Iterator<Item = SupportedFormat>;
+    /// The iterator type yielding supported output stream formats.
+    type SupportedOutputFormats: Iterator<Item = SupportedFormat>;
+
+    /// The human-readable name of the device.
+    fn name(&self) -> Result<String, DeviceNameError>;
+
+    /// An iterator yielding formats that are supported by the backend.
+    ///
+    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
+    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
+
+    /// An iterator yielding output stream formats that are supported by the device.
+    ///
+    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
+    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
+
+    /// The default input stream format for the device.
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError>;
+
+    /// The default output stream format for the device.
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
+}
 
 /// Collection of streams managed together.
 ///
-/// Created with the [`new`](struct.EventLoop.html#method.new) method.
-pub struct EventLoop(cpal_impl::EventLoop);
+/// Created with the `Host::event_loop` method.
+pub trait EventLoop {
+    /// The `Device` type yielded by the host.
+    type Device: Device;
+    /// The type used to uniquely distinguish between streams.
+    type StreamId: StreamId;
 
-/// Identifier of a stream within the `EventLoop`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(cpal_impl::StreamId);
+    /// Creates a new input stream that will run from the given device and with the given format.
+    ///
+    /// On success, returns an identifier for the stream.
+    ///
+    /// Can return an error if the device is no longer valid, or if the input stream format is not
+    /// supported by the device.
+    fn build_input_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError>;
+
+    /// Creates a new output stream that will play on the given device and with the given format.
+    ///
+    /// On success, returns an identifier for the stream.
+    ///
+    /// Can return an error if the device is no longer valid, or if the output stream format is not
+    /// supported by the device.
+    fn build_output_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError>;
+
+    /// Instructs the audio device that it should start playing the stream with the given ID.
+    ///
+    /// Has no effect is the stream was already playing.
+    ///
+    /// Only call this after you have submitted some data, otherwise you may hear some glitches.
+    ///
+    /// # Panic
+    ///
+    /// If the stream does not exist, this function can either panic or be a no-op.
+    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError>;
+
+    /// Instructs the audio device that it should stop playing the stream with the given ID.
+    ///
+    /// Has no effect is the stream was already paused.
+    ///
+    /// If you call `play` afterwards, the playback will resume where it was.
+    ///
+    /// # Panic
+    ///
+    /// If the stream does not exist, this function can either panic or be a no-op.
+    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError>;
+
+    /// Destroys an existing stream.
+    ///
+    /// # Panic
+    ///
+    /// If the stream does not exist, this function can either panic or be a no-op.
+    fn destroy_stream(&self, stream: Self::StreamId);
+
+    /// Takes control of the current thread and begins the stream processing.
+    ///
+    /// > **Note**: Since it takes control of the thread, this method is best called on a separate
+    /// > thread.
+    ///
+    /// Whenever a stream needs to be fed some data, the closure passed as parameter is called.
+    /// You can call the other methods of `EventLoop` without getting a deadlock.
+    fn run<F>(&self, callback: F) -> !
+    where
+        F: FnMut(Self::StreamId, StreamDataResult) + Send;
+}
+
+/// The set of required bounds for host `StreamId` types.
+pub trait StreamId: Clone + std::fmt::Debug + PartialEq + Eq {}
+
+/// A host's device iterator yielding only *input* devices.
+pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+
+/// A host's device iterator yielding only *output* devices.
+pub type OutputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
 
 /// Number of channels.
 pub type ChannelCount = u16;
@@ -271,26 +439,10 @@ pub enum UnknownTypeOutputBuffer<'a> {
     F32(OutputBuffer<'a, f32>),
 }
 
-/// An iterator yielding all `Device`s currently available to the system.
-///
-/// See [`devices()`](fn.devices.html).
-pub struct Devices(cpal_impl::Devices);
-
-/// A `Devices` yielding only *input* devices.
-pub type InputDevices = iter::Filter<Devices, fn(&Device) -> bool>;
-
-/// A `Devices` yielding only *output* devices.
-pub type OutputDevices = iter::Filter<Devices, fn(&Device) -> bool>;
-
-/// An iterator that produces a list of input stream formats supported by the device.
-///
-/// See [`Device::supported_input_formats()`](struct.Device.html#method.supported_input_formats).
-pub struct SupportedInputFormats(cpal_impl::SupportedInputFormats);
-
-/// An iterator that produces a list of output stream formats supported by the device.
-///
-/// See [`Device::supported_output_formats()`](struct.Device.html#method.supported_output_formats).
-pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
+/// The requested host, although supported on this platform, is unavailable.
+#[derive(Clone, Debug, Fail)]
+#[fail(display = "the requested host is unavailable")]
+pub struct HostUnavailable;
 
 /// Some error has occurred that is specific to the backend from which it was produced.
 ///
@@ -437,191 +589,6 @@ pub enum StreamError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
-}
-
-/// An iterator yielding all `Device`s currently available to the system.
-///
-/// Can be empty if the system does not support audio in general.
-#[inline]
-pub fn devices() -> Result<Devices, DevicesError> {
-    Ok(Devices(cpal_impl::Devices::new()?))
-}
-
-/// An iterator yielding all `Device`s currently available to the system that support one or more
-/// input stream formats.
-///
-/// Can be empty if the system does not support audio input.
-pub fn input_devices() -> Result<InputDevices, DevicesError> {
-    fn supports_input(device: &Device) -> bool {
-        device.supported_input_formats()
-            .map(|mut iter| iter.next().is_some())
-            .unwrap_or(false)
-    }
-    Ok(devices()?.filter(supports_input))
-}
-
-/// An iterator yielding all `Device`s currently available to the system that support one or more
-/// output stream formats.
-///
-/// Can be empty if the system does not support audio output.
-pub fn output_devices() -> Result<OutputDevices, DevicesError> {
-    fn supports_output(device: &Device) -> bool {
-        device.supported_output_formats()
-            .map(|mut iter| iter.next().is_some())
-            .unwrap_or(false)
-    }
-    Ok(devices()?.filter(supports_output))
-}
-
-/// The default input audio device on the system.
-///
-/// Returns `None` if no input device is available.
-pub fn default_input_device() -> Option<Device> {
-    cpal_impl::default_input_device().map(Device)
-}
-
-/// The default output audio device on the system.
-///
-/// Returns `None` if no output device is available.
-pub fn default_output_device() -> Option<Device> {
-    cpal_impl::default_output_device().map(Device)
-}
-
-impl Device {
-    /// The human-readable name of the device.
-    #[inline]
-    pub fn name(&self) -> Result<String, DeviceNameError> {
-        self.0.name()
-    }
-
-    /// An iterator yielding formats that are supported by the backend.
-    ///
-    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
-        Ok(SupportedInputFormats(self.0.supported_input_formats()?))
-    }
-
-    /// An iterator yielding output stream formats that are supported by the device.
-    ///
-    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        Ok(SupportedOutputFormats(self.0.supported_output_formats()?))
-    }
-
-    /// The default input stream format for the device.
-    #[inline]
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        self.0.default_input_format()
-    }
-
-    /// The default output stream format for the device.
-    #[inline]
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        self.0.default_output_format()
-    }
-}
-
-impl fmt::Debug for Device {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
-    }
-}
-
-impl EventLoop {
-    /// Initializes a new events loop.
-    #[inline]
-    pub fn new() -> EventLoop {
-        EventLoop(cpal_impl::EventLoop::new())
-    }
-
-    /// Creates a new input stream that will run from the given device and with the given format.
-    ///
-    /// On success, returns an identifier for the stream.
-    ///
-    /// Can return an error if the device is no longer valid, or if the input stream format is not
-    /// supported by the device.
-    #[inline]
-    pub fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        self.0.build_input_stream(&device.0, format).map(StreamId)
-    }
-
-    /// Creates a new output stream that will play on the given device and with the given format.
-    ///
-    /// On success, returns an identifier for the stream.
-    ///
-    /// Can return an error if the device is no longer valid, or if the output stream format is not
-    /// supported by the device.
-    #[inline]
-    pub fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        self.0.build_output_stream(&device.0, format).map(StreamId)
-    }
-
-    /// Instructs the audio device that it should start playing the stream with the given ID.
-    ///
-    /// Has no effect is the stream was already playing.
-    ///
-    /// Only call this after you have submitted some data, otherwise you may hear some glitches.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    ///
-    #[inline]
-    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
-        self.0.play_stream(stream.0)
-    }
-
-    /// Instructs the audio device that it should stop playing the stream with the given ID.
-    ///
-    /// Has no effect is the stream was already paused.
-    ///
-    /// If you call `play` afterwards, the playback will resume where it was.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    ///
-    #[inline]
-    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
-        self.0.pause_stream(stream.0)
-    }
-
-    /// Destroys an existing stream.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    ///
-    #[inline]
-    pub fn destroy_stream(&self, stream_id: StreamId) {
-        self.0.destroy_stream(stream_id.0)
-    }
-
-    /// Takes control of the current thread and begins the stream processing.
-    ///
-    /// > **Note**: Since it takes control of the thread, this method is best called on a separate
-    /// > thread.
-    ///
-    /// Whenever a stream needs to be fed some data, the closure passed as parameter is called.
-    /// You can call the other methods of `EventLoop` without getting a deadlock.
-    #[inline]
-    pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult) + Send
-    {
-        self.0.run(move |id, data| callback(StreamId(id), data))
     }
 }
 
@@ -772,48 +739,6 @@ impl From<Format> for SupportedFormat {
             max_sample_rate: format.sample_rate,
             data_type: format.data_type,
         }
-    }
-}
-
-impl Iterator for Devices {
-    type Item = Device;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(Device)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl Iterator for SupportedInputFormats {
-    type Item = SupportedFormat;
-
-    #[inline]
-    fn next(&mut self) -> Option<SupportedFormat> {
-        self.0.next()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl Iterator for SupportedOutputFormats {
-    type Item = SupportedFormat;
-
-    #[inline]
-    fn next(&mut self) -> Option<SupportedFormat> {
-        self.0.next()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
     }
 }
 

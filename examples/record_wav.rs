@@ -6,13 +6,18 @@ extern crate cpal;
 extern crate failure;
 extern crate hound;
 
+use cpal::{Device, EventLoop, Host};
+
 fn main() -> Result<(), failure::Error> {
+    // Use the default host for working with audio devices.
+    let host = cpal::default_host();
+
     // Setup the default input device and stream with the default input format.
-    let device = cpal::default_input_device().expect("Failed to get default input device");
+    let device = host.default_input_device().expect("Failed to get default input device");
     println!("Default input device: {}", device.name()?);
     let format = device.default_input_format().expect("Failed to get default input format");
     println!("Default input format: {:?}", format);
-    let event_loop = cpal::EventLoop::new();
+    let event_loop = host.event_loop();
     let stream_id = event_loop.build_input_stream(&device, &format)?;
     event_loop.play_stream(stream_id)?;
 
