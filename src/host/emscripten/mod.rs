@@ -10,16 +10,124 @@ use stdweb::web::set_timeout;
 
 use BuildStreamError;
 use DefaultFormatError;
+use Device as DeviceTrait;
 use DeviceNameError;
 use DevicesError;
+use EventLoop as EventLoopTrait;
 use Format;
+use Host as HostTrait;
 use PauseStreamError;
 use PlayStreamError;
 use SupportedFormatsError;
 use StreamData;
 use StreamDataResult;
+use StreamId as StreamIdTrait;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
+
+/// The default emscripten host type.
+#[derive(Debug)]
+pub struct Host;
+
+impl Host {
+    pub fn new() -> Result<Self, crate::HostUnavailable> {
+        Ok(Host)
+    }
+}
+
+impl HostTrait for Host {
+    type Devices = Devices;
+    type Device = Device;
+    type EventLoop = EventLoop;
+
+    fn is_available() -> bool {
+        // Assume ALSA is always available on linux/freebsd.
+        true
+    }
+
+    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+        Devices::new()
+    }
+
+    fn default_input_device(&self) -> Option<Self::Device> {
+        default_input_device()
+    }
+
+    fn default_output_device(&self) -> Option<Self::Device> {
+        default_output_device()
+    }
+
+    fn event_loop(&self) -> Self::EventLoop {
+        EventLoop::new()
+    }
+}
+
+impl DeviceTrait for Device {
+    type SupportedInputFormats = SupportedInputFormats;
+    type SupportedOutputFormats = SupportedOutputFormats;
+
+    fn name(&self) -> Result<String, DeviceNameError> {
+        Device::name(self)
+    }
+
+    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+        Device::supported_input_formats(self)
+    }
+
+    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+        Device::supported_output_formats(self)
+    }
+
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_input_format(self)
+    }
+
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_output_format(self)
+    }
+}
+
+impl EventLoopTrait for EventLoop {
+    type Device = Device;
+    type StreamId = StreamId;
+
+    fn build_input_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError> {
+        EventLoop::build_input_stream(self, device, format)
+    }
+
+    fn build_output_stream(
+        &self,
+        device: &Self::Device,
+        format: &Format,
+    ) -> Result<Self::StreamId, BuildStreamError> {
+        EventLoop::build_output_stream(self, device, format)
+    }
+
+    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError> {
+        EventLoop::play_stream(self, stream)
+    }
+
+    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError> {
+        EventLoop::pause_stream(self, stream)
+    }
+
+    fn destroy_stream(&self, stream: Self::StreamId) {
+        EventLoop::destroy_stream(self, stream)
+    }
+
+    fn run<F>(&self, callback: F) -> !
+    where
+        F: FnMut(Self::StreamId, StreamDataResult) + Send,
+    {
+        EventLoop::run(self, callback)
+    }
+}
+
+impl StreamIdTrait for StreamId {}
 
 // The emscripten backend works by having a global variable named `_cpal_audio_contexts`, which
 // is an array of `AudioContext` objects. A stream ID corresponds to an entry in this array.
@@ -44,7 +152,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn run<F>(&self, callback: F) -> !
+    fn run<F>(&self, callback: F) -> !
         where F: FnMut(StreamId, StreamDataResult),
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
@@ -124,12 +232,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
+    fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
+    fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();
@@ -146,12 +254,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn destroy_stream(&self, stream_id: StreamId) {
+    fn destroy_stream(&self, stream_id: StreamId) {
         self.streams.lock().unwrap()[stream_id.0] = None;
     }
 
     #[inline]
-    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
+    fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
@@ -162,7 +270,7 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
+    fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let streams = self.streams.lock().unwrap();
         let stream = streams
             .get(stream_id.0)
@@ -193,7 +301,7 @@ fn is_webaudio_available() -> bool {
 pub struct Devices(bool);
 
 impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
+    fn new() -> Result<Self, DevicesError> {
         Ok(Self::default())
     }
 }
@@ -218,12 +326,12 @@ impl Iterator for Devices {
 }
 
 #[inline]
-pub fn default_input_device() -> Option<Device> {
+fn default_input_device() -> Option<Device> {
     unimplemented!();
 }
 
 #[inline]
-pub fn default_output_device() -> Option<Device> {
+fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)
     } else {
@@ -236,17 +344,17 @@ pub struct Device;
 
 impl Device {
     #[inline]
-    pub fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, DeviceNameError> {
         Ok("Default Device".to_owned())
     }
 
     #[inline]
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         unimplemented!();
     }
 
     #[inline]
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
@@ -264,11 +372,11 @@ impl Device {
         )
     }
 
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
         unimplemented!();
     }
 
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         // TODO: because it is hard coded, see supported_output_formats.
         Ok(
             Format {
