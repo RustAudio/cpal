@@ -15,8 +15,8 @@ use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
+use StreamDataResult;
 use StreamError;
-use StreamEvent;
 use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
@@ -461,12 +461,12 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamEvent)
+        where F: FnMut(StreamId, StreamDataResult)
     {
         self.run_inner(&mut callback)
     }
 
-    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamEvent)) -> ! {
+    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamDataResult)) -> ! {
         unsafe {
             let mut run_context = self.run_context.lock().unwrap();
             let run_context = &mut *run_context;
@@ -487,8 +487,8 @@ impl EventLoop {
                     Ok(false) => continue,
                     Err(err) => {
                         for stream in run_context.streams.iter() {
-                            let event = StreamEvent::Close(err.clone().into());
-                            callback(stream.id, event);
+                            let result = Err(err.clone().into());
+                            callback(stream.id, result);
                         }
                         run_context.streams.clear();
                         break 'stream_loop;
@@ -578,8 +578,7 @@ impl EventLoop {
                             let stream_data = StreamData::Input {
                                 buffer: input_buffer,
                             };
-                            let event = StreamEvent::Data(stream_data);
-                            callback(stream.id, event);
+                            callback(stream.id, Ok(stream_data));
                         },
                         StreamType::Output => {
                             {
@@ -599,8 +598,7 @@ impl EventLoop {
                                 let stream_data = StreamData::Output {
                                     buffer: output_buffer,
                                 };
-                                let event = StreamEvent::Data(stream_data);
-                                callback(stream.id, event);
+                                callback(stream.id, Ok(stream_data));
                             }
                             loop {
                                 let result = alsa::snd_pcm_writei(
@@ -639,8 +637,7 @@ impl EventLoop {
                 // Remove any streams that have errored and notify the user.
                 for (stream_id, err) in streams_to_remove {
                     run_context.streams.retain(|s| s.id != stream_id);
-                    let event = StreamEvent::Close(err.into());
-                    callback(stream_id, event);
+                    callback(stream_id, Err(err.into()));
                 }
             }
         }

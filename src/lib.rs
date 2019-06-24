@@ -92,9 +92,9 @@
 //! # let event_loop = cpal::EventLoop::new();
 //! event_loop.run(move |stream_id, stream_event| {
 //!     let stream_data = match stream_event {
-//!         cpal::StreamEvent::Data(data) => data,
-//!         cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
-//!             eprintln!("stream {:?} closed due to an error: {}", stream_id, err);
+//!         Ok(data) => data,
+//!         Err(err) => {
+//!             eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
 //!             return;
 //!         }
 //!         _ => return,
@@ -215,24 +215,9 @@ pub enum StreamData<'a> {
     },
 }
 
-/// Events that may be emitted to the user via the callback submitted to `EventLoop::run`.
-pub enum StreamEvent<'a> {
-    /// Some data is ready to be processed.
-    Data(StreamData<'a>),
-    /// The stream was closed, either because the user destroyed it or because of an error.
-    ///
-    /// The stream event callback will not be called again after this event occurs.
-    Close(StreamCloseCause),
-}
-
-/// The cause behind why a stream was closed.
-#[derive(Debug)]
-pub enum StreamCloseCause {
-    /// The stream was closed as the user called `destroy_stream`.
-    UserDestroyed,
-    /// The stream was closed due to an error occurring.
-    Error(StreamError),
-}
+/// Stream data passed to the `EventLoop::run` callback, or an error in the case that the device
+/// was invalidated or some backend-specific error occurred.
+pub type StreamDataResult<'a> = Result<StreamData<'a>, StreamError>;
 
 /// Represents a buffer containing audio data that may be read.
 ///
@@ -441,9 +426,6 @@ pub enum PauseStreamError {
 }
 
 /// Errors that might occur while a stream is running.
-///
-/// These errors are delivered to the user callback via
-/// `StreamEvent::Close(StreamCloseCause::Error(_))`
 #[derive(Debug, Fail)]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
@@ -637,7 +619,7 @@ impl EventLoop {
     /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamEvent) + Send
+        where F: FnMut(StreamId, StreamDataResult) + Send
     {
         self.0.run(move |id, data| callback(StreamId(id), data))
     }
@@ -835,18 +817,6 @@ impl Iterator for SupportedOutputFormats {
     }
 }
 
-impl From<StreamError> for StreamCloseCause {
-    fn from(err: StreamError) -> Self {
-        StreamCloseCause::Error(err)
-    }
-}
-
-impl<'a> From<StreamCloseCause> for StreamEvent<'a> {
-    fn from(cause: StreamCloseCause) -> Self {
-        StreamEvent::Close(cause)
-    }
-}
-
 impl From<BackendSpecificError> for DevicesError {
     fn from(err: BackendSpecificError) -> Self {
         DevicesError::BackendSpecific { err }
@@ -892,12 +862,6 @@ impl From<BackendSpecificError> for PauseStreamError {
 impl From<BackendSpecificError> for StreamError {
     fn from(err: BackendSpecificError) -> Self {
         StreamError::BackendSpecific { err }
-    }
-}
-
-impl From<BackendSpecificError> for StreamCloseCause {
-    fn from(err: BackendSpecificError) -> Self {
-        StreamCloseCause::Error(err.into())
     }
 }
 

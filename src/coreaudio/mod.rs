@@ -13,7 +13,7 @@ use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
-use StreamEvent;
+use StreamDataResult;
 use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
@@ -332,7 +332,7 @@ enum UserCallback {
     //
     // It is essential for the safety of the program that this callback is removed before `run`
     // returns (not possible with the current CPAL API).
-    Active(&'static mut (FnMut(StreamId, StreamEvent) + Send)),
+    Active(&'static mut (FnMut(StreamId, StreamDataResult) + Send)),
     // A queue of events that have occurred but that have not yet been emitted to the user as we
     // don't yet have a callback to do so.
     Inactive,
@@ -444,14 +444,14 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamEvent) + Send
+        where F: FnMut(StreamId, StreamDataResult) + Send
     {
         {
             let mut guard = self.user_callback.lock().unwrap();
             if let UserCallback::Active(_) = *guard {
                 panic!("`EventLoop::run` was called when the event loop was already running");
             }
-            let callback: &mut (FnMut(StreamId, StreamEvent) + Send) = &mut callback;
+            let callback: &mut (FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
             *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
         }
 
@@ -689,8 +689,7 @@ impl EventLoop {
                     };
                     let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Input { buffer: unknown_type_buffer };
-                    let stream_event = StreamEvent::Data(stream_data);
-                    callback(StreamId(stream_id), stream_event);
+                    callback(StreamId(stream_id), Ok(stream_data));
                 }};
             }
 
@@ -766,8 +765,7 @@ impl EventLoop {
                     };
                     let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Output { buffer: unknown_type_buffer };
-                    let stream_event = StreamEvent::Data(stream_data);
-                    callback(StreamId(stream_id), stream_event);
+                    callback(StreamId(stream_id), Ok(stream_data));
                 }};
             }
 

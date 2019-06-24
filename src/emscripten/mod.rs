@@ -17,7 +17,7 @@ use PauseStreamError;
 use PlayStreamError;
 use SupportedFormatsError;
 use StreamData;
-use StreamEvent;
+use StreamDataResult;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
 
@@ -45,7 +45,7 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, callback: F) -> !
-        where F: FnMut(StreamId, StreamEvent) + Send,
+        where F: FnMut(StreamId, StreamDataResult) + Send,
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
         // of this callback is to fill the content of the audio buffers.
@@ -54,7 +54,7 @@ impl EventLoop {
         // and to the `callback` parameter that was passed to `run`.
 
         fn callback_fn<F>(user_data_ptr: *mut c_void)
-            where F: FnMut(StreamId, StreamEvent)
+            where F: FnMut(StreamId, StreamDataResult)
         {
             unsafe {
                 let user_data_ptr2 = user_data_ptr as *mut (&EventLoop, F);
@@ -73,8 +73,7 @@ impl EventLoop {
                     {
                         let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
                         let data = StreamData::Output { buffer: buffer };
-                        let event = StreamEvent::Data(data);
-                        user_cb(StreamId(stream_id), event);
+                        user_cb(StreamId(stream_id), Ok(data));
                         // TODO: directly use a TypedArray<f32> once this is supported by stdweb
                     }
 

@@ -17,14 +17,13 @@ fn main() -> Result<(), failure::Error> {
         (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
-    event_loop.run(move |id, event| {
-        let data = match event {
-            cpal::StreamEvent::Data(data) => data,
-            cpal::StreamEvent::Close(cpal::StreamCloseCause::Error(err)) => {
+    event_loop.run(move |id, result| {
+        let data = match result {
+            Ok(data) => data,
+            Err(err) => {
                 eprintln!("stream {:?} closed due to an error: {}", id, err);
                 return;
             }
-            _ => return,
         };
 
         match data {

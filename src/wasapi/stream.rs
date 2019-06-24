@@ -27,8 +27,8 @@ use PauseStreamError;
 use PlayStreamError;
 use SampleFormat;
 use StreamData;
+use StreamDataResult;
 use StreamError;
-use StreamEvent;
 use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
 
@@ -445,12 +445,12 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamEvent)
+        where F: FnMut(StreamId, StreamDataResult)
     {
         self.run_inner(&mut callback);
     }
 
-    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamEvent)) -> ! {
+    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamDataResult)) -> ! {
         unsafe {
             // We keep `run_context` locked forever, which guarantees that two invocations of
             // `run()` cannot run simultaneously.
@@ -472,8 +472,7 @@ impl EventLoop {
                         Some(p) => {
                             run_context.handles.remove(p + 1);
                             run_context.streams.remove(p);
-                            let event = StreamEvent::Close(err.into());
-                            callback(stream_id, event);
+                            callback(stream_id, Err(err.into()));
                         },
                     }
                 }
@@ -486,8 +485,7 @@ impl EventLoop {
                     Ok(idx) => idx,
                     Err(err) => {
                         for stream in &run_context.streams {
-                            let event = StreamEvent::Close(err.clone().into());
-                            callback(stream.id.clone(), event);
+                            callback(stream.id.clone(), Err(err.clone().into()));
                         }
                         run_context.streams.clear();
                         run_context.handles.truncate(1);
@@ -553,8 +551,7 @@ impl EventLoop {
                                     buffer: slice,
                                 });
                                 let data = StreamData::Input { buffer: unknown_buffer };
-                                let event = StreamEvent::Data(data);
-                                callback(stream.id.clone(), event);
+                                callback(stream.id.clone(), Ok(data));
                                 // Release the buffer.
                                 let hresult = (*capture_client).ReleaseBuffer(frames_available);
                                 if let Err(err) = stream_error_from_hresult(hresult) {
@@ -596,8 +593,7 @@ impl EventLoop {
                                     buffer: slice
                                 });
                                 let data = StreamData::Output { buffer: unknown_buffer };
-                                let event = StreamEvent::Data(data);
-                                callback(stream.id.clone(), event);
+                                callback(stream.id.clone(), Ok(data));
                                 let hresult = (*render_client)
                                     .ReleaseBuffer(frames_available as u32, 0);
                                 if let Err(err) = stream_error_from_hresult(hresult) {
@@ -739,7 +735,7 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
 // Process any pending commands that are queued within the `RunContext`.
 fn process_commands(
     run_context: &mut RunContext,
-    callback: &mut dyn FnMut(StreamId, StreamEvent),
+    callback: &mut dyn FnMut(StreamId, StreamDataResult),
 ) {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
@@ -771,8 +767,7 @@ fn process_commands(
                                     run_context.streams[p].playing = true;
                                 }
                                 Err(err) => {
-                                    let event = StreamEvent::Close(err.into());
-                                    callback(stream_id, event);
+                                    callback(stream_id, Err(err.into()));
                                     run_context.handles.remove(p + 1);
                                     run_context.streams.remove(p);
                                 }
@@ -794,8 +789,7 @@ fn process_commands(
                                     run_context.streams[p].playing = false;
                                 }
                                 Err(err) => {
-                                    let event = StreamEvent::Close(err.into());
-                                    callback(stream_id, event);
+                                    callback(stream_id, Err(err.into()));
                                     run_context.handles.remove(p + 1);
                                     run_context.streams.remove(p);
                                 }
