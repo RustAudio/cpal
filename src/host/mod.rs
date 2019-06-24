@@ -7,4 +7,4 @@ mod coreaudio;
 mod emscripten;
 mod null;
 #[cfg(windows)]
-mod wasapi;
+pub(crate) mod wasapi;

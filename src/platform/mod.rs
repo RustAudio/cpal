@@ -288,8 +288,8 @@ macro_rules! impl_platform_host {
             fn play_stream(&self, stream: Self::StreamId) -> Result<(), crate::PlayStreamError> {
                 match (&self.0, stream.0) {
                     $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(s)) => {
-                            e.play_stream(s)
+                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
+                            e.play_stream(s.clone())
                         }
                     )*
                 }
@@ -298,8 +298,8 @@ macro_rules! impl_platform_host {
             fn pause_stream(&self, stream: Self::StreamId) -> Result<(), crate::PauseStreamError> {
                 match (&self.0, stream.0) {
                     $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(s)) => {
-                            e.pause_stream(s)
+                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
+                            e.pause_stream(s.clone())
                         }
                     )*
                 }
@@ -308,8 +308,8 @@ macro_rules! impl_platform_host {
             fn destroy_stream(&self, stream: Self::StreamId) {
                 match (&self.0, stream.0) {
                     $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(s)) => {
-                            e.destroy_stream(s)
+                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
+                            e.destroy_stream(s.clone())
                         }
                     )*
                 }
