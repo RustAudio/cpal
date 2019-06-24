@@ -45,7 +45,7 @@ impl EventLoop {
 
     #[inline]
     pub fn run<F>(&self, callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult) + Send,
+        where F: FnMut(StreamId, StreamDataResult),
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
         // of this callback is to fill the content of the audio buffers.

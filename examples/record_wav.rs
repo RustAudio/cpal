@@ -34,7 +34,7 @@ fn main() -> Result<(), failure::Error> {
             let data = match event {
                 Ok(data) => data,
                 Err(err) => {
-                    eprintln!("stream {:?} closed due to an error: {}", id, err);
+                    eprintln!("an error occurred on stream {:?}: {}", id, err);
                     return;
                 }
             };

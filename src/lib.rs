@@ -70,7 +70,7 @@
 //!
 //! ```no_run
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |_stream_id, _stream_event| {
+//! event_loop.run(move |_stream_id, _stream_result| {
 //!     // react to stream events and read or write stream data here
 //! });
 //! ```
@@ -90,8 +90,8 @@
 //! use cpal::{StreamData, UnknownTypeOutputBuffer};
 //!
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |stream_id, stream_event| {
-//!     let stream_data = match stream_event {
+//! event_loop.run(move |stream_id, stream_result| {
+//!     let stream_data = match stream_result {
 //!         Ok(data) => data,
 //!         Err(err) => {
 //!             eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
