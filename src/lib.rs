@@ -70,8 +70,8 @@
 //!
 //! ```no_run
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |_stream_id, _stream_data| {
-//!     // read or write stream data here
+//! event_loop.run(move |_stream_id, _stream_result| {
+//!     // react to stream events and read or write stream data here
 //! });
 //! ```
 //!
@@ -90,7 +90,16 @@
 //! use cpal::{StreamData, UnknownTypeOutputBuffer};
 //!
 //! # let event_loop = cpal::EventLoop::new();
-//! event_loop.run(move |_stream_id, mut stream_data| {
+//! event_loop.run(move |stream_id, stream_result| {
+//!     let stream_data = match stream_result {
+//!         Ok(data) => data,
+//!         Err(err) => {
+//!             eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
+//!             return;
+//!         }
+//!         _ => return,
+//!     };
+//!
 //!     match stream_data {
 //!         StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
 //!             for elem in buffer.iter_mut() {
@@ -206,6 +215,10 @@ pub enum StreamData<'a> {
     },
 }
 
+/// Stream data passed to the `EventLoop::run` callback, or an error in the case that the device
+/// was invalidated or some backend-specific error occurred.
+pub type StreamDataResult<'a> = Result<StreamData<'a>, StreamError>;
+
 /// Represents a buffer containing audio data that may be read.
 ///
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
@@ -291,7 +304,7 @@ pub struct SupportedOutputFormats(cpal_impl::SupportedOutputFormats);
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
 /// cross-platform manner, please create an issue or submit a pull request with a patch that adds
 /// the necessary error variant to the appropriate error enum.
-#[derive(Debug, Fail)]
+#[derive(Clone, Debug, Fail)]
 #[fail(display = "A backend-specific error has occurred: {}", description)]
 pub struct BackendSpecificError {
     pub description: String
@@ -404,6 +417,21 @@ pub enum PlayStreamError {
 /// them immediately.
 #[derive(Debug, Fail)]
 pub enum PauseStreamError {
+    /// See the `BackendSpecificError` docs for more information about this error variant.
+    #[fail(display = "{}", err)]
+    BackendSpecific {
+        #[fail(cause)]
+        err: BackendSpecificError,
+    }
+}
+
+/// Errors that might occur while a stream is running.
+#[derive(Debug, Fail)]
+pub enum StreamError {
+    /// The device no longer exists. This can happen if the device is disconnected while the
+    /// program is running.
+    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    DeviceNotAvailable,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
@@ -591,7 +619,7 @@ impl EventLoop {
     /// You can call the other methods of `EventLoop` without getting a deadlock.
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData) + Send
+        where F: FnMut(StreamId, StreamDataResult) + Send
     {
         self.0.run(move |id, data| callback(StreamId(id), data))
     }
@@ -828,6 +856,12 @@ impl From<BackendSpecificError> for PlayStreamError {
 impl From<BackendSpecificError> for PauseStreamError {
     fn from(err: BackendSpecificError) -> Self {
         PauseStreamError::BackendSpecific { err }
+    }
+}
+
+impl From<BackendSpecificError> for StreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        StreamError::BackendSpecific { err }
     }
 }
 

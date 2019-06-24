@@ -30,7 +30,15 @@ fn main() -> Result<(), failure::Error> {
     let writer_2 = writer.clone();
     let recording_2 = recording.clone();
     std::thread::spawn(move || {
-        event_loop.run(move |_, data| {
+        event_loop.run(move |id, event| {
+            let data = match event {
+                Ok(data) => data,
+                Err(err) => {
+                    eprintln!("an error occurred on stream {:?}: {}", id, err);
+                    return;
+                }
+            };
+
             // If we're done recording, return early.
             if !recording_2.load(std::sync::atomic::Ordering::Relaxed) {
                 return;

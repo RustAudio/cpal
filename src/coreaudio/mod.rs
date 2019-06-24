@@ -13,6 +13,7 @@ use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
+use StreamDataResult;
 use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
@@ -319,13 +320,22 @@ pub struct StreamId(usize);
 
 pub struct EventLoop {
     // This `Arc` is shared with all the callbacks of coreaudio.
-    active_callbacks: Arc<ActiveCallbacks>,
+    //
+    // TODO: Eventually, CPAL's API should be changed to allow for submitting a unique callback per
+    // stream to avoid streams blocking one another.
+    user_callback: Arc<Mutex<UserCallback>>,
     streams: Mutex<Vec<Option<StreamInner>>>,
 }
 
-struct ActiveCallbacks {
-    // Whenever the `run()` method is called with a callback, this callback is put in this list.
-    callbacks: Mutex<Vec<&'static mut (FnMut(StreamId, StreamData) + Send)>>,
+enum UserCallback {
+    // When `run` is called with a callback, that callback will be stored here.
+    //
+    // It is essential for the safety of the program that this callback is removed before `run`
+    // returns (not possible with the current CPAL API).
+    Active(&'static mut (FnMut(StreamId, StreamDataResult) + Send)),
+    // A queue of events that have occurred but that have not yet been emitted to the user as we
+    // don't yet have a callback to do so.
+    Inactive,
 }
 
 struct StreamInner {
@@ -427,22 +437,22 @@ impl EventLoop {
     #[inline]
     pub fn new() -> EventLoop {
         EventLoop {
-            active_callbacks: Arc::new(ActiveCallbacks { callbacks: Mutex::new(Vec::new()) }),
+            user_callback: Arc::new(Mutex::new(UserCallback::Inactive)),
             streams: Mutex::new(Vec::new()),
         }
     }
 
     #[inline]
     pub fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData) + Send
+        where F: FnMut(StreamId, StreamDataResult) + Send
     {
         {
-            let callback: &mut (FnMut(StreamId, StreamData) + Send) = &mut callback;
-            self.active_callbacks
-                .callbacks
-                .lock()
-                .unwrap()
-                .push(unsafe { mem::transmute(callback) });
+            let mut guard = self.user_callback.lock().unwrap();
+            if let UserCallback::Active(_) = *guard {
+                panic!("`EventLoop::run` was called when the event loop was already running");
+            }
+            let callback: &mut (FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
+            *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
         }
 
         loop {
@@ -450,8 +460,8 @@ impl EventLoop {
             thread::sleep(Duration::new(1u64, 0u32));
         }
 
-        // Note: if we ever change this API so that `run` can return, then it is critical that
-        // we remove the callback from `active_callbacks`.
+        // It is critical that we remove the callback before returning (currently not possible).
+        // *self.user_callback.lock().unwrap() = UserCallback::Inactive;
     }
 
     fn next_stream_id(&self) -> usize {
@@ -650,7 +660,7 @@ impl EventLoop {
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let active_callbacks = self.active_callbacks.clone();
+        let user_callback = self.user_callback.clone();
         let sample_format = format.data_type;
         let bytes_per_channel = format.data_type.sample_size();
         type Args = render_callback::Args<data::Raw>;
@@ -666,20 +676,20 @@ impl EventLoop {
                 mData: data
             } = buffers[0];
 
-            let mut callbacks = active_callbacks.callbacks.lock().unwrap();
+            let mut user_callback = user_callback.lock().unwrap();
 
             // A small macro to simplify handling the callback for different sample types.
             macro_rules! try_callback {
                 ($SampleFormat:ident, $SampleType:ty) => {{
                     let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
                     let data_slice = slice::from_raw_parts(data as *const $SampleType, data_len);
-                    let callback = match callbacks.get_mut(0) {
-                        Some(cb) => cb,
-                        None => return Ok(()),
+                    let callback = match *user_callback {
+                        UserCallback::Active(ref mut cb) => cb,
+                        UserCallback::Inactive => return Ok(()),
                     };
                     let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Input { buffer: unknown_type_buffer };
-                    callback(StreamId(stream_id), stream_data);
+                    callback(StreamId(stream_id), Ok(stream_data));
                 }};
             }
 
@@ -723,7 +733,7 @@ impl EventLoop {
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let active_callbacks = self.active_callbacks.clone();
+        let user_callback = self.user_callback.clone();
         let sample_format = format.data_type;
         let bytes_per_channel = format.data_type.sample_size();
         type Args = render_callback::Args<data::Raw>;
@@ -737,16 +747,16 @@ impl EventLoop {
                 mData: data
             } = (*args.data.data).mBuffers[0];
 
-            let mut callbacks = active_callbacks.callbacks.lock().unwrap();
+            let mut user_callback = user_callback.lock().unwrap();
 
             // A small macro to simplify handling the callback for different sample types.
             macro_rules! try_callback {
                 ($SampleFormat:ident, $SampleType:ty, $equilibrium:expr) => {{
                     let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
                     let data_slice = slice::from_raw_parts_mut(data as *mut $SampleType, data_len);
-                    let callback = match callbacks.get_mut(0) {
-                        Some(cb) => cb,
-                        None => {
+                    let callback = match *user_callback {
+                        UserCallback::Active(ref mut cb) => cb,
+                        UserCallback::Inactive => {
                             for sample in data_slice.iter_mut() {
                                 *sample = $equilibrium;
                             }
@@ -755,7 +765,7 @@ impl EventLoop {
                     };
                     let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Output { buffer: unknown_type_buffer };
-                    callback(StreamId(stream_id), stream_data);
+                    callback(StreamId(stream_id), Ok(stream_data));
                 }};
             }
 
@@ -778,13 +788,15 @@ impl EventLoop {
     }
 
     pub fn destroy_stream(&self, stream_id: StreamId) {
-        let mut streams = self.streams.lock().unwrap();
-        streams[stream_id.0] = None;
+        {
+            let mut streams = self.streams.lock().unwrap();
+            streams[stream_id.0] = None;
+        }
     }
 
-    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
+    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let mut streams = self.streams.lock().unwrap();
-        let stream = streams[stream.0].as_mut().unwrap();
+        let stream = streams[stream_id.0].as_mut().unwrap();
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -797,9 +809,9 @@ impl EventLoop {
         Ok(())
     }
 
-    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
+    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.streams.lock().unwrap();
-        let stream = streams[stream.0].as_mut().unwrap();
+        let stream = streams[stream_id.0].as_mut().unwrap();
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
@@ -807,6 +819,7 @@ impl EventLoop {
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
+
             stream.playing = false;
         }
         Ok(())
