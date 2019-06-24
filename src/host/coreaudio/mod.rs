@@ -7,6 +7,7 @@ use BuildStreamError;
 use DefaultFormatError;
 use Device as DeviceTrait;
 use DeviceNameError;
+use DevicesError;
 use EventLoop as EventLoopTrait;
 use Format;
 use Host as HostTrait;

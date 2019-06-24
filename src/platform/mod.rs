@@ -4,6 +4,9 @@
 //! type and its associated `EventLoop`, `Device`, `StreamId` and other associated types. These
 //! types are useful in the case that users require switching between audio host APIs at runtime.
 
+#[doc(inline)]
+pub use self::platform_impl::*;
+
 // A macro to assist with implementing a platform's dynamically dispatched `Host` type.
 //
 // These dynamically dispatched types are necessary to allow for users to switch between hosts at
@@ -412,41 +415,57 @@ macro_rules! impl_platform_host {
 
 // TODO: Add pulseaudio and jack here eventually.
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-impl_platform_host!(Alsa alsa);
+mod platform_impl {
+    pub use crate::host::alsa::Host as AlsaHost;
+
+    /// The default host for the current compilation target platform.
+    pub type DefaultHost = crate::host::alsa::Host;
+
+    impl_platform_host!(Alsa alsa);
+}
+
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-impl_platform_host!(CoreAudio coreaudio);
+mod platform_impl {
+    pub use crate::host::coreaudio::Host as CoreAudioHost;
+
+    /// The default host for the current compilation target platform.
+    pub type DefaultHost = crate::host::coreaudio::Host;
+
+    impl_platform_host!(CoreAudio coreaudio);
+}
 
 #[cfg(target_os = "emscripten")]
-impl_platform_host!(Emscripten emscripten);
+mod platform_impl {
+    pub use crate::host::emscripten::Host as EmscriptenHost;
+
+    /// The default host for the current compilation target platform.
+    pub type DefaultHost = crate::host::emscripten::Host;
+
+    impl_platform_host!(Emscripten emscripten);
+}
 
 // TODO: Add `Asio asio` once #221 lands.
 #[cfg(windows)]
-impl_platform_host!(Wasapi wasapi);
+mod platform_impl {
+    pub use crate::host::wasapi::Host as WasapiHost;
+
+    /// The default host for the current compilation target platform.
+    pub type DefaultHost = crate::host::wasapi::Host;
+
+    impl_platform_host!(Wasapi wasapi);
+}
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "freebsd", target_os = "macos",
               target_os = "ios", target_os = "emscripten")))]
-impl_platform_host!(Null null);
+mod platform_impl {
+    pub use crate::host::null::Host as NullHost;
 
-/// The default host for the current compilation target platform.
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub type DefaultHost = crate::host::alsa::Host;
+    /// The default host for the current compilation target platform.
+    pub type DefaultHost = crate::host::null::Host;
 
-/// The default host for the current compilation target platform.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub type DefaultHost = crate::host::coreaudio::Host;
-
-/// The default host for the current compilation target platform.
-#[cfg(target_os = "emscripten")]
-pub type DefaultHost = crate::host::emscripten::Host;
-
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd", target_os = "macos",
-              target_os = "ios", target_os = "emscripten")))]
-pub type DefaultHost = crate::host::null::Host;
-
-/// The default host for the current compilation target platform.
-#[cfg(windows)]
-pub type DefaultHost = crate::host::wasapi::Host;
+    impl_platform_host!(Null null);
+}
 
 /// Retrieve the default host for the system.
 ///

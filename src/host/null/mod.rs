@@ -31,6 +31,12 @@ pub struct StreamId;
 pub struct SupportedInputFormats;
 pub struct SupportedOutputFormats;
 
+impl Host {
+    pub fn new() -> Result<Self, crate::HostUnavailable> {
+        Ok(Host)
+    }
+}
+
 impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         Ok(Devices)
