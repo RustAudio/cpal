@@ -41,7 +41,7 @@ impl HostTrait for Host {
     type EventLoop = EventLoop;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/freebsd.
+        // Assume this host is always available on emscripten.
         true
     }
 

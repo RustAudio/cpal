@@ -171,7 +171,7 @@ mod samples_formats;
 ///
 /// Another great example is the Linux platform. While the ALSA host API is the lowest-level API
 /// available to almost all distributions of Linux, its flexibility is limited as it requires that
-/// each process have exclusive access to the devices with which they establish streams. PortAudio
+/// each process have exclusive access to the devices with which they establish streams. PulseAudio
 /// is another popular host API that aims to solve this issue by providing user-space mixing,
 /// however it has its own limitations w.r.t. low-latency and high-performance audio applications.
 /// JACK is yet another host API that is more suitable to pro-audio applications, however it is

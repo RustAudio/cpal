@@ -93,7 +93,7 @@ impl HostTrait for Host {
     type EventLoop = EventLoop;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/freebsd.
+        // Assume coreaudio is always available on macOS and iOS.
         true
     }
 
