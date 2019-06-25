@@ -115,7 +115,7 @@ impl EventLoop {
         }
     }
 
-    pub fn build_input_stream(
+    pub(crate) fn build_input_stream(
         &self,
         device: &Device,
         format: &Format,
@@ -276,7 +276,7 @@ impl EventLoop {
         }
     }
 
-    pub fn build_output_stream(
+    pub(crate) fn build_output_stream(
         &self,
         device: &Device,
         format: &Format,
@@ -439,12 +439,12 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn destroy_stream(&self, stream_id: StreamId) {
+    pub(crate) fn destroy_stream(&self, stream_id: StreamId) {
         self.push_command(Command::DestroyStream(stream_id));
     }
 
     #[inline]
-    pub fn run<F>(&self, mut callback: F) -> !
+    pub(crate) fn run<F>(&self, mut callback: F) -> !
         where F: FnMut(StreamId, StreamDataResult)
     {
         self.run_inner(&mut callback);
@@ -617,13 +617,13 @@ impl EventLoop {
     }
 
     #[inline]
-    pub fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
+    pub(crate) fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
         self.push_command(Command::PlayStream(stream));
         Ok(())
     }
 
     #[inline]
-    pub fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
+    pub(crate) fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream(stream));
         Ok(())
     }

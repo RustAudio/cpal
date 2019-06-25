@@ -6,6 +6,7 @@ Low-level library for audio input and output in pure Rust.
 
 This library currently supports the following:
 
+- Enumerate supported audio hosts.
 - Enumerate all available audio devices.
 - Get the current default input and output devices.
 - Enumerate known supported input and output stream formats for a device.
