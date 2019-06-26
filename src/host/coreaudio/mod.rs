@@ -28,7 +28,7 @@ use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::slice;
@@ -434,6 +434,7 @@ pub struct EventLoop {
     // stream to avoid streams blocking one another.
     user_callback: Arc<Mutex<UserCallback>>,
     streams: Mutex<Vec<Option<StreamInner>>>,
+    loop_cond: Arc<(Mutex<bool>, Condvar)>,
 }
 
 enum UserCallback {
@@ -548,6 +549,7 @@ impl EventLoop {
         EventLoop {
             user_callback: Arc::new(Mutex::new(UserCallback::Inactive)),
             streams: Mutex::new(Vec::new()),
+            loop_cond: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -564,10 +566,15 @@ impl EventLoop {
             *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
         }
 
-        loop {
-            // So the loop does not get optimised out in --release
-            thread::sleep(Duration::new(1u64, 0u32));
+        // Wait on a condvar to notify, which should never happen.
+        let &(ref lock, ref cvar) = &*self.loop_cond;
+        let mut running = lock.lock().unwrap();
+        *running = true;
+        while *running {
+            running = cvar.wait(running).unwrap();
         }
+
+        unreachable!("current `EventLoop` API requires that `run` may not return");
 
         // It is critical that we remove the callback before returning (currently not possible).
         // *self.user_callback.lock().unwrap() = UserCallback::Inactive;
