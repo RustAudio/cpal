@@ -1,2 +1,0 @@
-#[cfg(windows)]
-mod asio;

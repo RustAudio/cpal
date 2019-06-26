@@ -4,11 +4,12 @@ pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 use std::hash::{Hash, Hasher};
 use DefaultFormatError;
+use DeviceNameError;
 use Format;
-use FormatsEnumerationError;
 use SampleFormat;
 use SampleRate;
 use SupportedFormat;
+use SupportedFormatsError;
 use super::sys;
 
 /// A ASIO Device
@@ -40,8 +41,8 @@ impl Hash for Device {
 }
 
 impl Device {
-    pub fn name(&self) -> String {
-        self.name.clone()
+    pub fn name(&self) -> Result<String, DeviceNameError> {
+        Ok(self.name.clone())
     }
 
     /// Gets the supported input formats.
@@ -49,11 +50,11 @@ impl Device {
     /// Need to find all possible formats.
     pub fn supported_input_formats(
         &self,
-    ) -> Result<SupportedInputFormats, FormatsEnumerationError> {
+    ) -> Result<SupportedInputFormats, SupportedFormatsError> {
         // Retrieve the default format for the total supported channels and supported sample
         // format.
         let mut f = match self.default_input_format() {
-            Err(_) => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            Err(_) => return Err(SupportedFormatsError::DeviceNotAvailable),
             Ok(f) => f,
         };
 
@@ -77,11 +78,11 @@ impl Device {
     /// Need to find all possible formats.
     pub fn supported_output_formats(
         &self,
-    ) -> Result<SupportedOutputFormats, FormatsEnumerationError> {
+    ) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         // Retrieve the default format for the total supported channels and supported sample
         // format.
         let mut f = match self.default_output_format() {
-            Err(_) => return Err(FormatsEnumerationError::DeviceNotAvailable),
+            Err(_) => return Err(SupportedFormatsError::DeviceNotAvailable),
             Ok(f) => f,
         };
 
@@ -140,12 +141,12 @@ impl Device {
     }
 }
 
-impl Default for Devices {
-    fn default() -> Devices {
+impl Devices {
+    pub fn new() -> Result<Self, DevicesError> {
         let driver_names = online_devices();
-        Devices {
+        Ok(Devices {
             drivers: driver_names.into_iter(),
-        }
+        })
     }
 }
 

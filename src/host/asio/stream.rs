@@ -10,10 +10,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use CreationError;
+use BuildStreamError;
 use Format;
+use PauseStreamError;
+use PlayStreamError;
 use SampleFormat;
 use StreamData;
+use StreamDataResult;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
 
@@ -26,7 +29,7 @@ pub struct EventLoop {
     /// Total stream count
     stream_count: AtomicUsize,
     /// The CPAL callback that the user gives to fill the buffers.
-    callbacks: Arc<Mutex<Option<&'static mut (FnMut(StreamId, StreamData) + Send)>>>,
+    callbacks: Arc<Mutex<Option<&'static mut (FnMut(StreamId, StreamDataResult) + Send)>>>,
 }
 
 /// Id for each stream.
@@ -34,13 +37,6 @@ pub struct EventLoop {
 /// Starting at one! not zero.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
-
-pub struct InputBuffer<'a, T: 'a> {
-    buffer: &'a [T],
-}
-pub struct OutputBuffer<'a, T: 'a> {
-    buffer: &'a mut [T],
-}
 
 /// CPAL stream.
 /// This decouples the many cpal streams
@@ -92,8 +88,8 @@ impl EventLoop {
         &self,
         drivers: &sys::Drivers,
         format: &Format,
-        num_asio_channels: u16, 
-    ) -> Result<(), CreationError> {
+        num_asio_channels: u16,
+    ) -> Result<(), BuildStreamError> {
         let Format {
             channels,
             sample_rate,
@@ -107,16 +103,16 @@ impl EventLoop {
                     .set_sample_rate(sample_rate)
                     .expect("Unsupported sample rate");
             } else {
-                return Err(CreationError::FormatNotSupported);
+                return Err(BuildStreamError::FormatNotSupported);
             }
         }
         // unsigned formats are not supported by asio
         match data_type {
             SampleFormat::I16 | SampleFormat::F32 => (),
-            SampleFormat::U16 => return Err(CreationError::FormatNotSupported),
+            SampleFormat::U16 => return Err(BuildStreamError::FormatNotSupported),
         }
         if *channels > num_asio_channels {
-            return Err(CreationError::FormatNotSupported);
+            return Err(BuildStreamError::FormatNotSupported);
         }
         Ok(())
     }
@@ -129,13 +125,13 @@ impl EventLoop {
         drivers: &sys::Drivers,
         format: &Format,
         device: &Device,
-    ) -> Result<usize, CreationError> {
+    ) -> Result<usize, BuildStreamError> {
         match device.default_input_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 self.check_format(drivers, format, num_asio_channels)
             },
-            Err(_) => Err(CreationError::FormatNotSupported),
+            Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
         let ref mut streams = *self.asio_streams.lock().unwrap();
@@ -156,7 +152,7 @@ impl EventLoop {
                         bs
                     }).map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
-                        CreationError::DeviceNotAvailable
+                        BuildStreamError::DeviceNotAvailable
                     })
             }
         }
@@ -170,13 +166,13 @@ impl EventLoop {
         drivers: &sys::Drivers,
         format: &Format,
         device: &Device,
-    ) -> Result<usize, CreationError> {
+    ) -> Result<usize, BuildStreamError> {
         match device.default_output_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 self.check_format(drivers, format, num_asio_channels)
             },
-            Err(_) => Err(CreationError::FormatNotSupported),
+            Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
         let ref mut streams = *self.asio_streams.lock().unwrap();
@@ -197,18 +193,18 @@ impl EventLoop {
                         bs
                     }).map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
-                        CreationError::DeviceNotAvailable
+                        BuildStreamError::DeviceNotAvailable
                     })
             }
         }
     }
 
-    /// Builds a new cpal input stream  
+    /// Builds a new cpal input stream
     pub fn build_input_stream(
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError> {
+    ) -> Result<StreamId, BuildStreamError> {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
@@ -328,7 +324,7 @@ impl EventLoop {
                     $SampleTypeIdent:ident,
                     $Sample:expr
                     ) => {
-                        (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType 
+                        (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
                     };
                     (f64,
                     $SampleType:ty,
@@ -396,18 +392,14 @@ impl EventLoop {
                             }
                         }
 
-                        // Wrap the buffer in the CPAL type
-                        let buff = InputBuffer {
-                            buffer: &mut $Buffers.cpal,
-                        };
                         // Call the users callback with the buffer
                         callback(
                             StreamId(count),
-                            StreamData::Input {
+                            Ok(StreamData::Input {
                                 buffer: UnknownTypeInputBuffer::$SampleFormat(::InputBuffer {
-                                    buffer: Some(super::super::InputBuffer::Asio(buff)),
+                                    buffer: &$Buffers.cpal,
                                 }),
-                            },
+                            }),
                         );
                     };
                 };
@@ -542,7 +534,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, CreationError> {
+    ) -> Result<StreamId, BuildStreamError> {
         let Device { drivers, .. } = device;
         let num_channels = format.channels.clone();
         let stream_type = drivers.get_data_type().expect("Couldn't load data type");
@@ -626,28 +618,28 @@ impl EventLoop {
                     f32,
                     $Sample:expr
                     ) => {
-                        *$Sample as f64 
+                        *$Sample as f64
                     };
                     ($AsioTypeIdent:ident,
                     f32,
                     f64,
                     $Sample:expr
                     ) => {
-                        *$Sample as f32 
+                        *$Sample as f32
                     };
                     ($AsioTypeIdent:ident,
                     $AsioType:ty,
                     f32,
                     $Sample:expr
                     ) => {
-                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType 
+                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType
                     };
                     ($AsioTypeIdent:ident,
                     $AsioType:ty,
                     f64,
                     $Sample:expr
                     ) => {
-                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType 
+                        (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType
                     };
                     ($AsioTypeIdent:ident,
                     f32,
@@ -695,15 +687,13 @@ impl EventLoop {
                             // users data
                             callback(
                                 StreamId(count),
-                                StreamData::Output {
+                                Ok(StreamData::Output {
                                     buffer: UnknownTypeOutputBuffer::$SampleFormat(
                                         ::OutputBuffer {
-                                            target: Some(super::super::OutputBuffer::Asio(
-                                                buff,
-                                            )),
+                                            buffer: &mut my_buffers.cpal,
                                         },
                                     ),
-                                },
+                                }),
                             );
                         }
                         // Deinter all the channels
@@ -897,7 +887,7 @@ impl EventLoop {
 
     /// Play the cpal stream for the given ID.
     /// Also play The ASIO streams if they are not already.
-    pub fn play_stream(&self, stream_id: StreamId) {
+    pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let mut streams = self.cpal_streams.lock().unwrap();
         if let Some(s) = streams.get_mut(stream_id.0).expect("Bad play stream index") {
             s.playing = true;
@@ -908,7 +898,7 @@ impl EventLoop {
 
     /// Pause the cpal stream for the given ID.
     /// Pause the ASIO streams if there are no CPAL streams palying.
-    pub fn pause_stream(&self, stream_id: StreamId) {
+    pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.cpal_streams.lock().unwrap();
         if let Some(s) = streams
             .get_mut(stream_id.0)
@@ -933,9 +923,9 @@ impl EventLoop {
     /// Run the cpal callbacks
     pub fn run<F>(&self, mut callback: F) -> !
     where
-        F: FnMut(StreamId, StreamData) + Send,
+        F: FnMut(StreamId, StreamDataResult) + Send,
     {
-        let callback: &mut (FnMut(StreamId, StreamData) + Send) = &mut callback;
+        let callback: &mut (FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
         // Transmute needed to convince the compiler that the callback has a static lifetime
         *self.callbacks.lock().unwrap() = Some(unsafe { mem::transmute(callback) });
         loop {
@@ -956,25 +946,6 @@ impl Drop for EventLoop {
         };
         sys::clean_up();
     }
-}
-
-impl<'a, T> InputBuffer<'a, T> {
-    pub fn buffer(&self) -> &[T] {
-        &self.buffer
-    }
-    pub fn finish(self) {}
-}
-
-impl<'a, T> OutputBuffer<'a, T> {
-    pub fn buffer(&mut self) -> &mut [T] {
-        &mut self.buffer
-    }
-
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    pub fn finish(self) {}
 }
 
 /// Helper function to convert to system endianness
