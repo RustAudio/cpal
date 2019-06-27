@@ -34,19 +34,20 @@ pub struct Format {
 }
 
 fn main() {
-    for name in sys::get_driver_list() {
+    let asio = sys::Asio::new();
+    for name in asio.driver_names() {
         println!("Driver: {:?}", name);
-        let driver = sys::Drivers::load(&name).expect("failed to load driver");
-        let channels = driver.get_channels();
-        let sample_rate = driver.get_sample_rate();
+        let driver = asio.load_driver(&name).expect("failed to load driver");
+        let channels = driver.channels().expect("failed to retrieve channel counts");
+        let sample_rate = driver.sample_rate().expect("failed to retrieve sample rate");
         let in_fmt = Format {
             channels: channels.ins as _,
-            sample_rate: SampleRate(sample_rate.rate as _),
+            sample_rate: SampleRate(sample_rate as _),
             data_type: SampleFormat::F32,
         };
         let out_fmt = Format {
             channels: channels.outs as _,
-            sample_rate: SampleRate(sample_rate.rate as _),
+            sample_rate: SampleRate(sample_rate as _),
             data_type: SampleFormat::F32,
         };
         println!("  Input {:?}", in_fmt);

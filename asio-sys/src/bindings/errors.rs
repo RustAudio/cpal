@@ -1,14 +1,15 @@
 use std::error::Error;
 use std::fmt;
 
+/// Errors that might occur during `Asio::load_driver`.
 #[derive(Debug)]
-pub enum AsioDriverError {
-    NoResult(String),
-    BufferError(String),
-    DriverLoadError,
-    TypeError,
+pub enum LoadDriverError {
+    LoadDriverFailed,
+    DriverAlreadyExists,
+    InitializationFailed(AsioError),
 }
 
+/// General errors returned by ASIO.
 #[derive(Debug)]
 pub enum AsioError {
     NoDrivers,
@@ -35,25 +36,9 @@ pub enum AsioErrorWrapper {
     Invalid,
 }
 
-impl fmt::Display for AsioDriverError {
+impl fmt::Display for LoadDriverError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AsioDriverError::NoResult(ref e) => write!(f, "Driver {} not found", e),
-            AsioDriverError::BufferError(ref e) => write!(f, "Buffer Error: {}", e),
-            AsioDriverError::DriverLoadError => write!(f, "Couldn't load the driver"),
-            AsioDriverError::TypeError => write!(f, "Couldn't convert sample type"),
-        }
-    }
-}
-
-impl Error for AsioDriverError {
-    fn description(&self) -> &str {
-        match *self {
-            AsioDriverError::NoResult(_) => "Couln't find driver",
-            AsioDriverError::BufferError(_) => "Error creating the buffer",
-            AsioDriverError::DriverLoadError => "Error loading the driver",
-            AsioDriverError::TypeError => "Error getting sample type",
-        }
+        write!(f, "{}", self.description())
     }
 }
 
@@ -83,6 +68,20 @@ impl fmt::Display for AsioError {
     }
 }
 
+impl Error for LoadDriverError {
+    fn description(&self) -> &str {
+        match *self {
+            LoadDriverError::LoadDriverFailed => {
+                "ASIO `loadDriver` function returned `false` indicating failure"
+            }
+            LoadDriverError::InitializationFailed(ref err) => err.description(),
+            LoadDriverError::DriverAlreadyExists => {
+                "ASIO only supports loading one driver at a time"
+            }
+        }
+    }
+}
+
 impl Error for AsioError {
     fn description(&self) -> &str {
         match *self {
@@ -99,42 +98,27 @@ impl Error for AsioError {
         }
     }
 }
-macro_rules! asio_error_helper {
-    ($x:expr, $ae:ident{ $($v:ident),+ }, $inval:ident) => {
-        match $x {
-            $(_ if $x == $ae::$v as i32 => $ae::$v,)+
-            _ => $ae::$inval,
-        }
-    };
+
+impl From<AsioError> for LoadDriverError {
+    fn from(err: AsioError) -> Self {
+        LoadDriverError::InitializationFailed(err)
+    }
 }
 
 macro_rules! asio_result {
-    ($result:expr) => {
-        match asio_error_helper!(
-            $result,
-            AsioErrorWrapper {
-                ASE_OK,
-                ASE_SUCCESS,
-                ASE_NotPresent,
-                ASE_HWMalfunction,
-                ASE_InvalidParameter,
-                ASE_InvalidMode,
-                ASE_SPNotAdvancing,
-                ASE_NoClock,
-                ASE_NoMemory
-            },
-            Invalid
-        ) {
-            AsioErrorWrapper::ASE_OK => Ok(()),
-            AsioErrorWrapper::ASE_SUCCESS => Ok(()),
-            AsioErrorWrapper::ASE_NotPresent => Err(AsioError::NoDrivers),
-            AsioErrorWrapper::ASE_HWMalfunction => Err(AsioError::HardwareMalfunction),
-            AsioErrorWrapper::ASE_InvalidParameter => Err(AsioError::InvalidInput),
-            AsioErrorWrapper::ASE_InvalidMode => Err(AsioError::BadMode),
-            AsioErrorWrapper::ASE_SPNotAdvancing => Err(AsioError::HardwareStuck),
-            AsioErrorWrapper::ASE_NoClock => Err(AsioError::NoRate),
-            AsioErrorWrapper::ASE_NoMemory => Err(AsioError::ASE_NoMemory),
-            AsioErrorWrapper::Invalid => Err(AsioError::UnknownError),
+    ($e:expr) => {{
+        let res = { $e };
+        match res {
+            r if r == AsioErrorWrapper::ASE_OK as i32 => Ok(()),
+            r if r == AsioErrorWrapper::ASE_SUCCESS as i32 => Ok(()),
+            r if r == AsioErrorWrapper::ASE_NotPresent as i32 => Err(AsioError::NoDrivers),
+            r if r == AsioErrorWrapper::ASE_HWMalfunction as i32 => Err(AsioError::HardwareMalfunction),
+            r if r == AsioErrorWrapper::ASE_InvalidParameter as i32 => Err(AsioError::InvalidInput),
+            r if r == AsioErrorWrapper::ASE_InvalidMode as i32 => Err(AsioError::BadMode),
+            r if r == AsioErrorWrapper::ASE_SPNotAdvancing as i32 => Err(AsioError::HardwareStuck),
+            r if r == AsioErrorWrapper::ASE_NoClock as i32 => Err(AsioError::NoRate),
+            r if r == AsioErrorWrapper::ASE_NoMemory as i32 => Err(AsioError::ASE_NoMemory),
+            _ => Err(AsioError::UnknownError),
         }
-    };
+    }};
 }
