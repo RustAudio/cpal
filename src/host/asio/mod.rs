@@ -16,8 +16,9 @@ use {
     SupportedFormatsError,
 };
 
-pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
+pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats};
 pub use self::stream::{EventLoop, StreamId};
+use std::sync::Arc;
 
 mod device;
 mod stream;
@@ -25,12 +26,15 @@ mod asio_utils;
 
 /// The host for ASIO.
 #[derive(Debug)]
-pub struct Host;
+pub struct Host {
+    asio: Arc<sys::Asio>,
+}
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        //unimplemented!("asio as an initialisation and termination process that needs to be impld");
-        Ok(Host)
+        let asio = Arc::new(sys::Asio::new());
+        let host = Host { asio };
+        Ok(host)
     }
 }
 
@@ -45,15 +49,17 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+        Devices::new(self.asio.clone())
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        default_input_device()
+        // ASIO has no concept of a default device, so just use the first.
+        self.input_devices().ok().and_then(|mut ds| ds.next())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        default_output_device()
+        // ASIO has no concept of a default device, so just use the first.
+        self.output_devices().ok().and_then(|mut ds| ds.next())
     }
 
     fn event_loop(&self) -> Self::EventLoop {

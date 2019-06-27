@@ -3,6 +3,8 @@ pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use BackendSpecificError;
 use DefaultFormatError;
 use DeviceNameError;
 use DevicesError;
@@ -14,16 +16,17 @@ use SupportedFormatsError;
 use super::sys;
 
 /// A ASIO Device
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Device {
     /// The drivers for this device
-    pub drivers: sys::Drivers,
+    pub driver: Arc<sys::Driver>,
     /// The name of this device
     pub name: String,
 }
 
 /// All available devices
 pub struct Devices {
+    asio: Arc<sys::Asio>,
     drivers: std::vec::IntoIter<String>,
 }
 
@@ -62,7 +65,7 @@ impl Device {
         // Collect a format for every combination of supported sample rate and number of channels.
         let mut supported_formats = vec![];
         for &rate in ::COMMON_SAMPLE_RATES {
-            if !self.drivers.can_sample_rate(rate.0 as u32) {
+            if !self.driver.can_sample_rate(rate.0.into()).ok().unwrap_or(false) {
                 continue;
             }
             for channels in 1..f.channels + 1 {
@@ -90,7 +93,7 @@ impl Device {
         // Collect a format for every combination of supported sample rate and number of channels.
         let mut supported_formats = vec![];
         for &rate in ::COMMON_SAMPLE_RATES {
-            if !self.drivers.can_sample_rate(rate.0 as u32) {
+            if !self.driver.can_sample_rate(rate.0.into()).ok().unwrap_or(false) {
                 continue;
             }
             for channels in 1..f.channels + 1 {
@@ -104,50 +107,36 @@ impl Device {
 
     /// Returns the default input format
     pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        let channels = self.drivers.get_channels().ins as u16;
-        let sample_rate = SampleRate(self.drivers.get_sample_rate().rate);
+        let channels = self.driver.channels().map_err(default_format_err)?.ins as u16;
+        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         // Map th ASIO sample type to a CPAL sample type
-        match self.drivers.get_data_type() {
-            Ok(sys::AsioSampleType::ASIOSTInt16MSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTInt32MSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTFloat32MSB) => Ok(SampleFormat::F32),
-            Ok(sys::AsioSampleType::ASIOSTInt16LSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTInt32LSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTFloat32LSB) => Ok(SampleFormat::F32),
-            _ => Err(DefaultFormatError::StreamTypeNotSupported),
-        }.map(|dt| Format {
+        let data_type = self.driver.data_type().map_err(default_format_err)?;
+        let data_type = convert_data_type(data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        Ok(Format {
             channels,
             sample_rate,
-            data_type: dt,
+            data_type,
         })
     }
 
     /// Returns the default output format
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        let channels = self.drivers.get_channels().outs as u16;
-        let sample_rate = SampleRate(self.drivers.get_sample_rate().rate);
-        match self.drivers.get_data_type() {
-            // Map th ASIO sample type to a CPAL sample type
-            Ok(sys::AsioSampleType::ASIOSTInt16MSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTFloat32MSB) => Ok(SampleFormat::F32),
-            Ok(sys::AsioSampleType::ASIOSTInt16LSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTInt32LSB) => Ok(SampleFormat::I16),
-            Ok(sys::AsioSampleType::ASIOSTFloat32LSB) => Ok(SampleFormat::F32),
-            _ => Err(DefaultFormatError::StreamTypeNotSupported),
-        }.map(|dt| Format {
+        let channels = self.driver.channels().map_err(default_format_err)?.outs as u16;
+        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
+        let data_type = self.driver.data_type().map_err(default_format_err)?;
+        let data_type = convert_data_type(data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        Ok(Format {
             channels,
             sample_rate,
-            data_type: dt,
+            data_type,
         })
     }
 }
 
 impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        let driver_names = online_devices();
-        Ok(Devices {
-            drivers: driver_names.into_iter(),
-        })
+    pub fn new(asio: Arc<sys::Asio>) -> Result<Self, DevicesError> {
+        let drivers = asio.driver_names().into_iter();
+        Ok(Devices { asio, drivers })
     }
 }
 
@@ -156,14 +145,14 @@ impl Iterator for Devices {
 
     /// Load drivers and return device
     fn next(&mut self) -> Option<Device> {
-        match self.drivers.next() {
-            Some(name) => sys::Drivers::load(&name)
-                .or_else(|e| {
-                    eprintln!("{}", e);
-                    Err(e)
-                }).ok()
-                .map(|drivers| Device { drivers, name }),
-            None => None,
+        loop {
+            match self.drivers.next() {
+                Some(name) => match self.asio.load_driver(&name) {
+                    Ok(driver) => return Some(Device { driver: Arc::new(driver), name }),
+                    Err(_) => continue,
+                }
+                None => return None,
+            }
         }
     }
 
@@ -172,35 +161,40 @@ impl Iterator for Devices {
     }
 }
 
-/// Asio doesn't have a concept of default
-/// so returning first in list as default
-pub fn default_input_device() -> Option<Device> {
-    first_device()
+fn convert_data_type(ty: sys::AsioSampleType) -> Option<SampleFormat> {
+    let fmt = match ty {
+        sys::AsioSampleType::ASIOSTInt16MSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
+        sys::AsioSampleType::ASIOSTInt16LSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,
+        _ => return None,
+    };
+    Some(fmt)
 }
 
-/// Asio doesn't have a concept of default
-/// so returning first in list as default
-pub fn default_output_device() -> Option<Device> {
-    first_device()
-}
-
-fn first_device() -> Option<Device> {
-    let mut driver_list = online_devices();
-    match driver_list.pop() {
-        Some(name) => sys::Drivers::load(&name)
-            .or_else(|e| {
-                eprintln!("{}", e);
-                Err(e)
-            }).ok()
-            .map(|drivers| Device { drivers, name }),
-        None => None,
+fn default_format_err(e: sys::AsioError) -> DefaultFormatError {
+    match e {
+        sys::AsioError::NoDrivers |
+        sys::AsioError::HardwareMalfunction => DefaultFormatError::DeviceNotAvailable,
+        sys::AsioError::NoRate => DefaultFormatError::StreamTypeNotSupported,
+        err => {
+            let description = format!("{}", err);
+            BackendSpecificError { description }.into()
+        }
     }
 }
 
-/// Remove offline drivers
-fn online_devices() -> Vec<String> {
-    sys::get_driver_list()
-        .into_iter()
-        .filter(|name| sys::Drivers::load(&name).is_ok())
-        .collect()
+fn supported_formats_err(e: sys::AsioError) -> SupportedFormatsError {
+    match e {
+        sys::AsioError::NoDrivers |
+        sys::AsioError::HardwareMalfunction => SupportedFormatsError::DeviceNotAvailable,
+        sys::AsioError::InvalidInput |
+        sys::AsioError::BadMode => SupportedFormatsError::InvalidArgument,
+        err => {
+            let description = format!("{}", err);
+            BackendSpecificError { description }.into()
+        }
+    }
 }

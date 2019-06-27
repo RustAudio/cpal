@@ -13,3 +13,5 @@ extern crate num_derive;
 pub mod bindings;
 #[cfg(asio)]
 pub use bindings::*;
+#[cfg(asio)]
+pub use bindings::errors::{AsioError, LoadDriverError};
