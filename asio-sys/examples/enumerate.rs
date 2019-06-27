@@ -34,39 +34,22 @@ pub struct Format {
 }
 
 fn main() {
-    let driver_list = sys::get_driver_list();
-
-    let format = Format {
-        channels: 0,
-        sample_rate: SampleRate(0),
-        // TODO Not sure about how to set the data type
-        data_type: SampleFormat::F32,
-    };
-    if driver_list.len() > 0 {
-        let format = match sys::get_channels(&driver_list[0]) {
-            Ok(channels) => Format {
-                channels: channels.ins as u16,
-                sample_rate: format.sample_rate,
-                data_type: format.data_type,
-            },
-            Err(e) => {
-                println!("Error retrieving channels: {}", e);
-                format
-            }
+    for name in sys::get_driver_list() {
+        println!("Driver: {:?}", name);
+        let driver = sys::Drivers::load(&name).expect("failed to load driver");
+        let channels = driver.get_channels();
+        let sample_rate = driver.get_sample_rate();
+        let in_fmt = Format {
+            channels: channels.ins as _,
+            sample_rate: SampleRate(sample_rate.rate as _),
+            data_type: SampleFormat::F32,
         };
-
-        let format = match sys::get_sample_rate(&driver_list[0]) {
-            Ok(sample_rate) => Format {
-                channels: format.channels,
-                sample_rate: SampleRate(sample_rate.rate),
-                data_type: format.data_type,
-            },
-            Err(e) => {
-                println!("Error retrieving sample rate: {}", e);
-                format
-            }
+        let out_fmt = Format {
+            channels: channels.outs as _,
+            sample_rate: SampleRate(sample_rate.rate as _),
+            data_type: SampleFormat::F32,
         };
-
-        println!("Format {:?}", format);
+        println!("  Input {:?}", in_fmt);
+        println!("  Output {:?}", out_fmt);
     }
 }

@@ -5,12 +5,9 @@ fn main() {
 
     for driver in &driver_list {
         println!("Driver: {}", driver);
-    }
 
-    if driver_list.len() > 0 {
-        match sys::get_channels(&driver_list[0]) {
-            Ok(channels) => println!("Channels: {:?}", channels),
-            Err(e) => println!("Error retrieving channels: {}", e),
-        }
+        let driver = sys::Drivers::load(driver).expect("failed to load drivers");
+        println!("  Channels: {:?}", driver.get_channels());
+        println!("  Sample rate: {:?}", driver.get_sample_rate());
     }
 }
