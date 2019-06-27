@@ -679,10 +679,6 @@ impl EventLoop {
                     ) => {
                         let mut my_buffers = $Buffers;
                         {
-                            // Wrap the cpal buffer
-                            let buff = OutputBuffer {
-                                buffer: &mut my_buffers.cpal,
-                            };
                             // call the callback to fill the buffer with
                             // users data
                             callback(
@@ -894,6 +890,7 @@ impl EventLoop {
         }
         // Calling play when already playing is a no-op
         sys::play();
+        Ok(())
     }
 
     /// Pause the cpal stream for the given ID.
@@ -912,6 +909,7 @@ impl EventLoop {
         if any_playing {
             sys::stop();
         }
+        Ok(())
     }
 
     /// Destroy the cpal stream based on the ID.

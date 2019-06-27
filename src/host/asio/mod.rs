@@ -7,13 +7,14 @@ use {
     DeviceNameError,
     DevicesError,
     EventLoop as EventLoopTrait,
+    Format,
     Host as HostTrait,
     PauseStreamError,
     PlayStreamError,
     StreamDataResult,
     StreamId as StreamIdTrait,
     SupportedFormatsError,
-}
+};
 
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
 pub use self::stream::{EventLoop, StreamId};
@@ -28,8 +29,8 @@ pub struct Host;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        unimplemented!("asio as an initialisation and termination process that needs to be impld");
-        //Ok(Host)
+        //unimplemented!("asio as an initialisation and termination process that needs to be impld");
+        Ok(Host)
     }
 }
 
@@ -39,7 +40,8 @@ impl HostTrait for Host {
     type EventLoop = EventLoop;
 
     fn is_available() -> bool {
-        unimplemented!("check how to do this using asio-sys")
+        true
+        //unimplemented!("check how to do this using asio-sys")
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {

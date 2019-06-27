@@ -269,6 +269,7 @@ macro_rules! impl_platform_host {
                                 .map(StreamId)
                         }
                     )*
+                    _ => panic!("tried to build a stream with a device from another host"),
                 }
             }
 
@@ -285,6 +286,7 @@ macro_rules! impl_platform_host {
                                 .map(StreamId)
                         }
                     )*
+                    _ => panic!("tried to build a stream with a device from another host"),
                 }
             }
 
@@ -295,6 +297,7 @@ macro_rules! impl_platform_host {
                             e.play_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to play a stream with an ID associated with another host"),
                 }
             }
 
@@ -305,6 +308,7 @@ macro_rules! impl_platform_host {
                             e.pause_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to pause a stream with an ID associated with another host"),
                 }
             }
 
@@ -315,6 +319,7 @@ macro_rules! impl_platform_host {
                             e.destroy_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to destroy a stream with an ID associated with another host"),
                 }
             }
 

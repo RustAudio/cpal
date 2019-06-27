@@ -5,6 +5,7 @@ pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 use std::hash::{Hash, Hasher};
 use DefaultFormatError;
 use DeviceNameError;
+use DevicesError;
 use Format;
 use SampleFormat;
 use SampleRate;
