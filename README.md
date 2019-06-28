@@ -83,7 +83,18 @@ WASAPI. To do so, follow these steps:
 
    If you run into an error along the lines of "no variant `Asio` in `HostId`",
    make sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
+9. Make sure to enable the `asio` feature when building CPAL:
 
+   ```
+   cargo build --features "asio"
+   ```
+
+   or if you are using CPAL as a dependency in a downstream project, enable the
+   feature like this:
+
+   ```toml
+   cpal = { version = "*", features = ["asio"] }
+   ```
 
 In the future we would like to work on automating this process to make it
 easier, but we are not familiar enough with the ASIO license to do so yet.

@@ -521,6 +521,9 @@ mod platform_impl {
 // TODO: Add `Asio asio` once #221 lands.
 #[cfg(windows)]
 mod platform_impl {
+    #![allow(unreachable_patterns)]
+
+    #[cfg(feature = "asio")]
     pub use crate::host::asio::{
         Device as AsioDevice,
         Devices as AsioDevices,
@@ -540,7 +543,11 @@ mod platform_impl {
         SupportedOutputFormats as WasapiSupportedOutputFormats,
     };
 
+    #[cfg(feature = "asio")]
     impl_platform_host!(Asio asio, Wasapi wasapi);
+
+    #[cfg(not(feature = "asio"))]
+    impl_platform_host!(Wasapi wasapi);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
