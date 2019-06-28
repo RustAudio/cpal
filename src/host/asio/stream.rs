@@ -21,6 +21,19 @@ use StreamDataResult;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
 
+/// Sample types whose constant silent value is known.
+trait Silence {
+    const SILENCE: Self;
+}
+
+/// Constraints on the interleaved sample buffer format required by the CPAL API.
+trait InterleavedSample: Clone + Copy + Silence {
+    fn unknown_type_output_buffer(&mut [Self]) -> UnknownTypeOutputBuffer;
+}
+
+/// Constraints on the ASIO sample types.
+trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {}
+
 /// Controls all streams
 pub struct EventLoop {
     /// The input and output ASIO streams
@@ -36,7 +49,7 @@ pub struct EventLoop {
 /// Id for each stream.
 /// Created depending on the number they are created.
 /// Starting at one! not zero.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
 
 /// CPAL stream.
@@ -50,26 +63,22 @@ struct Stream {
     driver: Arc<sys::Driver>,
 }
 
-#[derive(Default)]
-struct I16Buffer {
-    cpal: Vec<i16>,
-    channel: Vec<Vec<i16>>,
-}
-
-#[derive(Default)]
-struct F32Buffer {
-    cpal: Vec<f32>,
-    channel: Vec<Vec<f32>>,
-}
 struct Buffers {
-    i16_buff: I16Buffer,
-    //u16_buff: U16Buffer,
-    f32_buff: F32Buffer,
+    interleaved: Vec<u8>,
+    non_interleaved: Vec<u8>,
 }
 
 enum Endian {
     Little,
     Big,
+}
+
+// Used to keep track of whether or not the current current asio stream buffer requires
+// being silencing before summing audio.
+#[derive(Default)]
+struct SilenceAsioBuffer {
+    first: bool,
+    second: bool,
 }
 
 impl EventLoop {
@@ -208,327 +217,328 @@ impl EventLoop {
         device: &Device,
         format: &Format,
     ) -> Result<StreamId, BuildStreamError> {
-        let Device { driver, .. } = device;
-        let num_channels = format.channels.clone();
-        let stream_type = driver.data_type().map_err(build_stream_err)?;
-        let stream_buffer_size = self.get_input_stream(&driver, format, device)?;
-        let cpal_num_samples = stream_buffer_size * num_channels as usize;
-        let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
-        let asio_streams = self.asio_streams.clone();
-        let cpal_streams = self.cpal_streams.clone();
-        let callbacks = self.callbacks.clone();
+        unimplemented!()
+        // let Device { driver, .. } = device;
+        // let num_channels = format.channels.clone();
+        // let stream_type = driver.data_type().map_err(build_stream_err)?;
+        // let stream_buffer_size = self.get_input_stream(&driver, format, device)?;
+        // let cpal_num_samples = stream_buffer_size * num_channels as usize;
+        // let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
+        // let asio_streams = self.asio_streams.clone();
+        // let cpal_streams = self.cpal_streams.clone();
+        // let callbacks = self.callbacks.clone();
 
-        let channel_len = cpal_num_samples / num_channels as usize;
+        // let channel_len = cpal_num_samples / num_channels as usize;
 
-        // Create buffers depending on data type
-        // TODO the naming of cpal and channel is confusing.
-        // change it to:
-        // cpal -> interleaved
-        // channels -> per_channel
-        let mut buffers = match format.data_type {
-            SampleFormat::I16 => Buffers {
-                i16_buff: I16Buffer {
-                    cpal: vec![0 as i16; cpal_num_samples],
-                    channel: (0..num_channels)
-                        .map(|_| Vec::with_capacity(channel_len))
-                        .collect(),
-                },
-                f32_buff: F32Buffer::default(),
-            },
-            SampleFormat::F32 => Buffers {
-                i16_buff: I16Buffer::default(),
-                f32_buff: F32Buffer {
-                    cpal: vec![0 as f32; cpal_num_samples],
-                    channel: (0..num_channels)
-                        .map(|_| Vec::with_capacity(channel_len))
-                        .collect(),
-                },
-            },
-            _ => unimplemented!(),
-        };
+        // // Create buffers depending on data type
+        // // TODO the naming of cpal and channel is confusing.
+        // // change it to:
+        // // cpal -> interleaved
+        // // channels -> per_channel
+        // let mut buffers = match format.data_type {
+        //     SampleFormat::I16 => Buffers {
+        //         i16_buff: I16Buffer {
+        //             cpal: vec![0 as i16; cpal_num_samples],
+        //             channel: (0..num_channels)
+        //                 .map(|_| Vec::with_capacity(channel_len))
+        //                 .collect(),
+        //         },
+        //         f32_buff: F32Buffer::default(),
+        //     },
+        //     SampleFormat::F32 => Buffers {
+        //         i16_buff: I16Buffer::default(),
+        //         f32_buff: F32Buffer {
+        //             cpal: vec![0 as f32; cpal_num_samples],
+        //             channel: (0..num_channels)
+        //                 .map(|_| Vec::with_capacity(channel_len))
+        //                 .collect(),
+        //         },
+        //     },
+        //     _ => unimplemented!(),
+        // };
 
-        // Set the input callback.
-        // This is most performance critical part of the ASIO bindings.
-        sys::set_callback(move |index| unsafe {
-            // if not playing return early
-            {
-                if let Some(s) = cpal_streams.lock().unwrap().get(count) {
-                    if let Some(s) = s {
-                        if !s.playing {
-                            return ();
-                        }
-                    }
-                }
-            }
-            // Get the stream
-            let stream_lock = asio_streams.lock().unwrap();
-            let ref asio_stream = match stream_lock.input {
-                Some(ref asio_stream) => asio_stream,
-                None => return (),
-            };
+        // // Set the input callback.
+        // // This is most performance critical part of the ASIO bindings.
+        // sys::set_callback(move |index| unsafe {
+        //     // if not playing return early
+        //     {
+        //         if let Some(s) = cpal_streams.lock().unwrap().get(count) {
+        //             if let Some(s) = s {
+        //                 if !s.playing {
+        //                     return ();
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     // Get the stream
+        //     let stream_lock = asio_streams.lock().unwrap();
+        //     let ref asio_stream = match stream_lock.input {
+        //         Some(ref asio_stream) => asio_stream,
+        //         None => return (),
+        //     };
 
-            // Get the callback
-            let mut callbacks = callbacks.lock().unwrap();
+        //     // Get the callback
+        //     let mut callbacks = callbacks.lock().unwrap();
 
-            // Theres only a single callback because theres only one event loop
-            let callback = match callbacks.as_mut() {
-                Some(callback) => callback,
-                None => return (),
-            };
+        //     // Theres only a single callback because theres only one event loop
+        //     let callback = match callbacks.as_mut() {
+        //         Some(callback) => callback,
+        //         None => return (),
+        //     };
 
-            // Macro to convert sample from ASIO to CPAL type
-            macro_rules! convert_sample {
-                // floats types required different conversion
-                (f32,
-                f32,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample
-                };
-                (f64,
-                f64,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample
-                };
-                (f64,
-                f32,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample as f32
-                };
-                (f32,
-                f64,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample as f64
-                };
-                ($AsioTypeIdent:ident,
-                f32,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64) as f32
-                };
-                ($AsioTypeIdent:ident,
-                f64,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64
-                };
-                (f32,
-                $SampleType:ty,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
-                };
-                (f64,
-                $SampleType:ty,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
-                };
-                ($AsioTypeIdent:ident,
-                $SampleType:ty,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as i64 * ::std::$SampleTypeIdent::MAX as i64
-                        / ::std::$AsioTypeIdent::MAX as i64) as $SampleType
-                };
-            };
-            // This creates gets the buffer and interleaves it.
-            // It allows it to be done based on the sample type.
-            macro_rules! try_callback {
-                ($SampleFormat:ident,
-                $SampleType:ty,
-                $SampleTypeIdent:ident,
-                $AsioType:ty,
-                $AsioTypeIdent:ident,
-                $Buffers:expr,
-                $BuffersType:ty,
-                $BuffersTypeIdent:ident,
-                $Endianness:expr,
-                $ConvertEndian:expr
-                ) => {
-                    // For each channel write the asio buffer to
-                    // the cpal buffer
+        //     // Macro to convert sample from ASIO to CPAL type
+        //     macro_rules! convert_sample {
+        //         // floats types required different conversion
+        //         (f32,
+        //         f32,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             *$Sample
+        //         };
+        //         (f64,
+        //         f64,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             *$Sample
+        //         };
+        //         (f64,
+        //         f32,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             *$Sample as f32
+        //         };
+        //         (f32,
+        //         f64,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             *$Sample as f64
+        //         };
+        //         ($AsioTypeIdent:ident,
+        //         f32,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             (*$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64) as f32
+        //         };
+        //         ($AsioTypeIdent:ident,
+        //         f64,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             *$Sample as f64 / ::std::$AsioTypeIdent::MAX as f64
+        //         };
+        //         (f32,
+        //         $SampleType:ty,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
+        //         };
+        //         (f64,
+        //         $SampleType:ty,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             (*$Sample as f64 * ::std::$SampleTypeIdent::MAX as f64) as $SampleType
+        //         };
+        //         ($AsioTypeIdent:ident,
+        //         $SampleType:ty,
+        //         $SampleTypeIdent:ident,
+        //         $Sample:expr
+        //         ) => {
+        //             (*$Sample as i64 * ::std::$SampleTypeIdent::MAX as i64
+        //                 / ::std::$AsioTypeIdent::MAX as i64) as $SampleType
+        //         };
+        //     };
+        //     // This creates gets the buffer and interleaves it.
+        //     // It allows it to be done based on the sample type.
+        //     macro_rules! try_callback {
+        //         ($SampleFormat:ident,
+        //         $SampleType:ty,
+        //         $SampleTypeIdent:ident,
+        //         $AsioType:ty,
+        //         $AsioTypeIdent:ident,
+        //         $Buffers:expr,
+        //         $BuffersType:ty,
+        //         $BuffersTypeIdent:ident,
+        //         $Endianness:expr,
+        //         $ConvertEndian:expr
+        //         ) => {
+        //             // For each channel write the asio buffer to
+        //             // the cpal buffer
 
-                    for (i, channel) in $Buffers.channel.iter_mut().enumerate() {
-                        let buff_ptr = asio_stream.buffer_infos[i].buffers[index as usize]
-                            as *mut $AsioType;
-                        let asio_buffer: &'static [$AsioType] = std::slice::from_raw_parts(
-                            buff_ptr,
-                            asio_stream.buffer_size as usize,
-                        );
-                        for asio_s in asio_buffer.iter() {
-                            channel.push($ConvertEndian(
-                                convert_sample!(
-                                    $AsioTypeIdent,
-                                    $SampleType,
-                                    $SampleTypeIdent,
-                                    asio_s
-                                ),
-                                $Endianness,
-                            ));
-                        }
-                    }
+        //             for (i, channel) in $Buffers.channel.iter_mut().enumerate() {
+        //                 let buff_ptr = asio_stream.buffer_infos[i].buffers[index as usize]
+        //                     as *mut $AsioType;
+        //                 let asio_buffer: &'static [$AsioType] = std::slice::from_raw_parts(
+        //                     buff_ptr,
+        //                     asio_stream.buffer_size as usize,
+        //                 );
+        //                 for asio_s in asio_buffer.iter() {
+        //                     channel.push($ConvertEndian(
+        //                         convert_sample!(
+        //                             $AsioTypeIdent,
+        //                             $SampleType,
+        //                             $SampleTypeIdent,
+        //                             asio_s
+        //                         ),
+        //                         $Endianness,
+        //                     ));
+        //                 }
+        //             }
 
-                    // interleave all the channels
-                    {
-                        let $BuffersTypeIdent {
-                            cpal: ref mut c_buffer,
-                            channel: ref mut channels,
-                        } = $Buffers;
-                        au::interleave(&channels, c_buffer);
-                        // Clear the per channel buffers
-                        for c in channels.iter_mut() {
-                            c.clear();
-                        }
-                    }
+        //             // interleave all the channels
+        //             {
+        //                 let $BuffersTypeIdent {
+        //                     cpal: ref mut c_buffer,
+        //                     channel: ref mut channels,
+        //                 } = $Buffers;
+        //                 au::interleave(&channels, c_buffer);
+        //                 // Clear the per channel buffers
+        //                 for c in channels.iter_mut() {
+        //                     c.clear();
+        //                 }
+        //             }
 
-                    // Call the users callback with the buffer
-                    callback(
-                        StreamId(count),
-                        Ok(StreamData::Input {
-                            buffer: UnknownTypeInputBuffer::$SampleFormat(::InputBuffer {
-                                buffer: &$Buffers.cpal,
-                            }),
-                        }),
-                    );
-                };
-            };
-            // Call the right buffer handler depending on types
-            match stream_type {
-                sys::AsioSampleType::ASIOSTInt32LSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i32,
-                        i32,
-                        buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Little,
-                        convert_endian_from
-                    );
-                }
-                sys::AsioSampleType::ASIOSTInt16LSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i16,
-                        i16,
-                        buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Little,
-                        convert_endian_from
-                    );
-                }
-                sys::AsioSampleType::ASIOSTInt32MSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i32,
-                        i32,
-                        buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Big,
-                        convert_endian_from
-                    );
-                }
-                sys::AsioSampleType::ASIOSTInt16MSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i16,
-                        i16,
-                        buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Big,
-                        convert_endian_from
-                    );
-                }
-                sys::AsioSampleType::ASIOSTFloat32LSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f32,
-                        f32,
-                        buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Little,
-                        |a, _| a
-                    );
-                }
-                sys::AsioSampleType::ASIOSTFloat64LSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f64,
-                        f64,
-                        buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Little,
-                        |a, _| a
-                    );
-                }
-                sys::AsioSampleType::ASIOSTFloat32MSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f32,
-                        f32,
-                        buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Big,
-                        |a, _| a
-                    );
-                }
-                sys::AsioSampleType::ASIOSTFloat64MSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f64,
-                        f64,
-                        buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Big,
-                        |a, _| a
-                    );
-                }
-                _ => println!("unsupported format {:?}", stream_type),
-            }
-        });
-        // Create stream and set to paused
-        self.cpal_streams
-            .lock()
-            .unwrap()
-            .push(Some(Stream { driver: driver.clone(), playing: false }));
+        //             // Call the users callback with the buffer
+        //             callback(
+        //                 StreamId(count),
+        //                 Ok(StreamData::Input {
+        //                     buffer: UnknownTypeInputBuffer::$SampleFormat(::InputBuffer {
+        //                         buffer: &$Buffers.cpal,
+        //                     }),
+        //                 }),
+        //             );
+        //         };
+        //     };
+        //     // Call the right buffer handler depending on types
+        //     match stream_type {
+        //         sys::AsioSampleType::ASIOSTInt32LSB => {
+        //             try_callback!(
+        //                 I16,
+        //                 i16,
+        //                 i16,
+        //                 i32,
+        //                 i32,
+        //                 buffers.i16_buff,
+        //                 I16Buffer,
+        //                 I16Buffer,
+        //                 Endian::Little,
+        //                 convert_endian_from
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTInt16LSB => {
+        //             try_callback!(
+        //                 I16,
+        //                 i16,
+        //                 i16,
+        //                 i16,
+        //                 i16,
+        //                 buffers.i16_buff,
+        //                 I16Buffer,
+        //                 I16Buffer,
+        //                 Endian::Little,
+        //                 convert_endian_from
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTInt32MSB => {
+        //             try_callback!(
+        //                 I16,
+        //                 i16,
+        //                 i16,
+        //                 i32,
+        //                 i32,
+        //                 buffers.i16_buff,
+        //                 I16Buffer,
+        //                 I16Buffer,
+        //                 Endian::Big,
+        //                 convert_endian_from
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTInt16MSB => {
+        //             try_callback!(
+        //                 I16,
+        //                 i16,
+        //                 i16,
+        //                 i16,
+        //                 i16,
+        //                 buffers.i16_buff,
+        //                 I16Buffer,
+        //                 I16Buffer,
+        //                 Endian::Big,
+        //                 convert_endian_from
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTFloat32LSB => {
+        //             try_callback!(
+        //                 F32,
+        //                 f32,
+        //                 f32,
+        //                 f32,
+        //                 f32,
+        //                 buffers.f32_buff,
+        //                 F32Buffer,
+        //                 F32Buffer,
+        //                 Endian::Little,
+        //                 |a, _| a
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTFloat64LSB => {
+        //             try_callback!(
+        //                 F32,
+        //                 f32,
+        //                 f32,
+        //                 f64,
+        //                 f64,
+        //                 buffers.f32_buff,
+        //                 F32Buffer,
+        //                 F32Buffer,
+        //                 Endian::Little,
+        //                 |a, _| a
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTFloat32MSB => {
+        //             try_callback!(
+        //                 F32,
+        //                 f32,
+        //                 f32,
+        //                 f32,
+        //                 f32,
+        //                 buffers.f32_buff,
+        //                 F32Buffer,
+        //                 F32Buffer,
+        //                 Endian::Big,
+        //                 |a, _| a
+        //             );
+        //         }
+        //         sys::AsioSampleType::ASIOSTFloat64MSB => {
+        //             try_callback!(
+        //                 F32,
+        //                 f32,
+        //                 f32,
+        //                 f64,
+        //                 f64,
+        //                 buffers.f32_buff,
+        //                 F32Buffer,
+        //                 F32Buffer,
+        //                 Endian::Big,
+        //                 |a, _| a
+        //             );
+        //         }
+        //         _ => println!("unsupported format {:?}", stream_type),
+        //     }
+        // });
+        // // Create stream and set to paused
+        // self.cpal_streams
+        //     .lock()
+        //     .unwrap()
+        //     .push(Some(Stream { driver: driver.clone(), playing: false }));
 
-        Ok(StreamId(count))
+        // Ok(StreamId(count))
     }
 
     /// Create the an output cpal stream.
@@ -541,337 +551,203 @@ impl EventLoop {
         let num_channels = format.channels.clone();
         let stream_type = driver.data_type().map_err(build_stream_err)?;
         let stream_buffer_size = self.get_output_stream(&driver, format, device)?;
+        let channel_len = stream_buffer_size as usize;
         let cpal_num_samples = stream_buffer_size * num_channels as usize;
         let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
         let asio_streams = self.asio_streams.clone();
         let cpal_streams = self.cpal_streams.clone();
         let callbacks = self.callbacks.clone();
-        let channel_len = cpal_num_samples / num_channels as usize;
 
-        // Create buffers depending on data type
-        let mut re_buffers = match format.data_type {
-            SampleFormat::I16 => Buffers {
-                i16_buff: I16Buffer {
-                    cpal: vec![0 as i16; cpal_num_samples],
-                    channel: (0..num_channels)
-                        .map(|_| Vec::with_capacity(channel_len))
-                        .collect(),
-                },
-                f32_buff: F32Buffer::default(),
-            },
-            SampleFormat::F32 => Buffers {
-                i16_buff: I16Buffer::default(),
-                f32_buff: F32Buffer {
-                    cpal: vec![0 as f32; cpal_num_samples],
-                    channel: (0..num_channels)
-                        .map(|_| Vec::with_capacity(channel_len))
-                        .collect(),
-                },
-            },
-            _ => unimplemented!(),
-        };
+        // Create buffers depending on data type.
+        let stream_id = StreamId(count);
+        let data_type = format.data_type;
+        let len_bytes = cpal_num_samples * data_type.sample_size();
+        let mut interleaved = vec![0u8; len_bytes];
+        let mut silence_asio_buffer = SilenceAsioBuffer::default();
 
-        sys::set_callback(move |index| unsafe {
-            // if not playing return early
-            {
-                if let Some(s) = cpal_streams.lock().unwrap().get(count) {
-                    if let Some(s) = s {
-                        if !s.playing {
-                            return ();
-                        }
+        sys::set_callback(move |buffer_index| unsafe {
+            // If not playing, return early.
+            if let Some(s) = cpal_streams.lock().unwrap().get(count) {
+                if let Some(s) = s {
+                    if !s.playing {
+                        return ();
                     }
                 }
             }
-            // Get the stream
+
+            // Acquire the stream and callback.
             let stream_lock = asio_streams.lock().unwrap();
             let ref asio_stream = match stream_lock.output {
                 Some(ref asio_stream) => asio_stream,
                 None => return (),
             };
-
-            // Get the callback
             let mut callbacks = callbacks.lock().unwrap();
-
-            // Theres only a single callback because theres only one event loop
             let callback = match callbacks.as_mut() {
                 Some(callback) => callback,
                 None => return (),
             };
 
-            // Convert sample depending on the sample type
-            macro_rules! convert_sample {
-                ($AsioTypeIdent:ident,
-                f64,
-                f64,
-                $Sample:expr
-                ) => {
-                    *$Sample
-                };
-                ($AsioTypeIdent:ident,
-                f32,
-                f32,
-                $Sample:expr
-                ) => {
-                    *$Sample
-                };
-                ($AsioTypeIdent:ident,
-                f64,
-                f32,
-                $Sample:expr
-                ) => {
-                    *$Sample as f64
-                };
-                ($AsioTypeIdent:ident,
-                f32,
-                f64,
-                $Sample:expr
-                ) => {
-                    *$Sample as f32
-                };
-                ($AsioTypeIdent:ident,
-                $AsioType:ty,
-                f32,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType
-                };
-                ($AsioTypeIdent:ident,
-                $AsioType:ty,
-                f64,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 * ::std::$AsioTypeIdent::MAX as f64) as $AsioType
-                };
-                ($AsioTypeIdent:ident,
-                f32,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as f64 / ::std::$SampleTypeIdent::MAX as f64) as f32
-                };
-                ($AsioTypeIdent:ident,
-                f64,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    *$Sample as f64 / ::std::$SampleTypeIdent::MAX as f64
-                };
-                ($AsioTypeIdent:ident,
-                $AsioType:ty,
-                $SampleTypeIdent:ident,
-                $Sample:expr
-                ) => {
-                    (*$Sample as i64 * ::std::$AsioTypeIdent::MAX as i64
-                        / ::std::$SampleTypeIdent::MAX as i64) as $AsioType
-                };
+            // Silence the ASIO buffer that is about to be used.
+            //
+            // This checks if any other callbacks have already silenced the buffer associated with
+            // the current `buffer_index`.
+            //
+            // If not, we will silence it and set the opposite buffer half to unsilenced.
+            let silence = match buffer_index {
+                0 if !silence_asio_buffer.first => {
+                    silence_asio_buffer.first = true;
+                    silence_asio_buffer.second = false;
+                    true
+                }
+                0 => false,
+                1 if !silence_asio_buffer.second => {
+                    silence_asio_buffer.second = true;
+                    silence_asio_buffer.first = false;
+                    true
+                }
+                1 => false,
+                _ => unreachable!("ASIO uses a double-buffer so there should only be 2"),
             };
 
-            macro_rules! try_callback {
-                ($SampleFormat:ident,
-                $SampleType:ty,
-                $SampleTypeIdent:ident,
-                $AsioType:ty,
-                $AsioTypeIdent:ident,
-                $Buffers:expr,
-                $BuffersType:ty,
-                $BuffersTypeIdent:ident,
-                $Endianness:expr,
-                $ConvertEndian:expr
-                ) => {
-                    let mut my_buffers = $Buffers;
-                    {
-                        // call the callback to fill the buffer with
-                        // users data
-                        callback(
-                            StreamId(count),
-                            Ok(StreamData::Output {
-                                buffer: UnknownTypeOutputBuffer::$SampleFormat(
-                                    ::OutputBuffer {
-                                        buffer: &mut my_buffers.cpal,
-                                    },
-                                ),
-                            }),
-                        );
-                    }
-                    // Deinter all the channels
-                    {
-                        let $BuffersTypeIdent {
-                            cpal: ref mut c_buffer,
-                            channel: ref mut channels,
-                        } = my_buffers;
-                        au::deinterleave(&c_buffer[..], channels);
-                    }
+            /// 1. Render the given callback to the given buffer of interleaved samples.
+            /// 2. If required, silence the ASIO buffer.
+            /// 3. Finally, write the interleaved data to the non-interleaved ASIO buffer,
+            ///    performing endianness conversions as necessary.
+            unsafe fn process_output_callback<A, B, F, G>(
+                stream_id: StreamId,
+                callback: &mut (dyn FnMut(StreamId, StreamDataResult) + Send),
+                interleaved: &mut [u8],
+                silence_asio_buffer: bool,
+                asio_stream: &sys::AsioStream,
+                buffer_index: usize,
+                to_asio_sample: F,
+                to_endianness: G,
+            )
+            where
+                A: InterleavedSample,
+                B: AsioSample,
+                F: Fn(A) -> B,
+                G: Fn(B) -> B,
+            {
+                // 1. Render interleaved buffer from callback.
+                let interleaved: &mut [A] = cast_slice_mut(interleaved);
+                callback(
+                    stream_id,
+                    Ok(StreamData::Output { buffer: A::unknown_type_output_buffer(interleaved) }),
+                );
 
-                    // Silence the buffer that is about to be used.
-                    // This checks if any other callbacks have already
-                    // silenced this buffer. If not it will silence it
-                    // and set the opposite buffer half to unsilenced.
-                    let silence = match index {
-                        0 => {
-                            if !sys::SILENCE_FIRST.load(Ordering::SeqCst) {
-                                sys::SILENCE_FIRST.store(true, Ordering::SeqCst);
-                                sys::SILENCE_SECOND.store(false, Ordering::SeqCst);
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        1 => {
-                            if !sys::SILENCE_SECOND.load(Ordering::SeqCst) {
-                                sys::SILENCE_SECOND.store(true, Ordering::SeqCst);
-                                sys::SILENCE_FIRST.store(false, Ordering::SeqCst);
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    // For each channel write the cpal data to
-                    // the asio buffer
-                    for (i, channel) in my_buffers.channel.iter().enumerate() {
-                        let buff_ptr = asio_stream.buffer_infos[i].buffers
-                            [index as usize] as *mut $AsioType;
-                        let asio_buffer: &'static mut [$AsioType] =
-                            std::slice::from_raw_parts_mut(
-                                buff_ptr,
-                                asio_stream.buffer_size as usize,
-                            );
-                        for (asio_s, cpal_s) in asio_buffer.iter_mut().zip(channel) {
-                            if silence {
-                                *asio_s = 0.0 as $AsioType;
-                            }
-                            *asio_s += $ConvertEndian(
-                                convert_sample!(
-                                    $AsioTypeIdent,
-                                    $AsioType,
-                                    $SampleTypeIdent,
-                                    cpal_s
-                                ),
-                                $Endianness,
-                            );
-                        }
+                // 2. Silence ASIO channels if necessary.
+                let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
+                if silence_asio_buffer {
+                    for ch_ix in 0..n_channels {
+                        let asio_channel =
+                            asio_channel_slice_mut::<B>(asio_stream, buffer_index, ch_ix);
+                        asio_channel.iter_mut().for_each(|s| *s = to_endianness(B::SILENCE));
                     }
-                };
+                }
+
+                // 3. Write interleaved samples to ASIO channels, one channel at a time.
+                for ch_ix in 0..n_channels {
+                    let asio_channel =
+                        asio_channel_slice_mut::<B>(asio_stream, buffer_index, ch_ix);
+                    for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
+                        *s_asio = *s_asio + to_endianness(to_asio_sample(frame[ch_ix]));
+                    }
+                }
             }
-            // Choose the buffer conversions based on the sample types
-            match stream_type {
-                sys::AsioSampleType::ASIOSTInt32LSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i32,
-                        i32,
-                        &mut re_buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Little,
-                        convert_endian_to
+
+            match (data_type, &stream_type) {
+                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
+                    process_output_callback::<i16, i16, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        std::convert::identity::<i16>,
+                        to_le,
                     );
                 }
-                sys::AsioSampleType::ASIOSTInt16LSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i16,
-                        i16,
-                        &mut re_buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Little,
-                        convert_endian_to
+                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
+                    process_output_callback::<i16, i16, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        std::convert::identity::<i16>,
+                        to_be,
                     );
                 }
-                sys::AsioSampleType::ASIOSTInt32MSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i32,
-                        i32,
-                        &mut re_buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Big,
-                        convert_endian_to
+
+                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
+                // trait for the `to_le` and `to_be` methods, but this does not support floats.
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) |
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
+                    process_output_callback::<f32, f32, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        std::convert::identity::<f32>,
+                        std::convert::identity::<f32>,
                     );
                 }
-                sys::AsioSampleType::ASIOSTInt16MSB => {
-                    try_callback!(
-                        I16,
-                        i16,
-                        i16,
-                        i16,
-                        i16,
-                        &mut re_buffers.i16_buff,
-                        I16Buffer,
-                        I16Buffer,
-                        Endian::Big,
-                        convert_endian_to
+
+                // TODO: Add support for the following sample formats to CPAL and simplify the
+                // `process_output_callback` function above by removing the unnecessary sample
+                // conversion function.
+                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32LSB) => {
+                    process_output_callback::<i16, i32, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        |s| (s as i32) << 16,
+                        to_le,
                     );
                 }
-                sys::AsioSampleType::ASIOSTFloat32LSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f32,
-                        f32,
-                        &mut re_buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Little,
-                        |a, _| a
+                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32MSB) => {
+                    process_output_callback::<i16, i32, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        |s| (s as i32) << 16,
+                        to_be,
                     );
                 }
-                sys::AsioSampleType::ASIOSTFloat64LSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f64,
-                        f64,
-                        &mut re_buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Little,
-                        |a, _| a
+                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
+                // trait for the `to_le` and `to_be` methods, but this does not support floats.
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB) |
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
+                    process_output_callback::<f32, f64, _, _>(
+                        stream_id,
+                        callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        buffer_index as usize,
+                        |s| s as f64,
+                        std::convert::identity::<f64>,
                     );
                 }
-                sys::AsioSampleType::ASIOSTFloat32MSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f32,
-                        f32,
-                        &mut re_buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Big,
-                        |a, _| a
-                    );
+
+                unsupported_format_pair => {
+                    unreachable!("`build_output_stream` should have returned with unsupported \
+                                 format {:?}", unsupported_format_pair)
                 }
-                sys::AsioSampleType::ASIOSTFloat64MSB => {
-                    try_callback!(
-                        F32,
-                        f32,
-                        f32,
-                        f64,
-                        f64,
-                        &mut re_buffers.f32_buff,
-                        F32Buffer,
-                        F32Buffer,
-                        Endian::Big,
-                        |a, _| a
-                    );
-                }
-                _ => println!("unsupported format {:?}", stream_type),
             }
         });
+
         // Create the stream paused
         self.cpal_streams
             .lock()
@@ -883,9 +759,6 @@ impl EventLoop {
     }
 
     /// Play the cpal stream for the given ID.
-    ///
-    /// TODO: This will also play all other paused streams... need a nicer way of addressing ASIO's
-    /// limitation of only being able to start/stop the entire driver.
     pub fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
         let mut streams = self.cpal_streams.lock().unwrap();
         if let Some(s) = streams.get_mut(stream_id.0).expect("Bad play stream index") {
@@ -900,18 +773,16 @@ impl EventLoop {
     ///
     /// Pause the ASIO streams if there are no other CPAL streams playing, as ASIO only allows
     /// stopping the entire driver.
-    ///
-    /// TODO: Come up with a nicer solution for this.
     pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.cpal_streams.lock().unwrap();
         let streams_playing = streams.iter()
-            .filter(|s| s.map(|s| s.playing).unwrap_or(false))
+            .filter(|s| s.as_ref().map(|s| s.playing).unwrap_or(false))
             .count();
         if let Some(s) = streams.get_mut(stream_id.0).expect("Bad pause stream index") {
             if streams_playing <= 1 {
                 s.driver.stop().map_err(pause_stream_err)?;
-                s.playing = false;
             }
+            s.playing = false;
         }
         Ok(())
     }
@@ -950,12 +821,83 @@ impl Drop for EventLoop {
     }
 }
 
-/// Helper function to convert to system endianness
-fn convert_endian_to<T: PrimInt>(sample: T, endian: Endian) -> T {
-    match endian {
-        Endian::Big => sample.to_be(),
-        Endian::Little => sample.to_le(),
+impl Silence for i16 {
+    const SILENCE: Self = 0;
+}
+
+impl Silence for i32 {
+    const SILENCE: Self = 0;
+}
+
+impl Silence for f32 {
+    const SILENCE: Self = 0.0;
+}
+
+impl Silence for f64 {
+    const SILENCE: Self = 0.0;
+}
+
+impl InterleavedSample for i16 {
+    fn unknown_type_output_buffer(buffer: &mut [Self]) -> UnknownTypeOutputBuffer {
+        UnknownTypeOutputBuffer::I16(::OutputBuffer { buffer })
     }
+}
+
+impl InterleavedSample for f32 {
+    fn unknown_type_output_buffer(buffer: &mut [Self]) -> UnknownTypeOutputBuffer {
+        UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer })
+    }
+}
+
+impl AsioSample for i16 {}
+
+impl AsioSample for i32 {}
+
+impl AsioSample for f32 {}
+
+impl AsioSample for f64 {}
+
+/// Cast a byte slice into a (immutable) slice of desired type.
+///
+/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
+unsafe fn cast_slice<T>(v: &[u8]) -> &[T] {
+    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
+    std::slice::from_raw_parts(v.as_ptr() as *const T, v.len() / std::mem::size_of::<T>())
+}
+
+/// Cast a byte slice into a mutable slice of desired type.
+///
+/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
+unsafe fn cast_slice_mut<T>(v: &mut [u8]) -> &mut [T] {
+    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
+    std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
+}
+
+/// Helper function to convert to system endianness
+fn to_le<T: PrimInt>(t: T) -> T {
+    t.to_le()
+}
+
+/// Helper function to convert from system endianness
+fn to_be<T: PrimInt>(t: T) -> T {
+    t.to_be()
+}
+
+/// Shorthand for retrieving the asio buffer slice associated with a channel.
+///
+/// Safety: it's up to the user to ensure the slice is not used beyond the lifetime of
+/// the stream and that this function is not called multiple times for the same
+/// channel.
+unsafe fn asio_channel_slice_mut<T>(
+    asio_stream: &sys::AsioStream,
+    buffer_index: usize,
+    channel_index: usize,
+) -> &mut [T] {
+    let buff_ptr: *mut T = asio_stream
+        .buffer_infos[channel_index]
+        .buffers[buffer_index as usize]
+        as *mut _;
+    std::slice::from_raw_parts_mut(buff_ptr, asio_stream.buffer_size as usize)
 }
 
 /// Helper function to convert from system endianness
