@@ -185,16 +185,3 @@ fn default_format_err(e: sys::AsioError) -> DefaultFormatError {
         }
     }
 }
-
-fn supported_formats_err(e: sys::AsioError) -> SupportedFormatsError {
-    match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => SupportedFormatsError::DeviceNotAvailable,
-        sys::AsioError::InvalidInput |
-        sys::AsioError::BadMode => SupportedFormatsError::InvalidArgument,
-        err => {
-            let description = format!("{}", err);
-            BackendSpecificError { description }.into()
-        }
-    }
-}
