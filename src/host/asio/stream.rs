@@ -225,7 +225,7 @@ impl EventLoop {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
-        sys::set_callback(move |buffer_index| unsafe {
+        driver.set_callback(move |buffer_index| unsafe {
             // If not playing return early.
             // TODO: Don't assume `count` is valid - we should search for the matching `StreamId`.
             if let Some(s) = cpal_streams.lock().unwrap().get(count) {
@@ -400,7 +400,7 @@ impl EventLoop {
         let mut interleaved = vec![0u8; len_bytes];
         let mut silence_asio_buffer = SilenceAsioBuffer::default();
 
-        sys::set_callback(move |buffer_index| unsafe {
+        driver.set_callback(move |buffer_index| unsafe {
             // If not playing, return early.
             // TODO: Don't assume `count` is valid - we should search for the matching `StreamId`.
             if let Some(s) = cpal_streams.lock().unwrap().get(count) {

@@ -579,6 +579,17 @@ impl Driver {
         Ok(())
     }
 
+    /// Adds a callback to the list of active callbacks.
+    ///
+    /// The given function receives the index of the buffer currently ready for processing.
+    pub fn set_callback<F>(&self, callback: F)
+    where
+        F: 'static + FnMut(i32) + Send,
+    {
+        let mut bc = BUFFER_CALLBACK.lock().unwrap();
+        bc.push(Some(BufferCallback(Box::new(callback))));
+    }
+
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
     /// any associated resources.
     pub fn destroy(mut self) -> Result<(), AsioError> {
@@ -597,7 +608,15 @@ impl Driver {
             asio_result!(ai::ASIOExit())?;
             ai::remove_current_driver();
         }
+
+        // Clear any existing stream callbacks.
+        if let Ok(mut bcs) = BUFFER_CALLBACK.lock() {
+            bcs.clear();
+        }
+
+        // Indicate to the
         self.loaded.store(false, atomic::Ordering::SeqCst);
+
         Ok(())
     }
 }
@@ -613,15 +632,6 @@ impl Drop for Driver {
 }
 
 unsafe impl Send for AsioStream {}
-
-/// Adds a callback to the list of active callbacks
-pub fn set_callback<F: 'static>(callback: F) -> ()
-where
-    F: FnMut(i32) + Send,
-{
-    let mut bc = BUFFER_CALLBACK.lock().unwrap();
-    bc.push(Some(BufferCallback(Box::new(callback))));
-}
 
 /// Idicates the sample rate has changed
 /// TODO Change the sample rate when this
