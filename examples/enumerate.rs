@@ -1,7 +1,7 @@
 extern crate cpal;
 extern crate failure;
 
-use cpal::{Device, Host};
+use cpal::traits::{DeviceTrait, HostTrait};
 
 fn main() -> Result<(), failure::Error> {
     println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);

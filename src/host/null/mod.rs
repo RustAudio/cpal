@@ -2,18 +2,15 @@
 
 use BuildStreamError;
 use DefaultFormatError;
-use Device as DeviceTrait;
 use DevicesError;
 use DeviceNameError;
-use EventLoop as EventLoopTrait;
 use Format;
-use Host as HostTrait;
 use PauseStreamError;
 use PlayStreamError;
 use StreamDataResult;
 use SupportedFormatsError;
-use StreamId as StreamIdTrait;
 use SupportedFormat;
+use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
 #[derive(Default)]
 pub struct Devices;
