@@ -4,6 +4,7 @@ pub mod errors;
 
 use self::errors::{AsioDriverError, AsioError, AsioErrorWrapper};
 use std::ffi::CStr;
+use std::panic::catch_unwind;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_long, c_void};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -178,13 +179,15 @@ struct AsioCallbacks {
 extern "C" fn buffer_switch(double_buffer_index: c_long, _direct_process: c_long) -> () {
     // This lock is probably unavoidable
     // but locks in the audio stream is not great
-    let mut bcs = buffer_callback.lock().unwrap();
+    catch_unwind(|| {
+        let mut bcs = buffer_callback.lock().unwrap();
 
-    for mut bc in bcs.iter_mut() {
-        if let Some(ref mut bc) = bc {
-            bc.run(double_buffer_index);
+        for mut bc in bcs.iter_mut() {
+            if let Some(ref mut bc) = bc {
+                bc.run(double_buffer_index);
+            }
         }
-    }
+    }).ok();
 }
 
 /// Idicates the sample rate has changed
