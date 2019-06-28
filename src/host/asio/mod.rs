@@ -22,7 +22,6 @@ use std::sync::Arc;
 
 mod device;
 mod stream;
-mod asio_utils;
 
 /// The host for ASIO.
 #[derive(Debug)]
