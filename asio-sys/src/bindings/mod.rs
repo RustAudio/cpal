@@ -2,6 +2,7 @@ mod asio_import;
 #[macro_use]
 pub mod errors;
 
+use num_traits::FromPrimitive;
 use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -320,7 +321,7 @@ impl Driver {
         };
         unsafe {
             asio_result!(ai::ASIOGetChannelInfo(&mut channel_info))?;
-            Ok(num::FromPrimitive::from_i32(channel_info.type_).expect("failed to cast sample type"))
+            Ok(FromPrimitive::from_i32(channel_info.type_).expect("failed to cast sample type"))
         }
     }
 

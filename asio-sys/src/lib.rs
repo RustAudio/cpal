@@ -4,10 +4,11 @@
 #[macro_use]
 extern crate lazy_static;
 
-extern crate num;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate num_derive;
+#[allow(unused_imports)]
+extern crate num_traits;
 
 #[cfg(asio)]
 pub mod bindings;
