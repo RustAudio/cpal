@@ -612,6 +612,8 @@ impl Drop for Driver {
     }
 }
 
+unsafe impl Send for AsioStream {}
+
 /// Adds a callback to the list of active callbacks
 pub fn set_callback<F: 'static>(callback: F) -> ()
 where
