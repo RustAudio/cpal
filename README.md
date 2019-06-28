@@ -33,7 +33,7 @@ systems, it is most commonly used on Windows to work around limitations of
 WASAPI including access to large numbers of channels and lower-latency audio
 processing.
 
-CPAL allows for using the ASIO SDK as the audio backend on Windows instead of
+CPAL allows for using the ASIO SDK as the audio host on Windows instead of
 WASAPI. To do so, follow these steps:
 
 1. **Download the ASIO SDK** `.zip` from [this
@@ -55,7 +55,7 @@ WASAPI. To do so, follow these steps:
    ```
    setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"
    ```
-6. If you don't have any ASIO devices or drivers availabe, you can [**download
+6. If you don't have any ASIO devices or drivers available, you can [**download
    and install ASIO4ALL**](http://www.asio4all.org/). Be sure to enable the
    "offline" feature during installation despite what the installer says about
    it being useless.
@@ -64,30 +64,24 @@ WASAPI. To do so, follow these steps:
    environment variables in the command prompt that we use to build our project.
    On 64-bit machines run:
    ```
-   "C:\Program Files (x86)Microsoft Visual Studio 14.0VC\vcvarsall" amd64
+   "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64
    ```
    On 32-bit machines run:
    ```
-   "C:\Program Files (x86)Microsoft Visual Studio 14.0VC\vcvarsall" x86
+   "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86
    ```
-8. Select ASIO as the backend at the start of our program with the following
-   code:
-   
+8. Select the ASIO host at the start of our program with the following code:
+
    ```rust
+   let host;
    #[cfg(target_os = "windows")]
    {
-       cpal::os::windows::use_asio_backend().expect("Failed to select ASIO backend");
+       host = cpal::host_from_id(cpal::HostId::Asio).expect("failed to initialise ASIO host");
    }
    ```
 
-   If you run into this error:
-
-   ```
-   cpal::os::windows::use_asio_backend().expect("Failed to use asio");
-                      ^^^^^^^^^^^^^^^^ did you mean `use_wasapi_backend`?
-   ```
-
-   Make sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
+   If you run into an error along the lines of "no variant `Asio` in `HostId`",
+   make sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
 
 In the future we would like to work on automating this process to make it
 easier, but we are not familiar enough with the ASIO license to do so yet.
