@@ -256,6 +256,7 @@ macro_rules! impl_platform_host {
             type StreamId = StreamId;
             type Device = Device;
 
+            #[allow(unreachable_patterns)]
             fn build_input_stream(
                 &self,
                 device: &Self::Device,
@@ -273,6 +274,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn build_output_stream(
                 &self,
                 device: &Self::Device,
@@ -290,6 +292,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn play_stream(&self, stream: Self::StreamId) -> Result<(), crate::PlayStreamError> {
                 match (&self.0, stream.0) {
                     $(
@@ -301,6 +304,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn pause_stream(&self, stream: Self::StreamId) -> Result<(), crate::PauseStreamError> {
                 match (&self.0, stream.0) {
                     $(
@@ -312,6 +316,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn destroy_stream(&self, stream: Self::StreamId) {
                 match (&self.0, stream.0) {
                     $(
@@ -521,8 +526,6 @@ mod platform_impl {
 // TODO: Add `Asio asio` once #221 lands.
 #[cfg(windows)]
 mod platform_impl {
-    #![allow(unreachable_patterns)]
-
     #[cfg(feature = "asio")]
     pub use crate::host::asio::{
         Device as AsioDevice,
