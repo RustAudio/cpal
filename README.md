@@ -42,12 +42,10 @@ WASAPI. To do so, follow these steps:
 2. Extract the files and place the directory somewhere you are happy for it to stay
    (e.g. `~/.asio`).
 3. Assign the full path of the directory (that contains the `readme`, `changes`,
-   `ASIO SDK 2.3` pdf, etc) to the `CPAL_ASIO_DIR` environment variable. [How to
-   set persisting Environment Variables on
-   Windows](https://gist.github.com/mitchmindtree/92c8e37fa80c8dddee5b94fc88d1288b#file-windows_environment_variables-md).
-   The existence of the `CPAL_ASIO_DIR` environment variable determines whether
-   or not CPAL will attempt to build the ASIO SDK and generate bindings to it.
-4. **Download and install LLVM** from
+   `ASIO SDK 2.3` pdf, etc) to the `CPAL_ASIO_DIR` environment variable. This is
+   necessary for the `asio-sys` build script to build and bind to the SDK.
+4. `bindgen`, the library used to generate bindings to the C++ SDK, requires
+   clang. **Download and install LLVM** from
    [here](http://releases.llvm.org/download.html) under the "Pre-Built Binaries"
    section. The version as of writing this is 7.0.0.
 5. Add the LLVM `bin` directory to a `LIBCLANG_PATH` environment variable. If
@@ -71,6 +69,8 @@ WASAPI. To do so, follow these steps:
    ```
    "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86
    ```
+   Note that, depending on your version of Visual Studio, this script might be
+   in a slightly different location.
 8. Select the ASIO host at the start of our program with the following code:
 
    ```rust
@@ -81,8 +81,8 @@ WASAPI. To do so, follow these steps:
    }
    ```
 
-   If you run into an error along the lines of "no variant `Asio` in `HostId`",
-   make sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
+   If you run into compilations errors produced by `asio-sys` or `bindgen`, make
+   sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
 9. Make sure to enable the `asio` feature when building CPAL:
 
    ```
