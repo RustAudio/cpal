@@ -479,7 +479,7 @@ impl Driver {
                     })
             },
             // Impossible
-            (None, None) => panic!("Trying to create streams without preparing"),
+            (None, None) => unreachable!("Trying to create streams without preparing"),
         }
     }
 
@@ -687,7 +687,7 @@ impl DriverInner {
 
 impl Drop for DriverInner {
     fn drop(&mut self) {
-        if self.destroyed {
+        if !self.destroyed {
             // We probably shouldn't `panic!` in the destructor? We also shouldn't ignore errors
             // though either.
             self.destroy_inner().ok();
