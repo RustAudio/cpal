@@ -18,11 +18,11 @@ use super::sys;
 /// A ASIO Device
 #[derive(Debug)]
 pub struct Device {
-    /// The drivers for this device
+    /// The driver represented by this device.
     pub driver: Arc<sys::Driver>,
 }
 
-/// All available devices
+/// All available devices.
 pub struct Devices {
     asio: Arc<sys::Asio>,
     drivers: std::vec::IntoIter<String>,
@@ -109,7 +109,8 @@ impl Device {
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         // Map th ASIO sample type to a CPAL sample type
         let data_type = self.driver.data_type().map_err(default_format_err)?;
-        let data_type = convert_data_type(data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        let data_type = convert_data_type(&data_type)
+            .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
             channels,
             sample_rate,
@@ -122,7 +123,8 @@ impl Device {
         let channels = self.driver.channels().map_err(default_format_err)?.outs as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         let data_type = self.driver.data_type().map_err(default_format_err)?;
-        let data_type = convert_data_type(data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        let data_type = convert_data_type(&data_type)
+            .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
             channels,
             sample_rate,
@@ -159,14 +161,19 @@ impl Iterator for Devices {
     }
 }
 
-fn convert_data_type(ty: sys::AsioSampleType) -> Option<SampleFormat> {
-    let fmt = match ty {
+pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat> {
+    let fmt = match *ty {
         sys::AsioSampleType::ASIOSTInt16MSB => SampleFormat::I16,
-        sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I16,
-        sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
         sys::AsioSampleType::ASIOSTInt16LSB => SampleFormat::I16,
-        sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
         sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,
+        // NOTE: While ASIO does not support these formats directly, the stream callback created by
+        // CPAL supports converting back and forth between the following. This is because many ASIO
+        // drivers only support `Int32` formats, while CPAL does not support this format at all. We
+        // allow for this implicit conversion temporarily until CPAL gets support for an `I32`
+        // format.
+        sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I16,
         _ => return None,
     };
     Some(fmt)

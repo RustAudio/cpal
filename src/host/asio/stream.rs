@@ -86,43 +86,12 @@ impl EventLoop {
         }
     }
 
-    fn check_format(
-        &self,
-        driver: &sys::Driver,
-        format: &Format,
-        num_asio_channels: u16,
-    ) -> Result<(), BuildStreamError> {
-        let Format {
-            channels,
-            sample_rate,
-            data_type,
-        } = format;
-        // Try and set the sample rate to what the user selected.
-        let sample_rate = sample_rate.0.into();
-        if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
-            if driver.can_sample_rate(sample_rate).map_err(build_stream_err)? {
-                driver
-                    .set_sample_rate(sample_rate)
-                    .map_err(build_stream_err)?;
-            } else {
-                return Err(BuildStreamError::FormatNotSupported);
-            }
-        }
-        // unsigned formats are not supported by asio
-        match data_type {
-            SampleFormat::I16 | SampleFormat::F32 => (),
-            SampleFormat::U16 => return Err(BuildStreamError::FormatNotSupported),
-        }
-        if *channels > num_asio_channels {
-            return Err(BuildStreamError::FormatNotSupported);
-        }
-        Ok(())
-    }
-
     /// Create a new CPAL Input Stream.
-    /// If there is no ASIO Input Stream
-    /// it will be created.
-    fn get_input_stream(
+    ///
+    /// If there is no existing ASIO Input Stream it will be created.
+    ///
+    /// On success, the buffer size of the stream is returned.
+    fn get_or_create_input_stream(
         &self,
         driver: &sys::Driver,
         format: &Format,
@@ -131,7 +100,7 @@ impl EventLoop {
         match device.default_input_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
-                self.check_format(driver, format, num_asio_channels)
+                check_format(driver, format, num_asio_channels)
             },
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
@@ -161,9 +130,11 @@ impl EventLoop {
     }
 
     /// Create a new CPAL Output Stream.
-    /// If there is no ASIO Output Stream
-    /// it will be created.
-    fn get_output_stream(
+    ///
+    /// If there is no existing ASIO Output Stream it will be created.
+    ///
+    /// On success, the buffer size of the stream is returned.
+    fn get_or_create_output_stream(
         &self,
         driver: &sys::Driver,
         format: &Format,
@@ -172,14 +143,13 @@ impl EventLoop {
         match device.default_output_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
-                self.check_format(driver, format, num_asio_channels)
+                check_format(driver, format, num_asio_channels)
             },
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
         let ref mut streams = *self.asio_streams.lock().unwrap();
-        // Either create a stream if thers none or had back the
-        // size of the current one.
+        // Either create a stream if there's none or return the size of the current one.
         match streams.output {
             Some(ref output) => Ok(output.buffer_size as usize),
             None => {
@@ -208,9 +178,17 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError> {
         let Device { driver, .. } = device;
-        let num_channels = format.channels.clone();
         let stream_type = driver.data_type().map_err(build_stream_err)?;
-        let stream_buffer_size = self.get_input_stream(&driver, format, device)?;
+
+        // Ensure that the desired sample type is supported.
+        let data_type = super::device::convert_data_type(&stream_type)
+            .ok_or(BuildStreamError::FormatNotSupported)?;
+        if format.data_type != data_type {
+            return Err(BuildStreamError::FormatNotSupported);
+        }
+
+        let num_channels = format.channels.clone();
+        let stream_buffer_size = self.get_or_create_input_stream(&driver, format, device)?;
         let cpal_num_samples = stream_buffer_size * num_channels as usize;
         let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
         let asio_streams = self.asio_streams.clone();
@@ -219,7 +197,6 @@ impl EventLoop {
 
         // Create the buffer depending on the size of the data type.
         let stream_id = StreamId(count);
-        let data_type = format.data_type;
         let len_bytes = cpal_num_samples * data_type.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
 
@@ -384,9 +361,17 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError> {
         let Device { driver, .. } = device;
-        let num_channels = format.channels.clone();
         let stream_type = driver.data_type().map_err(build_stream_err)?;
-        let stream_buffer_size = self.get_output_stream(&driver, format, device)?;
+
+        // Ensure that the desired sample type is supported.
+        let data_type = super::device::convert_data_type(&stream_type)
+            .ok_or(BuildStreamError::FormatNotSupported)?;
+        if format.data_type != data_type {
+            return Err(BuildStreamError::FormatNotSupported);
+        }
+
+        let num_channels = format.channels.clone();
+        let stream_buffer_size = self.get_or_create_output_stream(&driver, format, device)?;
         let cpal_num_samples = stream_buffer_size * num_channels as usize;
         let count = self.stream_count.fetch_add(1, Ordering::SeqCst);
         let asio_streams = self.asio_streams.clone();
@@ -395,7 +380,6 @@ impl EventLoop {
 
         // Create buffers depending on data type.
         let stream_id = StreamId(count);
-        let data_type = format.data_type;
         let len_bytes = cpal_num_samples * data_type.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
         let mut silence_asio_buffer = SilenceAsioBuffer::default();
@@ -702,6 +686,41 @@ impl AsioSample for i32 {}
 impl AsioSample for f32 {}
 
 impl AsioSample for f64 {}
+
+/// Check whether or not the desired format is supported by the stream.
+///
+/// Checks sample rate, data type and then finally the number of channels.
+fn check_format(
+    driver: &sys::Driver,
+    format: &Format,
+    num_asio_channels: u16,
+) -> Result<(), BuildStreamError> {
+    let Format {
+        channels,
+        sample_rate,
+        data_type,
+    } = format;
+    // Try and set the sample rate to what the user selected.
+    let sample_rate = sample_rate.0.into();
+    if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
+        if driver.can_sample_rate(sample_rate).map_err(build_stream_err)? {
+            driver
+                .set_sample_rate(sample_rate)
+                .map_err(build_stream_err)?;
+        } else {
+            return Err(BuildStreamError::FormatNotSupported);
+        }
+    }
+    // unsigned formats are not supported by asio
+    match data_type {
+        SampleFormat::I16 | SampleFormat::F32 => (),
+        SampleFormat::U16 => return Err(BuildStreamError::FormatNotSupported),
+    }
+    if *channels > num_asio_channels {
+        return Err(BuildStreamError::FormatNotSupported);
+    }
+    Ok(())
+}
 
 /// Cast a byte slice into a mutable slice of desired type.
 ///
