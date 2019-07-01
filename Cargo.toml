@@ -27,4 +27,4 @@ coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio
 core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
-stdweb = { version = "0.4.17", default-features = false }
+stdweb = { version = "0.1.3", default-features = false }
