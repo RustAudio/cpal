@@ -7,9 +7,7 @@ use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_long, c_void};
-use std::sync::atomic::{self, AtomicBool};
-use std::sync::{Arc, Mutex};
-use std;
+use std::sync::{Arc, Mutex, Weak};
 
 // Bindings import
 use self::asio_import as ai;
@@ -22,21 +20,44 @@ pub struct Asio {
     // Keeps track of whether or not a driver is already loaded.
     //
     // This is necessary as ASIO only supports one `Driver` at a time.
-    driver_loaded: Arc<AtomicBool>,
+    loaded_driver: Mutex<Weak<DriverInner>>,
 }
 
 /// A handle to a single ASIO driver.
 ///
 /// Creating an instance of this type loads and initialises the driver.
 ///
-/// Dropping the instance will dispose of any resources and de-initialise the driver.
-#[derive(Debug)]
+/// Dropping all `Driver` instances will automatically dispose of any resources and de-initialise
+/// the driver.
+#[derive(Clone, Debug)]
 pub struct Driver {
+    inner: Arc<DriverInner>,
+}
+
+// Contains the state associated with a `Driver`.
+//
+// This state may be shared between multiple `Driver` handles representing the same underlying
+// driver. Only when the last `Driver` is dropped will the `Drop` implementation for this type run
+// and the necessary driver resources will be de-allocated and unloaded.
+//
+// The same could be achieved by returning an `Arc<Driver>` from the `Host::load_driver` API,
+// however the `DriverInner` abstraction is required in order to allow for the `Driver::destroy`
+// method to exist safely. By wrapping the `Arc<DriverInner>` in the `Driver` type, we can make
+// sure the user doesn't `try_unwrap` the `Arc` and invalidate the `Asio` instance's weak pointer.
+// This would allow for instantiation of a separate driver before the existing one is destroyed,
+// which is disallowed by ASIO.
+#[derive(Debug)]
+struct DriverInner {
     state: Mutex<DriverState>,
-    // A flag that is set to `false` when the `Driver` is dropped.
+    // The unique name associated with this driver.
+    name: String,
+    // Track whether or not the driver has been destroyed.
     //
-    // This lets the `Asio` handle know that a new driver can be loaded.
-    loaded: Arc<AtomicBool>,
+    // This allows for the user to manually destroy the driver and handle any errors if they wish.
+    //
+    // In the case that the driver has been manually destroyed this flag will be set to `true`
+    // indicating to the `drop` implementation that there is nothing to be done.
+    destroyed: bool,
 }
 
 /// All possible states of an ASIO `Driver` instance.
@@ -168,8 +189,8 @@ lazy_static! {
 impl Asio {
     /// Initialise the ASIO API.
     pub fn new() -> Self {
-        let driver_loaded = Arc::new(AtomicBool::new(false));
-        Asio { driver_loaded }
+        let loaded_driver = Mutex::new(Weak::new());
+        Asio { loaded_driver }
     }
 
     /// Returns the name for each available driver.
@@ -204,14 +225,18 @@ impl Asio {
         }
     }
 
-    /// Whether or not a driver has already been loaded by this process.
+    /// If a driver has already been loaded, this will return that driver.
+    ///
+    /// Returns `None` if no driver is currently loaded.
     ///
     /// This can be useful to check before calling `load_driver` as ASIO only supports loading a
     /// single driver at a time.
-    ///
-    /// Uses the given atomic ordering to access the atomic boolean used to track driver loading.
-    pub fn is_driver_loaded(&self, ord: atomic::Ordering) -> bool {
-        self.driver_loaded.load(ord)
+    pub fn loaded_driver(&self) -> Option<Driver> {
+        self.loaded_driver
+            .lock()
+            .expect("failed to acquire loaded driver lock")
+            .upgrade()
+            .map(|inner| Driver { inner })
     }
 
     /// Load a driver from the given name.
@@ -221,14 +246,20 @@ impl Asio {
     ///
     /// NOTE: Despite many requests from users, ASIO only supports loading a single driver at a
     /// time. Calling this method while a previously loaded `Driver` instance exists will result in
-    /// an error.
+    /// an error. That said, if this method is called with the name of a driver that has already
+    /// been loaded, that driver will be returned successfully.
     pub fn load_driver(&self, driver_name: &str) -> Result<Driver, LoadDriverError> {
-        if self.driver_loaded.load(atomic::Ordering::SeqCst) {
-            return Err(LoadDriverError::DriverAlreadyExists);
+        // Check whether or not a driver is already loaded.
+        if let Some(driver) = self.loaded_driver() {
+            if driver.name() == driver_name {
+                return Ok(driver);
+            } else {
+                return Err(LoadDriverError::DriverAlreadyExists);
+            }
         }
 
         // Make owned CString to send to load driver
-        let my_driver_name = CString::new(driver_name)
+        let driver_name_cstring = CString::new(driver_name)
             .expect("failed to create `CString` from driver name");
         let mut driver_info = ai::ASIODriverInfo {
             _bindgen_opaque_blob: [0u32; 43],
@@ -236,15 +267,18 @@ impl Asio {
 
         unsafe {
             // TODO: Check that a driver of the same name does not already exist?
-            match ai::load_asio_driver(my_driver_name.as_ptr() as *mut i8) {
+            match ai::load_asio_driver(driver_name_cstring.as_ptr() as *mut i8) {
                 false => Err(LoadDriverError::LoadDriverFailed),
                 true => {
                     // Initialize ASIO.
                     asio_result!(ai::ASIOInit(&mut driver_info))?;
-                    self.driver_loaded.store(true, atomic::Ordering::SeqCst);
-                    let loaded = self.driver_loaded.clone();
                     let state = Mutex::new(DriverState::Initialized);
-                    let driver = Driver { state, loaded };
+                    let name = driver_name.to_string();
+                    let destroyed = false;
+                    let inner = Arc::new(DriverInner { name, state, destroyed });
+                    *self.loaded_driver.lock().expect("failed to acquire loaded driver lock") =
+                        Arc::downgrade(&inner);
+                    let driver = Driver { inner };
                     Ok(driver)
                 }
             }
@@ -261,6 +295,11 @@ impl BufferCallback {
 }
 
 impl Driver {
+    /// The name used to uniquely identify this driver.
+    pub fn name(&self) -> &str {
+        &self.inner.name
+    }
+
     /// Returns the number of input and output channels available on the driver.
     pub fn channels(&self) -> Result<Channels, AsioError> {
         let mut ins: c_long = 0;
@@ -365,10 +404,10 @@ impl Driver {
                 );
             }
 
-            if let DriverState::Running = self.state() {
+            if let DriverState::Running = self.inner.state() {
                 self.stop()?;
             }
-            if let DriverState::Prepared = self.state() {
+            if let DriverState::Prepared = self.inner.state() {
                 self.dispose_buffers()?;
             }
 
@@ -379,7 +418,7 @@ impl Driver {
                 callbacks as *mut _,
             ))?;
         }
-        self.set_state(DriverState::Prepared);
+        self.inner.set_state(DriverState::Prepared);
         Ok(pref_b_size)
     }
 
@@ -519,31 +558,13 @@ impl Driver {
         self.create_streams(streams)
     }
 
-    fn state(&self) -> DriverState {
-        *self.state.lock().expect("failed to lock `DriverState`")
-    }
-
-    fn set_state(&self, state: DriverState) {
-        *self.state.lock().expect("failed to lock `DriverState`") = state;
-    }
-
     /// Releases buffers allocations.
     ///
     /// This will `stop` the stream if the driver is `Running`.
     ///
     /// No-op if no buffers are allocated.
     pub fn dispose_buffers(&self) -> Result<(), AsioError> {
-        if let DriverState::Initialized = self.state() {
-            return Ok(());
-        }
-        if let DriverState::Running = self.state() {
-            self.stop()?;
-        }
-        unsafe {
-            asio_result!(ai::ASIODisposeBuffers())?;
-        }
-        self.set_state(DriverState::Initialized);
-        Ok(())
+        self.inner.dispose_buffers_inner()
     }
 
     /// Starts ASIO streams playing.
@@ -554,13 +575,13 @@ impl Driver {
     ///
     /// No-op if already `Running`.
     pub fn start(&self) -> Result<(), AsioError> {
-        if let DriverState::Running = self.state() {
+        if let DriverState::Running = self.inner.state() {
             return Ok(());
         }
         unsafe {
             asio_result!(ai::ASIOStart())?;
         }
-        self.set_state(DriverState::Running);
+        self.inner.set_state(DriverState::Running);
         Ok(())
     }
 
@@ -571,13 +592,7 @@ impl Driver {
     /// If the state was `Running` and the stream is stopped successfully, the driver will be in
     /// the `Prepared` state.
     pub fn stop(&self) -> Result<(), AsioError> {
-        if let DriverState::Running = self.state() {
-            unsafe {
-                asio_result!(ai::ASIOStop())?;
-            }
-            self.set_state(DriverState::Prepared);
-        }
-        Ok(())
+        self.inner.stop_inner()
     }
 
     /// Adds a callback to the list of active callbacks.
@@ -593,17 +608,65 @@ impl Driver {
 
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
     /// any associated resources.
-    pub fn destroy(mut self) -> Result<(), AsioError> {
-        self.destroy_inner()
+    ///
+    /// Returns `Ok(true)` if the driver was successfully destroyed.
+    ///
+    /// Returns `Ok(false)` if the driver was not destroyed because another handle to the driver
+    /// still exists.
+    ///
+    /// Returns `Err` if some switching driver states failed or if ASIO returned an error on exit.
+    pub fn destroy(self) -> Result<bool, AsioError> {
+        let Driver { inner } = self;
+        match Arc::try_unwrap(inner) {
+            Err(_) => Ok(false),
+            Ok(mut inner) => {
+                inner.destroy_inner()?;
+                Ok(true)
+            }
+        }
+    }
+}
+
+impl DriverInner {
+    fn state(&self) -> DriverState {
+        *self.state.lock().expect("failed to lock `DriverState`")
+    }
+
+    fn set_state(&self, state: DriverState) {
+        *self.state.lock().expect("failed to lock `DriverState`") = state;
+    }
+
+    fn stop_inner(&self) -> Result<(), AsioError> {
+        if let DriverState::Running = self.state() {
+            unsafe {
+                asio_result!(ai::ASIOStop())?;
+            }
+            self.set_state(DriverState::Prepared);
+        }
+        Ok(())
+    }
+
+    fn dispose_buffers_inner(&self) -> Result<(), AsioError> {
+        if let DriverState::Initialized = self.state() {
+            return Ok(());
+        }
+        if let DriverState::Running = self.state() {
+            self.stop_inner()?;
+        }
+        unsafe {
+            asio_result!(ai::ASIODisposeBuffers())?;
+        }
+        self.set_state(DriverState::Initialized);
+        Ok(())
     }
 
     fn destroy_inner(&mut self) -> Result<(), AsioError> {
         // Drop back through the driver state machine one state at a time.
         if let DriverState::Running = self.state() {
-            self.stop().expect("failed to stop ASIO driver");
+            self.stop_inner()?;
         }
         if let DriverState::Prepared = self.state() {
-            self.dispose_buffers().expect("failed to dispose buffers of ASIO driver");
+            self.dispose_buffers_inner()?;
         }
         unsafe {
             asio_result!(ai::ASIOExit())?;
@@ -615,16 +678,16 @@ impl Driver {
             bcs.clear();
         }
 
-        // Indicate to the
-        self.loaded.store(false, atomic::Ordering::SeqCst);
+        // Signal that the driver has been destroyed.
+        self.destroyed = true;
 
         Ok(())
     }
 }
 
-impl Drop for Driver {
+impl Drop for DriverInner {
     fn drop(&mut self) {
-        if self.loaded.load(atomic::Ordering::SeqCst) {
+        if self.destroyed {
             // We probably shouldn't `panic!` in the destructor? We also shouldn't ignore errors
             // though either.
             self.destroy_inner().ok();

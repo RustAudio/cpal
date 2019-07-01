@@ -20,8 +20,6 @@ use super::sys;
 pub struct Device {
     /// The drivers for this device
     pub driver: Arc<sys::Driver>,
-    /// The name of this device
-    pub name: String,
 }
 
 /// All available devices
@@ -32,7 +30,7 @@ pub struct Devices {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.driver.name() == other.driver.name()
     }
 }
 
@@ -40,13 +38,13 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
+        self.driver.name().hash(state);
     }
 }
 
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.name.clone())
+        Ok(self.driver.name().to_string())
     }
 
     /// Gets the supported input formats.
@@ -148,7 +146,7 @@ impl Iterator for Devices {
         loop {
             match self.drivers.next() {
                 Some(name) => match self.asio.load_driver(&name) {
-                    Ok(driver) => return Some(Device { driver: Arc::new(driver), name }),
+                    Ok(driver) => return Some(Device { driver: Arc::new(driver) }),
                     Err(_) => continue,
                 }
                 None => return None,
