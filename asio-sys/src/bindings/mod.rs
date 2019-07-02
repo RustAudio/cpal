@@ -1,4 +1,4 @@
-mod asio_import;
+pub mod asio_import;
 #[macro_use]
 pub mod errors;
 
@@ -175,6 +175,15 @@ struct AsioCallbacks {
     ) -> *mut ai::ASIOTime,
 }
 
+// A helper type to simplify retrieval of available buffer sizes.
+#[derive(Default)]
+struct BufferSizes {
+    min: c_long,
+    max: c_long,
+    pref: c_long,
+    grans: c_long,
+}
+
 lazy_static! {
     /// A global way to access all the callbacks.
     /// This is required because of how ASIO
@@ -200,28 +209,22 @@ impl Asio {
         // The most drivers we can take
         const MAX_DRIVERS: usize = 100;
         // Max length for divers name
-        const CHAR_LEN: usize = 32;
+        const MAX_DRIVER_NAME_LEN: usize = 32;
 
-        // 2D array of driver names set to 0
-        let mut driver_names: [[c_char; CHAR_LEN]; MAX_DRIVERS] = [[0; CHAR_LEN]; MAX_DRIVERS];
-        // Pointer to each driver name
-        let mut p_driver_name: [*mut i8; MAX_DRIVERS] = [0 as *mut i8; MAX_DRIVERS];
-
-        for i in 0 .. MAX_DRIVERS {
-            p_driver_name[i] = driver_names[i].as_mut_ptr();
+        // 2D array of driver names set to 0.
+        let mut driver_names: [[c_char; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS] =
+            [[0; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS];
+        // Pointer to each driver name.
+        let mut driver_name_ptrs: [*mut i8; MAX_DRIVERS] = [0 as *mut i8; MAX_DRIVERS];
+        for (ptr, name) in driver_name_ptrs.iter_mut().zip(&mut driver_names[..]) {
+            *ptr = (*name).as_mut_ptr();
         }
 
         unsafe {
-            let num_drivers = ai::get_driver_names(p_driver_name.as_mut_ptr(), MAX_DRIVERS as i32);
-
+            let num_drivers = ai::get_driver_names(driver_name_ptrs.as_mut_ptr(), MAX_DRIVERS as i32);
             (0 .. num_drivers)
-                .map(|i| {
-                    let name = CStr::from_ptr(p_driver_name[i as usize]);
-                    let my_driver_name = name.to_owned();
-                    my_driver_name
-                        .into_string()
-                        .expect("Failed to convert driver name")
-                }).collect()
+                .map(|i| driver_name_to_utf8(&driver_names[i as usize]).to_string())
+                .collect()
         }
     }
 
@@ -339,29 +342,18 @@ impl Driver {
         Ok(())
     }
 
-    /// Get the current data type of the driver.
+    /// Get the current data type of the driver's input stream.
     ///
     /// This queries a single channel's type assuming all channels have the same sample type.
+    pub fn input_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        stream_data_type(true)
+    }
+
+    /// Get the current data type of the driver's output stream.
     ///
-    /// TODO: Make this a seperate call for input and output as it is possible that input and
-    /// output have different sample types Initialize memory for calls.
-    pub fn data_type(&self) -> Result<AsioSampleType, AsioError> {
-        let mut channel_info = ai::ASIOChannelInfo {
-            // Which channel we are querying
-            channel: 0,
-            // Was it input or output
-            isInput: 0,
-            // Was it active
-            isActive: 0,
-            channelGroup: 0,
-            // The sample type
-            type_: 0,
-            name: [0 as c_char; 32],
-        };
-        unsafe {
-            asio_result!(ai::ASIOGetChannelInfo(&mut channel_info))?;
-            Ok(FromPrimitive::from_i32(channel_info.type_).expect("failed to cast sample type"))
-        }
+    /// This queries a single channel's type assuming all channels have the same sample type.
+    pub fn output_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        stream_data_type(false)
     }
 
     /// Ask ASIO to allocate the buffers and give the callback pointers.
@@ -371,116 +363,94 @@ impl Driver {
     /// The prefered buffer size from ASIO is used.
     fn create_buffers(&self, buffer_infos: &mut [AsioBufferInfo]) -> Result<c_long, AsioError> {
         let num_channels = buffer_infos.len();
-        let mut callbacks = AsioCallbacks {
-            buffer_switch: buffer_switch,
-            sample_rate_did_change: sample_rate_did_change,
-            asio_message: asio_message,
-            buffer_switch_time_info: buffer_switch_time_info,
-        };
+
         // To pass as ai::ASIOCallbacks
-        let callbacks: *mut _ = &mut callbacks;
-        let mut min_b_size: c_long = 0;
-        let mut max_b_size: c_long = 0;
-        let mut pref_b_size: c_long = 0;
-        let mut grans: c_long = 0;
+        let mut callbacks = create_asio_callbacks();
+
+        // Retrieve the available buffer sizes.
+        let buffer_sizes = asio_get_buffer_sizes()?;
+        if buffer_sizes.pref <= 0 {
+            panic!(
+                "`ASIOGetBufferSize` produced unusable preferred buffer size of {}",
+                buffer_sizes.pref,
+            );
+        }
+
+        // Ensure the driver is in the `Initialized` state.
+        if let DriverState::Running = self.inner.state() {
+            self.stop()?;
+        }
+        if let DriverState::Prepared = self.inner.state() {
+            self.dispose_buffers()?;
+        }
 
         unsafe {
-            // Get the buffer sizes
-            // min possilbe size
-            // max possible size
-            // preferred size
-            // granularity
-            asio_result!(ai::ASIOGetBufferSize(
-                &mut min_b_size,
-                &mut max_b_size,
-                &mut pref_b_size,
-                &mut grans,
-            ))?;
-
-            if pref_b_size <= 0 {
-                panic!(
-                    "`ASIOGetBufferSize` produced unusable preferred buffer size of {}",
-                    pref_b_size,
-                );
-            }
-
-            if let DriverState::Running = self.inner.state() {
-                self.stop()?;
-            }
-            if let DriverState::Prepared = self.inner.state() {
-                self.dispose_buffers()?;
-            }
-
             asio_result!(ai::ASIOCreateBuffers(
                 buffer_infos.as_mut_ptr() as *mut _,
                 num_channels as i32,
-                pref_b_size,
-                callbacks as *mut _,
+                buffer_sizes.pref,
+                &mut callbacks as *mut _ as *mut _,
             ))?;
         }
+
         self.inner.set_state(DriverState::Prepared);
-        Ok(pref_b_size)
+        Ok(buffer_sizes.pref)
     }
 
     /// Creates the streams.
     ///
     /// Both input and output streams need to be created together as a single slice of
     /// `ASIOBufferInfo`.
-    fn create_streams(&self, streams: AsioStreams) -> Result<AsioStreams, AsioError> {
-        let AsioStreams { input, output } = streams;
-        match (input, output) {
+    fn create_streams(
+        &self,
+        mut input_buffer_infos: Vec<AsioBufferInfo>,
+        mut output_buffer_infos: Vec<AsioBufferInfo>,
+    ) -> Result<AsioStreams, AsioError> {
+        let (input, output) = match (input_buffer_infos.is_empty(), output_buffer_infos.is_empty()) {
             // Both stream exist.
-            (Some(input), Some(mut output)) => {
-                let split_point = input.buffer_infos.len();
-                let mut bi = input.buffer_infos;
-                // Append the output to the input channels
-                bi.append(&mut output.buffer_infos);
-                // Create the buffers.
-                // if successful then split the output
-                // and input again
-                self.create_buffers(&mut bi).map(|buffer_size| {
-                    let out_bi = bi.split_off(split_point);
-                    let in_bi = bi;
-                    let output = Some(AsioStream {
-                        buffer_infos: out_bi,
-                        buffer_size,
-                    });
-                    let input = Some(AsioStream {
-                        buffer_infos: in_bi,
-                        buffer_size,
-                    });
-                    AsioStreams { output, input }
-                })
+            (false, false) => {
+                // Create one continuous slice of buffers.
+                let split_point = input_buffer_infos.len();
+                let mut all_buffer_infos = input_buffer_infos;
+                all_buffer_infos.append(&mut output_buffer_infos);
+                // Create the buffers. On success, split the output and input again.
+                let buffer_size = self.create_buffers(&mut all_buffer_infos)?;
+                let output_buffer_infos = all_buffer_infos.split_off(split_point);
+                let input_buffer_infos = all_buffer_infos;
+                let input = Some(AsioStream {
+                    buffer_infos: input_buffer_infos,
+                    buffer_size,
+                });
+                let output = Some(AsioStream {
+                    buffer_infos: output_buffer_infos,
+                    buffer_size,
+                });
+                (input, output)
             },
             // Just input
-            (Some(mut input), None) => {
-                self.create_buffers(&mut input.buffer_infos)
-                    .map(|buffer_size| {
-                        AsioStreams {
-                            input: Some(AsioStream {
-                                buffer_infos: input.buffer_infos,
-                                buffer_size,
-                            }),
-                            output: None,
-                        }
-                    })
+            (false, true) => {
+                let buffer_size = self.create_buffers(&mut input_buffer_infos)?;
+                let input = Some(AsioStream {
+                    buffer_infos: input_buffer_infos,
+                    buffer_size,
+                });
+                let output = None;
+                (input, output)
             },
             // Just output
-            (None, Some(mut output)) => {
-                self.create_buffers(&mut output.buffer_infos)
-                    .map(|buffer_size| {
-                        AsioStreams {
-                            output: Some(AsioStream {
-                                buffer_infos: output.buffer_infos,
-                                buffer_size,
-                            }),
-                            input: None,
-                        }
-                    })
+            (true, false) => {
+                let buffer_size = self.create_buffers(&mut output_buffer_infos)?;
+                let input = None;
+                let output = Some(AsioStream {
+                    buffer_infos: output_buffer_infos,
+                    buffer_size,
+                });
+                (input, output)
             },
             // Impossible
-            (None, None) => unreachable!("Trying to create streams without preparing"),
-        }
+            (true, true) => unreachable!("Trying to create streams without preparing"),
+        };
+        Ok(AsioStreams { input, output })
     }
 
     /// Prepare the input stream.
@@ -492,70 +462,39 @@ impl Driver {
     ///
     /// `num_channels` is the desired number of input channels.
     ///
-    /// This returns a full AsioStreams with both input
-    /// and output if output was active.
+    /// This returns a full AsioStreams with both input and output if output was active.
     pub fn prepare_input_stream(
         &self,
         output: Option<AsioStream>,
         num_channels: usize,
     ) -> Result<AsioStreams, AsioError> {
-        let buffer_infos = (0 .. num_channels)
-            .map(|i| AsioBufferInfo {
-                // These are output channels
-                is_input: 1,
-                // Channel index
-                channel_num: i as c_long,
-                // Double buffer. We don't know the type
-                // at this point
-                buffers: [std::ptr::null_mut(); 2],
-            }).collect();
-
-        // Create the streams
-        let streams = AsioStreams {
-            input: Some(AsioStream {
-                buffer_infos,
-                buffer_size: 0,
-            }),
-            output,
-        };
-        self.create_streams(streams)
+        let input_buffer_infos = prepare_buffer_infos(true, num_channels);
+        let output_buffer_infos = output
+            .map(|output| output.buffer_infos)
+            .unwrap_or_else(Vec::new);
+        self.create_streams(input_buffer_infos, output_buffer_infos)
     }
 
     /// Prepare the output stream.
-    /// Because only the latest call
-    /// to ASIOCreateBuffers is relevant this
-    /// call will destroy all past active buffers
-    /// and recreate them. For this reason we take
-    /// the input stream if it exists.
-    /// num_channels is the number of output channels.
-    /// This returns a full AsioStreams with both input
-    /// and output if input was active.
+    ///
+    /// Because only the latest call to ASIOCreateBuffers is relevant this call will destroy all
+    /// past active buffers and recreate them.
+    ///
+    /// For this reason we take the input stream if it exists.
+    ///
+    /// `num_channels` is the desired number of output channels.
+    ///
+    /// This returns a full AsioStreams with both input and output if input was active.
     pub fn prepare_output_stream(
         &self,
         input: Option<AsioStream>,
         num_channels: usize,
     ) -> Result<AsioStreams, AsioError> {
-        // Initialize data for FFI
-        let buffer_infos = (0 .. num_channels)
-            .map(|i| AsioBufferInfo {
-                // These are outputs
-                is_input: 0,
-                // Channel index
-                channel_num: i as c_long,
-                // Pointer to each buffer. We don't know
-                // the type yet.
-                buffers: [std::ptr::null_mut(); 2],
-            }).collect();
-
-        // Create streams
-        let streams = AsioStreams {
-            output: Some(AsioStream {
-                buffer_infos,
-                buffer_size: 0,
-            }),
-            input,
-        };
-        self.create_streams(streams)
+        let input_buffer_infos = input
+            .map(|input| input.buffer_infos)
+            .unwrap_or_else(Vec::new);
+        let output_buffer_infos = prepare_buffer_infos(false, num_channels);
+        self.create_streams(input_buffer_infos, output_buffer_infos)
     }
 
     /// Releases buffers allocations.
@@ -697,16 +636,100 @@ impl Drop for DriverInner {
 
 unsafe impl Send for AsioStream {}
 
+/// Used by the input and output stream creation process.
+fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo> {
+    let is_input = if is_input { 1 } else { 0 };
+    (0..n_channels)
+        .map(|ch| {
+            let channel_num = ch as c_long;
+            // To be filled by ASIOCreateBuffers.
+            let buffers = [std::ptr::null_mut(); 2];
+            AsioBufferInfo { is_input, channel_num, buffers }
+        })
+        .collect()
+}
+
+/// The set of callbacks passed to `ASIOCreateBuffers`.
+fn create_asio_callbacks() -> AsioCallbacks {
+    AsioCallbacks {
+        buffer_switch: buffer_switch,
+        sample_rate_did_change: sample_rate_did_change,
+        asio_message: asio_message,
+        buffer_switch_time_info: buffer_switch_time_info,
+    }
+}
+
+/// Retrieve the minimum, maximum and preferred buffer sizes along with the available
+/// buffer size granularity.
+fn asio_get_buffer_sizes() -> Result<BufferSizes, AsioError> {
+    let mut b = BufferSizes::default();
+    unsafe {
+        let res = ai::ASIOGetBufferSize(&mut b.min, &mut b.max, &mut b.pref, &mut b.grans);
+        asio_result!(res)?;
+    }
+    Ok(b)
+}
+
+/// Retrieve the `ASIOChannelInfo` associated with the channel at the given index on either the
+/// input or output stream (`true` for input).
+fn asio_channel_info(channel: c_long, is_input: bool) -> Result<ai::ASIOChannelInfo, AsioError> {
+    let mut channel_info = ai::ASIOChannelInfo {
+        // Which channel we are querying
+        channel,
+        // Was it input or output
+        isInput: if is_input { 1 } else { 0 },
+        // Was it active
+        isActive: 0,
+        channelGroup: 0,
+        // The sample type
+        type_: 0,
+        name: [0 as c_char; 32],
+    };
+    unsafe {
+        asio_result!(ai::ASIOGetChannelInfo(&mut channel_info))?;
+        Ok(channel_info)
+    }
+}
+
+/// Retrieve the data type of either the input or output stream.
+///
+/// If `is_input` is true, this will be queried on the input stream.
+fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
+    let channel_info = asio_channel_info(0, is_input)?;
+    Ok(FromPrimitive::from_i32(channel_info.type_).expect("unkown `ASIOSampletype` value"))
+}
+
+/// ASIO uses null terminated c strings for driver names.
+///
+/// This converts to utf8.
+fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+    unsafe {
+        CStr::from_ptr(bytes.as_ptr()).to_string_lossy()
+    }
+}
+
+/// ASIO uses null terminated c strings for channel names.
+///
+/// This converts to utf8.
+fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+    unsafe {
+        CStr::from_ptr(bytes.as_ptr()).to_string_lossy()
+    }
+}
+
 /// Idicates the sample rate has changed
 /// TODO Change the sample rate when this
 /// is called.
-extern "C" fn sample_rate_did_change(_s_rate: c_double) -> () {}
+extern "C" fn sample_rate_did_change(_s_rate: c_double) -> () {
+    println!("sample rate changed");
+}
 
 /// Messages for ASIO
 /// This is not currently used
 extern "C" fn asio_message(
     _selector: c_long, _value: c_long, _message: *mut (), _opt: *mut c_double,
 ) -> c_long {
+    println!("selector: {}, vaule: {}", _selector, _value);
     // TODO Impliment this to give proper responses
     4 as c_long
 }
@@ -727,7 +750,6 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, _direct_process: c_long
     // This lock is probably unavoidable
     // but locks in the audio stream is not great
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
-
     for mut bc in bcs.iter_mut() {
         if let Some(ref mut bc) = bc {
             bc.run(double_buffer_index);

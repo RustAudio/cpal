@@ -178,7 +178,7 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError> {
         let Device { driver, .. } = device;
-        let stream_type = driver.data_type().map_err(build_stream_err)?;
+        let stream_type = driver.input_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
         let data_type = super::device::convert_data_type(&stream_type)
@@ -361,7 +361,7 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError> {
         let Device { driver, .. } = device;
-        let stream_type = driver.data_type().map_err(build_stream_err)?;
+        let stream_type = driver.output_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
         let data_type = super::device::convert_data_type(&stream_type)
@@ -399,13 +399,10 @@ impl EventLoop {
             let stream_lock = asio_streams.lock().unwrap();
             let ref asio_stream = match stream_lock.output {
                 Some(ref asio_stream) => asio_stream,
-                None => return (),
+                None => return,
             };
             let mut callbacks = callbacks.lock().unwrap();
-            let callback = match callbacks.as_mut() {
-                Some(callback) => callback,
-                None => return (),
-            };
+            let callback = callbacks.as_mut();
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -435,7 +432,7 @@ impl EventLoop {
             ///    performing endianness conversions as necessary.
             unsafe fn process_output_callback<A, B, F, G>(
                 stream_id: StreamId,
-                callback: &mut (dyn FnMut(StreamId, StreamDataResult) + Send),
+                callback: Option<&mut &mut (dyn FnMut(StreamId, StreamDataResult) + Send)>,
                 interleaved: &mut [u8],
                 silence_asio_buffer: bool,
                 asio_stream: &sys::AsioStream,
@@ -451,10 +448,13 @@ impl EventLoop {
             {
                 // 1. Render interleaved buffer from callback.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
-                callback(
-                    stream_id,
-                    Ok(StreamData::Output { buffer: A::unknown_type_output_buffer(interleaved) }),
-                );
+                match callback {
+                    None => interleaved.iter_mut().for_each(|s| *s = A::SILENCE),
+                    Some(callback) => {
+                        let buffer = A::unknown_type_output_buffer(interleaved);
+                        callback(stream_id, Ok(StreamData::Output { buffer }));
+                    }
+                }
 
                 // 2. Silence ASIO channels if necessary.
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;

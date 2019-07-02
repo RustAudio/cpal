@@ -108,7 +108,7 @@ impl Device {
         let channels = self.driver.channels().map_err(default_format_err)?.ins as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         // Map th ASIO sample type to a CPAL sample type
-        let data_type = self.driver.data_type().map_err(default_format_err)?;
+        let data_type = self.driver.input_data_type().map_err(default_format_err)?;
         let data_type = convert_data_type(&data_type)
             .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
@@ -122,7 +122,7 @@ impl Device {
     pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         let channels = self.driver.channels().map_err(default_format_err)?.outs as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
-        let data_type = self.driver.data_type().map_err(default_format_err)?;
+        let data_type = self.driver.output_data_type().map_err(default_format_err)?;
         let data_type = convert_data_type(&data_type)
             .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
