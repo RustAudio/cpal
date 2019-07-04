@@ -199,7 +199,7 @@ macro_rules! impl_platform_host {
             }
         }
 
-        impl crate::Device for Device {
+        impl crate::traits::DeviceTrait for Device {
             type SupportedInputFormats = SupportedInputFormats;
             type SupportedOutputFormats = SupportedOutputFormats;
 
@@ -252,7 +252,7 @@ macro_rules! impl_platform_host {
             }
         }
 
-        impl crate::EventLoop for EventLoop {
+        impl crate::traits::EventLoopTrait for EventLoop {
             type StreamId = StreamId;
             type Device = Device;
 
@@ -335,7 +335,7 @@ macro_rules! impl_platform_host {
             }
         }
 
-        impl crate::Host for Host {
+        impl crate::traits::HostTrait for Host {
             type Devices = Devices;
             type Device = Device;
             type EventLoop = EventLoop;
@@ -385,7 +385,7 @@ macro_rules! impl_platform_host {
             }
         }
 
-        impl crate::StreamId for StreamId {}
+        impl crate::traits::StreamIdTrait for StreamId {}
 
         $(
             impl From<crate::host::$host_mod::Device> for Device {
@@ -423,7 +423,7 @@ macro_rules! impl_platform_host {
         pub fn available_hosts() -> Vec<HostId> {
             let mut host_ids = vec![];
             $(
-                if <crate::host::$host_mod::Host as crate::Host>::is_available() {
+                if <crate::host::$host_mod::Host as crate::traits::HostTrait>::is_available() {
                     host_ids.push(HostId::$HostVariant);
                 }
             )*

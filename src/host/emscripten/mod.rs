@@ -10,20 +10,17 @@ use stdweb::web::set_timeout;
 
 use BuildStreamError;
 use DefaultFormatError;
-use Device as DeviceTrait;
 use DeviceNameError;
 use DevicesError;
-use EventLoop as EventLoopTrait;
 use Format;
-use Host as HostTrait;
 use PauseStreamError;
 use PlayStreamError;
 use SupportedFormatsError;
 use StreamData;
 use StreamDataResult;
-use StreamId as StreamIdTrait;
 use SupportedFormat;
 use UnknownTypeOutputBuffer;
+use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
 /// The default emscripten host type.
 #[derive(Debug)]

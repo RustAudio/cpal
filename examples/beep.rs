@@ -1,7 +1,7 @@
 extern crate cpal;
 extern crate failure;
 
-use cpal::{Device, EventLoop, Host};
+use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
 fn main() -> Result<(), failure::Error> {
     let host = cpal::default_host();

@@ -6,7 +6,7 @@ extern crate cpal;
 extern crate failure;
 extern crate hound;
 
-use cpal::{Device, EventLoop, Host};
+use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
 fn main() -> Result<(), failure::Error> {
     // Use the default host for working with audio devices.

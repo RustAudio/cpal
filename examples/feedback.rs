@@ -9,7 +9,7 @@
 extern crate cpal;
 extern crate failure;
 
-use cpal::{Device, EventLoop, Host};
+use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
 const LATENCY_MS: f32 = 150.0;
 
