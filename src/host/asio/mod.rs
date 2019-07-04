@@ -3,17 +3,19 @@ extern crate asio_sys as sys;
 use {
     BuildStreamError,
     DefaultFormatError,
-    Device as DeviceTrait,
     DeviceNameError,
     DevicesError,
-    EventLoop as EventLoopTrait,
     Format,
-    Host as HostTrait,
     PauseStreamError,
     PlayStreamError,
     StreamDataResult,
-    StreamId as StreamIdTrait,
     SupportedFormatsError,
+};
+use traits::{
+    DeviceTrait,
+    EventLoopTrait,
+    HostTrait,
+    StreamIdTrait,
 };
 
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats};
