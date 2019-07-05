@@ -150,8 +150,8 @@ extern crate lazy_static;
 extern crate stdweb;
 
 pub use platform::{
-    ALL_HOSTS, Device, EventLoop, Host, HostId, StreamId, available_hosts,
-    default_host, host_from_id,
+    ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
+    SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
 };
 pub use samples_formats::{Sample, SampleFormat};
 
