@@ -1,5 +1,16 @@
 # Unreleased
 
+# Version 0.10.0 (2019-07-05)
+
+- core-foundation-sys and coreaudio-rs version bumps.
+- Add an ASIO host, available under Windows.
+- Introduce a new Host API, adding support for alternative audio APIs.
+- Remove sleep loop on macOS in favour of using a `Condvar`.
+- Allow users to handle stream callback errors with a new `StreamEvent` type.
+- Overhaul error handling throughout the crate.
+- Remove unnecessary Mutex from ALSA and WASAPI backends in favour of channels.
+- Remove `panic!` from OutputBuffer Deref impl as it is no longer necessary.
+
 # Version 0.9.0 (2019-06-06)
 
 - Better buffer handling

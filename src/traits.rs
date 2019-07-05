@@ -195,4 +195,4 @@ pub trait EventLoopTrait {
 }
 
 /// The set of required bounds for host `StreamId` types.
-pub trait StreamIdTrait: Clone + std::fmt::Debug + PartialEq + Eq {}
+pub trait StreamIdTrait: Clone + std::fmt::Debug + std::hash::Hash + PartialEq + Eq {}

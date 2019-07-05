@@ -64,7 +64,7 @@ macro_rules! impl_platform_host {
 
         /// The **StreamId** implementation associated with the platform's dynamically dispatched
         /// **Host** type.
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct StreamId(StreamIdInner);
 
         /// The **SupportedInputFormats** iterator associated with the platform's dynamically
@@ -107,7 +107,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         enum StreamIdInner {
             $(
                 $HostVariant(crate::host::$host_mod::StreamId),
