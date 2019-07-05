@@ -28,8 +28,8 @@ alsa-sys = { version = "0.1", path = "alsa-sys" }
 libc = "0.2"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-coreaudio-rs = { version = "0.9.0", default-features = false, features = ["audio_unit", "core_audio"] }
-core-foundation-sys = "0.5.1" # For linking to CoreFoundation.framework and handling device name `CFString`s.
+coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio_unit", "core_audio"] }
+core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 stdweb = { version = "0.1.3", default-features = false }
