@@ -256,6 +256,7 @@ macro_rules! impl_platform_host {
             type StreamId = StreamId;
             type Device = Device;
 
+            #[allow(unreachable_patterns)]
             fn build_input_stream(
                 &self,
                 device: &Self::Device,
@@ -269,9 +270,11 @@ macro_rules! impl_platform_host {
                                 .map(StreamId)
                         }
                     )*
+                    _ => panic!("tried to build a stream with a device from another host"),
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn build_output_stream(
                 &self,
                 device: &Self::Device,
@@ -285,9 +288,11 @@ macro_rules! impl_platform_host {
                                 .map(StreamId)
                         }
                     )*
+                    _ => panic!("tried to build a stream with a device from another host"),
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn play_stream(&self, stream: Self::StreamId) -> Result<(), crate::PlayStreamError> {
                 match (&self.0, stream.0) {
                     $(
@@ -295,9 +300,11 @@ macro_rules! impl_platform_host {
                             e.play_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to play a stream with an ID associated with another host"),
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn pause_stream(&self, stream: Self::StreamId) -> Result<(), crate::PauseStreamError> {
                 match (&self.0, stream.0) {
                     $(
@@ -305,9 +312,11 @@ macro_rules! impl_platform_host {
                             e.pause_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to pause a stream with an ID associated with another host"),
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn destroy_stream(&self, stream: Self::StreamId) {
                 match (&self.0, stream.0) {
                     $(
@@ -315,6 +324,7 @@ macro_rules! impl_platform_host {
                             e.destroy_stream(s.clone())
                         }
                     )*
+                    _ => panic!("tried to destroy a stream with an ID associated with another host"),
                 }
             }
 
@@ -513,9 +523,18 @@ mod platform_impl {
     }
 }
 
-// TODO: Add `Asio asio` once #221 lands.
 #[cfg(windows)]
 mod platform_impl {
+    #[cfg(feature = "asio")]
+    pub use crate::host::asio::{
+        Device as AsioDevice,
+        Devices as AsioDevices,
+        EventLoop as AsioEventLoop,
+        Host as AsioHost,
+        StreamId as AsioStreamId,
+        SupportedInputFormats as AsioSupportedInputFormats,
+        SupportedOutputFormats as AsioSupportedOutputFormats,
+    };
     pub use crate::host::wasapi::{
         Device as WasapiDevice,
         Devices as WasapiDevices,
@@ -526,6 +545,10 @@ mod platform_impl {
         SupportedOutputFormats as WasapiSupportedOutputFormats,
     };
 
+    #[cfg(feature = "asio")]
+    impl_platform_host!(Asio asio, Wasapi wasapi);
+
+    #[cfg(not(feature = "asio"))]
     impl_platform_host!(Wasapi wasapi);
 
     /// The default host for the current compilation target platform.

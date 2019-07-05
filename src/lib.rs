@@ -377,6 +377,9 @@ pub enum BuildStreamError {
 /// them immediately.
 #[derive(Debug, Fail)]
 pub enum PlayStreamError {
+    /// The device associated with the stream is no longer available.
+    #[fail(display = "the device associated with the stream is no longer available")]
+    DeviceNotAvailable,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
@@ -392,6 +395,9 @@ pub enum PlayStreamError {
 /// them immediately.
 #[derive(Debug, Fail)]
 pub enum PauseStreamError {
+    /// The device associated with the stream is no longer available.
+    #[fail(display = "the device associated with the stream is no longer available")]
+    DeviceNotAvailable,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
