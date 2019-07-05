@@ -523,7 +523,6 @@ mod platform_impl {
     }
 }
 
-// TODO: Add `Asio asio` once #221 lands.
 #[cfg(windows)]
 mod platform_impl {
     #[cfg(feature = "asio")]

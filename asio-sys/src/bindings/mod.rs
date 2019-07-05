@@ -783,7 +783,6 @@ extern "C" fn asio_message(
     _message: *mut (),
     _opt: *mut c_double,
 ) -> c_long {
-    let mut ret = 0;
     match selector {
         ai::kAsioSelectorSupported => {
             // Indicate what message selectors are supported.
@@ -795,20 +794,18 @@ extern "C" fn asio_message(
                 // Following added in ASIO 2.0.
                 | ai::kAsioSupportsTimeInfo
                 | ai::kAsioSupportsTimeCode
-                | ai::kAsioSupportsInputMonitor => {
-                    ret = 1;
-                }
-                _ => (),
+                | ai::kAsioSupportsInputMonitor => 1,
+                _ => 0,
             }
         }
 
         ai::kAsioResetRequest => {
             // Defer the task and perform the reset of the driver during the next "safe" situation
             // You cannot reset the driver right now, as this code is called from the driver. Reset
-            // the driver is done by completely destruct is. I.e. ASIOStop(), ASIODisposeBuffers(),
+            // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
             // Destruction. Afterwards you initialize the driver again.
             // TODO: Handle this.
-            ret = 1;
+            1
         }
 
         ai::kAsioResyncRequest => {
@@ -818,7 +815,7 @@ extern "C" fn asio_message(
             // which could loose data because the Mutex was hold too long by another thread.
             // However a driver can issue it in other situations, too.
             // TODO: Handle this.
-            ret = 1;
+            1
         }
 
         ai::kAsioLatenciesChanged => {
@@ -826,37 +823,37 @@ extern "C" fn asio_message(
             // Beware, it this does not mean that the buffer sizes have changed! You might need to
             // update internal delay data.
             // TODO: Handle this.
-            ret = 1;
+            1
         }
 
         ai::kAsioEngineVersion => {
             // Return the supported ASIO version of the host application If a host applications
             // does not implement this selector, ASIO 1.0 is assumed by the driver
-            ret = 2;
+            2
         }
 
         ai::kAsioSupportsTimeInfo => {
             // Informs the driver whether the asioCallbacks.bufferSwitchTimeInfo() callback is
             // supported. For compatibility with ASIO 1.0 drivers the host application should
             // always support the "old" bufferSwitch method, too, which we do.
-            ret = 1;
+            1
         }
 
         ai::kAsioSupportsTimeCode => {
             // Informs the driver whether the application is interested in time code info. If an
             // application does not need to know about time code, the driver has less work to do.
             // TODO: Provide an option for this?
-            ret = 0;
+            0
         }
 
-        _ => (), // Unknown/unhandled message type.
+        _ => 0, // Unknown/unhandled message type.
     }
-
-    ret
 }
 
-/// Similar to buffer switch but with time info
-/// Not currently used
+/// Similar to buffer switch but with time info.
+///
+/// If only `buffer_switch` is called by the driver instead, the `buffer_switch` callback will
+/// create the necessary timing info and call this function.
 ///
 /// TODO: Provide some access to `ai::ASIOTime` once CPAL gains support for time stamps.
 extern "C" fn buffer_switch_time_info(
