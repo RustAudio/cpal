@@ -712,10 +712,10 @@ impl EventLoop {
                                     available_frames as alsa::snd_pcm_uframes_t,
                                 );
 
-                                if result == -32 {
+                                if result as i32 == -libc::EPIPE {
                                     // buffer underrun
                                     // TODO: Notify the user of this.
-                                    alsa::snd_pcm_prepare(stream.channel);
+                                    alsa::snd_pcm_recover(stream.channel, result as i32, 0);
                                 } else if let Err(err) = check_errors(result as _) {
                                     let description = format!("`snd_pcm_writei` failed: {}", err);
                                     let err = BackendSpecificError { description };
