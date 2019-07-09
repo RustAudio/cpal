@@ -49,7 +49,7 @@ fn main() -> Result<(), anyhow::Error> {
         eprintln!("an error occurred on stream: {}", err);
     })?;
     stream.play()?;
-    
+
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     Ok(())
