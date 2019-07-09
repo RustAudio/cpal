@@ -39,8 +39,6 @@ pub trait HostTrait {
     type Devices: Iterator<Item = Self::Device>;
     /// The `Device` type yielded by the host.
     type Device: DeviceTrait;
-    /// The event loop type used by the `Host`
-    type EventLoop: EventLoopTrait<Device = Self::Device>;
 
     /// Whether or not the host is available on the system.
     fn is_available() -> bool;
@@ -59,9 +57,6 @@ pub trait HostTrait {
     ///
     /// Returns `None` if no output device is available.
     fn default_output_device(&self) -> Option<Self::Device>;
-
-    /// Initialise the event loop, ready for managing audio streams.
-    fn event_loop(&self) -> Self::EventLoop;
 
     /// An iterator yielding all `Device`s currently available to the system that support one or more
     /// input stream formats.
@@ -99,6 +94,8 @@ pub trait DeviceTrait {
     type SupportedInputFormats: Iterator<Item = SupportedFormat>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputFormats: Iterator<Item = SupportedFormat>;
+    /// The stream type created by `build_input_stream` and `build_output_stream`.
+    type Stream: StreamTrait;
 
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
@@ -118,81 +115,19 @@ pub trait DeviceTrait {
 
     /// The default output stream format for the device.
     fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
+
+    /// Create an input stream.
+    fn build_input_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError>
+        where F: FnMut(StreamDataResult) + Send + 'static;
+
+    /// Create an output stream.
+    fn build_output_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError>
+        where F: FnMut(StreamDataResult) + Send + 'static;
 }
 
-/// Collection of streams managed together.
-///
-/// Created with the `Host::event_loop` method.
-pub trait EventLoopTrait {
-    /// The `Device` type yielded by the host.
-    type Device: DeviceTrait;
-    /// The type used to uniquely distinguish between streams.
-    type StreamId: StreamIdTrait;
+/// A stream created from `Device`, with methods to control playback.
+pub trait StreamTrait {
+    fn play(&self) -> Result<(), PlayStreamError>;
 
-    /// Creates a new input stream that will run from the given device and with the given format.
-    ///
-    /// On success, returns an identifier for the stream.
-    ///
-    /// Can return an error if the device is no longer valid, or if the input stream format is not
-    /// supported by the device.
-    fn build_input_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError>;
-
-    /// Creates a new output stream that will play on the given device and with the given format.
-    ///
-    /// On success, returns an identifier for the stream.
-    ///
-    /// Can return an error if the device is no longer valid, or if the output stream format is not
-    /// supported by the device.
-    fn build_output_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError>;
-
-    /// Instructs the audio device that it should start playing the stream with the given ID.
-    ///
-    /// Has no effect is the stream was already playing.
-    ///
-    /// Only call this after you have submitted some data, otherwise you may hear some glitches.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError>;
-
-    /// Instructs the audio device that it should stop playing the stream with the given ID.
-    ///
-    /// Has no effect is the stream was already paused.
-    ///
-    /// If you call `play` afterwards, the playback will resume where it was.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError>;
-
-    /// Destroys an existing stream.
-    ///
-    /// # Panic
-    ///
-    /// If the stream does not exist, this function can either panic or be a no-op.
-    fn destroy_stream(&self, stream: Self::StreamId);
-
-    /// Takes control of the current thread and begins the stream processing.
-    ///
-    /// > **Note**: Since it takes control of the thread, this method is best called on a separate
-    /// > thread.
-    ///
-    /// Whenever a stream needs to be fed some data, the closure passed as parameter is called.
-    /// You can call the other methods of `EventLoop` without getting a deadlock.
-    fn run<F>(&self, callback: F) -> !
-    where
-        F: FnMut(Self::StreamId, StreamDataResult) + Send;
+    fn pause(&self) -> Result<(), PauseStreamError>;
 }
-
-/// The set of required bounds for host `StreamId` types.
-pub trait StreamIdTrait: Clone + std::fmt::Debug + std::hash::Hash + PartialEq + Eq {}

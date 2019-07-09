@@ -149,14 +149,15 @@ extern crate lazy_static;
 #[macro_use]
 extern crate stdweb;
 
-pub use platform::{
-    ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
-    SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
-};
-pub use samples_formats::{Sample, SampleFormat};
+use std::ops::{Deref, DerefMut};
 
 use failure::Fail;
-use std::ops::{Deref, DerefMut};
+
+pub use platform::{
+    ALL_HOSTS, available_hosts, default_host, Device, Devices, Host, host_from_id,
+    HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
+};
+pub use samples_formats::{Sample, SampleFormat};
 
 mod host;
 pub mod platform;
