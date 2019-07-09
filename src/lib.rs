@@ -151,11 +151,10 @@ extern crate thiserror;
 
 pub use error::*;
 pub use platform::{
-    ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
-    SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
+    ALL_HOSTS, available_hosts, default_host, Device, Devices, Host, host_from_id,
+    HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
 };
 pub use samples_formats::{Sample, SampleFormat};
-
 use std::ops::{Deref, DerefMut};
 
 mod error;

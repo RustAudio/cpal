@@ -6,21 +6,21 @@ extern crate anyhow;
 extern crate cpal;
 extern crate hound;
 
-use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 fn main() -> Result<(), anyhow::Error> {
     // Use the default host for working with audio devices.
     let host = cpal::default_host();
 
     // Setup the default input device and stream with the default input format.
-    let device = host.default_input_device().expect("Failed to get default input device");
+    let device = host
+        .default_input_device()
+        .expect("Failed to get default input device");
     println!("Default input device: {}", device.name()?);
-    let format = device.default_input_format().expect("Failed to get default input format");
+    let format = device
+        .default_input_format()
+        .expect("Failed to get default input format");
     println!("Default input format: {:?}", format);
-    let event_loop = host.event_loop();
-    let stream_id = event_loop.build_input_stream(&device, &format)?;
-    event_loop.play_stream(stream_id)?;
-
     // The WAV file we're recording to.
     const PATH: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
     let spec = wav_spec_from_format(&format);
@@ -29,63 +29,62 @@ fn main() -> Result<(), anyhow::Error> {
 
     // A flag to indicate that recording is in progress.
     println!("Begin recording...");
-    let recording = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     // Run the input stream on a separate thread.
     let writer_2 = writer.clone();
-    let recording_2 = recording.clone();
-    std::thread::spawn(move || {
-        event_loop.run(move |id, event| {
-            let data = match event {
-                Ok(data) => data,
-                Err(err) => {
-                    eprintln!("an error occurred on stream {:?}: {}", id, err);
-                    return;
-                }
-            };
-
-            // If we're done recording, return early.
-            if !recording_2.load(std::sync::atomic::Ordering::Relaxed) {
+    let stream = device.build_input_stream(&format, move |event| {
+        let data = match event {
+            Ok(data) => data,
+            Err(err) => {
+                eprintln!("an error occurred on stream: {}", err);
                 return;
-            }
-            // Otherwise write to the wav writer.
-            match data {
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::U16(buffer) } => {
-                    if let Ok(mut guard) = writer_2.try_lock() {
-                        if let Some(writer) = guard.as_mut() {
-                            for sample in buffer.iter() {
-                                let sample = cpal::Sample::to_i16(sample);
-                                writer.write_sample(sample).ok();
-                            }
+            },
+        };
+
+        // Otherwise write to the wav writer.
+        match data {
+            cpal::StreamData::Input {
+                buffer: cpal::UnknownTypeInputBuffer::U16(buffer),
+            } => {
+                if let Ok(mut guard) = writer_2.try_lock() {
+                    if let Some(writer) = guard.as_mut() {
+                        for sample in buffer.iter() {
+                            let sample = cpal::Sample::to_i16(sample);
+                            writer.write_sample(sample).ok();
                         }
                     }
-                },
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::I16(buffer) } => {
-                    if let Ok(mut guard) = writer_2.try_lock() {
-                        if let Some(writer) = guard.as_mut() {
-                            for &sample in buffer.iter() {
-                                writer.write_sample(sample).ok();
-                            }
+                }
+            },
+            cpal::StreamData::Input {
+                buffer: cpal::UnknownTypeInputBuffer::I16(buffer),
+            } => {
+                if let Ok(mut guard) = writer_2.try_lock() {
+                    if let Some(writer) = guard.as_mut() {
+                        for &sample in buffer.iter() {
+                            writer.write_sample(sample).ok();
                         }
                     }
-                },
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::F32(buffer) } => {
-                    if let Ok(mut guard) = writer_2.try_lock() {
-                        if let Some(writer) = guard.as_mut() {
-                            for &sample in buffer.iter() {
-                                writer.write_sample(sample).ok();
-                            }
+                }
+            },
+            cpal::StreamData::Input {
+                buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
+            } => {
+                if let Ok(mut guard) = writer_2.try_lock() {
+                    if let Some(writer) = guard.as_mut() {
+                        for &sample in buffer.iter() {
+                            writer.write_sample(sample).ok();
                         }
                     }
-                },
-                _ => (),
-            }
-        });
-    });
+                }
+            },
+            _ => (),
+        }
+    })?;
+    stream.play()?;
 
     // Let recording go for roughly three seconds.
     std::thread::sleep(std::time::Duration::from_secs(3));
-    recording.store(false, std::sync::atomic::Ordering::Relaxed);
+    drop(stream);
     writer.lock().unwrap().take().unwrap().finalize()?;
     println!("Recording {} complete!", PATH);
     Ok(())

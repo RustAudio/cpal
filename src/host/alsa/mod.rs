@@ -1,11 +1,14 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
-pub use self::enumerate::{Devices, default_input_device, default_output_device};
+use std::{cmp, ffi, io, mem, ptr};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::vec::IntoIter as VecIntoIter;
 
-use ChannelCount;
 use BackendSpecificError;
 use BuildStreamError;
+use ChannelCount;
 use DefaultFormatError;
 use DeviceNameError;
 use DevicesError;
@@ -14,20 +17,15 @@ use PauseStreamError;
 use PlayStreamError;
 use SampleFormat;
 use SampleRate;
-use SupportedFormatsError;
 use StreamData;
 use StreamDataResult;
-use StreamError;
 use SupportedFormat;
+use SupportedFormatsError;
+use traits::{DeviceTrait, HostTrait, StreamTrait};
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
-use std::{cmp, ffi, ptr};
-use std::sync::Mutex;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::vec::IntoIter as VecIntoIter;
+pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
 pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
@@ -47,7 +45,6 @@ impl Host {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
-    type EventLoop = EventLoop;
 
     fn is_available() -> bool {
         // Assume ALSA is always available on linux/freebsd.
@@ -65,15 +62,12 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
-
-    fn event_loop(&self) -> Self::EventLoop {
-        EventLoop::new()
-    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputFormats = SupportedInputFormats;
     type SupportedOutputFormats = SupportedOutputFormats;
+    type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
@@ -94,95 +88,132 @@ impl DeviceTrait for Device {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         Device::default_output_format(self)
     }
-}
 
-impl EventLoopTrait for EventLoop {
-    type Device = Device;
-    type StreamId = StreamId;
-
-    fn build_input_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError> {
-        EventLoop::build_input_stream(self, device, format)
+    fn build_input_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError> where F: FnMut(StreamDataResult) + Send + 'static {
+        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?), callback))
     }
 
-    fn build_output_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError> {
-        EventLoop::build_output_stream(self, device, format)
-    }
-
-    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError> {
-        EventLoop::play_stream(self, stream)
-    }
-
-    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError> {
-        EventLoop::pause_stream(self, stream)
-    }
-
-    fn destroy_stream(&self, stream: Self::StreamId) {
-        EventLoop::destroy_stream(self, stream)
-    }
-
-    fn run<F>(&self, callback: F) -> !
-    where
-        F: FnMut(Self::StreamId, StreamDataResult) + Send,
-    {
-        EventLoop::run(self, callback)
+    fn build_output_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError> where F: FnMut(StreamDataResult) + Send + 'static {
+        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?), callback))
     }
 }
 
-impl StreamIdTrait for StreamId {}
 
-struct Trigger {
-    // [read fd, write fd]
-    fds: [libc::c_int; 2],
-}
+struct TriggerSender(libc::c_int);
 
-impl Trigger {
-    fn new() -> Self {
-        let mut fds = [0, 0];
-        match unsafe { libc::pipe(fds.as_mut_ptr()) } {
-            0 => Trigger { fds: fds },
-            _ => panic!("Could not create pipe"),
-        }
-    }
-    fn read_fd(&self) -> libc::c_int {
-        self.fds[0]
-    }
-    fn write_fd(&self) -> libc::c_int {
-        self.fds[1]
-    }
+struct TriggerReceiver(libc::c_int);
+
+impl TriggerSender {
     fn wakeup(&self) {
         let buf = 1u64;
-        let ret = unsafe { libc::write(self.write_fd(), &buf as *const u64 as *const _, 8) };
+        let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
         assert!(ret == 8);
     }
+}
+
+impl TriggerReceiver {
     fn clear_pipe(&self) {
         let mut out = 0u64;
-        let ret = unsafe { libc::read(self.read_fd(), &mut out as *mut u64 as *mut _, 8) };
+        let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
         assert_eq!(ret, 8);
     }
 }
 
-impl Drop for Trigger {
+fn trigger() -> (TriggerSender, TriggerReceiver) {
+    let mut fds = [0, 0];
+    match unsafe { libc::pipe(fds.as_mut_ptr()) } {
+        0 => (TriggerSender(fds[1]), TriggerReceiver(fds[0])),
+        _ => panic!("Could not create pipe"),
+    }
+}
+
+impl Drop for TriggerSender {
     fn drop(&mut self) {
         unsafe {
-            libc::close(self.fds[0]);
-            libc::close(self.fds[1]);
+            libc::close(self.0);
         }
     }
 }
 
+impl Drop for TriggerReceiver {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.0);
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device(String);
 
 impl Device {
+    fn build_stream_inner(&self, format: &Format, stream_type: alsa::snd_pcm_stream_t) -> Result<StreamInner, BuildStreamError> {
+        let name = ffi::CString::new(self.0.clone()).expect("unable to clone device");
+
+        let handle = unsafe {
+            let mut handle = ptr::null_mut();
+            match alsa::snd_pcm_open(
+                &mut handle,
+                name.as_ptr(),
+                stream_type,
+                alsa::SND_PCM_NONBLOCK,
+            ) {
+                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
+                -22 => return Err(BuildStreamError::InvalidArgument),
+                e => if let Err(description) = check_errors(e) {
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+            }
+            handle
+        };
+        let can_pause = unsafe {
+            let hw_params = HwParams::alloc();
+            set_hw_params_from_format(handle, &hw_params, format)
+                .map_err(|description| BackendSpecificError { description })?;
+
+            alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1
+        };
+        let (buffer_len, period_len) = unsafe {
+            set_sw_params_from_format(handle, format)
+                .map_err(|description| BackendSpecificError { description })?
+        };
+
+        if let Err(desc) = check_errors(unsafe { alsa::snd_pcm_prepare(handle) }) {
+            let description = format!("could not get handle: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
+        let num_descriptors = {
+            let num_descriptors = unsafe { alsa::snd_pcm_poll_descriptors_count(handle) };
+            if num_descriptors == 0 {
+                let description = "poll descriptor count for stream was 0".to_string();
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            num_descriptors as usize
+        };
+
+        let stream_inner = StreamInner {
+            channel: handle,
+            sample_format: format.data_type,
+            num_descriptors,
+            num_channels: format.channels as u16,
+            buffer_len,
+            period_len,
+            can_pause,
+        };
+
+        if let Err(desc) = check_errors(unsafe { alsa::snd_pcm_start(handle) }) {
+            let description = format!("could not start stream: {}", desc);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+
+        Ok(stream_inner)
+    }
+
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok(self.0.clone())
@@ -450,48 +481,7 @@ impl Device {
     }
 }
 
-pub struct EventLoop {
-    // Each newly-created stream gets a new ID from this counter. The counter is then incremented.
-    next_stream_id: AtomicUsize, // TODO: use AtomicU64 when stable?
-
-    // A trigger that uses a `pipe()` as backend. Signalled whenever a new command is ready, so
-    // that `poll()` can wake up and pick the changes.
-    pending_command_trigger: Trigger,
-
-    // This field is locked by the `run()` method.
-    // The mutex also ensures that only one thread at a time has `run()` running.
-    run_context: Mutex<RunContext>,
-
-    // Commands processed by the `run()` method that is currently running.
-    commands: Sender<Command>,
-}
-
-unsafe impl Send for EventLoop {
-}
-
-unsafe impl Sync for EventLoop {
-}
-
-enum Command {
-    NewStream(StreamInner),
-    PlayStream(StreamId),
-    PauseStream(StreamId),
-    DestroyStream(StreamId),
-}
-
-struct RunContext {
-    // Descriptors to wait for. Always contains `pending_command_trigger.read_fd()` as first element.
-    descriptors: Vec<libc::pollfd>,
-    // List of streams that are written in `descriptors`.
-    streams: Vec<StreamInner>,
-
-    commands: Receiver<Command>,
-}
-
 struct StreamInner {
-    // The id of the stream.
-    id: StreamId,
-
     // The ALSA channel.
     channel: *mut alsa::snd_pcm_t,
 
@@ -513,501 +503,230 @@ struct StreamInner {
 
     // Whether or not the hardware supports pausing the stream.
     can_pause: bool,
-
-    // Whether or not the sample stream is currently paused.
-    is_paused: bool,
-
-    // A file descriptor opened with `eventfd`.
-    // It is used to wait for resume signal.
-    resume_trigger: Trigger,
-
-    // Lazily allocated buffer that is reused inside the loop.
-    // Zero-allocate a new buffer (the fastest way to have zeroed memory) at the first time this is
-    // used.
-    buffer: Vec<u8>,
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
+// Assume that the ALSA library is built with thread safe option.
+unsafe impl Send for StreamInner {}
+
+unsafe impl Sync for StreamInner {}
 
 enum StreamType { Input, Output }
 
+pub struct Stream {
+    /// The high-priority audio processing thread calling callbacks.
+    /// Option used for moving out in destructor.
+    thread: Option<JoinHandle<()>>,
 
-impl EventLoop {
-    #[inline]
-    fn new() -> EventLoop {
-        let pending_command_trigger = Trigger::new();
+    /// Handle to the underlying stream for playback controls.
+    inner: Arc<StreamInner>,
 
-        let mut initial_descriptors = vec![];
-        reset_descriptors_with_pending_command_trigger(
-            &mut initial_descriptors,
-            &pending_command_trigger,
-        );
-
-        let (tx, rx) = channel();
-
-        let run_context = Mutex::new(RunContext {
-                                         descriptors: initial_descriptors,
-                                         streams: Vec::new(),
-                                         commands: rx,
-                                     });
-
-        EventLoop {
-            next_stream_id: AtomicUsize::new(0),
-            pending_command_trigger: pending_command_trigger,
-            run_context,
-            commands: tx,
-        }
-    }
-
-    #[inline]
-    fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
-    {
-        self.run_inner(&mut callback)
-    }
-
-    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamDataResult)) -> ! {
-        unsafe {
-            let mut run_context = self.run_context.lock().unwrap();
-            let run_context = &mut *run_context;
-
-            'stream_loop: loop {
-                process_commands(run_context);
-
-                reset_descriptors_with_pending_command_trigger(
-                    &mut run_context.descriptors,
-                    &self.pending_command_trigger,
-                );
-                append_stream_poll_descriptors(run_context);
-
-                // At this point, this should include the command `pending_commands_trigger` along
-                // with the poll descriptors for each stream.
-                match poll_all_descriptors(&mut run_context.descriptors) {
-                    Ok(true) => (),
-                    Ok(false) => continue,
-                    Err(err) => {
-                        for stream in run_context.streams.iter() {
-                            let result = Err(err.clone().into());
-                            callback(stream.id, result);
-                        }
-                        run_context.streams.clear();
-                        break 'stream_loop;
-                    }
-                }
-
-                // If the `pending_command_trigger` was signaled, we need to process the comands.
-                if run_context.descriptors[0].revents != 0 {
-                    run_context.descriptors[0].revents = 0;
-                    self.pending_command_trigger.clear_pipe();
-                }
-
-                // The set of streams that error within the following loop and should be removed.
-                let mut streams_to_remove: Vec<(StreamId, StreamError)> = vec![];
-
-                // Iterate over each individual stream/descriptor.
-                let mut i_stream = 0;
-                let mut i_descriptor = 1;
-                while (i_descriptor as usize) < run_context.descriptors.len() {
-                    let stream = &mut run_context.streams[i_stream];
-                    let stream_descriptor_ptr = run_context.descriptors.as_mut_ptr().offset(i_descriptor);
-
-                    // Only go on if this event was a pollout or pollin event.
-                    let stream_type = match check_for_pollout_or_pollin(stream, stream_descriptor_ptr) {
-                        Ok(Some(ty)) => ty,
-                        Ok(None) => {
-                            i_descriptor += stream.num_descriptors as isize;
-                            i_stream += 1;
-                            continue;
-                        },
-                        Err(err) => {
-                            streams_to_remove.push((stream.id, err.into()));
-                            i_descriptor += stream.num_descriptors as isize;
-                            i_stream += 1;
-                            continue;
-                        }
-                    };
-
-                    // Get the number of available samples for reading/writing.
-                    let available_samples = match get_available_samples(stream) {
-                        Ok(n) => n,
-                        Err(err) => {
-                            streams_to_remove.push((stream.id, err.into()));
-                            i_descriptor += stream.num_descriptors as isize;
-                            i_stream += 1;
-                            continue;
-                        }
-                    };
-
-                    // Only go on if there is at least `stream.period_len` samples.
-                    if available_samples < stream.period_len {
-                        i_descriptor += stream.num_descriptors as isize;
-                        i_stream += 1;
-                        continue;
-                    }
-
-                    // Prepare the data buffer.
-                    let buffer_size = stream.sample_format.sample_size() * available_samples;
-                    stream.buffer.resize(buffer_size, 0u8);
-                    let available_frames = available_samples / stream.num_channels as usize;
-
-                    match stream_type {
-                        StreamType::Input => {
-                            let result = alsa::snd_pcm_readi(
-                                stream.channel,
-                                stream.buffer.as_mut_ptr() as *mut _,
-                                available_frames as alsa::snd_pcm_uframes_t,
-                            );
-                            if let Err(err) = check_errors(result as _) {
-                                let description = format!("`snd_pcm_readi` failed: {}", err);
-                                let err = BackendSpecificError { description };
-                                streams_to_remove.push((stream.id, err.into()));
-                                continue;
-                            }
-
-                            let input_buffer = match stream.sample_format {
-                                SampleFormat::I16 => UnknownTypeInputBuffer::I16(::InputBuffer {
-                                    buffer: cast_input_buffer(&mut stream.buffer),
-                                }),
-                                SampleFormat::U16 => UnknownTypeInputBuffer::U16(::InputBuffer {
-                                    buffer: cast_input_buffer(&mut stream.buffer),
-                                }),
-                                SampleFormat::F32 => UnknownTypeInputBuffer::F32(::InputBuffer {
-                                    buffer: cast_input_buffer(&mut stream.buffer),
-                                }),
-                            };
-                            let stream_data = StreamData::Input {
-                                buffer: input_buffer,
-                            };
-                            callback(stream.id, Ok(stream_data));
-                        },
-                        StreamType::Output => {
-                            {
-                                // We're now sure that we're ready to write data.
-                                let output_buffer = match stream.sample_format {
-                                    SampleFormat::I16 => UnknownTypeOutputBuffer::I16(::OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
-                                    SampleFormat::U16 => UnknownTypeOutputBuffer::U16(::OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
-                                    SampleFormat::F32 => UnknownTypeOutputBuffer::F32(::OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
-                                };
-
-                                let stream_data = StreamData::Output {
-                                    buffer: output_buffer,
-                                };
-                                callback(stream.id, Ok(stream_data));
-                            }
-                            loop {
-                                let result = alsa::snd_pcm_writei(
-                                    stream.channel,
-                                    stream.buffer.as_ptr() as *const _,
-                                    available_frames as alsa::snd_pcm_uframes_t,
-                                );
-
-                                if result as i32 == -libc::EPIPE {
-                                    // buffer underrun
-                                    // TODO: Notify the user of this.
-                                    alsa::snd_pcm_recover(stream.channel, result as i32, 0);
-                                } else if let Err(err) = check_errors(result as _) {
-                                    let description = format!("`snd_pcm_writei` failed: {}", err);
-                                    let err = BackendSpecificError { description };
-                                    streams_to_remove.push((stream.id, err.into()));
-                                    continue;
-                                } else if result as usize != available_frames {
-                                    let description = format!(
-                                        "unexpected number of frames written: expected {}, \
-                                        result {} (this should never happen)",
-                                        available_frames,
-                                        result,
-                                    );
-                                    let err = BackendSpecificError { description };
-                                    streams_to_remove.push((stream.id, err.into()));
-                                    continue;
-                                } else {
-                                    break;
-                                }
-                            }
-                        },
-                    }
-                }
-
-                // Remove any streams that have errored and notify the user.
-                for (stream_id, err) in streams_to_remove {
-                    run_context.streams.retain(|s| s.id != stream_id);
-                    callback(stream_id, Err(err.into()));
-                }
-            }
-        }
-
-        panic!("`cpal::EventLoop::run` API currently disallows returning");
-    }
-
-    fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        unsafe {
-            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
-
-            let mut capture_handle = ptr::null_mut();
-            match alsa::snd_pcm_open(
-                &mut capture_handle,
-                name.as_ptr(),
-                alsa::SND_PCM_STREAM_CAPTURE,
-                alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
-                -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if let Err(description) = check_errors(e) {
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-            }
-            let hw_params = HwParams::alloc();
-
-            set_hw_params_from_format(capture_handle, &hw_params, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
-
-            let (buffer_len, period_len) = set_sw_params_from_format(capture_handle, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(capture_handle)) {
-                let description = format!("could not get capture handle: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            let num_descriptors = {
-                let num_descriptors = alsa::snd_pcm_poll_descriptors_count(capture_handle);
-                if num_descriptors == 0 {
-                    let description = "poll descriptor count for capture stream was 0".to_string();
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                num_descriptors as usize
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                panic!("number of streams used has overflowed usize");
-            }
-
-            let stream_inner = StreamInner {
-                id: new_stream_id.clone(),
-                channel: capture_handle,
-                sample_format: format.data_type,
-                num_descriptors: num_descriptors,
-                num_channels: format.channels as u16,
-                buffer_len: buffer_len,
-                period_len: period_len,
-                can_pause: can_pause,
-                is_paused: false,
-                resume_trigger: Trigger::new(),
-                buffer: vec![],
-            };
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_start(capture_handle)) {
-                let description = format!("could not start capture stream: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            self.push_command(Command::NewStream(stream_inner));
-            Ok(new_stream_id)
-        }
-    }
-
-    fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        unsafe {
-            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
-
-            let mut playback_handle = ptr::null_mut();
-            match alsa::snd_pcm_open(
-                &mut playback_handle,
-                name.as_ptr(),
-                alsa::SND_PCM_STREAM_PLAYBACK,
-                alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
-                -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if let Err(description) = check_errors(e) {
-                    let err = BackendSpecificError { description };
-                    return Err(err.into())
-                }
-            }
-            let hw_params = HwParams::alloc();
-
-            set_hw_params_from_format(playback_handle, &hw_params, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
-
-            let (buffer_len, period_len) = set_sw_params_from_format(playback_handle, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(playback_handle)) {
-                let description = format!("could not get playback handle: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            let num_descriptors = {
-                let num_descriptors = alsa::snd_pcm_poll_descriptors_count(playback_handle);
-                if num_descriptors == 0 {
-                    let description = "poll descriptor count for playback stream was 0".to_string();
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                num_descriptors as usize
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
-            let stream_inner = StreamInner {
-                id: new_stream_id.clone(),
-                channel: playback_handle,
-                sample_format: format.data_type,
-                num_descriptors: num_descriptors,
-                num_channels: format.channels as u16,
-                buffer_len: buffer_len,
-                period_len: period_len,
-                can_pause: can_pause,
-                is_paused: false,
-                resume_trigger: Trigger::new(),
-                buffer: vec![],
-            };
-
-            self.push_command(Command::NewStream(stream_inner));
-            Ok(new_stream_id)
-        }
-    }
-
-    #[inline]
-    fn push_command(&self, command: Command) {
-        // Safe to unwrap: sender outlives receiver.
-        self.commands.send(command).unwrap();
-        self.pending_command_trigger.wakeup();
-    }
-
-    #[inline]
-    fn destroy_stream(&self, stream_id: StreamId) {
-        self.push_command(Command::DestroyStream(stream_id));
-    }
-
-    #[inline]
-    fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
-        self.push_command(Command::PlayStream(stream_id));
-        Ok(())
-    }
-
-    #[inline]
-    fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
-        self.push_command(Command::PauseStream(stream_id));
-        Ok(())
-    }
+    /// Used to signal to stop processing.
+    trigger: TriggerSender,
 }
 
-// Process any pending `Command`s within the `RunContext`'s queue.
-fn process_commands(run_context: &mut RunContext) {
-    for command in run_context.commands.try_iter() {
-        match command {
-            Command::DestroyStream(stream_id) => {
-                run_context.streams.retain(|s| s.id != stream_id);
-            },
-            Command::PlayStream(stream_id) => {
-                if let Some(stream) = run_context.streams.iter_mut()
-                    .find(|stream| stream.can_pause && stream.id == stream_id)
-                {
-                    unsafe {
-                        alsa::snd_pcm_pause(stream.channel, 0);
-                    }
-                    stream.is_paused = false;
-                }
-            },
-            Command::PauseStream(stream_id) => {
-                if let Some(stream) = run_context.streams.iter_mut()
-                    .find(|stream| stream.can_pause && stream.id == stream_id)
-                {
-                    unsafe {
-                        alsa::snd_pcm_pause(stream.channel, 1);
-                    }
-                    stream.is_paused = true;
-                }
-            },
-            Command::NewStream(stream_inner) => {
-                run_context.streams.push(stream_inner);
-            },
-        }
-    }
-}
+/// The inner body of the audio processing thread. Takes the polymorphic
+/// callback to avoid generating too much generic code.
+fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn FnMut(StreamDataResult) + Send + 'static)) {
+    let mut descriptors = Vec::new();
+    let mut buffer = Vec::new();
+    loop {
+        descriptors.clear();
+        // Add the self-pipe for signaling termination.
+        descriptors.push(libc::pollfd {
+            fd: rx.0,
+            events: libc::POLLIN,
+            revents: 0,
+        });
 
-// Resets the descriptors so that only `pending_command_trigger.read_fd()` is contained.
-fn reset_descriptors_with_pending_command_trigger(
-    descriptors: &mut Vec<libc::pollfd>,
-    pending_command_trigger: &Trigger,
-) {
-    descriptors.clear();
-    descriptors.push(libc::pollfd {
-        fd: pending_command_trigger.read_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    });
-}
-
-// Appends the `poll` descriptors for each stream onto the `RunContext`'s descriptor slice, ready
-// for a call to `libc::poll`.
-fn append_stream_poll_descriptors(run_context: &mut RunContext) {
-    for stream in run_context.streams.iter() {
-        run_context.descriptors.reserve(stream.num_descriptors);
-        let len = run_context.descriptors.len();
+        // Add ALSA polling fds.
+        descriptors.reserve(stream.num_descriptors);
+        let len = descriptors.len();
         let filled = unsafe {
             alsa::snd_pcm_poll_descriptors(
                 stream.channel,
-                run_context.descriptors.as_mut_ptr().offset(len as isize),
+                descriptors[len..].as_mut_ptr(),
                 stream.num_descriptors as libc::c_uint,
             )
         };
         debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
         unsafe {
-            run_context.descriptors.set_len(len + stream.num_descriptors);
+            descriptors.set_len(len + stream.num_descriptors);
+        }
+
+        let res = unsafe {
+            // Don't timeout, wait forever.
+            libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
+        };
+        if res < 0 {
+            let description = format!("`libc::poll()` failed: {}", io::Error::last_os_error());
+            callback(Err(BackendSpecificError { description }.into()));
+            continue;
+        } else if res == 0 {
+            let description = String::from("`libc::poll()` spuriously returned");
+            callback(Err(BackendSpecificError { description }.into()));
+            continue;
+        }
+
+        if descriptors[0].revents != 0 {
+            // The stream has been requested to be destroyed.
+            rx.clear_pipe();
+            return;
+        }
+
+        let stream_type = match check_for_pollout_or_pollin(stream, descriptors[1..].as_mut_ptr()) {
+            Ok(Some(ty)) => ty,
+            Ok(None) => {
+                // Nothing to process, poll again
+                continue;
+            },
+            Err(err) => {
+                // TODO: signal errors
+                continue;
+            }
+        };
+        // Get the number of available samples for reading/writing.
+        let available_samples = match get_available_samples(stream) {
+            Ok(n) => n,
+            Err(err) => {
+                let description = format!("Failed to query the number of available samples: {}", err);
+                callback(Err(BackendSpecificError { description }.into()));
+                continue;
+            }
+        };
+
+        // Only go on if there is at least `stream.period_len` samples.
+        if available_samples < stream.period_len {
+            continue;
+        }
+
+        // Prepare the data buffer.
+        let buffer_size = stream.sample_format.sample_size() * available_samples;
+        buffer.resize(buffer_size, 0u8);
+        let available_frames = available_samples / stream.num_channels as usize;
+
+        match stream_type {
+            StreamType::Input => {
+                let result = unsafe {
+                    alsa::snd_pcm_readi(
+                        stream.channel,
+                        buffer.as_mut_ptr() as *mut _,
+                        available_frames as alsa::snd_pcm_uframes_t,
+                    )
+                };
+                if let Err(err) = check_errors(result as _) {
+                    let description = format!("`snd_pcm_readi` failed: {}", err);
+                    callback(Err(BackendSpecificError { description }.into()));
+                    continue;
+                }
+
+                let input_buffer = match stream.sample_format {
+                    SampleFormat::I16 => UnknownTypeInputBuffer::I16(::InputBuffer {
+                        buffer: unsafe { cast_input_buffer(&mut buffer) },
+                    }),
+                    SampleFormat::U16 => UnknownTypeInputBuffer::U16(::InputBuffer {
+                        buffer: unsafe { cast_input_buffer(&mut buffer) },
+                    }),
+                    SampleFormat::F32 => UnknownTypeInputBuffer::F32(::InputBuffer {
+                        buffer: unsafe { cast_input_buffer(&mut buffer) },
+                    }),
+                };
+                let stream_data = StreamData::Input {
+                    buffer: input_buffer,
+                };
+                callback(Ok(stream_data));
+            },
+            StreamType::Output => {
+                {
+                    // We're now sure that we're ready to write data.
+                    let output_buffer = match stream.sample_format {
+                        SampleFormat::I16 => UnknownTypeOutputBuffer::I16(::OutputBuffer {
+                            buffer: unsafe { cast_output_buffer(&mut buffer) },
+                        }),
+                        SampleFormat::U16 => UnknownTypeOutputBuffer::U16(::OutputBuffer {
+                            buffer: unsafe { cast_output_buffer(&mut buffer) },
+                        }),
+                        SampleFormat::F32 => UnknownTypeOutputBuffer::F32(::OutputBuffer {
+                            buffer: unsafe { cast_output_buffer(&mut buffer) },
+                        }),
+                    };
+
+                    let stream_data = StreamData::Output {
+                        buffer: output_buffer,
+                    };
+                    callback(Ok(stream_data));
+                }
+                loop {
+                    let result = unsafe {
+                        alsa::snd_pcm_writei(
+                            stream.channel,
+                            buffer.as_ptr() as *const _,
+                            available_frames as alsa::snd_pcm_uframes_t,
+                        )
+                    };
+
+                    if result == -libc::EPIPE as i64 {
+                        // buffer underrun
+                        // TODO: Notify the user of this.
+                        unsafe { alsa::snd_pcm_recover(stream.channel, result as i32, 0) };
+                    } else if let Err(err) = check_errors(result as _) {
+                        let description = format!("`snd_pcm_writei` failed: {}", err);
+                        callback(Err(BackendSpecificError { description }.into()));
+                        continue;
+                    } else if result as usize != available_frames {
+                        let description = format!(
+                            "unexpected number of frames written: expected {}, \
+                                        result {} (this should never happen)",
+                            available_frames,
+                            result,
+                        );
+                        callback(Err(BackendSpecificError { description }.into()));
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            },
         }
     }
 }
 
-// Poll all descriptors within the given set.
-//
-// Returns `Ok(true)` if some event has occurred or `Ok(false)` if no events have
-// occurred.
-//
-// Returns an `Err` if `libc::poll` returns a negative value for some reason.
-fn poll_all_descriptors(descriptors: &mut [libc::pollfd]) -> Result<bool, BackendSpecificError> {
-    let res = unsafe {
-        // Don't timeout, wait forever.
-        libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
-    };
-    if res < 0 {
-        let description = format!("`libc::poll()` failed: {}", res);
-        Err(BackendSpecificError { description })
-    } else if res == 0 {
-        Ok(false)
-    } else {
-        Ok(true)
+impl Stream {
+    fn new<F>(inner: Arc<StreamInner>, mut callback: F) -> Stream where F: FnMut(StreamDataResult) + Send + 'static {
+        let (tx, rx) = trigger();
+        // Clone the handle for passing into worker thread.
+        let stream = inner.clone();
+        let thread = thread::spawn(move || {
+            stream_worker(rx, &*stream, &mut callback);
+        });
+        Stream {
+            thread: Some(thread),
+            inner,
+            trigger: tx,
+        }
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.trigger.wakeup();
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        unsafe {
+            alsa::snd_pcm_pause(self.inner.channel, 0);
+        }
+        // TODO: error handling
+        Ok(())
+    }
+    fn pause(&self)-> Result<(), PauseStreamError> {
+        unsafe {
+            alsa::snd_pcm_pause(self.inner.channel, 1);
+        }
+        // TODO: error handling
+        Ok(())
     }
 }
 
