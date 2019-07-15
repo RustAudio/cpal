@@ -7,7 +7,8 @@ use DeviceNameError;
 use Format;
 use PauseStreamError;
 use PlayStreamError;
-use StreamDataResult;
+use StreamData;
+use StreamError;
 use SupportedFormatsError;
 use SupportedFormat;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -76,14 +77,14 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_input_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError>
-        where F: FnMut(StreamDataResult) + Send + 'static {
+    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         unimplemented!()
     }
 
     /// Create an output stream.
-    fn build_output_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError>
-        where F: FnMut(StreamDataResult) + Send + 'static{
+    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static{
         unimplemented!()
     }
 }

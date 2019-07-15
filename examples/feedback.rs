@@ -44,15 +44,7 @@ fn main() -> Result<(), failure::Error> {
 
     // Build streams.
     println!("Attempting to build both streams with `{:?}`.", format);
-    let input_stream = input_device.build_input_stream(&format, move |result| {
-        let data = match result {
-            Ok(data) => data,
-            Err(err) => {
-                eprintln!("an error occurred on input stream: {}", err);
-                return;
-            },
-        };
-
+    let input_stream = input_device.build_input_stream(&format, move |data| {
         match data {
             cpal::StreamData::Input {
                 buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
@@ -69,15 +61,10 @@ fn main() -> Result<(), failure::Error> {
             },
             _ => panic!("Expected input with f32 data"),
         }
+    }, move |err| {
+        eprintln!("an error occurred on input stream: {}", err);
     })?;
-    let output_stream = output_device.build_output_stream(&format, move |result| {
-        let data = match result {
-            Ok(data) => data,
-            Err(err) => {
-                eprintln!("an error occurred on output stream: {}", err);
-                return;
-            },
-        };
+    let output_stream = output_device.build_output_stream(&format, move |data| {
         match data {
             cpal::StreamData::Output {
                 buffer: cpal::UnknownTypeOutputBuffer::F32(mut buffer),
@@ -98,6 +85,8 @@ fn main() -> Result<(), failure::Error> {
             },
             _ => panic!("Expected output with f32 data"),
         }
+    }, move |err| {
+        eprintln!("an error occurred on output stream: {}", err);
     })?;
     println!("Successfully built streams.");
 
