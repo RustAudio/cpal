@@ -32,15 +32,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Run the input stream on a separate thread.
     let writer_2 = writer.clone();
-    let stream = device.build_input_stream(&format, move |event| {
-        let data = match event {
-            Ok(data) => data,
-            Err(err) => {
-                eprintln!("an error occurred on stream: {}", err);
-                return;
-            },
-        };
-
+    let stream = device.build_input_stream(&format, move |data| {
         // Otherwise write to the wav writer.
         match data {
             cpal::StreamData::Input {
@@ -79,6 +71,8 @@ fn main() -> Result<(), anyhow::Error> {
             },
             _ => (),
         }
+    }, move |err| {
+        eprintln!("an error occurred on stream: {}", err);
     })?;
     stream.play()?;
 

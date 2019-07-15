@@ -18,7 +18,7 @@ use PlayStreamError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
-use StreamDataResult;
+use StreamError;
 use SupportedFormat;
 use SupportedFormatsError;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -89,12 +89,12 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError> where F: FnMut(StreamDataResult) + Send + 'static {
-        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?), callback))
+    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?), data_callback, error_callback))
     }
 
-    fn build_output_stream<F>(&self, format: &Format, callback: F) -> Result<Self::Stream, BuildStreamError> where F: FnMut(StreamDataResult) + Send + 'static {
-        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?), callback))
+    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?), data_callback, error_callback))
     }
 }
 
@@ -526,7 +526,10 @@ pub struct Stream {
 
 /// The inner body of the audio processing thread. Takes the polymorphic
 /// callback to avoid generating too much generic code.
-fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn FnMut(StreamDataResult) + Send + 'static)) {
+fn stream_worker(rx: TriggerReceiver,
+                 stream: &StreamInner,
+                 data_callback: &mut (dyn FnMut(StreamData) + Send + 'static),
+                 error_callback: &mut (dyn FnMut(StreamError) + Send + 'static)) {
     let mut descriptors = Vec::new();
     let mut buffer = Vec::new();
     loop {
@@ -559,11 +562,11 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
         };
         if res < 0 {
             let description = format!("`libc::poll()` failed: {}", io::Error::last_os_error());
-            callback(Err(BackendSpecificError { description }.into()));
+            error_callback(BackendSpecificError { description }.into());
             continue;
         } else if res == 0 {
             let description = String::from("`libc::poll()` spuriously returned");
-            callback(Err(BackendSpecificError { description }.into()));
+            error_callback(BackendSpecificError { description }.into());
             continue;
         }
 
@@ -589,7 +592,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
             Ok(n) => n,
             Err(err) => {
                 let description = format!("Failed to query the number of available samples: {}", err);
-                callback(Err(BackendSpecificError { description }.into()));
+                error_callback(BackendSpecificError { description }.into());
                 continue;
             }
         };
@@ -615,7 +618,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
                 };
                 if let Err(err) = check_errors(result as _) {
                     let description = format!("`snd_pcm_readi` failed: {}", err);
-                    callback(Err(BackendSpecificError { description }.into()));
+                    error_callback(BackendSpecificError { description }.into());
                     continue;
                 }
 
@@ -633,7 +636,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
                 let stream_data = StreamData::Input {
                     buffer: input_buffer,
                 };
-                callback(Ok(stream_data));
+                data_callback(stream_data);
             },
             StreamType::Output => {
                 {
@@ -653,7 +656,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
                     let stream_data = StreamData::Output {
                         buffer: output_buffer,
                     };
-                    callback(Ok(stream_data));
+                    data_callback(stream_data);
                 }
                 loop {
                     let result = unsafe {
@@ -670,7 +673,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
                         unsafe { alsa::snd_pcm_recover(stream.channel, result as i32, 0) };
                     } else if let Err(err) = check_errors(result as _) {
                         let description = format!("`snd_pcm_writei` failed: {}", err);
-                        callback(Err(BackendSpecificError { description }.into()));
+                        error_callback(BackendSpecificError { description }.into());
                         continue;
                     } else if result as usize != available_frames {
                         let description = format!(
@@ -679,7 +682,7 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
                             available_frames,
                             result,
                         );
-                        callback(Err(BackendSpecificError { description }.into()));
+                        error_callback(BackendSpecificError { description }.into());
                         continue;
                     } else {
                         break;
@@ -691,12 +694,13 @@ fn stream_worker(rx: TriggerReceiver, stream: &StreamInner, callback: &mut (dyn 
 }
 
 impl Stream {
-    fn new<F>(inner: Arc<StreamInner>, mut callback: F) -> Stream where F: FnMut(StreamDataResult) + Send + 'static {
+    fn new<D, E>(inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::spawn(move || {
-            stream_worker(rx, &*stream, &mut callback);
+            stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
         });
         Stream {
             thread: Some(thread),

@@ -206,10 +206,6 @@ pub enum StreamData<'a> {
     },
 }
 
-/// Stream data passed to the `EventLoop::run` callback, or an error in the case that the device
-/// was invalidated or some backend-specific error occurred.
-pub type StreamDataResult<'a> = Result<StreamData<'a>, StreamError>;
-
 /// Represents a buffer containing audio data that may be read.
 ///
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the

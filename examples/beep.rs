@@ -17,15 +17,7 @@ fn main() -> Result<(), anyhow::Error> {
         (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
-    let stream = device.build_output_stream(&format, move |result| {
-        let data = match result {
-            Ok(data) => data,
-            Err(err) => {
-                eprintln!("an error occurred on stream: {}", err);
-                return;
-            }
-        };
-
+    let stream = device.build_output_stream(&format, move |data| {
         match data {
             cpal::StreamData::Output { buffer: cpal::UnknownTypeOutputBuffer::U16(mut buffer) } => {
                 for sample in buffer.chunks_mut(channels as usize) {
@@ -53,6 +45,8 @@ fn main() -> Result<(), anyhow::Error> {
             },
             _ => (),
         }
+    }, move |err| {
+        eprintln!("an error occurred on stream: {}", err);
     })?;
     stream.play()?;
     
