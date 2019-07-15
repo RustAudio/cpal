@@ -77,13 +77,13 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+    fn build_input_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
         where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         unimplemented!()
     }
 
     /// Create an output stream.
-    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+    fn build_output_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
         where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static{
         unimplemented!()
     }
