@@ -587,7 +587,7 @@ fn stream_worker(rx: TriggerReceiver,
                 continue;
             },
             Err(err) => {
-                // TODO: signal errors
+                error_callback(err.into());
                 continue;
             }
         };
