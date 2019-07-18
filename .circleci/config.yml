@@ -1,22 +1,6 @@
 version: 2
 
 jobs:
-
-  android-test:
-    working_directory: ~/cpal
-    docker:
-      - image: tomaka/cargo-apk
-    steps:
-      - run: apt-get -qq update && apt-get install -y git
-      - checkout
-      - restore_cache:
-          key: android-test-cache-{{ checksum "Cargo.toml" }}
-      - run: cargo apk build --example beep
-      - save_cache:
-          key: android-test-cache-{{ checksum "Cargo.toml" }}
-          paths:
-            - target
-
   asmjs-test:
     working_directory: ~/cpal
     docker:
@@ -51,6 +35,5 @@ workflows:
   version: 2
   build-test-and-deploy:
     jobs:
-      - android-test
       - asmjs-test
       - wasm-test
