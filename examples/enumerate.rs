@@ -9,7 +9,7 @@ fn main() -> Result<(), failure::Error> {
     println!("Available hosts:\n  {:?}", available_hosts);
 
     for host_id in available_hosts {
-        println!("{:?}", host_id);
+        println!("{}", host_id.name());
         let host = cpal::host_from_id(host_id)?;
         let default_in = host.default_input_device().map(|e| e.name().unwrap());
         let default_out = host.default_output_device().map(|e| e.name().unwrap());

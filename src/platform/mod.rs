@@ -12,8 +12,8 @@ pub use self::platform_impl::*;
 // These dynamically dispatched types are necessary to allow for users to switch between hosts at
 // runtime.
 //
-// For example the invocation `impl_platform_host(Wasapi wasapi, Asio asio)`, this macro should
-// expand to:
+// For example the invocation `impl_platform_host(Wasapi wasapi "WASAPI", Asio asio "ASIO")`,
+// this macro should expand to:
 //
 // ```
 // pub enum HostId {
@@ -31,7 +31,7 @@ pub use self::platform_impl::*;
 // SupportedOutputFormats and all their necessary trait implementations.
 // ```
 macro_rules! impl_platform_host {
-    ($($HostVariant:ident $host_mod:ident),*) => {
+    ($($HostVariant:ident $host_mod:ident $host_name:literal),*) => {
         /// All hosts supported by CPAL on this platform.
         pub const ALL_HOSTS: &'static [HostId] = &[
             $(
@@ -124,6 +124,16 @@ macro_rules! impl_platform_host {
             $(
                 $HostVariant(crate::host::$host_mod::SupportedOutputFormats),
             )*
+        }
+
+        impl HostId {
+            pub fn name(&self) -> &'static str {
+                match self {
+                    $(
+                        HostId::$HostVariant => $host_name,
+                    )*
+                }
+            }
         }
 
         impl Host {
@@ -468,7 +478,7 @@ mod platform_impl {
         SupportedOutputFormats as AlsaSupportedOutputFormats,
     };
 
-    impl_platform_host!(Alsa alsa);
+    impl_platform_host!(Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -491,7 +501,7 @@ mod platform_impl {
         SupportedOutputFormats as CoreAudioSupportedOutputFormats,
     };
 
-    impl_platform_host!(CoreAudio coreaudio);
+    impl_platform_host!(CoreAudio coreaudio "CoreAudio");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -513,7 +523,7 @@ mod platform_impl {
         SupportedOutputFormats as EmscriptenSupportedOutputFormats,
     };
 
-    impl_platform_host!(Emscripten emscripten);
+    impl_platform_host!(Emscripten emscripten "Emscripten");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -546,10 +556,10 @@ mod platform_impl {
     };
 
     #[cfg(feature = "asio")]
-    impl_platform_host!(Asio asio, Wasapi wasapi);
+    impl_platform_host!(Asio asio "ASIO", Wasapi wasapi "WASAPI");
 
     #[cfg(not(feature = "asio"))]
-    impl_platform_host!(Wasapi wasapi);
+    impl_platform_host!(Wasapi wasapi "WASAPI");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -572,7 +582,7 @@ mod platform_impl {
         SupportedOutputFormats as NullSupportedOutputFormats,
     };
 
-    impl_platform_host!(Null null);
+    impl_platform_host!(Null null "Null");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
