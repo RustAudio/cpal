@@ -436,7 +436,7 @@ impl Device {
             };
 
             // If the default format can't succeed we have no hope of finding other formats.
-            assert_eq!(try!(is_format_supported(client, default_waveformatex_ptr.0)), true);
+            assert_eq!(is_format_supported(client, default_waveformatex_ptr.0)?, true);
 
             // Copy the format to use as a test format (as to avoid mutating the original format).
             let mut test_format = {
@@ -458,7 +458,7 @@ impl Device {
                 test_format.nSamplesPerSec = rate;
                 test_format.nAvgBytesPerSec =
                     rate * (*default_waveformatex_ptr.0).nBlockAlign as DWORD;
-                if try!(is_format_supported(client, test_format.as_ptr())) {
+                if is_format_supported(client, test_format.as_ptr())? {
                     supported_sample_rates.push(rate);
                 }
             }

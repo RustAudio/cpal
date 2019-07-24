@@ -18,8 +18,12 @@ fn main() -> Result<(), failure::Error> {
     let event_loop = host.event_loop();
 
     // Default devices.
-    let input_device = host.default_input_device().expect("failed to get default input device");
-    let output_device = host.default_output_device().expect("failed to get default output device");
+    let input_device = host
+        .default_input_device()
+        .expect("failed to get default input device");
+    let output_device = host
+        .default_output_device()
+        .expect("failed to get default output device");
     println!("Using default input device: \"{}\"", input_device.name()?);
     println!("Using default output device: \"{}\"", output_device.name()?);
 
@@ -46,7 +50,10 @@ fn main() -> Result<(), failure::Error> {
     }
 
     // Play the streams.
-    println!("Starting the input and output streams with `{}` milliseconds of latency.", LATENCY_MS);
+    println!(
+        "Starting the input and output streams with `{}` milliseconds of latency.",
+        LATENCY_MS
+    );
     event_loop.play_stream(input_stream_id.clone())?;
     event_loop.play_stream(output_stream_id.clone())?;
 
@@ -62,7 +69,9 @@ fn main() -> Result<(), failure::Error> {
             };
 
             match data {
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::F32(buffer) } => {
+                cpal::StreamData::Input {
+                    buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
+                } => {
                     assert_eq!(id, input_stream_id);
                     let mut output_fell_behind = false;
                     for &sample in buffer.iter() {
@@ -73,8 +82,10 @@ fn main() -> Result<(), failure::Error> {
                     if output_fell_behind {
                         eprintln!("output stream fell behind: try increasing latency");
                     }
-                },
-                cpal::StreamData::Output { buffer: cpal::UnknownTypeOutputBuffer::F32(mut buffer) } => {
+                }
+                cpal::StreamData::Output {
+                    buffer: cpal::UnknownTypeOutputBuffer::F32(mut buffer),
+                } => {
                     assert_eq!(id, output_stream_id);
                     let mut input_fell_behind = None;
                     for sample in buffer.iter_mut() {
@@ -83,13 +94,13 @@ fn main() -> Result<(), failure::Error> {
                             Err(err) => {
                                 input_fell_behind = Some(err);
                                 0.0
-                            },
+                            }
                         };
                     }
                     if let Some(err) = input_fell_behind {
                         eprintln!("input stream fell behind: {}: try increasing latency", err);
                     }
-                },
+                }
                 _ => panic!("we're expecting f32 data"),
             }
         });

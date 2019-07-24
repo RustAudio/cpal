@@ -13,9 +13,13 @@ fn main() -> Result<(), failure::Error> {
     let host = cpal::default_host();
 
     // Setup the default input device and stream with the default input format.
-    let device = host.default_input_device().expect("Failed to get default input device");
+    let device = host
+        .default_input_device()
+        .expect("Failed to get default input device");
     println!("Default input device: {}", device.name()?);
-    let format = device.default_input_format().expect("Failed to get default input format");
+    let format = device
+        .default_input_format()
+        .expect("Failed to get default input format");
     println!("Default input format: {:?}", format);
     let event_loop = host.event_loop();
     let stream_id = event_loop.build_input_stream(&device, &format)?;
@@ -50,7 +54,9 @@ fn main() -> Result<(), failure::Error> {
             }
             // Otherwise write to the wav writer.
             match data {
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::U16(buffer) } => {
+                cpal::StreamData::Input {
+                    buffer: cpal::UnknownTypeInputBuffer::U16(buffer),
+                } => {
                     if let Ok(mut guard) = writer_2.try_lock() {
                         if let Some(writer) = guard.as_mut() {
                             for sample in buffer.iter() {
@@ -59,8 +65,10 @@ fn main() -> Result<(), failure::Error> {
                             }
                         }
                     }
-                },
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::I16(buffer) } => {
+                }
+                cpal::StreamData::Input {
+                    buffer: cpal::UnknownTypeInputBuffer::I16(buffer),
+                } => {
                     if let Ok(mut guard) = writer_2.try_lock() {
                         if let Some(writer) = guard.as_mut() {
                             for &sample in buffer.iter() {
@@ -68,8 +76,10 @@ fn main() -> Result<(), failure::Error> {
                             }
                         }
                     }
-                },
-                cpal::StreamData::Input { buffer: cpal::UnknownTypeInputBuffer::F32(buffer) } => {
+                }
+                cpal::StreamData::Input {
+                    buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
+                } => {
                     if let Ok(mut guard) = writer_2.try_lock() {
                         if let Some(writer) = guard.as_mut() {
                             for &sample in buffer.iter() {
@@ -77,7 +87,7 @@ fn main() -> Result<(), failure::Error> {
                             }
                         }
                     }
-                },
+                }
                 _ => (),
             }
         });

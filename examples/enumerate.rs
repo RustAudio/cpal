@@ -30,12 +30,17 @@ fn main() -> Result<(), failure::Error> {
                 Err(e) => {
                     println!("Error: {:?}", e);
                     continue;
-                },
+                }
             };
             if input_formats.peek().is_some() {
                 println!("    All supported input stream formats:");
                 for (format_index, format) in input_formats.enumerate() {
-                    println!("      {}.{}. {:?}", device_index + 1, format_index + 1, format);
+                    println!(
+                        "      {}.{}. {:?}",
+                        device_index + 1,
+                        format_index + 1,
+                        format
+                    );
                 }
             }
 
@@ -48,12 +53,17 @@ fn main() -> Result<(), failure::Error> {
                 Err(e) => {
                     println!("Error: {:?}", e);
                     continue;
-                },
+                }
             };
             if output_formats.peek().is_some() {
                 println!("    All supported output stream formats:");
                 for (format_index, format) in output_formats.enumerate() {
-                    println!("      {}.{}. {:?}", device_index + 1, format_index + 1, format);
+                    println!(
+                        "      {}.{}. {:?}",
+                        device_index + 1,
+                        format_index + 1,
+                        format
+                    );
                 }
             }
         }

@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 
-use BuildStreamError;
-use DefaultFormatError;
-use DevicesError;
-use DeviceNameError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use StreamDataResult;
-use SupportedFormatsError;
-use SupportedFormat;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use crate::BuildStreamError;
+use crate::DefaultFormatError;
+use crate::DevicesError;
+use crate::DeviceNameError;
+use crate::Format;
+use crate::PauseStreamError;
+use crate::PlayStreamError;
+use crate::StreamDataResult;
+use crate::SupportedFormatsError;
+use crate::SupportedFormat;
+use crate::traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
 #[derive(Default)]
 pub struct Devices;

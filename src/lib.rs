@@ -149,11 +149,11 @@ extern crate lazy_static;
 #[macro_use]
 extern crate stdweb;
 
-pub use platform::{
+pub use crate::platform::{
     ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
     SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
 };
-pub use samples_formats::{Sample, SampleFormat};
+pub use crate::samples_formats::{Sample, SampleFormat};
 
 use failure::Fail;
 use std::ops::{Deref, DerefMut};
@@ -458,7 +458,7 @@ impl SupportedFormat {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
+        use crate::SampleFormat::{F32, I16, U16};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {

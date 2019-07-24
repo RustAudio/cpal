@@ -1,45 +1,50 @@
-extern crate alsa_sys as alsa;
-extern crate libc;
+mod enumerate;
 
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
-use ChannelCount;
-use BackendSpecificError;
-use BuildStreamError;
-use DefaultFormatError;
-use DeviceNameError;
-use DevicesError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use SampleFormat;
-use SampleRate;
-use SupportedFormatsError;
-use StreamData;
-use StreamDataResult;
-use StreamError;
-use SupportedFormat;
-use UnknownTypeInputBuffer;
-use UnknownTypeOutputBuffer;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use crate::{
+    ChannelCount,
+    BackendSpecificError,
+    BuildStreamError,
+    DefaultFormatError,
+    DeviceNameError,
+    DevicesError,
+    Format,
+    HostUnavailable,
+    PauseStreamError,
+    PlayStreamError,
+    SampleFormat,
+    SampleRate,
+    SupportedFormatsError,
+    StreamData,
+    StreamDataResult,
+    StreamError,
+    SupportedFormat,
+    UnknownTypeInputBuffer,
+    UnknownTypeOutputBuffer,
+    InputBuffer,
+    OutputBuffer,
+    traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait}
+};
 
-use std::{cmp, ffi, mem, ptr};
-use std::sync::Mutex;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::vec::IntoIter as VecIntoIter;
+use alsa::{Direction, ValueOr, poll::{PollDescriptors, POLLOUT, POLLIN}, pcm::{PCM, Format as AlsaFormat, HwParams, Access}};
+use nix::{errno::Errno, poll::{PollFd, PollFlags}};
+use std::{cmp, mem, iter,
+    os::unix::io::RawFd,
+    sync::{Mutex, mpsc::{channel, Sender, Receiver}, atomic::{AtomicU64, Ordering}},
+    vec::IntoIter as VecIntoIter,
+    convert::{TryFrom, TryInto},
+};
 
 pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
-
-mod enumerate;
 
 /// The default linux and freebsd host type.
 #[derive(Debug)]
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, HostUnavailable> {
         Ok(Host)
     }
 }
@@ -50,7 +55,8 @@ impl HostTrait for Host {
     type EventLoop = EventLoop;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/freebsd.
+        // Assume ALSA is always available on linux/freebsd. If it isn't then this library will
+        // fail when linking.
         true
     }
 
@@ -138,43 +144,37 @@ impl EventLoopTrait for EventLoop {
 
 impl StreamIdTrait for StreamId {}
 
+/// This is a wrapper around a pipe, allowing for main processing loop to be notified of incoming
+/// events.
 struct Trigger {
     // [read fd, write fd]
-    fds: [libc::c_int; 2],
+    read_fd: RawFd,
+    write_fd: RawFd,
 }
 
 impl Trigger {
     fn new() -> Self {
-        let mut fds = [0, 0];
-        match unsafe { libc::pipe(fds.as_mut_ptr()) } {
-            0 => Trigger { fds: fds },
-            _ => panic!("Could not create pipe"),
-        }
+        let (read_fd, write_fd) = nix::unistd::pipe().unwrap();
+        Trigger { read_fd, write_fd }
     }
-    fn read_fd(&self) -> libc::c_int {
-        self.fds[0]
-    }
-    fn write_fd(&self) -> libc::c_int {
-        self.fds[1]
-    }
+
     fn wakeup(&self) {
-        let buf = 1u64;
-        let ret = unsafe { libc::write(self.write_fd(), &buf as *const u64 as *const _, 8) };
-        assert!(ret == 8);
+        let buf = [0, 0, 0, 0, 0, 0, 0, 1u8];
+        let amt = nix::unistd::write(self.write_fd, &buf).unwrap();
+        assert_eq!(amt, 8);
     }
+
     fn clear_pipe(&self) {
-        let mut out = 0u64;
-        let ret = unsafe { libc::read(self.read_fd(), &mut out as *mut u64 as *mut _, 8) };
-        assert_eq!(ret, 8);
+        let mut buf = [0u8; 8];
+        let amt = nix::unistd::read(self.read_fd, &mut buf).unwrap();
+        assert_eq!(amt, 8);
     }
 }
 
 impl Drop for Trigger {
     fn drop(&mut self) {
-        unsafe {
-            libc::close(self.fds[0]);
-            libc::close(self.fds[1]);
-        }
+        nix::unistd::close(self.read_fd).unwrap();
+        nix::unistd::close(self.write_fd).unwrap();
     }
 }
 
@@ -188,129 +188,50 @@ impl Device {
         Ok(self.0.clone())
     }
 
-    unsafe fn supported_formats(
+    fn supported_formats(
         &self,
-        stream_t: alsa::snd_pcm_stream_t,
+        direction: Direction,
     ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
     {
-        let mut handle = mem::uninitialized();
-        let device_name = match ffi::CString::new(&self.0[..]) {
-            Ok(name) => name,
-            Err(err) => {
-                let description = format!("failed to retrieve device name: {}", err);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
+        let handle = PCM::new(&self.0, direction, true).map_err(|err| {
+            match err.errno() {
+                // Map some specific errors
+                Some(Errno::ENOENT) | Some(Errno::EBUSY) => SupportedFormatsError::DeviceNotAvailable,
+                Some(Errno::EINVAL) => SupportedFormatsError::InvalidArgument,
+                _ => unhandled_error(err)
             }
-        };
+        })?;
+        let hw_params = HwParams::any(&handle).map_err(unhandled_error::<_, SupportedFormatsError>)?;
 
-        match alsa::snd_pcm_open(
-            &mut handle,
-            device_name.as_ptr() as *const _,
-            stream_t,
-            alsa::SND_PCM_NONBLOCK,
-        ) {
-            -2 |
-            -16 /* determined empirically */ => return Err(SupportedFormatsError::DeviceNotAvailable),
-            -22 => return Err(SupportedFormatsError::InvalidArgument),
-            e => if let Err(description) = check_errors(e) {
-                let err = BackendSpecificError { description };
-                return Err(err.into())
-            }
+        // Test out i16, u16, and f32 data types
+        let mut supported_formats = Vec::with_capacity(3);
+        if hw_params.test_format(AlsaFormat::s16()) {
+            supported_formats.push(SampleFormat::I16);
         }
-
-        let hw_params = HwParams::alloc();
-        match check_errors(alsa::snd_pcm_hw_params_any(handle, hw_params.0)) {
-            Err(description) => {
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            Ok(_) => (),
-        };
-
-        // TODO: check endianess
-        const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] =
-            [
-                //SND_PCM_FORMAT_S8,
-                //SND_PCM_FORMAT_U8,
-                (SampleFormat::I16, alsa::SND_PCM_FORMAT_S16_LE),
-                //SND_PCM_FORMAT_S16_BE,
-                (SampleFormat::U16, alsa::SND_PCM_FORMAT_U16_LE),
-                //SND_PCM_FORMAT_U16_BE,
-            /*SND_PCM_FORMAT_S24_LE,
-            SND_PCM_FORMAT_S24_BE,
-            SND_PCM_FORMAT_U24_LE,
-            SND_PCM_FORMAT_U24_BE,
-            SND_PCM_FORMAT_S32_LE,
-            SND_PCM_FORMAT_S32_BE,
-            SND_PCM_FORMAT_U32_LE,
-            SND_PCM_FORMAT_U32_BE,*/
-                (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE) /*SND_PCM_FORMAT_FLOAT_BE,
-            SND_PCM_FORMAT_FLOAT64_LE,
-            SND_PCM_FORMAT_FLOAT64_BE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
-            SND_PCM_FORMAT_MU_LAW,
-            SND_PCM_FORMAT_A_LAW,
-            SND_PCM_FORMAT_IMA_ADPCM,
-            SND_PCM_FORMAT_MPEG,
-            SND_PCM_FORMAT_GSM,
-            SND_PCM_FORMAT_SPECIAL,
-            SND_PCM_FORMAT_S24_3LE,
-            SND_PCM_FORMAT_S24_3BE,
-            SND_PCM_FORMAT_U24_3LE,
-            SND_PCM_FORMAT_U24_3BE,
-            SND_PCM_FORMAT_S20_3LE,
-            SND_PCM_FORMAT_S20_3BE,
-            SND_PCM_FORMAT_U20_3LE,
-            SND_PCM_FORMAT_U20_3BE,
-            SND_PCM_FORMAT_S18_3LE,
-            SND_PCM_FORMAT_S18_3BE,
-            SND_PCM_FORMAT_U18_3LE,
-            SND_PCM_FORMAT_U18_3BE,*/,
-            ];
-
-        let mut supported_formats = Vec::new();
-        for &(sample_format, alsa_format) in FORMATS.iter() {
-            if alsa::snd_pcm_hw_params_test_format(handle,
-                                                   hw_params.0,
-                                                   alsa_format) == 0
-            {
-                supported_formats.push(sample_format);
-            }
+        if hw_params.test_format(AlsaFormat::u16()) {
+            supported_formats.push(SampleFormat::U16);
         }
-
-        let mut min_rate = mem::uninitialized();
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_min(
-            hw_params.0,
-            &mut min_rate,
-            ptr::null_mut(),
-        )) {
-            let description = format!("unable to get minimum supported rate: {}", desc);
-            let err = BackendSpecificError { description };
-            return Err(err.into());
+        if hw_params.test_format(AlsaFormat::float()) {
+            supported_formats.push(SampleFormat::F32);
         }
+        // TODO potentially more formats could be supported.
 
-        let mut max_rate = mem::uninitialized();
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_max(
-            hw_params.0,
-            &mut max_rate,
-            ptr::null_mut(),
-        )) {
-            let description = format!("unable to get maximum supported rate: {}", desc);
-            let err = BackendSpecificError { description };
-            return Err(err.into());
-        }
+        // Get possible sample rates
+        let rate_max = hw_params.get_rate_max().map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        let rate_min = hw_params.get_rate_min().map_err(unhandled_error::<_, SupportedFormatsError>)?;
 
-        let sample_rates = if min_rate == max_rate {
-            vec![(min_rate, max_rate)]
-        } else if alsa::snd_pcm_hw_params_test_rate(handle,
-                                                    hw_params.0,
-                                                    min_rate + 1,
-                                                    0) == 0
-        {
-            vec![(min_rate, max_rate)]
+        // TODO This code is copied from the original impl using alsa-sys , and I have seen it
+        // elsewhere on the internet. It seems a bit flakey, so if anyone knows how to do it
+        // better, then they should improve it.
+        // First if min == max, then there is only one rate available
+        let sample_rates = if rate_max == rate_min {
+            vec![(rate_min, rate_max)]
+        // Then, if min and min + 1 are valid, assume all rates are valid in [min, max]
+        //} else if hw_params.test_rate(rate_min + 1) {
+        //    vec![(rate_min, rate_max)]
+        // Otherwise, test some standard rates
         } else {
-            const RATES: [libc::c_uint; 13] = [
+            const RATES: [u32; 13] = [
                 5512,
                 8000,
                 11025,
@@ -325,53 +246,24 @@ impl Device {
                 176400,
                 192000,
             ];
-
-            let mut rates = Vec::new();
-            for &rate in RATES.iter() {
-                if alsa::snd_pcm_hw_params_test_rate(handle,
-                                                     hw_params.0,
-                                                     rate,
-                                                     0) == 0
-                {
-                    rates.push((rate, rate));
+            let mut sample_rates = vec![];
+            for &rate in &RATES {
+                if rate >= rate_min && rate <= rate_max && hw_params.test_rate(rate) {
+                    sample_rates.push((rate, rate));
                 }
             }
-
-            if rates.len() == 0 {
-                vec![(min_rate, max_rate)]
-            } else {
-                rates
-            }
+            sample_rates
         };
-
-        let mut min_channels = mem::uninitialized();
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)) {
-            let description = format!("unable to get minimum supported channel count: {}", desc);
-            let err = BackendSpecificError { description };
-            return Err(err.into());
-        }
-
-        let mut max_channels = mem::uninitialized();
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)) {
-            let description = format!("unable to get maximum supported channel count: {}", desc);
-            let err = BackendSpecificError { description };
-            return Err(err.into());
-        }
-
-        let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
-        let supported_channels = (min_channels .. max_channels + 1)
-            .filter_map(|num| if alsa::snd_pcm_hw_params_test_channels(
-                handle,
-                hw_params.0,
-                num,
-            ) == 0
-            {
-                Some(num as ChannelCount)
-            } else {
-                None
-            })
-            .collect::<Vec<_>>();
-
+        // Get possible number of channels
+        let channels_min = hw_params.get_channels_min().map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        // cap at 32 channels.
+        let channels_max = cmp::min(hw_params.get_channels_max().map_err(unhandled_error::<_, SupportedFormatsError>)?, 32);
+        let supported_channels = (channels_min ..= channels_max).filter_map(|v| if hw_params.test_channels(v) {
+            Some(v as ChannelCount)
+        } else {
+            None
+        }).collect::<Vec<_>>();
+        // Take the outer product of data_types, channels, and rates.
         let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
                                                 sample_rates.len());
         for &data_type in supported_formats.iter() {
@@ -386,59 +278,55 @@ impl Device {
                 }
             }
         }
-
-        // TODO: RAII
-        alsa::snd_pcm_close(handle);
         Ok(output.into_iter())
     }
 
     fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
-        unsafe {
-            self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE)
-        }
+        self.supported_formats(Direction::Capture)
     }
 
     fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        unsafe {
-            self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK)
-        }
+        self.supported_formats(Direction::Playback)
     }
 
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedFormat::cmp_default_heuristics` order and select the greatest.
     fn default_format(
         &self,
-        stream_t: alsa::snd_pcm_stream_t,
+        direction: Direction,
     ) -> Result<Format, DefaultFormatError>
     {
-        let mut formats: Vec<_> = unsafe {
-            match self.supported_formats(stream_t) {
-                Err(SupportedFormatsError::DeviceNotAvailable) => {
-                    return Err(DefaultFormatError::DeviceNotAvailable);
-                },
-                Err(SupportedFormatsError::InvalidArgument) => {
-                    // this happens sometimes when querying for input and output capabilities but
-                    // the device supports only one
-                    return Err(DefaultFormatError::StreamTypeNotSupported);
-                }
-                Err(SupportedFormatsError::BackendSpecific { err }) => {
-                    return Err(err.into());
-                }
-                Ok(fmts) => fmts.collect(),
+        let mut formats: Vec<_> = match self.supported_formats(direction) {
+            Err(SupportedFormatsError::DeviceNotAvailable) => {
+                return Err(DefaultFormatError::DeviceNotAvailable);
+            },
+            Err(SupportedFormatsError::InvalidArgument) => {
+                // this happens sometimes when querying for input and output capabilities but
+                // the device supports only one
+                return Err(DefaultFormatError::StreamTypeNotSupported);
             }
+            Err(SupportedFormatsError::BackendSpecific { err }) => {
+                return Err(err.into());
+            }
+            Ok(fmts) => fmts.collect(),
         };
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
+        let handle = PCM::new(&self.0, direction, true).map_err(unhandled_error::<_, DefaultFormatError>)?;
         match formats.into_iter().last() {
             Some(f) => {
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
                 let mut format = f.with_max_sample_rate();
+                /*
                 const HZ_44100: SampleRate = SampleRate(44_100);
-                if min_r <= HZ_44100 && HZ_44100 <= max_r {
+                if min_r <= HZ_44100 && HZ_44100 <= max_r
+                    && handle.hw_params_current().map_err(unhandled_error::<_, DefaultFormatError>)?.test_rate(HZ_44100.0)
+                {
                     format.sample_rate = HZ_44100;
                 }
+                */
                 Ok(format)
             },
             None => Err(DefaultFormatError::StreamTypeNotSupported)
@@ -446,17 +334,17 @@ impl Device {
     }
 
     fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(alsa::SND_PCM_STREAM_CAPTURE)
+        self.default_format(Direction::Capture)
     }
 
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(alsa::SND_PCM_STREAM_PLAYBACK)
+        self.default_format(Direction::Playback)
     }
 }
 
 pub struct EventLoop {
     // Each newly-created stream gets a new ID from this counter. The counter is then incremented.
-    next_stream_id: AtomicUsize, // TODO: use AtomicU64 when stable?
+    next_stream_id: AtomicU64,
 
     // A trigger that uses a `pipe()` as backend. Signalled whenever a new command is ready, so
     // that `poll()` can wake up and pick the changes.
@@ -485,7 +373,9 @@ enum Command {
 
 struct RunContext {
     // Descriptors to wait for. Always contains `pending_command_trigger.read_fd()` as first element.
-    descriptors: Vec<libc::pollfd>,
+    // They really belong in the streams, but they must be in a single memory block so we can
+    // `poll` them.
+    descriptors: Vec<PollFd>,
     // List of streams that are written in `descriptors`.
     streams: Vec<StreamInner>,
 
@@ -497,10 +387,9 @@ struct StreamInner {
     id: StreamId,
 
     // The ALSA channel.
-    channel: *mut alsa::snd_pcm_t,
+    channel: PCM,
 
-    // When converting between file descriptors and `snd_pcm_t`, this is the number of
-    // file descriptors that this `snd_pcm_t` uses.
+    // The number of pollfds for this stream
     num_descriptors: usize,
 
     // Format of the samples.
@@ -532,7 +421,7 @@ struct StreamInner {
 }
 
 #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
+pub struct StreamId(u64);
 
 enum StreamType { Input, Output }
 
@@ -551,13 +440,13 @@ impl EventLoop {
         let (tx, rx) = channel();
 
         let run_context = Mutex::new(RunContext {
-                                         descriptors: initial_descriptors,
-                                         streams: Vec::new(),
-                                         commands: rx,
-                                     });
+            descriptors: initial_descriptors,
+            streams: Vec::new(),
+            commands: rx,
+        });
 
         EventLoop {
-            next_stream_id: AtomicUsize::new(0),
+            next_stream_id: AtomicU64::new(0),
             pending_command_trigger: pending_command_trigger,
             run_context,
             commands: tx,
@@ -579,6 +468,8 @@ impl EventLoop {
             'stream_loop: loop {
                 process_commands(run_context);
 
+                // Rebuild list of descriptors to poll, since streams may have been
+                // created/destroyed.
                 reset_descriptors_with_pending_command_trigger(
                     &mut run_context.descriptors,
                     &self.pending_command_trigger,
@@ -601,8 +492,7 @@ impl EventLoop {
                 }
 
                 // If the `pending_command_trigger` was signaled, we need to process the comands.
-                if run_context.descriptors[0].revents != 0 {
-                    run_context.descriptors[0].revents = 0;
+                if run_context.descriptors[0].revents().is_some() {
                     self.pending_command_trigger.clear_pipe();
                 }
 
@@ -611,13 +501,14 @@ impl EventLoop {
 
                 // Iterate over each individual stream/descriptor.
                 let mut i_stream = 0;
-                let mut i_descriptor = 1;
+                let mut i_descriptor: isize = 1;
                 while (i_descriptor as usize) < run_context.descriptors.len() {
                     let stream = &mut run_context.streams[i_stream];
-                    let stream_descriptor_ptr = run_context.descriptors.as_mut_ptr().offset(i_descriptor);
+                    let desc_start = usize::try_from(i_descriptor).unwrap();
+                    let stream_descriptors = &mut run_context.descriptors[desc_start..stream.num_descriptors];
 
                     // Only go on if this event was a pollout or pollin event.
-                    let stream_type = match check_for_pollout_or_pollin(stream, stream_descriptor_ptr) {
+                    let stream_type = match check_for_pollout_or_pollin(stream, stream_descriptors) {
                         Ok(Some(ty)) => ty,
                         Ok(None) => {
                             i_descriptor += stream.num_descriptors as isize;
@@ -657,26 +548,23 @@ impl EventLoop {
 
                     match stream_type {
                         StreamType::Input => {
-                            let result = alsa::snd_pcm_readi(
-                                stream.channel,
-                                stream.buffer.as_mut_ptr() as *mut _,
-                                available_frames as alsa::snd_pcm_uframes_t,
-                            );
-                            if let Err(err) = check_errors(result as _) {
-                                let description = format!("`snd_pcm_readi` failed: {}", err);
-                                let err = BackendSpecificError { description };
-                                streams_to_remove.push((stream.id, err.into()));
-                                continue;
-                            }
+                            let _amt = match stream.channel.io().readi(&mut stream.buffer) {
+                                Err(e) => {
+                                    let err = unhandled_error(format!("`snd_pcm_readi` failed: {}", e));
+                                    streams_to_remove.push((stream.id, err));
+                                    continue
+                                }
+                                Ok(amt) => amt
+                            };
 
                             let input_buffer = match stream.sample_format {
-                                SampleFormat::I16 => UnknownTypeInputBuffer::I16(::InputBuffer {
+                                SampleFormat::I16 => UnknownTypeInputBuffer::I16(InputBuffer {
                                     buffer: cast_input_buffer(&mut stream.buffer),
                                 }),
-                                SampleFormat::U16 => UnknownTypeInputBuffer::U16(::InputBuffer {
+                                SampleFormat::U16 => UnknownTypeInputBuffer::U16(InputBuffer {
                                     buffer: cast_input_buffer(&mut stream.buffer),
                                 }),
-                                SampleFormat::F32 => UnknownTypeInputBuffer::F32(::InputBuffer {
+                                SampleFormat::F32 => UnknownTypeInputBuffer::F32(InputBuffer {
                                     buffer: cast_input_buffer(&mut stream.buffer),
                                 }),
                             };
@@ -689,13 +577,13 @@ impl EventLoop {
                             {
                                 // We're now sure that we're ready to write data.
                                 let output_buffer = match stream.sample_format {
-                                    SampleFormat::I16 => UnknownTypeOutputBuffer::I16(::OutputBuffer {
+                                    SampleFormat::I16 => UnknownTypeOutputBuffer::I16(OutputBuffer {
                                         buffer: cast_output_buffer(&mut stream.buffer),
                                     }),
-                                    SampleFormat::U16 => UnknownTypeOutputBuffer::U16(::OutputBuffer {
+                                    SampleFormat::U16 => UnknownTypeOutputBuffer::U16(OutputBuffer {
                                         buffer: cast_output_buffer(&mut stream.buffer),
                                     }),
-                                    SampleFormat::F32 => UnknownTypeOutputBuffer::F32(::OutputBuffer {
+                                    SampleFormat::F32 => UnknownTypeOutputBuffer::F32(OutputBuffer {
                                         buffer: cast_output_buffer(&mut stream.buffer),
                                     }),
                                 };
@@ -706,33 +594,42 @@ impl EventLoop {
                                 callback(stream.id, Ok(stream_data));
                             }
                             loop {
-                                let result = alsa::snd_pcm_writei(
-                                    stream.channel,
-                                    stream.buffer.as_ptr() as *const _,
-                                    available_frames as alsa::snd_pcm_uframes_t,
-                                );
-
-                                if result as i32 == -libc::EPIPE {
-                                    // buffer underrun
-                                    // TODO: Notify the user of this.
-                                    alsa::snd_pcm_recover(stream.channel, result as i32, 0);
-                                } else if let Err(err) = check_errors(result as _) {
-                                    let description = format!("`snd_pcm_writei` failed: {}", err);
-                                    let err = BackendSpecificError { description };
-                                    streams_to_remove.push((stream.id, err.into()));
-                                    continue;
-                                } else if result as usize != available_frames {
-                                    let description = format!(
-                                        "unexpected number of frames written: expected {}, \
-                                        result {} (this should never happen)",
-                                        available_frames,
-                                        result,
-                                    );
-                                    let err = BackendSpecificError { description };
-                                    streams_to_remove.push((stream.id, err.into()));
-                                    continue;
-                                } else {
-                                    break;
+                                // TODO we could be more typesafe here using io_T types in alsa
+                                match stream.channel.io().writei(&stream.buffer) {
+                                    Err(e) => {
+                                        if e.errno() == Some(Errno::EPIPE) {
+                                            // buffer underrun
+                                            if let Err(e) = stream.channel.try_recover(e, false) {
+                                                streams_to_remove.push((
+                                                    stream.id,
+                                                    unhandled_error(format!("`snd_pcm_writei` failed: {}", e))
+                                                ));
+                                            }
+                                            continue
+                                        } else {
+                                            streams_to_remove.push((
+                                                stream.id,
+                                                unhandled_error(format!("`snd_pcm_writei` failed: {}", e))
+                                            ));
+                                            continue
+                                        }
+                                    },
+                                    Ok(amt) => {
+                                        if amt != available_frames {
+                                            streams_to_remove.push((
+                                                stream.id,
+                                                unhandled_error(format!(
+                                                    "unexpected number of frames written: expected {}, \
+                                                    result {} (this should never happen)",
+                                                    available_frames,
+                                                    amt,
+                                                ))
+                                            ));
+                                            continue
+                                        } else {
+                                            break
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -756,77 +653,45 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError>
     {
-        unsafe {
-            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
-
-            let mut capture_handle = mem::uninitialized();
-            match alsa::snd_pcm_open(
-                &mut capture_handle,
-                name.as_ptr(),
-                alsa::SND_PCM_STREAM_CAPTURE,
-                alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
-                -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if let Err(description) = check_errors(e) {
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
+        let pcm = PCM::new(&device.0, Direction::Capture, true).map_err(|e| {
+            match e.errno() {
+                // determined empirically
+                Some(Errno::EBUSY) => BuildStreamError::DeviceNotAvailable,
+                Some(Errno::EINVAL) => BuildStreamError::InvalidArgument,
+                _ => unhandled_error(e)
             }
-            let hw_params = HwParams::alloc();
-
-            set_hw_params_from_format(capture_handle, &hw_params, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
-
-            let (buffer_len, period_len) = set_sw_params_from_format(capture_handle, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(capture_handle)) {
-                let description = format!("could not get capture handle: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            let num_descriptors = {
-                let num_descriptors = alsa::snd_pcm_poll_descriptors_count(capture_handle);
-                if num_descriptors == 0 {
-                    let description = "poll descriptor count for capture stream was 0".to_string();
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                num_descriptors as usize
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
-            let stream_inner = StreamInner {
-                id: new_stream_id.clone(),
-                channel: capture_handle,
-                sample_format: format.data_type,
-                num_descriptors: num_descriptors,
-                num_channels: format.channels as u16,
-                buffer_len: buffer_len,
-                period_len: period_len,
-                can_pause: can_pause,
-                is_paused: false,
-                resume_trigger: Trigger::new(),
-                buffer: vec![],
-            };
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_start(capture_handle)) {
-                let description = format!("could not start capture stream: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            self.push_command(Command::NewStream(stream_inner));
-            Ok(new_stream_id)
+        })?;
+        set_hw_params_from_format(&pcm, format).map_err(unhandled_error::<_, BuildStreamError>)?;
+        let can_pause = pcm.hw_params_current().map_err(unhandled_error::<_, BuildStreamError>)?.can_pause();
+        let (buffer_len, period_len) = set_sw_params_from_format(&pcm, format)
+            .map_err(unhandled_error::<_, BuildStreamError>)?;
+        pcm.prepare().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e)))?;
+        let num_descriptors = <PCM as PollDescriptors>::count(&pcm);
+        if num_descriptors == 0 {
+            return Err(unhandled_error("poll descriptor count for playback stream was 0"));
         }
+        let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
+        if new_stream_id.0 == u64::max_value() {
+            return Err(BuildStreamError::StreamIdOverflow);
+        }
+        pcm.start().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not start capture stream: {}", e)))?;
+
+        let stream_inner = StreamInner {
+            id: new_stream_id.clone(),
+            channel: pcm,
+            sample_format: format.data_type,
+            num_descriptors,
+            num_channels: format.channels as u16,
+            buffer_len,
+            period_len,
+            can_pause,
+            is_paused: false,
+            resume_trigger: Trigger::new(),
+            buffer: vec![],
+        };
+
+        self.push_command(Command::NewStream(stream_inner));
+        Ok(new_stream_id)
     }
 
     fn build_output_stream(
@@ -835,71 +700,44 @@ impl EventLoop {
         format: &Format,
     ) -> Result<StreamId, BuildStreamError>
     {
-        unsafe {
-            let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
-
-            let mut playback_handle = mem::uninitialized();
-            match alsa::snd_pcm_open(
-                &mut playback_handle,
-                name.as_ptr(),
-                alsa::SND_PCM_STREAM_PLAYBACK,
-                alsa::SND_PCM_NONBLOCK,
-            ) {
-                -16 /* determined empirically */ => return Err(BuildStreamError::DeviceNotAvailable),
-                -22 => return Err(BuildStreamError::InvalidArgument),
-                e => if let Err(description) = check_errors(e) {
-                    let err = BackendSpecificError { description };
-                    return Err(err.into())
-                }
+        let pcm = PCM::new(&device.0, Direction::Playback, true).map_err(|e| {
+            match e.errno() {
+                // determined empirically
+                Some(Errno::EBUSY) => BuildStreamError::DeviceNotAvailable,
+                Some(Errno::EINVAL) => BuildStreamError::InvalidArgument,
+                _ => unhandled_error(e)
             }
-            let hw_params = HwParams::alloc();
-
-            set_hw_params_from_format(playback_handle, &hw_params, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            let can_pause = alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1;
-
-            let (buffer_len, period_len) = set_sw_params_from_format(playback_handle, format)
-                .map_err(|description| BackendSpecificError { description })?;
-
-            if let Err(desc) = check_errors(alsa::snd_pcm_prepare(playback_handle)) {
-                let description = format!("could not get playback handle: {}", desc);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            let num_descriptors = {
-                let num_descriptors = alsa::snd_pcm_poll_descriptors_count(playback_handle);
-                if num_descriptors == 0 {
-                    let description = "poll descriptor count for playback stream was 0".to_string();
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                num_descriptors as usize
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
-            let stream_inner = StreamInner {
-                id: new_stream_id.clone(),
-                channel: playback_handle,
-                sample_format: format.data_type,
-                num_descriptors: num_descriptors,
-                num_channels: format.channels as u16,
-                buffer_len: buffer_len,
-                period_len: period_len,
-                can_pause: can_pause,
-                is_paused: false,
-                resume_trigger: Trigger::new(),
-                buffer: vec![],
-            };
-
-            self.push_command(Command::NewStream(stream_inner));
-            Ok(new_stream_id)
+        })?;
+        set_hw_params_from_format(&pcm, format).map_err(unhandled_error::<_, BuildStreamError>)?;
+        let can_pause = pcm.hw_params_current().map_err(unhandled_error::<_, BuildStreamError>)?.can_pause();
+        let (buffer_len, period_len) = set_sw_params_from_format(&pcm, format)
+            .map_err(unhandled_error::<_, BuildStreamError>)?;
+        pcm.prepare().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e)))?;
+        let num_descriptors = <PCM as PollDescriptors>::count(&pcm);
+        if num_descriptors == 0 {
+            return Err(unhandled_error::<_, BuildStreamError>("poll descriptor count for playback stream was 0"));
         }
+        let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
+        if new_stream_id.0 == u64::max_value() {
+            return Err(BuildStreamError::StreamIdOverflow);
+        }
+
+        let stream_inner = StreamInner {
+            id: new_stream_id.clone(),
+            channel: pcm,
+            sample_format: format.data_type,
+            num_descriptors,
+            num_channels: format.channels as u16,
+            buffer_len,
+            period_len,
+            can_pause,
+            is_paused: false,
+            resume_trigger: Trigger::new(),
+            buffer: vec![],
+        };
+
+        self.push_command(Command::NewStream(stream_inner));
+        Ok(new_stream_id)
     }
 
     #[inline]
@@ -938,9 +776,7 @@ fn process_commands(run_context: &mut RunContext) {
                 if let Some(stream) = run_context.streams.iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
-                    unsafe {
-                        alsa::snd_pcm_pause(stream.channel, 0);
-                    }
+                    stream.channel.pause(false).unwrap();
                     stream.is_paused = false;
                 }
             },
@@ -948,9 +784,7 @@ fn process_commands(run_context: &mut RunContext) {
                 if let Some(stream) = run_context.streams.iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
-                    unsafe {
-                        alsa::snd_pcm_pause(stream.channel, 1);
-                    }
+                    stream.channel.pause(true).unwrap();
                     stream.is_paused = true;
                 }
             },
@@ -963,33 +797,27 @@ fn process_commands(run_context: &mut RunContext) {
 
 // Resets the descriptors so that only `pending_command_trigger.read_fd()` is contained.
 fn reset_descriptors_with_pending_command_trigger(
-    descriptors: &mut Vec<libc::pollfd>,
+    descriptors: &mut Vec<PollFd>,
     pending_command_trigger: &Trigger,
 ) {
     descriptors.clear();
-    descriptors.push(libc::pollfd {
-        fd: pending_command_trigger.read_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    });
+    descriptors.push(PollFd::new(pending_command_trigger.read_fd, PollFlags::POLLIN));
 }
 
 // Appends the `poll` descriptors for each stream onto the `RunContext`'s descriptor slice, ready
 // for a call to `libc::poll`.
 fn append_stream_poll_descriptors(run_context: &mut RunContext) {
-    for stream in run_context.streams.iter() {
+    for stream in run_context.streams.iter_mut() {
+        let descriptors_start = run_context.descriptors.len();
         run_context.descriptors.reserve(stream.num_descriptors);
-        let len = run_context.descriptors.len();
-        let filled = unsafe {
-            alsa::snd_pcm_poll_descriptors(
-                stream.channel,
-                run_context.descriptors.as_mut_ptr().offset(len as isize),
-                stream.num_descriptors as libc::c_uint,
-            )
-        };
-        debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
+        run_context.descriptors.extend(
+            iter::repeat(PollFd::new(-1, PollFlags::empty())).take(stream.num_descriptors)
+        );
+        // safety: repr(C) struct with single non-zero-sized field is guaranteed to have same layout as
+        // inner field.
         unsafe {
-            run_context.descriptors.set_len(len + stream.num_descriptors);
+            let amt = stream.channel.fill(mem::transmute(&mut run_context.descriptors[descriptors_start..])).unwrap();
+            debug_assert_eq!(stream.num_descriptors, amt);
         }
     }
 }
@@ -1000,15 +828,11 @@ fn append_stream_poll_descriptors(run_context: &mut RunContext) {
 // occurred.
 //
 // Returns an `Err` if `libc::poll` returns a negative value for some reason.
-fn poll_all_descriptors(descriptors: &mut [libc::pollfd]) -> Result<bool, BackendSpecificError> {
-    let res = unsafe {
-        // Don't timeout, wait forever.
-        libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
-    };
-    if res < 0 {
-        let description = format!("`libc::poll()` failed: {}", res);
-        Err(BackendSpecificError { description })
-    } else if res == 0 {
+fn poll_all_descriptors(descriptors: &mut [PollFd]) -> Result<bool, BackendSpecificError> {
+    // Don't timeout, wait forever.
+    let number_ready = nix::poll::poll(descriptors, -1)
+        .map_err(|e| unhandled_error(format!("`libc::poll()` failed: {}", e)))?;
+    if number_ready == 0 {
         Ok(false)
     } else {
         Ok(true)
@@ -1024,202 +848,79 @@ fn poll_all_descriptors(descriptors: &mut [libc::pollfd]) -> Result<bool, Backen
 // Returns an `Err` if the `snd_pcm_poll_descriptors_revents` call fails.
 fn check_for_pollout_or_pollin(
     stream: &StreamInner,
-    stream_descriptor_ptr: *mut libc::pollfd,
+    stream_descriptors: &mut [PollFd],
 ) -> Result<Option<StreamType>, BackendSpecificError> {
-    let (revent, res) = unsafe {
-        let mut revent = mem::uninitialized();
-        let res = alsa::snd_pcm_poll_descriptors_revents(
-            stream.channel,
-            stream_descriptor_ptr,
-            stream.num_descriptors as libc::c_uint,
-            &mut revent,
-        );
-        (revent, res)
+    // safety: PollFd and libc::pollfd have identical memory layout.
+    let revents = unsafe {
+        stream.channel.revents(mem::transmute(stream_descriptors)).map_err(unhandled_error)?
     };
-    if let Err(desc) = check_errors(res) {
-        let description =
-            format!("`snd_pcm_poll_descriptors_revents` failed: {}",desc);
-        let err = BackendSpecificError { description };
-        return Err(err);
-    }
-
-    if revent as i16 == libc::POLLOUT {
-        Ok(Some(StreamType::Output))
-    } else if revent as i16 == libc::POLLIN {
-        Ok(Some(StreamType::Input))
+    // TODO what if both POLLOUT and POLLIN?
+    Ok(if revents == POLLOUT {
+        Some(StreamType::Output)
+    } else if revents == POLLIN {
+        Some(StreamType::Input)
     } else {
-        Ok(None)
-    }
+        None
+    })
 }
 
 // Determine the number of samples that are available to read/write.
 fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificError> {
     // TODO: what about snd_pcm_avail_update?
-    let available = unsafe {
-        alsa::snd_pcm_avail(stream.channel)
-    };
-    if available == -32 {
+    match stream.channel.avail() {
+        Ok(v) => usize::try_from(v).map_err(|e| unhandled_error(e)),
+        // TODO: Notify the user somehow.
         // buffer underrun
-        // TODO: Notify the user some how.
-        Ok(stream.buffer_len)
-    } else if let Err(desc) = check_errors(available as libc::c_int) {
-        let description = format!("failed to get available samples: {}", desc);
-        let err = BackendSpecificError { description };
-        Err(err)
-    } else {
-        Ok((available * stream.num_channels as alsa::snd_pcm_sframes_t) as usize)
+        Err(e) => {
+            if e.errno() == Some(Errno::EPIPE) {
+                Ok(stream.buffer_len)
+            } else {
+                Err(unhandled_error(format!("failed to get available samples: {}", e)))
+            }
+        }
     }
 }
 
-unsafe fn set_hw_params_from_format(
-    pcm_handle: *mut alsa::snd_pcm_t,
-    hw_params: &HwParams,
+fn set_hw_params_from_format(
+    pcm: &PCM,
     format: &Format,
-) -> Result<(), String> {
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
-        return Err(format!("errors on pcm handle: {}", e));
-    }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
-                                                    hw_params.0,
-                                                    alsa::SND_PCM_ACCESS_RW_INTERLEAVED)) {
-        return Err(format!("handle not acessible: {}", e));
-    }
-
-    let data_type = if cfg!(target_endian = "big") {
-        match format.data_type {
-            SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_BE,
-            SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_BE,
-            SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_BE,
-        }
-    } else {
-        match format.data_type {
-            SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_LE,
-            SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_LE,
-            SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_LE,
-        }
-    };
-
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
-                                                    hw_params.0,
-                                                    data_type)) {
-        return Err(format!("format could not be set: {}", e));
-    }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
-                                                  hw_params.0,
-                                                  format.sample_rate.0 as libc::c_uint,
-                                                  0)) {
-        return Err(format!("sample rate could not be set: {}", e));
-    }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
-                                                      hw_params.0,
-                                                      format.channels as
-                                                                      libc::c_uint)) {
-        return Err(format!("channel count could not be set: {}", e));
-    }
-
-    // TODO: Review this. 200ms seems arbitrary...
-    let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
-        format.channels as alsa::snd_pcm_uframes_t /
-        5; // 200ms of buffer
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
-                                                             hw_params.0,
-                                                             &mut max_buffer_size))
-    {
-        return Err(format!("max buffer size could not be set: {}", e));
-    }
-
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0)) {
-        return Err(format!("hardware params could not be set: {}", e));
-    }
-
+) -> alsa::Result<()> {
+    let hw_params = HwParams::any(pcm)?;
+    hw_params.set_access(Access::RWInterleaved)?;
+    hw_params.set_format(match format.data_type {
+        SampleFormat::I16 => AlsaFormat::s16(),
+        SampleFormat::U16 => AlsaFormat::u16(),
+        SampleFormat::F32 => AlsaFormat::float(),
+    })?;
+    hw_params.set_rate(format.sample_rate.0, ValueOr::Nearest)?;
+    hw_params.set_channels(format.channels.into())?;
+    // TODO: Review this. 200ms (/5) seems arbitrary...
+    let buffer_size = i64::from(format.sample_rate.0 / u32::from(format.channels) / 5);
+    //hw_params.set_buffer_size_max(buffer_size)?;
+    println!("{:#?}", hw_params);
+    pcm.hw_params(&hw_params)?;
+    // testing
+    let mut output = alsa::Output::buffer_open().unwrap();
+    pcm.dump(&mut output);
+    println!("{}", output);
     Ok(())
 }
 
-unsafe fn set_sw_params_from_format(
-    pcm_handle: *mut alsa::snd_pcm_t,
+fn set_sw_params_from_format(
+    pcm: &PCM,
     format: &Format,
-) -> Result<(usize, usize), String>
+) -> alsa::Result<(usize, usize)>
 {
-    let mut sw_params = mem::uninitialized(); // TODO: RAII
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
-        return Err(format!("snd_pcm_sw_params_malloc failed: {}", e));
-    }
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_current(pcm_handle, sw_params)) {
-        return Err(format!("snd_pcm_sw_params_current failed: {}", e));
-    }
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, 0)) {
-        return Err(format!("snd_pcm_sw_params_set_start_threshold failed: {}", e));
-    }
-
-    let (buffer_len, period_len) = {
-        let mut buffer = mem::uninitialized();
-        let mut period = mem::uninitialized();
-        if let Err(e) = check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period)) {
-            return Err(format!("failed to initialize buffer: {}", e));
-        }
-        if buffer == 0 {
-            return Err(format!("initialization resulted in a null buffer"));
-        }
-        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(pcm_handle, sw_params, period)) {
-            return Err(format!("snd_pcm_sw_params_set_avail_min failed: {}", e));
-        }
-        let buffer = buffer as usize * format.channels as usize;
-        let period = period as usize * format.channels as usize;
-        (buffer, period)
-    };
-
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params(pcm_handle, sw_params)) {
-        return Err(format!("snd_pcm_sw_params failed: {}", e));
-    }
-
-    alsa::snd_pcm_sw_params_free(sw_params);
-    Ok((buffer_len, period_len))
-}
-
-/// Wrapper around `hw_params`.
-struct HwParams(*mut alsa::snd_pcm_hw_params_t);
-
-impl HwParams {
-    pub fn alloc() -> HwParams {
-        unsafe {
-            let mut hw_params = mem::uninitialized();
-            check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params))
-                .expect("unable to get hardware parameters");
-            HwParams(hw_params)
-        }
-    }
-}
-
-impl Drop for HwParams {
-    fn drop(&mut self) {
-        unsafe {
-            alsa::snd_pcm_hw_params_free(self.0);
-        }
-    }
-}
-
-impl Drop for StreamInner {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            alsa::snd_pcm_close(self.channel);
-        }
-    }
-}
-
-#[inline]
-fn check_errors(err: libc::c_int) -> Result<(), String> {
-    if err < 0 {
-        unsafe {
-            let s = ffi::CStr::from_ptr(alsa::snd_strerror(err))
-                .to_bytes()
-                .to_vec();
-            let s = String::from_utf8(s).expect("Streaming error occured");
-            return Err(s);
-        }
-    }
-
-    Ok(())
+    let sw_params = pcm.sw_params_current()?;
+    sw_params.set_start_threshold(0)?;
+    let (buffer_size, period_size) = pcm.get_params()?;
+    sw_params.set_avail_min(period_size.try_into().expect("period size > i64::max"))?;
+    pcm.sw_params(&sw_params)?;
+    let (buffer_size, period_size) =
+        (buffer_size as usize * format.channels as usize,
+         period_size as usize * format.channels as usize
+         );
+    Ok((buffer_size, period_size))
 }
 
 /// Cast a byte slice into a (immutable) slice of desired type.
@@ -1234,4 +935,13 @@ unsafe fn cast_input_buffer<T>(v: &[u8]) -> &[T] {
 unsafe fn cast_output_buffer<T>(v: &mut [u8]) -> &mut [T] {
     debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
     std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
+}
+
+/// A simple function to help handling unexpected errors by casting them to string and wrapping
+/// them in BackendSpecificError
+fn unhandled_error<Inner, Outer>(error: Inner) -> Outer
+where Inner: std::fmt::Display,
+      Outer: From<BackendSpecificError>
+{
+    Outer::from(BackendSpecificError { description: error.to_string() })
 }

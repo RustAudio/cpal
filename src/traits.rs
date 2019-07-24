@@ -1,6 +1,6 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
-use {
+use crate::{
     BuildStreamError,
     DefaultFormatError,
     DeviceNameError,

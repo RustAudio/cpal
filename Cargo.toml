@@ -7,6 +7,7 @@ repository = "https://github.com/tomaka/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
+edition = "2018"
 
 [features]
 asio = ["asio-sys"] # Only available on Windows. See README for setup instructions.
@@ -24,8 +25,9 @@ winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "com
 asio-sys = { version = "0.1", path = "asio-sys", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-alsa-sys = { version = "0.1", path = "alsa-sys" }
 libc = "0.2"
+alsa = "0.3.0"
+nix = "0.14.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio_unit", "core_audio"] }
@@ -33,3 +35,6 @@ core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and hand
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 stdweb = { version = "0.1.3", default-features = false }
+
+[patch.crates-io]
+alsa = { path = "../alsa-rs" }
