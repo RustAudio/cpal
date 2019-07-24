@@ -45,7 +45,8 @@ pub unsafe trait Sample: Copy + Clone {
 
     /// Converts any sample type to this one by calling `to_i16`, `to_u16` or `to_f32`.
     fn from<S>(_: &S) -> Self
-        where S: Sample;
+    where
+        S: Sample;
 }
 
 unsafe impl Sample for u16 {
@@ -75,7 +76,8 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn from<S>(sample: &S) -> Self
-        where S: Sample
+    where
+        S: Sample,
     {
         sample.to_u16()
     }
@@ -112,7 +114,8 @@ unsafe impl Sample for i16 {
 
     #[inline]
     fn from<S>(sample: &S) -> Self
-        where S: Sample
+    where
+        S: Sample,
     {
         sample.to_i16()
     }
@@ -145,7 +148,8 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn from<S>(sample: &S) -> Self
-        where S: Sample
+    where
+        S: Sample,
     {
         sample.to_f32()
     }

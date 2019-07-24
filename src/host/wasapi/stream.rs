@@ -1,4 +1,3 @@
-use super::Device;
 use super::check_result;
 use super::com;
 use super::winapi::shared::basetsd::UINT32;
@@ -6,19 +5,22 @@ use super::winapi::shared::ksmedia;
 use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
 use super::winapi::shared::mmreg;
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
-use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK};
+use super::winapi::um::audiosessiontypes::{
+    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+};
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
 use super::winapi::um::winnt;
+use super::Device;
 
 use std::mem;
 use std::ptr;
 use std::slice;
-use std::sync::Mutex;
-use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Mutex;
 
 use BackendSpecificError;
 use BuildStreamError;
@@ -29,8 +31,8 @@ use SampleFormat;
 use StreamData;
 use StreamDataResult;
 use StreamError;
-use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
+use UnknownTypeOutputBuffer;
 
 pub struct EventLoop {
     // Data used by the `run()` function implementation. The mutex is kept lock permanently by
@@ -106,10 +108,10 @@ impl EventLoop {
         EventLoop {
             pending_scheduled_event: pending_scheduled_event,
             run_context: Mutex::new(RunContext {
-                                        streams: Vec::new(),
-                                        handles: vec![pending_scheduled_event],
-                                        commands: rx,
-                                    }),
+                streams: Vec::new(),
+                handles: vec![pending_scheduled_event],
+                commands: rx,
+            }),
             next_stream_id: AtomicUsize::new(0),
             commands: tx,
         }
@@ -119,8 +121,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
+    ) -> Result<StreamId, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -129,8 +130,9 @@ impl EventLoop {
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
                 Ok(client) => client,
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(BuildStreamError::DeviceNotAvailable),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(BuildStreamError::DeviceNotAvailable)
+                }
                 Err(e) => {
                     let description = format!("{}", e);
                     let err = BackendSpecificError { description };
@@ -161,17 +163,16 @@ impl EventLoop {
                     ptr::null(),
                 );
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("{}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -184,17 +185,16 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("{}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -223,24 +223,24 @@ impl EventLoop {
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = {
-                let mut capture_client: *mut audioclient::IAudioCaptureClient = mem::uninitialized();
+                let mut capture_client: *mut audioclient::IAudioCaptureClient =
+                    mem::uninitialized();
                 let hresult = (*audio_client).GetService(
                     &audioclient::IID_IAudioCaptureClient,
                     &mut capture_client as *mut *mut audioclient::IAudioCaptureClient as *mut _,
                 );
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("failed to build capture client: {}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -280,8 +280,7 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
+    ) -> Result<StreamId, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -290,8 +289,9 @@ impl EventLoop {
             // Obtaining a `IAudioClient`.
             let audio_client = match device.build_audioclient() {
                 Ok(client) => client,
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(BuildStreamError::DeviceNotAvailable),
+                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    return Err(BuildStreamError::DeviceNotAvailable)
+                }
                 Err(e) => {
                     let description = format!("{}", e);
                     let err = BackendSpecificError { description };
@@ -313,24 +313,25 @@ impl EventLoop {
                 }
 
                 // finally initializing the audio client
-                let hresult = (*audio_client).Initialize(share_mode,
-                                                         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                                         0,
-                                                         0,
-                                                         &format_attempt.Format,
-                                                         ptr::null());
+                let hresult = (*audio_client).Initialize(
+                    share_mode,
+                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                    0,
+                    0,
+                    &format_attempt.Format,
+                    ptr::null(),
+                );
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("{}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -353,7 +354,7 @@ impl EventLoop {
                         let description = format!("failed to call SetEventHandle: {}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(_) => (),
                 };
 
@@ -366,17 +367,16 @@ impl EventLoop {
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("failed to obtain buffer size: {}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -386,23 +386,22 @@ impl EventLoop {
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = {
                 let mut render_client: *mut audioclient::IAudioRenderClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(&audioclient::IID_IAudioRenderClient,
-                                                         &mut render_client as
-                                                             *mut *mut audioclient::IAudioRenderClient as
-                                                             *mut _);
+                let hresult = (*audio_client).GetService(
+                    &audioclient::IID_IAudioRenderClient,
+                    &mut render_client as *mut *mut audioclient::IAudioRenderClient as *mut _,
+                );
 
                 match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
                         return Err(BuildStreamError::DeviceNotAvailable);
-                    },
+                    }
                     Err(e) => {
                         (*audio_client).Release();
                         let description = format!("failed to build render client: {}", e);
                         let err = BackendSpecificError { description };
                         return Err(err.into());
-                    },
+                    }
                     Ok(()) => (),
                 };
 
@@ -445,7 +444,8 @@ impl EventLoop {
 
     #[inline]
     pub(crate) fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
+    where
+        F: FnMut(StreamId, StreamDataResult),
     {
         self.run_inner(&mut callback);
     }
@@ -473,7 +473,7 @@ impl EventLoop {
                             run_context.handles.remove(p + 1);
                             run_context.streams.remove(p);
                             callback(stream_id, Err(err.into()));
-                        },
+                        }
                     }
                 }
 
@@ -516,17 +516,16 @@ impl EventLoop {
 
                 // Obtaining a pointer to the buffer.
                 match stream.client_flow {
-
                     AudioClientFlow::Capture { capture_client } => {
                         // Get the available data in the shared buffer.
                         let mut buffer: *mut BYTE = mem::uninitialized();
                         let mut flags = mem::uninitialized();
                         let hresult = (*capture_client).GetBuffer(
-                           &mut buffer,
-                           &mut frames_available,
-                           &mut flags,
-                           ptr::null_mut(),
-                           ptr::null_mut(),
+                            &mut buffer,
+                            &mut frames_available,
+                            &mut flags,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
                         );
 
                         // TODO: Can this happen?
@@ -540,17 +539,21 @@ impl EventLoop {
                         debug_assert!(!buffer.is_null());
 
                         let buffer_len = frames_available as usize
-                            * stream.bytes_per_frame as usize / sample_size;
+                            * stream.bytes_per_frame as usize
+                            / sample_size;
 
                         // Simplify the capture callback sample format branches.
                         macro_rules! capture_callback {
                             ($T:ty, $Variant:ident) => {{
                                 let buffer_data = buffer as *mut _ as *const $T;
                                 let slice = slice::from_raw_parts(buffer_data, buffer_len);
-                                let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                    buffer: slice,
-                                });
-                                let data = StreamData::Input { buffer: unknown_buffer };
+                                let unknown_buffer =
+                                    UnknownTypeInputBuffer::$Variant(::InputBuffer {
+                                        buffer: slice,
+                                    });
+                                let data = StreamData::Input {
+                                    buffer: unknown_buffer,
+                                };
                                 callback(stream.id.clone(), Ok(data));
                                 // Release the buffer.
                                 let hresult = (*capture_client).ReleaseBuffer(frames_available);
@@ -566,14 +569,12 @@ impl EventLoop {
                             SampleFormat::I16 => capture_callback!(i16, I16),
                             SampleFormat::U16 => capture_callback!(u16, U16),
                         }
-                    },
+                    }
 
                     AudioClientFlow::Render { render_client } => {
                         let mut buffer: *mut BYTE = mem::uninitialized();
-                        let hresult = (*render_client).GetBuffer(
-                            frames_available,
-                            &mut buffer as *mut *mut _,
-                        );
+                        let hresult = (*render_client)
+                            .GetBuffer(frames_available, &mut buffer as *mut *mut _);
 
                         if let Err(err) = stream_error_from_hresult(hresult) {
                             streams_to_remove.push((stream.id.clone(), err));
@@ -582,25 +583,29 @@ impl EventLoop {
 
                         debug_assert!(!buffer.is_null());
                         let buffer_len = frames_available as usize
-                            * stream.bytes_per_frame as usize / sample_size;
+                            * stream.bytes_per_frame as usize
+                            / sample_size;
 
                         // Simplify the render callback sample format branches.
                         macro_rules! render_callback {
                             ($T:ty, $Variant:ident) => {{
                                 let buffer_data = buffer as *mut $T;
                                 let slice = slice::from_raw_parts_mut(buffer_data, buffer_len);
-                                let unknown_buffer = UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
-                                    buffer: slice
-                                });
-                                let data = StreamData::Output { buffer: unknown_buffer };
+                                let unknown_buffer =
+                                    UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
+                                        buffer: slice,
+                                    });
+                                let data = StreamData::Output {
+                                    buffer: unknown_buffer,
+                                };
                                 callback(stream.id.clone(), Ok(data));
-                                let hresult = (*render_client)
-                                    .ReleaseBuffer(frames_available as u32, 0);
+                                let hresult =
+                                    (*render_client).ReleaseBuffer(frames_available as u32, 0);
                                 if let Err(err) = stream_error_from_hresult(hresult) {
                                     streams_to_remove.push((stream.id.clone(), err));
                                     continue;
                                 }
-                            }}
+                            }};
                         }
 
                         match stream.sample_format {
@@ -608,7 +613,7 @@ impl EventLoop {
                             SampleFormat::I16 => render_callback!(i16, I16),
                             SampleFormat::U16 => render_callback!(u16, U16),
                         }
-                    },
+                    }
                 }
             }
         }
@@ -648,10 +653,8 @@ impl Drop for EventLoop {
     }
 }
 
-unsafe impl Send for EventLoop {
-}
-unsafe impl Sync for EventLoop {
-}
+unsafe impl Send for EventLoop {}
+unsafe impl Sync for EventLoop {}
 
 // The content of a stream ID is a number that was fetched from `next_stream_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -699,7 +702,7 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
             let extensible_size = mem::size_of::<mmreg::WAVEFORMATEXTENSIBLE>();
             let ex_size = mem::size_of::<mmreg::WAVEFORMATEX>();
             (extensible_size - ex_size) as WORD
-        },
+        }
         SampleFormat::U16 => return None,
     };
     let waveformatex = mmreg::WAVEFORMATEX {
@@ -744,24 +747,22 @@ fn process_commands(
                 let event = stream_inner.event;
                 run_context.streams.push(stream_inner);
                 run_context.handles.push(event);
-            },
+            }
             Command::DestroyStream(stream_id) => {
                 match run_context.streams.iter().position(|s| s.id == stream_id) {
                     None => continue,
                     Some(p) => {
                         run_context.handles.remove(p + 1);
                         run_context.streams.remove(p);
-                    },
+                    }
                 }
-            },
+            }
             Command::PlayStream(stream_id) => {
                 match run_context.streams.iter().position(|s| s.id == stream_id) {
                     None => continue,
                     Some(p) => {
                         if !run_context.streams[p].playing {
-                            let hresult = unsafe {
-                                (*run_context.streams[p].audio_client).Start()
-                            };
+                            let hresult = unsafe { (*run_context.streams[p].audio_client).Start() };
                             match stream_error_from_hresult(hresult) {
                                 Ok(()) => {
                                     run_context.streams[p].playing = true;
@@ -775,15 +776,13 @@ fn process_commands(
                         }
                     }
                 }
-            },
+            }
             Command::PauseStream(stream_id) => {
                 match run_context.streams.iter().position(|s| s.id == stream_id) {
                     None => continue,
                     Some(p) => {
                         if run_context.streams[p].playing {
-                            let hresult = unsafe {
-                                (*run_context.streams[p].audio_client).Stop()
-                            };
+                            let hresult = unsafe { (*run_context.streams[p].audio_client).Stop() };
                             match stream_error_from_hresult(hresult) {
                                 Ok(()) => {
                                     run_context.streams[p].playing = false;
@@ -795,9 +794,9 @@ fn process_commands(
                                 }
                             }
                         }
-                    },
+                    }
                 }
-            },
+            }
         }
     }
 }
@@ -816,15 +815,13 @@ fn wait_for_handle_signal(handles: &[winnt::HANDLE]) -> Result<usize, BackendSpe
         synchapi::WaitForMultipleObjectsEx(
             handles.len() as u32,
             handles.as_ptr(),
-            FALSE, // Don't wait for all, just wait for the first
+            FALSE,             // Don't wait for all, just wait for the first
             winbase::INFINITE, // TODO: allow setting a timeout
-            FALSE, // irrelevant parameter here
+            FALSE,             // irrelevant parameter here
         )
     };
     if result == winbase::WAIT_FAILED {
-        let err = unsafe {
-            winapi::um::errhandlingapi::GetLastError()
-        };
+        let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
         let description = format!("`WaitForMultipleObjectsEx failed: {}", err);
         let err = BackendSpecificError { description };
         return Err(err);

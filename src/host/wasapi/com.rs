@@ -3,8 +3,8 @@
 use super::check_result;
 use std::ptr;
 
-use super::winapi::um::objbase::{COINIT_MULTITHREADED};
 use super::winapi::um::combaseapi::{CoInitializeEx, CoUninitialize};
+use super::winapi::um::objbase::COINIT_MULTITHREADED;
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {

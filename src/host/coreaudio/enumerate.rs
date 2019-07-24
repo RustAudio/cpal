@@ -1,22 +1,15 @@
-use {BackendSpecificError, DevicesError, SupportedFormat};
+use super::coreaudio::sys::{
+    kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
+    AudioObjectPropertyAddress, OSStatus,
+};
+use super::Device;
 use std::mem;
 use std::ptr::null;
 use std::vec::IntoIter as VecIntoIter;
-use super::coreaudio::sys::{
-    AudioDeviceID,
-    AudioObjectPropertyAddress,
-    AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize,
-    kAudioHardwareNoError,
-    kAudioHardwarePropertyDefaultInputDevice,
-    kAudioHardwarePropertyDefaultOutputDevice,
-    kAudioHardwarePropertyDevices,
-    kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal,
-    kAudioObjectSystemObject,
-    OSStatus,
-};
-use super::Device;
+use {BackendSpecificError, DevicesError, SupportedFormat};
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
@@ -80,15 +73,15 @@ impl Devices {
     }
 }
 
-unsafe impl Send for Devices {
-}
-unsafe impl Sync for Devices {
-}
+unsafe impl Send for Devices {}
+unsafe impl Sync for Devices {}
 
 impl Iterator for Devices {
     type Item = Device;
     fn next(&mut self) -> Option<Device> {
-        self.0.next().map(|id| Device { audio_device_id: id })
+        self.0.next().map(|id| Device {
+            audio_device_id: id,
+        })
     }
 }
 

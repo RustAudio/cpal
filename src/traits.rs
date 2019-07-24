@@ -1,17 +1,8 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
 use crate::{
-    BuildStreamError,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    InputDevices,
-    OutputDevices,
-    PauseStreamError,
-    PlayStreamError,
-    StreamDataResult,
-    SupportedFormat,
+    BuildStreamError, DefaultFormatError, DeviceNameError, DevicesError, Format, InputDevices,
+    OutputDevices, PauseStreamError, PlayStreamError, StreamDataResult, SupportedFormat,
     SupportedFormatsError,
 };
 
@@ -69,7 +60,8 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio input.
     fn input_devices(&self) -> Result<InputDevices<Self::Devices>, DevicesError> {
         fn supports_input<D: DeviceTrait>(device: &D) -> bool {
-            device.supported_input_formats()
+            device
+                .supported_input_formats()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -82,7 +74,8 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio output.
     fn output_devices(&self) -> Result<OutputDevices<Self::Devices>, DevicesError> {
         fn supports_output<D: DeviceTrait>(device: &D) -> bool {
-            device.supported_output_formats()
+            device
+                .supported_output_formats()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -106,12 +99,15 @@ pub trait DeviceTrait {
     /// An iterator yielding formats that are supported by the backend.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
+    fn supported_input_formats(&self)
+        -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
 
     /// An iterator yielding output stream formats that are supported by the device.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
 
     /// The default input stream format for the device.
     fn default_input_format(&self) -> Result<Format, DefaultFormatError>;

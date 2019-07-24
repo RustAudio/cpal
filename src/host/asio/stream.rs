@@ -101,7 +101,7 @@ impl EventLoop {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 check_format(driver, format, num_asio_channels)
-            },
+            }
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
@@ -121,7 +121,8 @@ impl EventLoop {
                         };
                         *streams = new_streams;
                         bs
-                    }).map_err(|ref e| {
+                    })
+                    .map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
                         BuildStreamError::DeviceNotAvailable
                     })
@@ -144,7 +145,7 @@ impl EventLoop {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 check_format(driver, format, num_asio_channels)
-            },
+            }
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
@@ -163,7 +164,8 @@ impl EventLoop {
                         };
                         *streams = new_streams;
                         bs
-                    }).map_err(|ref e| {
+                    })
+                    .map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
                         BuildStreamError::DeviceNotAvailable
                     })
@@ -235,8 +237,7 @@ impl EventLoop {
                 buffer_index: usize,
                 from_endianness: F,
                 to_cpal_sample: G,
-            )
-            where
+            ) where
                 A: AsioSample,
                 B: InterleavedSample,
                 F: Fn(A) -> A,
@@ -255,7 +256,9 @@ impl EventLoop {
                 // 2. Deliver the interleaved buffer to the callback.
                 callback(
                     stream_id,
-                    Ok(StreamData::Input { buffer: B::unknown_type_input_buffer(interleaved) }),
+                    Ok(StreamData::Input {
+                        buffer: B::unknown_type_input_buffer(interleaved),
+                    }),
                 );
             }
 
@@ -285,8 +288,8 @@ impl EventLoop {
 
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32) |
-                (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
+                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32)
+                | (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
                     process_input_callback::<f32, f32, _, _>(
                         stream_id,
                         callback,
@@ -325,8 +328,8 @@ impl EventLoop {
                 }
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F32) |
-                (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F32) => {
+                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F32)
+                | (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F32) => {
                     process_input_callback::<f64, f32, _, _>(
                         stream_id,
                         callback,
@@ -338,18 +341,19 @@ impl EventLoop {
                     );
                 }
 
-                unsupported_format_pair => {
-                    unreachable!("`build_input_stream` should have returned with unsupported \
-                                 format {:?}", unsupported_format_pair)
-                }
+                unsupported_format_pair => unreachable!(
+                    "`build_input_stream` should have returned with unsupported \
+                     format {:?}",
+                    unsupported_format_pair
+                ),
             }
         });
 
         // Create stream and set to paused
-        self.cpal_streams
-            .lock()
-            .unwrap()
-            .push(Some(Stream { driver: driver.clone(), playing: false }));
+        self.cpal_streams.lock().unwrap().push(Some(Stream {
+            driver: driver.clone(),
+            playing: false,
+        }));
 
         Ok(StreamId(count))
     }
@@ -439,8 +443,7 @@ impl EventLoop {
                 buffer_index: usize,
                 to_asio_sample: F,
                 to_endianness: G,
-            )
-            where
+            ) where
                 A: InterleavedSample,
                 B: AsioSample,
                 F: Fn(A) -> B,
@@ -462,7 +465,9 @@ impl EventLoop {
                     for ch_ix in 0..n_channels {
                         let asio_channel =
                             asio_channel_slice_mut::<B>(asio_stream, buffer_index, ch_ix);
-                        asio_channel.iter_mut().for_each(|s| *s = to_endianness(B::SILENCE));
+                        asio_channel
+                            .iter_mut()
+                            .for_each(|s| *s = to_endianness(B::SILENCE));
                     }
                 }
 
@@ -504,8 +509,8 @@ impl EventLoop {
 
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) |
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB)
+                | (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
                     process_output_callback::<f32, f32, _, _>(
                         stream_id,
                         callback,
@@ -547,8 +552,8 @@ impl EventLoop {
                 }
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB) |
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB)
+                | (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
                     process_output_callback::<f32, f64, _, _>(
                         stream_id,
                         callback,
@@ -561,18 +566,19 @@ impl EventLoop {
                     );
                 }
 
-                unsupported_format_pair => {
-                    unreachable!("`build_output_stream` should have returned with unsupported \
-                                 format {:?}", unsupported_format_pair)
-                }
+                unsupported_format_pair => unreachable!(
+                    "`build_output_stream` should have returned with unsupported \
+                     format {:?}",
+                    unsupported_format_pair
+                ),
             }
         });
 
         // Create the stream paused
-        self.cpal_streams
-            .lock()
-            .unwrap()
-            .push(Some(Stream { driver: driver.clone(), playing: false }));
+        self.cpal_streams.lock().unwrap().push(Some(Stream {
+            driver: driver.clone(),
+            playing: false,
+        }));
 
         // Give the ID based on the stream count
         Ok(StreamId(count))
@@ -595,10 +601,14 @@ impl EventLoop {
     /// stopping the entire driver.
     pub fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
         let mut streams = self.cpal_streams.lock().unwrap();
-        let streams_playing = streams.iter()
+        let streams_playing = streams
+            .iter()
             .filter(|s| s.as_ref().map(|s| s.playing).unwrap_or(false))
             .count();
-        if let Some(s) = streams.get_mut(stream_id.0).expect("Bad pause stream index") {
+        if let Some(s) = streams
+            .get_mut(stream_id.0)
+            .expect("Bad pause stream index")
+        {
             if streams_playing <= 1 {
                 s.driver.stop().map_err(pause_stream_err)?;
             }
@@ -703,7 +713,10 @@ fn check_format(
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();
     if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
-        if driver.can_sample_rate(sample_rate).map_err(build_stream_err)? {
+        if driver
+            .can_sample_rate(sample_rate)
+            .map_err(build_stream_err)?
+        {
             driver
                 .set_sample_rate(sample_rate)
                 .map_err(build_stream_err)?;
@@ -771,19 +784,17 @@ unsafe fn asio_channel_slice_mut<T>(
     buffer_index: usize,
     channel_index: usize,
 ) -> &mut [T] {
-    let buff_ptr: *mut T = asio_stream
-        .buffer_infos[channel_index]
-        .buffers[buffer_index as usize]
-        as *mut _;
+    let buff_ptr: *mut T =
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *mut _;
     std::slice::from_raw_parts_mut(buff_ptr, asio_stream.buffer_size as usize)
 }
 
 fn build_stream_err(e: sys::AsioError) -> BuildStreamError {
     match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => BuildStreamError::DeviceNotAvailable,
-        sys::AsioError::InvalidInput |
-        sys::AsioError::BadMode => BuildStreamError::InvalidArgument,
+        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
+            BuildStreamError::DeviceNotAvailable
+        }
+        sys::AsioError::InvalidInput | sys::AsioError::BadMode => BuildStreamError::InvalidArgument,
         err => {
             let description = format!("{}", err);
             BackendSpecificError { description }.into()
@@ -793,8 +804,9 @@ fn build_stream_err(e: sys::AsioError) -> BuildStreamError {
 
 fn pause_stream_err(e: sys::AsioError) -> PauseStreamError {
     match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => PauseStreamError::DeviceNotAvailable,
+        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
+            PauseStreamError::DeviceNotAvailable
+        }
         err => {
             let description = format!("{}", err);
             BackendSpecificError { description }.into()
@@ -804,8 +816,9 @@ fn pause_stream_err(e: sys::AsioError) -> PauseStreamError {
 
 fn play_stream_err(e: sys::AsioError) -> PlayStreamError {
     match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => PlayStreamError::DeviceNotAvailable,
+        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
+            PlayStreamError::DeviceNotAvailable
+        }
         err => {
             let description = format!("{}", err);
             BackendSpecificError { description }.into()

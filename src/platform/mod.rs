@@ -469,12 +469,8 @@ macro_rules! impl_platform_host {
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod platform_impl {
     pub use crate::host::alsa::{
-        Device as AlsaDevice,
-        Devices as AlsaDevices,
-        EventLoop as AlsaEventLoop,
-        Host as AlsaHost,
-        StreamId as AlsaStreamId,
-        SupportedInputFormats as AlsaSupportedInputFormats,
+        Device as AlsaDevice, Devices as AlsaDevices, EventLoop as AlsaEventLoop, Host as AlsaHost,
+        StreamId as AlsaStreamId, SupportedInputFormats as AlsaSupportedInputFormats,
         SupportedOutputFormats as AlsaSupportedOutputFormats,
     };
 
@@ -488,15 +484,11 @@ mod platform_impl {
     }
 }
 
-
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform_impl {
     pub use crate::host::coreaudio::{
-        Device as CoreAudioDevice,
-        Devices as CoreAudioDevices,
-        EventLoop as CoreAudioEventLoop,
-        Host as CoreAudioHost,
-        StreamId as CoreAudioStreamId,
+        Device as CoreAudioDevice, Devices as CoreAudioDevices, EventLoop as CoreAudioEventLoop,
+        Host as CoreAudioHost, StreamId as CoreAudioStreamId,
         SupportedInputFormats as CoreAudioSupportedInputFormats,
         SupportedOutputFormats as CoreAudioSupportedOutputFormats,
     };
@@ -514,11 +506,8 @@ mod platform_impl {
 #[cfg(target_os = "emscripten")]
 mod platform_impl {
     pub use crate::host::emscripten::{
-        Device as EmscriptenDevice,
-        Devices as EmscriptenDevices,
-        EventLoop as EmscriptenEventLoop,
-        Host as EmscriptenHost,
-        StreamId as EmscriptenStreamId,
+        Device as EmscriptenDevice, Devices as EmscriptenDevices, EventLoop as EmscriptenEventLoop,
+        Host as EmscriptenHost, StreamId as EmscriptenStreamId,
         SupportedInputFormats as EmscriptenSupportedInputFormats,
         SupportedOutputFormats as EmscriptenSupportedOutputFormats,
     };
@@ -537,20 +526,13 @@ mod platform_impl {
 mod platform_impl {
     #[cfg(feature = "asio")]
     pub use crate::host::asio::{
-        Device as AsioDevice,
-        Devices as AsioDevices,
-        EventLoop as AsioEventLoop,
-        Host as AsioHost,
-        StreamId as AsioStreamId,
-        SupportedInputFormats as AsioSupportedInputFormats,
+        Device as AsioDevice, Devices as AsioDevices, EventLoop as AsioEventLoop, Host as AsioHost,
+        StreamId as AsioStreamId, SupportedInputFormats as AsioSupportedInputFormats,
         SupportedOutputFormats as AsioSupportedOutputFormats,
     };
     pub use crate::host::wasapi::{
-        Device as WasapiDevice,
-        Devices as WasapiDevices,
-        EventLoop as WasapiEventLoop,
-        Host as WasapiHost,
-        StreamId as WasapiStreamId,
+        Device as WasapiDevice, Devices as WasapiDevices, EventLoop as WasapiEventLoop,
+        Host as WasapiHost, StreamId as WasapiStreamId,
         SupportedInputFormats as WasapiSupportedInputFormats,
         SupportedOutputFormats as WasapiSupportedOutputFormats,
     };
@@ -569,16 +551,18 @@ mod platform_impl {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd", target_os = "macos",
-              target_os = "ios", target_os = "emscripten")))]
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "emscripten"
+)))]
 mod platform_impl {
     pub use crate::host::null::{
-        Device as NullDevice,
-        Devices as NullDevices,
-        EventLoop as NullEventLoop,
-        Host as NullHost,
-        StreamId as NullStreamId,
-        SupportedInputFormats as NullSupportedInputFormats,
+        Device as NullDevice, Devices as NullDevices, EventLoop as NullEventLoop, Host as NullHost,
+        StreamId as NullStreamId, SupportedInputFormats as NullSupportedInputFormats,
         SupportedOutputFormats as NullSupportedOutputFormats,
     };
 

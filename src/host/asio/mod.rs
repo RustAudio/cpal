@@ -1,21 +1,9 @@
 extern crate asio_sys as sys;
 
+use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 use {
-    BuildStreamError,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    PauseStreamError,
-    PlayStreamError,
-    StreamDataResult,
-    SupportedFormatsError,
-};
-use traits::{
-    DeviceTrait,
-    EventLoopTrait,
-    HostTrait,
-    StreamIdTrait,
+    BuildStreamError, DefaultFormatError, DeviceNameError, DevicesError, Format, PauseStreamError,
+    PlayStreamError, StreamDataResult, SupportedFormatsError,
 };
 
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats};
@@ -76,11 +64,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 

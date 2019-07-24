@@ -1,39 +1,35 @@
 mod enumerate;
 
-pub use self::enumerate::{Devices, default_input_device, default_output_device};
+pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
 use crate::{
-    ChannelCount,
-    BackendSpecificError,
-    BuildStreamError,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    HostUnavailable,
-    PauseStreamError,
-    PlayStreamError,
-    SampleFormat,
-    SampleRate,
-    SupportedFormatsError,
-    StreamData,
-    StreamDataResult,
-    StreamError,
-    SupportedFormat,
-    UnknownTypeInputBuffer,
-    UnknownTypeOutputBuffer,
-    InputBuffer,
-    OutputBuffer,
-    traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait}
+    traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait},
+    BackendSpecificError, BuildStreamError, ChannelCount, DefaultFormatError, DeviceNameError,
+    DevicesError, Format, HostUnavailable, InputBuffer, OutputBuffer, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamData, StreamDataResult, StreamError,
+    SupportedFormat, SupportedFormatsError, UnknownTypeInputBuffer, UnknownTypeOutputBuffer,
 };
 
-use alsa::{Direction, ValueOr, poll::{PollDescriptors, POLLOUT, POLLIN}, pcm::{PCM, Format as AlsaFormat, HwParams, Access}};
-use nix::{errno::Errno, poll::{PollFd, PollFlags}};
-use std::{cmp, mem, iter,
-    os::unix::io::RawFd,
-    sync::{Mutex, mpsc::{channel, Sender, Receiver}, atomic::{AtomicU64, Ordering}},
-    vec::IntoIter as VecIntoIter,
+use alsa::{
+    pcm::{Access, Format as AlsaFormat, HwParams, PCM},
+    poll::{PollDescriptors, POLLIN, POLLOUT},
+    Direction, ValueOr,
+};
+use nix::{
+    errno::Errno,
+    poll::{PollFd, PollFlags},
+};
+use std::{
+    cmp,
     convert::{TryFrom, TryInto},
+    iter, mem,
+    os::unix::io::RawFd,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::{channel, Receiver, Sender},
+        Mutex,
+    },
+    vec::IntoIter as VecIntoIter,
 };
 
 pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
@@ -85,11 +81,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
@@ -178,7 +178,6 @@ impl Drop for Trigger {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device(String);
 
@@ -191,17 +190,19 @@ impl Device {
     fn supported_formats(
         &self,
         direction: Direction,
-    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
-    {
+    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError> {
         let handle = PCM::new(&self.0, direction, true).map_err(|err| {
             match err.errno() {
                 // Map some specific errors
-                Some(Errno::ENOENT) | Some(Errno::EBUSY) => SupportedFormatsError::DeviceNotAvailable,
+                Some(Errno::ENOENT) | Some(Errno::EBUSY) => {
+                    SupportedFormatsError::DeviceNotAvailable
+                }
                 Some(Errno::EINVAL) => SupportedFormatsError::InvalidArgument,
-                _ => unhandled_error(err)
+                _ => unhandled_error(err),
             }
         })?;
-        let hw_params = HwParams::any(&handle).map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        let hw_params =
+            HwParams::any(&handle).map_err(unhandled_error::<_, SupportedFormatsError>)?;
 
         // Test out i16, u16, and f32 data types
         let mut supported_formats = Vec::with_capacity(3);
@@ -217,8 +218,12 @@ impl Device {
         // TODO potentially more formats could be supported.
 
         // Get possible sample rates
-        let rate_max = hw_params.get_rate_max().map_err(unhandled_error::<_, SupportedFormatsError>)?;
-        let rate_min = hw_params.get_rate_min().map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        let rate_max = hw_params
+            .get_rate_max()
+            .map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        let rate_min = hw_params
+            .get_rate_min()
+            .map_err(unhandled_error::<_, SupportedFormatsError>)?;
 
         // TODO This code is copied from the original impl using alsa-sys , and I have seen it
         // elsewhere on the internet. It seems a bit flakey, so if anyone knows how to do it
@@ -232,18 +237,7 @@ impl Device {
         // Otherwise, test some standard rates
         } else {
             const RATES: [u32; 13] = [
-                5512,
-                8000,
-                11025,
-                16000,
-                22050,
-                32000,
-                44100,
-                48000,
-                64000,
-                88200,
-                96000,
-                176400,
+                5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
                 192000,
             ];
             let mut sample_rates = vec![];
@@ -255,26 +249,38 @@ impl Device {
             sample_rates
         };
         // Get possible number of channels
-        let channels_min = hw_params.get_channels_min().map_err(unhandled_error::<_, SupportedFormatsError>)?;
+        let channels_min = hw_params
+            .get_channels_min()
+            .map_err(unhandled_error::<_, SupportedFormatsError>)?;
         // cap at 32 channels.
-        let channels_max = cmp::min(hw_params.get_channels_max().map_err(unhandled_error::<_, SupportedFormatsError>)?, 32);
-        let supported_channels = (channels_min ..= channels_max).filter_map(|v| if hw_params.test_channels(v) {
-            Some(v as ChannelCount)
-        } else {
-            None
-        }).collect::<Vec<_>>();
+        let channels_max = cmp::min(
+            hw_params
+                .get_channels_max()
+                .map_err(unhandled_error::<_, SupportedFormatsError>)?,
+            32,
+        );
+        let supported_channels = (channels_min..=channels_max)
+            .filter_map(|v| {
+                if hw_params.test_channels(v) {
+                    Some(v as ChannelCount)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         // Take the outer product of data_types, channels, and rates.
-        let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
-                                                sample_rates.len());
+        let mut output = Vec::with_capacity(
+            supported_formats.len() * supported_channels.len() * sample_rates.len(),
+        );
         for &data_type in supported_formats.iter() {
             for channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedFormat {
-                                    channels: channels.clone(),
-                                    min_sample_rate: SampleRate(min_rate as u32),
-                                    max_sample_rate: SampleRate(max_rate as u32),
-                                    data_type: data_type,
-                                });
+                        channels: channels.clone(),
+                        min_sample_rate: SampleRate(min_rate as u32),
+                        max_sample_rate: SampleRate(max_rate as u32),
+                        data_type: data_type,
+                    });
                 }
             }
         }
@@ -291,15 +297,11 @@ impl Device {
 
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedFormat::cmp_default_heuristics` order and select the greatest.
-    fn default_format(
-        &self,
-        direction: Direction,
-    ) -> Result<Format, DefaultFormatError>
-    {
+    fn default_format(&self, direction: Direction) -> Result<Format, DefaultFormatError> {
         let mut formats: Vec<_> = match self.supported_formats(direction) {
             Err(SupportedFormatsError::DeviceNotAvailable) => {
                 return Err(DefaultFormatError::DeviceNotAvailable);
-            },
+            }
             Err(SupportedFormatsError::InvalidArgument) => {
                 // this happens sometimes when querying for input and output capabilities but
                 // the device supports only one
@@ -313,7 +315,8 @@ impl Device {
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
-        let handle = PCM::new(&self.0, direction, true).map_err(unhandled_error::<_, DefaultFormatError>)?;
+        let handle =
+            PCM::new(&self.0, direction, true).map_err(unhandled_error::<_, DefaultFormatError>)?;
         match formats.into_iter().last() {
             Some(f) => {
                 let min_r = f.min_sample_rate;
@@ -328,8 +331,8 @@ impl Device {
                 }
                 */
                 Ok(format)
-            },
-            None => Err(DefaultFormatError::StreamTypeNotSupported)
+            }
+            None => Err(DefaultFormatError::StreamTypeNotSupported),
         }
     }
 
@@ -358,11 +361,9 @@ pub struct EventLoop {
     commands: Sender<Command>,
 }
 
-unsafe impl Send for EventLoop {
-}
+unsafe impl Send for EventLoop {}
 
-unsafe impl Sync for EventLoop {
-}
+unsafe impl Sync for EventLoop {}
 
 enum Command {
     NewStream(StreamInner),
@@ -423,8 +424,10 @@ struct StreamInner {
 #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(u64);
 
-enum StreamType { Input, Output }
-
+enum StreamType {
+    Input,
+    Output,
+}
 
 impl EventLoop {
     #[inline]
@@ -455,7 +458,8 @@ impl EventLoop {
 
     #[inline]
     fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
+    where
+        F: FnMut(StreamId, StreamDataResult),
     {
         self.run_inner(&mut callback)
     }
@@ -505,16 +509,18 @@ impl EventLoop {
                 while (i_descriptor as usize) < run_context.descriptors.len() {
                     let stream = &mut run_context.streams[i_stream];
                     let desc_start = usize::try_from(i_descriptor).unwrap();
-                    let stream_descriptors = &mut run_context.descriptors[desc_start..stream.num_descriptors];
+                    let stream_descriptors =
+                        &mut run_context.descriptors[desc_start..stream.num_descriptors];
 
                     // Only go on if this event was a pollout or pollin event.
-                    let stream_type = match check_for_pollout_or_pollin(stream, stream_descriptors) {
+                    let stream_type = match check_for_pollout_or_pollin(stream, stream_descriptors)
+                    {
                         Ok(Some(ty)) => ty,
                         Ok(None) => {
                             i_descriptor += stream.num_descriptors as isize;
                             i_stream += 1;
                             continue;
-                        },
+                        }
                         Err(err) => {
                             streams_to_remove.push((stream.id, err.into()));
                             i_descriptor += stream.num_descriptors as isize;
@@ -550,11 +556,12 @@ impl EventLoop {
                         StreamType::Input => {
                             let _amt = match stream.channel.io().readi(&mut stream.buffer) {
                                 Err(e) => {
-                                    let err = unhandled_error(format!("`snd_pcm_readi` failed: {}", e));
+                                    let err =
+                                        unhandled_error(format!("`snd_pcm_readi` failed: {}", e));
                                     streams_to_remove.push((stream.id, err));
-                                    continue
+                                    continue;
                                 }
-                                Ok(amt) => amt
+                                Ok(amt) => amt,
                             };
 
                             let input_buffer = match stream.sample_format {
@@ -572,20 +579,26 @@ impl EventLoop {
                                 buffer: input_buffer,
                             };
                             callback(stream.id, Ok(stream_data));
-                        },
+                        }
                         StreamType::Output => {
                             {
                                 // We're now sure that we're ready to write data.
                                 let output_buffer = match stream.sample_format {
-                                    SampleFormat::I16 => UnknownTypeOutputBuffer::I16(OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
-                                    SampleFormat::U16 => UnknownTypeOutputBuffer::U16(OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
-                                    SampleFormat::F32 => UnknownTypeOutputBuffer::F32(OutputBuffer {
-                                        buffer: cast_output_buffer(&mut stream.buffer),
-                                    }),
+                                    SampleFormat::I16 => {
+                                        UnknownTypeOutputBuffer::I16(OutputBuffer {
+                                            buffer: cast_output_buffer(&mut stream.buffer),
+                                        })
+                                    }
+                                    SampleFormat::U16 => {
+                                        UnknownTypeOutputBuffer::U16(OutputBuffer {
+                                            buffer: cast_output_buffer(&mut stream.buffer),
+                                        })
+                                    }
+                                    SampleFormat::F32 => {
+                                        UnknownTypeOutputBuffer::F32(OutputBuffer {
+                                            buffer: cast_output_buffer(&mut stream.buffer),
+                                        })
+                                    }
                                 };
 
                                 let stream_data = StreamData::Output {
@@ -602,18 +615,24 @@ impl EventLoop {
                                             if let Err(e) = stream.channel.try_recover(e, false) {
                                                 streams_to_remove.push((
                                                     stream.id,
-                                                    unhandled_error(format!("`snd_pcm_writei` failed: {}", e))
+                                                    unhandled_error(format!(
+                                                        "`snd_pcm_writei` failed: {}",
+                                                        e
+                                                    )),
                                                 ));
                                             }
-                                            continue
+                                            continue;
                                         } else {
                                             streams_to_remove.push((
                                                 stream.id,
-                                                unhandled_error(format!("`snd_pcm_writei` failed: {}", e))
+                                                unhandled_error(format!(
+                                                    "`snd_pcm_writei` failed: {}",
+                                                    e
+                                                )),
                                             ));
-                                            continue
+                                            continue;
                                         }
-                                    },
+                                    }
                                     Ok(amt) => {
                                         if amt != available_frames {
                                             streams_to_remove.push((
@@ -625,14 +644,14 @@ impl EventLoop {
                                                     amt,
                                                 ))
                                             ));
-                                            continue
+                                            continue;
                                         } else {
-                                            break
+                                            break;
                                         }
                                     }
                                 }
                             }
-                        },
+                        }
                     }
                 }
 
@@ -651,30 +670,38 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
+    ) -> Result<StreamId, BuildStreamError> {
         let pcm = PCM::new(&device.0, Direction::Capture, true).map_err(|e| {
             match e.errno() {
                 // determined empirically
                 Some(Errno::EBUSY) => BuildStreamError::DeviceNotAvailable,
                 Some(Errno::EINVAL) => BuildStreamError::InvalidArgument,
-                _ => unhandled_error(e)
+                _ => unhandled_error(e),
             }
         })?;
         set_hw_params_from_format(&pcm, format).map_err(unhandled_error::<_, BuildStreamError>)?;
-        let can_pause = pcm.hw_params_current().map_err(unhandled_error::<_, BuildStreamError>)?.can_pause();
+        let can_pause = pcm
+            .hw_params_current()
+            .map_err(unhandled_error::<_, BuildStreamError>)?
+            .can_pause();
         let (buffer_len, period_len) = set_sw_params_from_format(&pcm, format)
             .map_err(unhandled_error::<_, BuildStreamError>)?;
-        pcm.prepare().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e)))?;
+        pcm.prepare().map_err(|e| {
+            unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e))
+        })?;
         let num_descriptors = <PCM as PollDescriptors>::count(&pcm);
         if num_descriptors == 0 {
-            return Err(unhandled_error("poll descriptor count for playback stream was 0"));
+            return Err(unhandled_error(
+                "poll descriptor count for playback stream was 0",
+            ));
         }
         let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
         if new_stream_id.0 == u64::max_value() {
             return Err(BuildStreamError::StreamIdOverflow);
         }
-        pcm.start().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not start capture stream: {}", e)))?;
+        pcm.start().map_err(|e| {
+            unhandled_error::<_, BuildStreamError>(format!("could not start capture stream: {}", e))
+        })?;
 
         let stream_inner = StreamInner {
             id: new_stream_id.clone(),
@@ -698,24 +725,30 @@ impl EventLoop {
         &self,
         device: &Device,
         format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
+    ) -> Result<StreamId, BuildStreamError> {
         let pcm = PCM::new(&device.0, Direction::Playback, true).map_err(|e| {
             match e.errno() {
                 // determined empirically
                 Some(Errno::EBUSY) => BuildStreamError::DeviceNotAvailable,
                 Some(Errno::EINVAL) => BuildStreamError::InvalidArgument,
-                _ => unhandled_error(e)
+                _ => unhandled_error(e),
             }
         })?;
         set_hw_params_from_format(&pcm, format).map_err(unhandled_error::<_, BuildStreamError>)?;
-        let can_pause = pcm.hw_params_current().map_err(unhandled_error::<_, BuildStreamError>)?.can_pause();
+        let can_pause = pcm
+            .hw_params_current()
+            .map_err(unhandled_error::<_, BuildStreamError>)?
+            .can_pause();
         let (buffer_len, period_len) = set_sw_params_from_format(&pcm, format)
             .map_err(unhandled_error::<_, BuildStreamError>)?;
-        pcm.prepare().map_err(|e| unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e)))?;
+        pcm.prepare().map_err(|e| {
+            unhandled_error::<_, BuildStreamError>(format!("could not get playback handle: {}", e))
+        })?;
         let num_descriptors = <PCM as PollDescriptors>::count(&pcm);
         if num_descriptors == 0 {
-            return Err(unhandled_error::<_, BuildStreamError>("poll descriptor count for playback stream was 0"));
+            return Err(unhandled_error::<_, BuildStreamError>(
+                "poll descriptor count for playback stream was 0",
+            ));
         }
         let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
         if new_stream_id.0 == u64::max_value() {
@@ -771,26 +804,30 @@ fn process_commands(run_context: &mut RunContext) {
         match command {
             Command::DestroyStream(stream_id) => {
                 run_context.streams.retain(|s| s.id != stream_id);
-            },
+            }
             Command::PlayStream(stream_id) => {
-                if let Some(stream) = run_context.streams.iter_mut()
+                if let Some(stream) = run_context
+                    .streams
+                    .iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
                     stream.channel.pause(false).unwrap();
                     stream.is_paused = false;
                 }
-            },
+            }
             Command::PauseStream(stream_id) => {
-                if let Some(stream) = run_context.streams.iter_mut()
+                if let Some(stream) = run_context
+                    .streams
+                    .iter_mut()
                     .find(|stream| stream.can_pause && stream.id == stream_id)
                 {
                     stream.channel.pause(true).unwrap();
                     stream.is_paused = true;
                 }
-            },
+            }
             Command::NewStream(stream_inner) => {
                 run_context.streams.push(stream_inner);
-            },
+            }
         }
     }
 }
@@ -801,7 +838,10 @@ fn reset_descriptors_with_pending_command_trigger(
     pending_command_trigger: &Trigger,
 ) {
     descriptors.clear();
-    descriptors.push(PollFd::new(pending_command_trigger.read_fd, PollFlags::POLLIN));
+    descriptors.push(PollFd::new(
+        pending_command_trigger.read_fd,
+        PollFlags::POLLIN,
+    ));
 }
 
 // Appends the `poll` descriptors for each stream onto the `RunContext`'s descriptor slice, ready
@@ -810,13 +850,18 @@ fn append_stream_poll_descriptors(run_context: &mut RunContext) {
     for stream in run_context.streams.iter_mut() {
         let descriptors_start = run_context.descriptors.len();
         run_context.descriptors.reserve(stream.num_descriptors);
-        run_context.descriptors.extend(
-            iter::repeat(PollFd::new(-1, PollFlags::empty())).take(stream.num_descriptors)
-        );
+        run_context
+            .descriptors
+            .extend(iter::repeat(PollFd::new(-1, PollFlags::empty())).take(stream.num_descriptors));
         // safety: repr(C) struct with single non-zero-sized field is guaranteed to have same layout as
         // inner field.
         unsafe {
-            let amt = stream.channel.fill(mem::transmute(&mut run_context.descriptors[descriptors_start..])).unwrap();
+            let amt = stream
+                .channel
+                .fill(mem::transmute(
+                    &mut run_context.descriptors[descriptors_start..],
+                ))
+                .unwrap();
             debug_assert_eq!(stream.num_descriptors, amt);
         }
     }
@@ -852,7 +897,10 @@ fn check_for_pollout_or_pollin(
 ) -> Result<Option<StreamType>, BackendSpecificError> {
     // safety: PollFd and libc::pollfd have identical memory layout.
     let revents = unsafe {
-        stream.channel.revents(mem::transmute(stream_descriptors)).map_err(unhandled_error)?
+        stream
+            .channel
+            .revents(mem::transmute(stream_descriptors))
+            .map_err(unhandled_error)?
     };
     // TODO what if both POLLOUT and POLLIN?
     Ok(if revents == POLLOUT {
@@ -875,16 +923,16 @@ fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificE
             if e.errno() == Some(Errno::EPIPE) {
                 Ok(stream.buffer_len)
             } else {
-                Err(unhandled_error(format!("failed to get available samples: {}", e)))
+                Err(unhandled_error(format!(
+                    "failed to get available samples: {}",
+                    e
+                )))
             }
         }
     }
 }
 
-fn set_hw_params_from_format(
-    pcm: &PCM,
-    format: &Format,
-) -> alsa::Result<()> {
+fn set_hw_params_from_format(pcm: &PCM, format: &Format) -> alsa::Result<()> {
     let hw_params = HwParams::any(pcm)?;
     hw_params.set_access(Access::RWInterleaved)?;
     hw_params.set_format(match format.data_type {
@@ -906,20 +954,16 @@ fn set_hw_params_from_format(
     Ok(())
 }
 
-fn set_sw_params_from_format(
-    pcm: &PCM,
-    format: &Format,
-) -> alsa::Result<(usize, usize)>
-{
+fn set_sw_params_from_format(pcm: &PCM, format: &Format) -> alsa::Result<(usize, usize)> {
     let sw_params = pcm.sw_params_current()?;
     sw_params.set_start_threshold(0)?;
     let (buffer_size, period_size) = pcm.get_params()?;
     sw_params.set_avail_min(period_size.try_into().expect("period size > i64::max"))?;
     pcm.sw_params(&sw_params)?;
-    let (buffer_size, period_size) =
-        (buffer_size as usize * format.channels as usize,
-         period_size as usize * format.channels as usize
-         );
+    let (buffer_size, period_size) = (
+        buffer_size as usize * format.channels as usize,
+        period_size as usize * format.channels as usize,
+    );
     Ok((buffer_size, period_size))
 }
 
@@ -940,8 +984,11 @@ unsafe fn cast_output_buffer<T>(v: &mut [u8]) -> &mut [T] {
 /// A simple function to help handling unexpected errors by casting them to string and wrapping
 /// them in BackendSpecificError
 fn unhandled_error<Inner, Outer>(error: Inner) -> Outer
-where Inner: std::fmt::Display,
-      Outer: From<BackendSpecificError>
+where
+    Inner: std::fmt::Display,
+    Outer: From<BackendSpecificError>,
 {
-    Outer::from(BackendSpecificError { description: error.to_string() })
+    Outer::from(BackendSpecificError {
+        description: error.to_string(),
+    })
 }

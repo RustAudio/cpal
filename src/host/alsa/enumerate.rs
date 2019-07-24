@@ -1,18 +1,20 @@
-use crate::{BackendSpecificError, DevicesError, host::alsa::Device};
-use alsa::{PCM, Direction, device_name::HintIter};
+use crate::{host::alsa::Device, BackendSpecificError, DevicesError};
+use alsa::{device_name::HintIter, Direction, PCM};
 
 /// ALSA implementation for `Devices`.
 pub struct Devices {
-    inner: HintIter
+    inner: HintIter,
 }
 
 impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         Ok(Devices {
             // TODO use CStr when constructor is constant
-            inner: HintIter::new_str(None, "pcm").map_err(|e| DevicesError::from(BackendSpecificError {
-                description: e.to_string()
-            }))?
+            inner: HintIter::new_str(None, "pcm").map_err(|e| {
+                DevicesError::from(BackendSpecificError {
+                    description: e.to_string(),
+                })
+            })?,
         })
     }
 }

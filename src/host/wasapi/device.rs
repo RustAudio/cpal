@@ -14,59 +14,39 @@ use DefaultFormatError;
 use DeviceNameError;
 use DevicesError;
 use Format;
-use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use SupportedFormat;
+use SupportedFormatsError;
 use COMMON_SAMPLE_RATES;
 
 use super::check_result;
 use super::check_result_backend_specific;
 use super::com;
-use super::winapi::Interface;
 use super::winapi::ctypes::c_void;
 use super::winapi::shared::devpkey;
+use super::winapi::shared::guiddef::GUID;
 use super::winapi::shared::ksmedia;
-use super::winapi::shared::guiddef::{
-    GUID,
-};
-use super::winapi::shared::winerror;
-use super::winapi::shared::minwindef::{
-    DWORD,
-};
+use super::winapi::shared::minwindef::DWORD;
 use super::winapi::shared::mmreg;
+use super::winapi::shared::winerror;
 use super::winapi::shared::wtypes;
+use super::winapi::Interface;
 // https://msdn.microsoft.com/en-us/library/cc230355.aspx
+use super::winapi::um::audioclient::{
+    IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
+};
+use super::winapi::um::audiosessiontypes::AUDCLNT_SHAREMODE_SHARED;
+use super::winapi::um::combaseapi::{
+    CoCreateInstance, CoTaskMemFree, PropVariantClear, CLSCTX_ALL,
+};
+use super::winapi::um::coml2api;
+use super::winapi::um::mmdeviceapi::{
+    eAll, eCapture, eConsole, eRender, CLSID_MMDeviceEnumerator, EDataFlow, IMMDevice,
+    IMMDeviceCollection, IMMDeviceEnumerator, IMMEndpoint, DEVICE_STATE_ACTIVE,
+};
 use super::winapi::um::winnt::LPWSTR;
 use super::winapi::um::winnt::WCHAR;
-use super::winapi::um::coml2api;
-use super::winapi::um::audioclient::{
-    IAudioClient,
-    IID_IAudioClient,
-    AUDCLNT_E_DEVICE_INVALIDATED,
-};
-use super::winapi::um::audiosessiontypes::{
-    AUDCLNT_SHAREMODE_SHARED,
-};
-use super::winapi::um::combaseapi::{
-    CoCreateInstance,
-    CoTaskMemFree,
-    CLSCTX_ALL,
-    PropVariantClear,
-};
-use super::winapi::um::mmdeviceapi::{
-    eAll,
-    eCapture,
-    eConsole,
-    eRender,
-    CLSID_MMDeviceEnumerator,
-    DEVICE_STATE_ACTIVE,
-    EDataFlow,
-    IMMDevice,
-    IMMDeviceCollection,
-    IMMDeviceEnumerator,
-    IMMEndpoint,
-};
 
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
@@ -74,10 +54,8 @@ pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
 struct IAudioClientWrapper(*mut IAudioClient);
-unsafe impl Send for IAudioClientWrapper {
-}
-unsafe impl Sync for IAudioClientWrapper {
-}
+unsafe impl Send for IAudioClientWrapper {}
+unsafe impl Sync for IAudioClientWrapper {}
 
 /// An opaque type that identifies an end point.
 pub struct Device {
@@ -107,7 +85,6 @@ impl Drop for WaveFormatExPtr {
     }
 }
 
-
 impl WaveFormat {
     // Given a pointer to some format, returns a valid copy of the format.
     pub fn copy_from_waveformatex_ptr(ptr: *const mmreg::WAVEFORMATEX) -> Option<Self> {
@@ -115,11 +92,11 @@ impl WaveFormat {
             match (*ptr).wFormatTag {
                 mmreg::WAVE_FORMAT_PCM | mmreg::WAVE_FORMAT_IEEE_FLOAT => {
                     Some(WaveFormat::Ex(*ptr))
-                },
+                }
                 mmreg::WAVE_FORMAT_EXTENSIBLE => {
                     let extensible_ptr = ptr as *const mmreg::WAVEFORMATEXTENSIBLE;
                     Some(WaveFormat::Extensible(*extensible_ptr))
-                },
+                }
                 _ => None,
             }
         }
@@ -150,11 +127,12 @@ impl DerefMut for WaveFormat {
     }
 }
 
-
 unsafe fn immendpoint_from_immdevice(device: *const IMMDevice) -> *mut IMMEndpoint {
     let mut endpoint: *mut IMMEndpoint = mem::uninitialized();
-    check_result((*device).QueryInterface(&IMMEndpoint::uuidof(), &mut endpoint as *mut _ as *mut _))
-        .expect("could not query IMMDevice interface for IMMEndpoint");
+    check_result(
+        (*device).QueryInterface(&IMMEndpoint::uuidof(), &mut endpoint as *mut _ as *mut _),
+    )
+    .expect("could not query IMMDevice interface for IMMEndpoint");
     endpoint
 }
 
@@ -169,10 +147,7 @@ unsafe fn data_flow_from_immendpoint(endpoint: *const IMMEndpoint) -> EDataFlow 
 pub unsafe fn is_format_supported(
     client: *const IAudioClient,
     waveformatex_ptr: *const mmreg::WAVEFORMATEX,
-) -> Result<bool, SupportedFormatsError>
-{
-
-
+) -> Result<bool, SupportedFormatsError> {
     /*
     // `IsFormatSupported` checks whether the format is supported and fills
     // a `WAVEFORMATEX`
@@ -205,7 +180,6 @@ pub unsafe fn is_format_supported(
     };
     */
 
-
     // Check if the given format is supported.
     let is_supported = |waveformatex_ptr, mut closest_waveformatex_ptr| {
         let result = (*client).IsFormatSupported(
@@ -218,16 +192,10 @@ pub unsafe fn is_format_supported(
         match (result, check_result(result)) {
             (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                 return Err(SupportedFormatsError::DeviceNotAvailable);
-            },
-            (_, Err(_)) => {
-                Ok(false)
-            },
-            (winerror::S_FALSE, _) => {
-                Ok(false)
-            },
-            (_, Ok(())) => {
-                Ok(true)
-            },
+            }
+            (_, Err(_)) => Ok(false),
+            (winerror::S_FALSE, _) => Ok(false),
+            (_, Ok(())) => Ok(true),
         }
     };
 
@@ -240,34 +208,30 @@ pub unsafe fn is_format_supported(
             let mut closest_waveformatex = *waveformatex_ptr;
             let closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
             is_supported(waveformatex_ptr, closest_waveformatex_ptr)
-        },
+        }
         mmreg::WAVE_FORMAT_EXTENSIBLE => {
-            let waveformatextensible_ptr =
-                waveformatex_ptr as *const mmreg::WAVEFORMATEXTENSIBLE;
+            let waveformatextensible_ptr = waveformatex_ptr as *const mmreg::WAVEFORMATEXTENSIBLE;
             let mut closest_waveformatextensible = *waveformatextensible_ptr;
-            let closest_waveformatextensible_ptr =
-                &mut closest_waveformatextensible as *mut _;
+            let closest_waveformatextensible_ptr = &mut closest_waveformatextensible as *mut _;
             let closest_waveformatex_ptr =
                 closest_waveformatextensible_ptr as *mut mmreg::WAVEFORMATEX;
             is_supported(waveformatex_ptr, closest_waveformatex_ptr)
-        },
+        }
         _ => Ok(false),
     }
 }
 
-
 // Get a cpal Format from a WAVEFORMATEX.
 unsafe fn format_from_waveformatex_ptr(
     waveformatex_ptr: *const mmreg::WAVEFORMATEX,
-) -> Option<Format>
-{
+) -> Option<Format> {
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
-        a.Data1 == b.Data1
-            && a.Data2 == b.Data2
-            && a.Data3 == b.Data3
-            && a.Data4 == b.Data4
+        a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 && a.Data4 == b.Data4
     }
-    let data_type = match ((*waveformatex_ptr).wBitsPerSample, (*waveformatex_ptr).wFormatTag) {
+    let data_type = match (
+        (*waveformatex_ptr).wBitsPerSample,
+        (*waveformatex_ptr).wFormatTag,
+    ) {
         (16, mmreg::WAVE_FORMAT_PCM) => SampleFormat::I16,
         (32, mmreg::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
         (n_bits, mmreg::WAVE_FORMAT_EXTENSIBLE) => {
@@ -280,7 +244,7 @@ unsafe fn format_from_waveformatex_ptr(
             } else {
                 return None;
             }
-        },
+        }
         // Unknown data format returned by GetMixFormat.
         _ => return None,
     };
@@ -292,10 +256,8 @@ unsafe fn format_from_waveformatex_ptr(
     Some(format)
 }
 
-unsafe impl Send for Device {
-}
-unsafe impl Sync for Device {
-}
+unsafe impl Send for Device {}
+unsafe impl Sync for Device {}
 
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
@@ -306,12 +268,10 @@ impl Device {
 
             // Get the endpoint's friendly-name property.
             let mut property_value = mem::zeroed();
-            if let Err(err) = check_result(
-                (*property_store).GetValue(
-                    &devpkey::DEVPKEY_Device_FriendlyName as *const _ as *const _,
-                    &mut property_value
-                )
-            ) {
+            if let Err(err) = check_result((*property_store).GetValue(
+                &devpkey::DEVPKEY_Device_FriendlyName as *const _ as *const _,
+                &mut property_value,
+            )) {
                 let description = format!("failed to retrieve name from property store: {}", err);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
@@ -319,8 +279,10 @@ impl Device {
 
             // Read the friendly-name from the union data field, expecting a *const u16.
             if property_value.vt != wtypes::VT_LPWSTR as _ {
-                let description =
-                    format!("property store produced invalid data: {:?}", property_value.vt);
+                let description = format!(
+                    "property store produced invalid data: {:?}",
+                    property_value.vt
+                );
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -357,8 +319,9 @@ impl Device {
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
-    fn ensure_future_audio_client(&self)
-                                  -> Result<MutexGuard<Option<IAudioClientWrapper>>, IoError> {
+    fn ensure_future_audio_client(
+        &self,
+    ) -> Result<MutexGuard<Option<IAudioClientWrapper>>, IoError> {
         let mut lock = self.future_audio_client.lock().unwrap();
         if lock.is_some() {
             return Ok(lock);
@@ -366,10 +329,12 @@ impl Device {
 
         let audio_client: *mut IAudioClient = unsafe {
             let mut audio_client = mem::uninitialized();
-            let hresult = (*self.device).Activate(&IID_IAudioClient,
-                                                  CLSCTX_ALL,
-                                                  ptr::null_mut(),
-                                                  &mut audio_client);
+            let hresult = (*self.device).Activate(
+                &IID_IAudioClient,
+                CLSCTX_ALL,
+                ptr::null_mut(),
+                &mut audio_client,
+            );
 
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
@@ -416,7 +381,7 @@ impl Device {
                 let description = format!("{}", e);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
-            },
+            }
         };
         let client = lock.unwrap().0;
 
@@ -427,16 +392,19 @@ impl Device {
                 Ok(()) => (),
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(SupportedFormatsError::DeviceNotAvailable);
-                },
+                }
                 Err(e) => {
                     let description = format!("{}", e);
                     let err = BackendSpecificError { description };
                     return Err(err.into());
-                },
+                }
             };
 
             // If the default format can't succeed we have no hope of finding other formats.
-            assert_eq!(is_format_supported(client, default_waveformatex_ptr.0)?, true);
+            assert_eq!(
+                is_format_supported(client, default_waveformatex_ptr.0)?,
+                true
+            );
 
             // Copy the format to use as a test format (as to avoid mutating the original format).
             let mut test_format = {
@@ -503,7 +471,9 @@ impl Device {
         }
     }
 
-    pub fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    pub fn supported_output_formats(
+        &self,
+    ) -> Result<SupportedOutputFormats, SupportedFormatsError> {
         if self.data_flow() == eRender {
             self.supported_formats()
         // If it's an input device, assume no output formats.
@@ -538,12 +508,12 @@ impl Device {
             match check_result((*client).GetMixFormat(&mut format_ptr.0)) {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
-                },
+                }
                 Err(e) => {
                     let description = format!("{}", e);
                     let err = BackendSpecificError { description };
                     return Err(err.into());
-                },
+                }
                 Ok(()) => (),
             };
 
@@ -586,38 +556,45 @@ impl PartialEq for Device {
         // In this code section we're trying to use the GetId method for the device comparison, cf.
         // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
         unsafe {
-            struct IdRAII (LPWSTR);
+            struct IdRAII(LPWSTR);
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe {CoTaskMemFree(self.0 as *mut c_void)}
+                    unsafe { CoTaskMemFree(self.0 as *mut c_void) }
                 }
             }
             let mut id1: LPWSTR = ptr::null_mut();
             let rc1 = (*self.device).GetId(&mut id1);
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
             // Plus it won't do to change the device comparison logic unexpectedly.
-            if rc1 != winerror::S_OK {panic! ("cpal: GetId failure: {}", rc1)}
+            if rc1 != winerror::S_OK {
+                panic!("cpal: GetId failure: {}", rc1)
+            }
             let id1 = IdRAII(id1);
             let mut id2: LPWSTR = ptr::null_mut();
             let rc2 = (*other.device).GetId(&mut id2);
-            if rc2 != winerror::S_OK {panic! ("cpal: GetId failure: {}", rc1)}
+            if rc2 != winerror::S_OK {
+                panic!("cpal: GetId failure: {}", rc1)
+            }
             let id2 = IdRAII(id2);
             // 16-bit null-terminated comparison.
             let mut offset = 0;
             loop {
                 let w1: WCHAR = *id1.0.offset(offset);
                 let w2: WCHAR = *id2.0.offset(offset);
-                if w1 == 0 && w2 == 0 {return true}
-                if w1 != w2 {return false}
+                if w1 == 0 && w2 == 0 {
+                    return true;
+                }
+                if w1 != w2 {
+                    return false;
+                }
                 offset += 1;
             }
         }
     }
 }
 
-impl Eq for Device {
-}
+impl Eq for Device {}
 
 impl Clone for Device {
     #[inline]
@@ -676,9 +653,7 @@ impl From<*const IMMDevice> for Endpoint {
 
 impl Endpoint {
     fn data_flow(&self) -> EDataFlow {
-        unsafe {
-            data_flow_from_immendpoint(self.endpoint)
-        }
+        unsafe { data_flow_from_immendpoint(self.endpoint) }
     }
 }
 
@@ -709,10 +684,8 @@ lazy_static! {
 /// RAII object around `IMMDeviceEnumerator`.
 struct Enumerator(*mut IMMDeviceEnumerator);
 
-unsafe impl Send for Enumerator {
-}
-unsafe impl Sync for Enumerator {
-}
+unsafe impl Send for Enumerator {}
+unsafe impl Sync for Enumerator {}
 
 impl Drop for Enumerator {
     #[inline]
@@ -735,13 +708,11 @@ impl Devices {
         unsafe {
             let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
             // can fail because of wrong parameters (should never happen) or out of memory
-            check_result_backend_specific(
-                (*ENUMERATOR.0).EnumAudioEndpoints(
-                    eAll,
-                    DEVICE_STATE_ACTIVE,
-                    &mut collection,
-                )
-            )?;
+            check_result_backend_specific((*ENUMERATOR.0).EnumAudioEndpoints(
+                eAll,
+                DEVICE_STATE_ACTIVE,
+                &mut collection,
+            ))?;
 
             let mut count = mem::uninitialized();
             // can fail if the parameter is null, which should never happen
@@ -756,10 +727,8 @@ impl Devices {
     }
 }
 
-unsafe impl Send for Devices {
-}
-unsafe impl Sync for Devices {
-}
+unsafe impl Send for Devices {}
+unsafe impl Sync for Devices {}
 
 impl Drop for Devices {
     #[inline]
@@ -799,8 +768,7 @@ impl Iterator for Devices {
 fn default_device(data_flow: EDataFlow) -> Option<Device> {
     unsafe {
         let mut device = mem::uninitialized();
-        let hres = (*ENUMERATOR.0)
-            .GetDefaultAudioEndpoint(data_flow, eConsole, &mut device);
+        let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(data_flow, eConsole, &mut device);
         if let Err(_err) = check_result(hres) {
             return None; // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
         }

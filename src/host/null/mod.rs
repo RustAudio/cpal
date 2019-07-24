@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 
+use crate::traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 use crate::BuildStreamError;
 use crate::DefaultFormatError;
-use crate::DevicesError;
 use crate::DeviceNameError;
+use crate::DevicesError;
 use crate::Format;
 use crate::PauseStreamError;
 use crate::PlayStreamError;
 use crate::StreamDataResult;
-use crate::SupportedFormatsError;
 use crate::SupportedFormat;
-use crate::traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use crate::SupportedFormatsError;
 
 #[derive(Default)]
 pub struct Devices;
@@ -82,7 +82,8 @@ impl EventLoopTrait for EventLoop {
 
     #[inline]
     fn run<F>(&self, _callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
+    where
+        F: FnMut(StreamId, StreamDataResult),
     {
         loop { /* TODO: don't spin */ }
     }

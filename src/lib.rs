@@ -150,8 +150,8 @@ extern crate lazy_static;
 extern crate stdweb;
 
 pub use crate::platform::{
-    ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
-    SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
+    available_hosts, default_host, host_from_id, Device, Devices, EventLoop, Host, HostId,
+    StreamId, SupportedInputFormats, SupportedOutputFormats, ALL_HOSTS,
 };
 pub use crate::samples_formats::{Sample, SampleFormat};
 
@@ -198,12 +198,8 @@ pub struct SupportedFormat {
 
 /// Stream data passed to the `EventLoop::run` callback.
 pub enum StreamData<'a> {
-    Input {
-        buffer: UnknownTypeInputBuffer<'a>,
-    },
-    Output {
-        buffer: UnknownTypeOutputBuffer<'a>,
-    },
+    Input { buffer: UnknownTypeInputBuffer<'a> },
+    Output { buffer: UnknownTypeOutputBuffer<'a> },
 }
 
 /// Stream data passed to the `EventLoop::run` callback, or an error in the case that the device
@@ -282,7 +278,7 @@ pub struct HostUnavailable;
 #[derive(Clone, Debug, Fail)]
 #[fail(display = "A backend-specific error has occurred: {}", description)]
 pub struct BackendSpecificError {
-    pub description: String
+    pub description: String,
 }
 
 /// An error that might occur while attempting to enumerate the available devices on a system.
@@ -293,7 +289,7 @@ pub enum DevicesError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// An error that may occur while attempting to retrieve a device name.
@@ -304,7 +300,7 @@ pub enum DeviceNameError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// Error that can happen when enumerating the list of supported formats.
@@ -312,17 +308,21 @@ pub enum DeviceNameError {
 pub enum SupportedFormatsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    #[fail(
+        display = "The requested device is no longer available. For example, it has been unplugged."
+    )]
     DeviceNotAvailable,
     /// We called something the C-Layer did not understand
-    #[fail(display = "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")]
+    #[fail(
+        display = "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it."
+    )]
     InvalidArgument,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
@@ -330,7 +330,9 @@ pub enum SupportedFormatsError {
 pub enum DefaultFormatError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    #[fail(
+        display = "The requested device is no longer available. For example, it has been unplugged."
+    )]
     DeviceNotAvailable,
     /// Returned if e.g. the default input format was requested on an output-only audio device.
     #[fail(display = "The requested stream type is not supported by the device.")]
@@ -340,7 +342,7 @@ pub enum DefaultFormatError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// Error that can happen when creating a `Stream`.
@@ -348,7 +350,9 @@ pub enum DefaultFormatError {
 pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    #[fail(
+        display = "The requested device is no longer available. For example, it has been unplugged."
+    )]
     DeviceNotAvailable,
     /// The required format is not supported.
     #[fail(display = "The requested stream format is not supported by the device.")]
@@ -367,7 +371,7 @@ pub enum BuildStreamError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// Errors that might occur when calling `play_stream`.
@@ -385,7 +389,7 @@ pub enum PlayStreamError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// Errors that might occur when calling `pause_stream`.
@@ -403,7 +407,7 @@ pub enum PauseStreamError {
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 /// Errors that might occur while a stream is running.
@@ -411,14 +415,16 @@ pub enum PauseStreamError {
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[fail(display = "The requested device is no longer available. For example, it has been unplugged.")]
+    #[fail(
+        display = "The requested device is no longer available. For example, it has been unplugged."
+    )]
     DeviceNotAvailable,
     /// See the `BackendSpecificError` docs for more information about this error variant.
     #[fail(display = "{}", err)]
     BackendSpecific {
         #[fail(cause)]
         err: BackendSpecificError,
-    }
+    },
 }
 
 impl SupportedFormat {
@@ -457,8 +463,8 @@ impl SupportedFormat {
     /// - 44100 (cd quality)
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering::Equal;
         use crate::SampleFormat::{F32, I16, U16};
+        use std::cmp::Ordering::Equal;
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -491,10 +497,9 @@ impl SupportedFormat {
         }
 
         const HZ_44100: SampleRate = SampleRate(44_100);
-        let r44100_in_self = self.min_sample_rate <= HZ_44100
-            && HZ_44100 <= self.max_sample_rate;
-        let r44100_in_other = other.min_sample_rate <= HZ_44100
-            && HZ_44100 <= other.max_sample_rate;
+        let r44100_in_self = self.min_sample_rate <= HZ_44100 && HZ_44100 <= self.max_sample_rate;
+        let r44100_in_other =
+            other.min_sample_rate <= HZ_44100 && HZ_44100 <= other.max_sample_rate;
         let cmp_r44100 = r44100_in_self.cmp(&r44100_in_other);
         if cmp_r44100 != Equal {
             return cmp_r44100;
@@ -505,7 +510,8 @@ impl SupportedFormat {
 }
 
 impl<'a, T> Deref for InputBuffer<'a, T>
-    where T: Sample
+where
+    T: Sample,
 {
     type Target = [T];
 
@@ -516,7 +522,8 @@ impl<'a, T> Deref for InputBuffer<'a, T>
 }
 
 impl<'a, T> Deref for OutputBuffer<'a, T>
-    where T: Sample
+where
+    T: Sample,
 {
     type Target = [T];
 
@@ -527,7 +534,8 @@ impl<'a, T> Deref for OutputBuffer<'a, T>
 }
 
 impl<'a, T> DerefMut for OutputBuffer<'a, T>
-    where T: Sample
+where
+    T: Sample,
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {

@@ -3,11 +3,12 @@ use std::os::raw::c_void;
 use std::slice::from_raw_parts;
 use std::sync::Mutex;
 use stdweb;
-use stdweb::Reference;
 use stdweb::unstable::TryInto;
-use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
+use stdweb::web::TypedArray;
+use stdweb::Reference;
 
+use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 use BuildStreamError;
 use DefaultFormatError;
 use DeviceNameError;
@@ -15,12 +16,11 @@ use DevicesError;
 use Format;
 use PauseStreamError;
 use PlayStreamError;
-use SupportedFormatsError;
 use StreamData;
 use StreamDataResult;
 use SupportedFormat;
+use SupportedFormatsError;
 use UnknownTypeOutputBuffer;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
 /// The default emscripten host type.
 #[derive(Debug)]
@@ -67,11 +67,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
@@ -150,7 +154,8 @@ impl EventLoop {
 
     #[inline]
     fn run<F>(&self, callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult),
+    where
+        F: FnMut(StreamId, StreamDataResult),
     {
         // The `run` function uses `set_timeout` to invoke a Rust callback repeatidely. The job
         // of this callback is to fill the content of the audio buffers.
@@ -159,7 +164,8 @@ impl EventLoop {
         // and to the `callback` parameter that was passed to `run`.
 
         fn callback_fn<F>(user_data_ptr: *mut c_void)
-            where F: FnMut(StreamId, StreamDataResult)
+        where
+            F: FnMut(StreamId, StreamDataResult),
         {
             unsafe {
                 let user_data_ptr2 = user_data_ptr as *mut (&EventLoop, F);
@@ -176,7 +182,9 @@ impl EventLoop {
                     let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
 
                     {
-                        let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
+                        let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer {
+                            buffer: &mut temporary_buffer,
+                        });
                         let data = StreamData::Output { buffer: buffer };
                         user_cb(StreamId(stream_id), Ok(data));
                         // TODO: directly use a TypedArray<f32> once this is supported by stdweb
@@ -229,12 +237,20 @@ impl EventLoop {
     }
 
     #[inline]
-    fn build_input_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
+    fn build_input_stream(
+        &self,
+        _: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, BuildStreamError> {
         unimplemented!();
     }
 
     #[inline]
-    fn build_output_stream(&self, _: &Device, _format: &Format) -> Result<StreamId, BuildStreamError> {
+    fn build_output_stream(
+        &self,
+        _: &Device,
+        _format: &Format,
+    ) -> Result<StreamId, BuildStreamError> {
         let stream = js!(return new AudioContext()).into_reference().unwrap();
 
         let mut streams = self.streams.lock().unwrap();
@@ -287,11 +303,12 @@ fn is_webaudio_available() -> bool {
     stdweb::initialize();
 
     js!(if (!AudioContext) {
-            return false;
-        } else {
-            return true;
-        }).try_into()
-        .unwrap()
+        return false;
+    } else {
+        return true;
+    })
+    .try_into()
+    .unwrap()
 }
 
 // Content is false if the iterator is empty.
@@ -357,16 +374,13 @@ impl Device {
         //       this ever becomes more flexible, don't forget to change that
         //       According to https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createBuffer
         //       browsers must support 1 to 32 channels at leats and 8,000 Hz to 96,000 Hz.
-        Ok(
-            vec![
-                SupportedFormat {
-                    channels: 2,
-                    min_sample_rate: ::SampleRate(44100),
-                    max_sample_rate: ::SampleRate(44100),
-                    data_type: ::SampleFormat::F32,
-                },
-            ].into_iter(),
-        )
+        Ok(vec![SupportedFormat {
+            channels: 2,
+            min_sample_rate: ::SampleRate(44100),
+            max_sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        }]
+        .into_iter())
     }
 
     fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
@@ -375,13 +389,11 @@ impl Device {
 
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         // TODO: because it is hard coded, see supported_output_formats.
-        Ok(
-            Format {
-                channels: 2,
-                sample_rate: ::SampleRate(44100),
-                data_type: ::SampleFormat::F32,
-            },
-        )
+        Ok(Format {
+            channels: 2,
+            sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        })
     }
 }
 
