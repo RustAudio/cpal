@@ -1117,19 +1117,6 @@ unsafe fn set_hw_params_from_format(
         return Err(format!("channel count could not be set: {}", e));
     }
 
-    // TODO: Review this. 200ms seems arbitrary...
-    /*
-    let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
-        format.channels as alsa::snd_pcm_uframes_t /
-        5; // 200ms of buffer
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
-                                                             hw_params.0,
-                                                             &mut max_buffer_size))
-    {
-        return Err(format!("max buffer size could not be set: {}", e));
-    }
-    */
-
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0)) {
         return Err(format!("hardware params could not be set: {}", e));
     }
