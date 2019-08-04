@@ -173,7 +173,7 @@ impl EventLoop {
                         None => continue,
                     };
 
-                    let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
+                    let mut temporary_buffer = vec![0.0; (44100 * 2) / 3];
 
                     {
                         let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
