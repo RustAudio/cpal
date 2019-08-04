@@ -801,7 +801,7 @@ impl EventLoop {
 
             let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
             if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
+                panic!("number of streams used has overflowed usize");
             }
 
             let stream_inner = StreamInner {
