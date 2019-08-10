@@ -3,7 +3,7 @@ use super::Device;
 use super::alsa;
 use super::check_errors;
 use std::ffi::CString;
-use std::mem;
+use std::ptr;
 
 /// ALSA implementation for `Devices`.
 pub struct Devices {
@@ -20,7 +20,7 @@ impl Devices {
             // TODO: check in which situation this can fail.
             let card = -1; // -1 means all cards.
             let iface = b"pcm\0"; // Interface identification.
-            let mut hints = mem::uninitialized(); // Array of device name hints.
+            let mut hints = ptr::null_mut(); // Array of device name hints.
             let res = alsa::snd_device_name_hint(card, iface.as_ptr() as *const _, &mut hints);
             if let Err(description) = check_errors(res) {
                 let err = BackendSpecificError { description };
@@ -107,7 +107,7 @@ impl Iterator for Devices {
                 let name_zeroed = CString::new(&name[..]).unwrap();
 
                 // See if the device has an available output stream.
-                let mut playback_handle = mem::uninitialized();
+                let mut playback_handle = ptr::null_mut();
                 let has_available_output = alsa::snd_pcm_open(
                     &mut playback_handle,
                     name_zeroed.as_ptr() as *const _,
@@ -119,7 +119,7 @@ impl Iterator for Devices {
                 }
 
                 // See if the device has an available input stream.
-                let mut capture_handle = mem::uninitialized();
+                let mut capture_handle = ptr::null_mut();
                 let has_available_input = alsa::snd_pcm_open(
                     &mut capture_handle,
                     name_zeroed.as_ptr() as *const _,

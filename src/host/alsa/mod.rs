@@ -23,7 +23,7 @@ use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
 use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 
-use std::{cmp, ffi, mem, ptr};
+use std::{cmp, ffi, ptr};
 use std::sync::Mutex;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -193,7 +193,7 @@ impl Device {
         stream_t: alsa::snd_pcm_stream_t,
     ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
     {
-        let mut handle = mem::uninitialized();
+        let mut handle = ptr::null_mut();
         let device_name = match ffi::CString::new(&self.0[..]) {
             Ok(name) => name,
             Err(err) => {
@@ -279,7 +279,7 @@ impl Device {
             }
         }
 
-        let mut min_rate = mem::uninitialized();
+        let mut min_rate = 0;
         if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_min(
             hw_params.0,
             &mut min_rate,
@@ -290,7 +290,7 @@ impl Device {
             return Err(err.into());
         }
 
-        let mut max_rate = mem::uninitialized();
+        let mut max_rate = 0;
         if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_rate_max(
             hw_params.0,
             &mut max_rate,
@@ -344,14 +344,14 @@ impl Device {
             }
         };
 
-        let mut min_channels = mem::uninitialized();
+        let mut min_channels = 0;
         if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)) {
             let description = format!("unable to get minimum supported channel count: {}", desc);
             let err = BackendSpecificError { description };
             return Err(err.into());
         }
 
-        let mut max_channels = mem::uninitialized();
+        let mut max_channels = 0;
         if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)) {
             let description = format!("unable to get maximum supported channel count: {}", desc);
             let err = BackendSpecificError { description };
@@ -759,7 +759,7 @@ impl EventLoop {
         unsafe {
             let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
 
-            let mut capture_handle = mem::uninitialized();
+            let mut capture_handle = ptr::null_mut();
             match alsa::snd_pcm_open(
                 &mut capture_handle,
                 name.as_ptr(),
@@ -838,7 +838,7 @@ impl EventLoop {
         unsafe {
             let name = ffi::CString::new(device.0.clone()).expect("unable to clone device");
 
-            let mut playback_handle = mem::uninitialized();
+            let mut playback_handle = ptr::null_mut();
             match alsa::snd_pcm_open(
                 &mut playback_handle,
                 name.as_ptr(),
@@ -1027,7 +1027,7 @@ fn check_for_pollout_or_pollin(
     stream_descriptor_ptr: *mut libc::pollfd,
 ) -> Result<Option<StreamType>, BackendSpecificError> {
     let (revent, res) = unsafe {
-        let mut revent = mem::uninitialized();
+        let mut revent = 0;
         let res = alsa::snd_pcm_poll_descriptors_revents(
             stream.channel,
             stream_descriptor_ptr,
@@ -1140,7 +1140,7 @@ unsafe fn set_sw_params_from_format(
     format: &Format,
 ) -> Result<(usize, usize), String>
 {
-    let mut sw_params = mem::uninitialized(); // TODO: RAII
+    let mut sw_params = ptr::null_mut(); // TODO: RAII
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
         return Err(format!("snd_pcm_sw_params_malloc failed: {}", e));
     }
@@ -1152,8 +1152,8 @@ unsafe fn set_sw_params_from_format(
     }
 
     let (buffer_len, period_len) = {
-        let mut buffer = mem::uninitialized();
-        let mut period = mem::uninitialized();
+        let mut buffer = 0;
+        let mut period = 0;
         if let Err(e) = check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period)) {
             return Err(format!("failed to initialize buffer: {}", e));
         }
@@ -1182,7 +1182,7 @@ struct HwParams(*mut alsa::snd_pcm_hw_params_t);
 impl HwParams {
     pub fn alloc() -> HwParams {
         unsafe {
-            let mut hw_params = mem::uninitialized();
+            let mut hw_params = ptr::null_mut();
             check_errors(alsa::snd_pcm_hw_params_malloc(&mut hw_params))
                 .expect("unable to get hardware parameters");
             HwParams(hw_params)
