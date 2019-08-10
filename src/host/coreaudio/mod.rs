@@ -360,7 +360,7 @@ impl Device {
         };
 
         unsafe {
-            let asbd: AudioStreamBasicDescription = mem::uninitialized();
+            let asbd: AudioStreamBasicDescription = mem::zeroed();
             let data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
