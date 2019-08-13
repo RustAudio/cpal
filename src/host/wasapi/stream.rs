@@ -502,73 +502,84 @@ impl EventLoop {
                 let stream_idx = handle_idx - 1;
                 let stream = &mut run_context.streams[stream_idx];
 
-                // The number of frames available for reading/writing.
-                let mut frames_available = match get_available_frames(stream) {
-                    Ok(0) => continue, // TODO: Can this happen?
-                    Ok(n) => n,
-                    Err(err) => {
-                        streams_to_remove.push((stream.id.clone(), err));
-                        continue;
-                    }
-                };
-
                 let sample_size = stream.sample_format.sample_size();
 
                 // Obtaining a pointer to the buffer.
                 match stream.client_flow {
 
                     AudioClientFlow::Capture { capture_client } => {
+                        let mut frames_available = 0;
                         // Get the available data in the shared buffer.
                         let mut buffer: *mut BYTE = mem::uninitialized();
                         let mut flags = mem::uninitialized();
-                        let hresult = (*capture_client).GetBuffer(
-                           &mut buffer,
-                           &mut frames_available,
-                           &mut flags,
-                           ptr::null_mut(),
-                           ptr::null_mut(),
-                        );
+                        loop {
+                            let hresult = (*capture_client).GetNextPacketSize(&mut frames_available);
+                            if let Err(err) = stream_error_from_hresult(hresult) {
+                                streams_to_remove.push((stream.id.clone(), err));
+                                break; // Identical to continuing the outer loop
+                            }
+                            if frames_available == 0 {
+                                break;
+                            }
+                            let hresult = (*capture_client).GetBuffer(
+                                &mut buffer,
+                                &mut frames_available,
+                                &mut flags,
+                                ptr::null_mut(),
+                                ptr::null_mut(),
+                            );
 
-                        // TODO: Can this happen?
-                        if hresult == AUDCLNT_S_BUFFER_EMPTY {
-                            continue;
-                        } else if let Err(err) = stream_error_from_hresult(hresult) {
-                            streams_to_remove.push((stream.id.clone(), err));
-                            continue;
-                        }
+                            // TODO: Can this happen?
+                            if hresult == AUDCLNT_S_BUFFER_EMPTY {
+                                continue;
+                            } else if let Err(err) = stream_error_from_hresult(hresult) {
+                                streams_to_remove.push((stream.id.clone(), err));
+                                break; // Identical to continuing the outer loop
+                            }
 
-                        debug_assert!(!buffer.is_null());
+                            debug_assert!(!buffer.is_null());
 
-                        let buffer_len = frames_available as usize
-                            * stream.bytes_per_frame as usize / sample_size;
+                            let buffer_len = frames_available as usize
+                                * stream.bytes_per_frame as usize / sample_size;
 
-                        // Simplify the capture callback sample format branches.
-                        macro_rules! capture_callback {
-                            ($T:ty, $Variant:ident) => {{
-                                let buffer_data = buffer as *mut _ as *const $T;
-                                let slice = slice::from_raw_parts(buffer_data, buffer_len);
-                                let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                    buffer: slice,
-                                });
-                                let data = StreamData::Input { buffer: unknown_buffer };
-                                callback(stream.id.clone(), Ok(data));
-                                // Release the buffer.
-                                let hresult = (*capture_client).ReleaseBuffer(frames_available);
-                                if let Err(err) = stream_error_from_hresult(hresult) {
-                                    streams_to_remove.push((stream.id.clone(), err));
-                                    continue;
-                                }
-                            }};
-                        }
+                            // Simplify the capture callback sample format branches.
+                            macro_rules! capture_callback {
+                                ($T:ty, $Variant:ident) => {{
+                                    let buffer_data = buffer as *mut _ as *const $T;
+                                    let slice = slice::from_raw_parts(buffer_data, buffer_len);
+                                    let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
+                                        buffer: slice,
+                                    });
+                                    let data = StreamData::Input { buffer: unknown_buffer };
+                                    callback(stream.id.clone(), Ok(data));
+                                    // Release the buffer.
+                                    let hresult = (*capture_client).ReleaseBuffer(frames_available);
+                                    if let Err(err) = stream_error_from_hresult(hresult) {
+                                        streams_to_remove.push((stream.id.clone(), err));
+                                        continue;
+                                    }
+                                }};
+                            }
 
-                        match stream.sample_format {
-                            SampleFormat::F32 => capture_callback!(f32, F32),
-                            SampleFormat::I16 => capture_callback!(i16, I16),
-                            SampleFormat::U16 => capture_callback!(u16, U16),
+                            match stream.sample_format {
+                                SampleFormat::F32 => capture_callback!(f32, F32),
+                                SampleFormat::I16 => capture_callback!(i16, I16),
+                                SampleFormat::U16 => capture_callback!(u16, U16),
+                            }
                         }
                     },
 
                     AudioClientFlow::Render { render_client } => {
+                        // The number of frames available for writing.
+                        let frames_available = match get_available_frames(stream) {
+                            Ok(0) => continue, // TODO: Can this happen?
+                            Ok(n) => n,
+                            Err(err) => {
+                                streams_to_remove.push((stream.id.clone(), err));
+                                continue;
+                            }
+                        };
+
                         let mut buffer: *mut BYTE = mem::uninitialized();
                         let hresult = (*render_client).GetBuffer(
                             frames_available,
