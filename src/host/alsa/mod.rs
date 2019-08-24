@@ -1054,9 +1054,8 @@ fn check_for_pollout_or_pollin(
 
 // Determine the number of samples that are available to read/write.
 fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificError> {
-    // TODO: what about snd_pcm_avail_update?
     let available = unsafe {
-        alsa::snd_pcm_avail(stream.channel)
+        alsa::snd_pcm_avail_update(stream.channel)
     };
     if available == -32 {
         // buffer underrun
