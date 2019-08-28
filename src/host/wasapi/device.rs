@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
 
 use BackendSpecificError;
 use DefaultFormatError;
