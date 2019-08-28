@@ -28,7 +28,6 @@ use PauseStreamError;
 use PlayStreamError;
 use SampleFormat;
 use StreamData;
-use StreamDataResult;
 use StreamError;
 use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
@@ -452,12 +451,12 @@ impl EventLoop {
 
     #[inline]
     pub(crate) fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
+        where F: FnMut(StreamId, StreamData)
     {
         self.run_inner(&mut callback);
     }
 
-    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamDataResult)) -> ! {
+    fn run_inner(&self, callback: &mut dyn FnMut(StreamId, StreamData)) -> ! {
         unsafe {
             // We keep `run_context` locked forever, which guarantees that two invocations of
             // `run()` cannot run simultaneously.
@@ -753,7 +752,7 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
 // Process any pending commands that are queued within the `RunContext`.
 fn process_commands(
     run_context: &mut RunContext,
-    callback: &mut dyn FnMut(StreamId, StreamDataResult),
+    callback: &mut dyn FnMut(StreamId, StreamData),
 ) {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
