@@ -67,10 +67,8 @@ struct RunContext {
 }
 
 enum Command {
-    NewStream(StreamInner),
-    DestroyStream(StreamId),
-    PlayStream(StreamId),
-    PauseStream(StreamId),
+    PlayStream,
+    PauseStream,
 }
 
 enum AudioClientFlow {
@@ -575,75 +573,38 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
 }
 
 // Process any pending commands that are queued within the `RunContext`.
-fn process_commands(
-    run_context: &mut RunContext,
-    callback: &mut dyn FnMut(StreamId, StreamData),
-) {
+fn process_commands(run_context: &mut RunContext) -> Result<(), StreamError> {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
         match command {
-            Command::NewStream(stream_inner) => {
-                let event = stream_inner.event;
-                run_context.stream.push(stream_inner);
-                run_context.handles.push(event);
-            },
-            Command::DestroyStream(stream_id) => {
-                match run_context.stream.iter().position(|s| s.id == stream_id) {
-                    None => continue,
-                    Some(p) => {
-                        run_context.handles.remove(p + 1);
-                        run_context.stream.remove(p);
-                    },
-                }
-            },
-            Command::PlayStream(stream_id) => {
-                match run_context.stream.iter().position(|s| s.id == stream_id) {
-                    None => continue,
-                    Some(p) => {
-                        if !run_context.stream[p].playing {
-                            let hresult = unsafe {
-                                (*run_context.stream[p].audio_client).Start()
-                            };
-                            match stream_error_from_hresult(hresult) {
-                                Ok(()) => {
-                                    run_context.stream[p].playing = true;
-                                }
-                                Err(err) => {
-                                    callback(stream_id, Err(err.into()));
-                                    run_context.handles.remove(p + 1);
-                                    run_context.stream.remove(p);
-                                }
-                            }
-                        }
+            Command::PlayStream => {
+                if !run_context.stream.playing {
+                    let hresult = unsafe {
+                        (*run_context.stream.audio_client).Start()
+                    };
+
+                    if let Err(err) = stream_error_from_hresult(hresult) {
+                        return Err(err);
                     }
+                    run_context.stream.playing = true;
                 }
             },
-            Command::PauseStream(stream_id) => {
-                match run_context.stream.iter().position(|s| s.id == stream_id) {
-                    None => continue,
-                    Some(p) => {
-                        if run_context.stream[p].playing {
-                            let hresult = unsafe {
-                                (*run_context.stream[p].audio_client).Stop()
-                            };
-                            match stream_error_from_hresult(hresult) {
-                                Ok(()) => {
-                                    run_context.stream[p].playing = false;
-                                }
-                                Err(err) => {
-                                    callback(stream_id, Err(err.into()));
-                                    run_context.handles.remove(p + 1);
-                                    run_context.stream.remove(p);
-                                }
-                            }
-                        }
-                    },
+            Command::PauseStream => {
+                if run_context.stream.playing {
+                    let hresult = unsafe {
+                        (*run_context.stream.audio_client).Stop()
+                    };
+                    if let Err(err) = stream_error_from_hresult(hresult) {
+                        return Err(err);
+                    }
+                    run_context.stream.playing = false;
                 }
             },
         }
     }
-}
 
+    Ok(())
+}
 // Wait for any of the given handles to be signalled.
 //
 // Returns the index of the `handle` that was signalled, or an `Err` if
