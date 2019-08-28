@@ -68,6 +68,8 @@ use super::winapi::um::mmdeviceapi::{
     IMMEndpoint,
 };
 
+use crate::traits::DeviceTrait;
+
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
@@ -85,6 +87,31 @@ pub struct Device {
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
     future_audio_client: Arc<Mutex<Option<IAudioClientWrapper>>>, // TODO: add NonZero around the ptr
+}
+
+impl DeviceTrait for Device {
+    type SupportedInputFormats = SupportedInputFormats;
+    type SupportedOutputFormats = SupportedOutputFormats;
+
+    fn name(&self) -> Result<String, DeviceNameError> {
+        Device::name(self)
+    }
+
+    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+        Device::supported_input_formats(self)
+    }
+
+    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+        Device::supported_output_formats(self)
+    }
+
+    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_input_format(self)
+    }
+
+    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+        Device::default_output_format(self)
+    }
 }
 
 struct Endpoint {

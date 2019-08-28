@@ -12,7 +12,7 @@ use StreamDataResult;
 use SupportedFormatsError;
 use self::winapi::um::winnt::HRESULT;
 use std::io::Error as IoError;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use traits::{EventLoopTrait, HostTrait, StreamIdTrait};
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
 pub use self::stream::{EventLoop, StreamId};
 
@@ -58,31 +58,6 @@ impl HostTrait for Host {
 
     fn event_loop(&self) -> Self::EventLoop {
         EventLoop::new()
-    }
-}
-
-impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
-
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
-    }
-
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
-        Device::supported_input_formats(self)
-    }
-
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
-        Device::supported_output_formats(self)
-    }
-
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_input_format(self)
-    }
-
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_output_format(self)
     }
 }
 
