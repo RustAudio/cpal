@@ -1,4 +1,3 @@
-use super::Device;
 use super::check_result;
 use super::com;
 use super::winapi::shared::basetsd::UINT32;
@@ -6,8 +5,6 @@ use super::winapi::shared::ksmedia;
 use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
 use super::winapi::shared::mmreg;
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
-use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK};
-use super::winapi::um::mmdeviceapi::eRender;
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
@@ -66,12 +63,12 @@ struct RunContext {
     commands: Receiver<Command>,
 }
 
-enum Command {
+pub (crate) enum Command {
     PlayStream,
     PauseStream,
 }
 
-enum AudioClientFlow {
+pub (crate) enum AudioClientFlow {
     Render {
         render_client: *mut audioclient::IAudioRenderClient,
     },
@@ -80,7 +77,7 @@ enum AudioClientFlow {
     },
 }
 
-struct StreamInner {
+pub (crate) struct StreamInner {
     id: StreamId,
     audio_client: *mut audioclient::IAudioClient,
     client_flow: AudioClientFlow,
@@ -112,335 +109,6 @@ impl EventLoop {
                                     }),
             next_stream_id: AtomicUsize::new(0),
             commands: tx,
-        }
-    }
-
-    pub(crate) fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        unsafe {
-            // Making sure that COM is initialized.
-            // It's not actually sure that this is required, but when in doubt do it.
-            com::com_initialized();
-
-            // Obtaining a `IAudioClient`.
-            let audio_client = match device.build_audioclient() {
-                Ok(client) => client,
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(BuildStreamError::DeviceNotAvailable),
-                Err(e) => {
-                    let description = format!("{}", e);
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-            };
-
-            // Computing the format and initializing the device.
-            let waveformatex = {
-                let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(BuildStreamError::FormatNotSupported)?;
-                let share_mode = AUDCLNT_SHAREMODE_SHARED;
-
-                // Ensure the format is supported.
-                match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::FormatNotSupported),
-                    Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
-                    _ => (),
-                }
-
-                // Support capturing output devices.
-                let mut stream_flags: DWORD = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-                if device.data_flow() == eRender {
-                    stream_flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
-                }
-
-                // finally initializing the audio client
-                let hresult = (*audio_client).Initialize(
-                    share_mode,
-                    stream_flags,
-                    0,
-                    0,
-                    &format_attempt.Format,
-                    ptr::null(),
-                );
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                format_attempt.Format
-            };
-
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = {
-                let mut max_frames_in_buffer = mem::uninitialized();
-                let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
-
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                max_frames_in_buffer
-            };
-
-            // Creating the event that will be signalled whenever we need to submit some samples.
-            let event = {
-                let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
-                if event == ptr::null_mut() {
-                    (*audio_client).Release();
-                    let description = format!("failed to create event");
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-
-                if let Err(e) = check_result((*audio_client).SetEventHandle(event)) {
-                    (*audio_client).Release();
-                    let description = format!("failed to call SetEventHandle: {}", e);
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-
-                event
-            };
-
-            // Building a `IAudioCaptureClient` that will be used to read captured samples.
-            let capture_client = {
-                let mut capture_client: *mut audioclient::IAudioCaptureClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(
-                    &audioclient::IID_IAudioCaptureClient,
-                    &mut capture_client as *mut *mut audioclient::IAudioCaptureClient as *mut _,
-                );
-
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("failed to build capture client: {}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                &mut *capture_client
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
-            // Once we built the `StreamInner`, we add a command that will be picked up by the
-            // `run()` method and added to the `RunContext`.
-            {
-                let client_flow = AudioClientFlow::Capture {
-                    capture_client: capture_client,
-                };
-                let inner = StreamInner {
-                    id: new_stream_id.clone(),
-                    audio_client: audio_client,
-                    client_flow: client_flow,
-                    event: event,
-                    playing: false,
-                    max_frames_in_buffer: max_frames_in_buffer,
-                    bytes_per_frame: waveformatex.nBlockAlign,
-                    sample_format: format.data_type,
-                };
-
-                self.push_command(Command::NewStream(inner));
-            };
-
-            Ok(new_stream_id)
-        }
-    }
-
-    pub(crate) fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        unsafe {
-            // Making sure that COM is initialized.
-            // It's not actually sure that this is required, but when in doubt do it.
-            com::com_initialized();
-
-            // Obtaining a `IAudioClient`.
-            let audio_client = match device.build_audioclient() {
-                Ok(client) => client,
-                Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) =>
-                    return Err(BuildStreamError::DeviceNotAvailable),
-                Err(e) => {
-                    let description = format!("{}", e);
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-            };
-
-            // Computing the format and initializing the device.
-            let waveformatex = {
-                let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(BuildStreamError::FormatNotSupported)?;
-                let share_mode = AUDCLNT_SHAREMODE_SHARED;
-
-                // Ensure the format is supported.
-                match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::FormatNotSupported),
-                    Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
-                    _ => (),
-                }
-
-                // finally initializing the audio client
-                let hresult = (*audio_client).Initialize(share_mode,
-                                                         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                                         0,
-                                                         0,
-                                                         &format_attempt.Format,
-                                                         ptr::null());
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                format_attempt.Format
-            };
-
-            // Creating the event that will be signalled whenever we need to submit some samples.
-            let event = {
-                let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
-                if event == ptr::null_mut() {
-                    (*audio_client).Release();
-                    let description = format!("failed to create event");
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-
-                match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("failed to call SetEventHandle: {}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(_) => (),
-                };
-
-                event
-            };
-
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = {
-                let mut max_frames_in_buffer = mem::uninitialized();
-                let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
-
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("failed to obtain buffer size: {}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                max_frames_in_buffer
-            };
-
-            // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
-            let render_client = {
-                let mut render_client: *mut audioclient::IAudioRenderClient = mem::uninitialized();
-                let hresult = (*audio_client).GetService(&audioclient::IID_IAudioRenderClient,
-                                                         &mut render_client as
-                                                             *mut *mut audioclient::IAudioRenderClient as
-                                                             *mut _);
-
-                match check_result(hresult) {
-                    Err(ref e)
-                        if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    },
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("failed to build render client: {}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    },
-                    Ok(()) => (),
-                };
-
-                &mut *render_client
-            };
-
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
-            // Once we built the `StreamInner`, we add a command that will be picked up by the
-            // `run()` method and added to the `RunContext`.
-            {
-                let client_flow = AudioClientFlow::Render {
-                    render_client: render_client,
-                };
-                let inner = StreamInner {
-                    id: new_stream_id.clone(),
-                    audio_client: audio_client,
-                    client_flow: client_flow,
-                    event: event,
-                    playing: false,
-                    max_frames_in_buffer: max_frames_in_buffer,
-                    bytes_per_frame: waveformatex.nBlockAlign,
-                    sample_format: format.data_type,
-                };
-
-                self.push_command(Command::NewStream(inner));
-            };
-
-            Ok(new_stream_id)
         }
     }
 
@@ -516,60 +184,6 @@ impl Drop for StreamInner {
             handleapi::CloseHandle(self.event);
         }
     }
-}
-
-// Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
-//
-// Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
-fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEXTENSIBLE> {
-    let format_tag = match format.data_type {
-        SampleFormat::I16 => mmreg::WAVE_FORMAT_PCM,
-        SampleFormat::F32 => mmreg::WAVE_FORMAT_EXTENSIBLE,
-        SampleFormat::U16 => return None,
-    };
-    let channels = format.channels as WORD;
-    let sample_rate = format.sample_rate.0 as DWORD;
-    let sample_bytes = format.data_type.sample_size() as WORD;
-    let avg_bytes_per_sec = channels as DWORD * sample_rate * sample_bytes as DWORD;
-    let block_align = channels * sample_bytes;
-    let bits_per_sample = 8 * sample_bytes;
-    let cb_size = match format.data_type {
-        SampleFormat::I16 => 0,
-        SampleFormat::F32 => {
-            let extensible_size = mem::size_of::<mmreg::WAVEFORMATEXTENSIBLE>();
-            let ex_size = mem::size_of::<mmreg::WAVEFORMATEX>();
-            (extensible_size - ex_size) as WORD
-        },
-        SampleFormat::U16 => return None,
-    };
-    let waveformatex = mmreg::WAVEFORMATEX {
-        wFormatTag: format_tag,
-        nChannels: channels,
-        nSamplesPerSec: sample_rate,
-        nAvgBytesPerSec: avg_bytes_per_sec,
-        nBlockAlign: block_align,
-        wBitsPerSample: bits_per_sample,
-        cbSize: cb_size,
-    };
-
-    // CPAL does not care about speaker positions, so pass audio straight through.
-    // TODO: This constant should be defined in winapi but is missing.
-    const KSAUDIO_SPEAKER_DIRECTOUT: DWORD = 0;
-    let channel_mask = KSAUDIO_SPEAKER_DIRECTOUT;
-
-    let sub_format = match format.data_type {
-        SampleFormat::I16 => ksmedia::KSDATAFORMAT_SUBTYPE_PCM,
-        SampleFormat::F32 => ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        SampleFormat::U16 => return None,
-    };
-    let waveformatextensible = mmreg::WAVEFORMATEXTENSIBLE {
-        Format: waveformatex,
-        Samples: bits_per_sample as WORD,
-        dwChannelMask: channel_mask,
-        SubFormat: sub_format,
-    };
-
-    Some(waveformatextensible)
 }
 
 // Process any pending commands that are queued within the `RunContext`.
