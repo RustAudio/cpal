@@ -16,9 +16,9 @@ use std::slice;
 use std::sync::Mutex;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
-use std::sync::{Arc};
+use std::{sync::{Arc},
+thread::{self, JoinHandle}};
 
 use BackendSpecificError;
 use BuildStreamError;
@@ -31,16 +31,10 @@ use StreamError;
 use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
 
-pub struct EventLoop {
-    // Data used by the `run()` function implementation. The mutex is kept lock permanently by
-    // `run()`. This ensures that two `run()` invocations can't run at the same time, and also
-    // means that we shouldn't try to lock this field from anywhere else but `run()`.
-    run_context: Mutex<RunContext>,
-
-    // Identifier of the next stream to create. Each new stream increases this counter. If the
-    // counter overflows, there's a panic.
-    // TODO: use AtomicU64 instead
-    next_stream_id: AtomicUsize,
+pub struct Stream {
+    /// The high-priority audio processing thread calling callbacks.
+    /// Option used for moving out in destructor.
+    thread: Option<JoinHandle<()>>,
 
     // Commands processed by the `run()` method that is currently running.
     // `pending_scheduled_event` must be signalled whenever a command is added here, so that it
@@ -93,25 +87,32 @@ pub (crate) struct StreamInner {
     sample_format: SampleFormat,
 }
 
-impl EventLoop {
-    pub fn new() -> EventLoop {
+impl Stream {
+    fn new<D, E>(stream_inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         let pending_scheduled_event =
             unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
-
         let (tx, rx) = channel();
 
-        EventLoop {
-            pending_scheduled_event: pending_scheduled_event,
-            run_context: Mutex::new(RunContext {
-                                        stream: Arc::new(),
-                                        handles: vec![pending_scheduled_event],
-                                        commands: rx,
-                                    }),
-            next_stream_id: AtomicUsize::new(0),
+        let run_context = RunContext {
+            stream: Arc::new(stream_inner),
+            handles: vec![pending_scheduled_event],
+            commands: rx,
+        };
+
+        let thread = thread::spawn(move || {
+            run_inner(run_context, &mut data_callback, &mut error_callback)
+        });
+
+        Stream {
+            thread: Some(thread),
             commands: tx,
+            pending_scheduled_event,
         }
     }
+}
 
+impl EventLoop {
     #[inline]
     pub(crate) fn destroy_stream(&self, stream_id: StreamId) {
         self.push_command(Command::DestroyStream(stream_id));
