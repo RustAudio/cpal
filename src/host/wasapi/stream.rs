@@ -87,14 +87,14 @@ pub (crate) struct StreamInner {
 }
 
 impl Stream {
-    fn new<D, E>(stream_inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
+    pub (crate) fn new<D, E>(stream_inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
         where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         let pending_scheduled_event =
             unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
         let (tx, rx) = channel();
 
         let run_context = RunContext {
-            stream: Arc::new(stream_inner),
+            stream: stream_inner,
             handles: vec![pending_scheduled_event],
             commands: rx,
         };
