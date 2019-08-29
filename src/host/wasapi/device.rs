@@ -336,7 +336,7 @@ unsafe fn format_from_waveformatex_ptr(
     let format = Format {
         channels: (*waveformatex_ptr).nChannels as _,
         sample_rate: SampleRate((*waveformatex_ptr).nSamplesPerSec),
-        data_type: data_type,
+        data_type,
     };
     Some(format)
 }
@@ -400,7 +400,7 @@ impl Device {
     #[inline]
     fn from_immdevice(device: *mut IMMDevice) -> Self {
         Device {
-            device: device,
+            device,
             future_audio_client: Arc::new(Mutex::new(None)),
         }
     }
@@ -763,15 +763,15 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             {
                 let client_flow = AudioClientFlow::Capture {
-                    capture_client: capture_client,
+                    capture_client,
                 };
                 let inner = StreamInner {
                     id: new_stream_id.clone(),
-                    audio_client: audio_client,
-                    client_flow: client_flow,
-                    event: event,
+                    audio_client,
+                    client_flow,
+                    event,
                     playing: false,
-                    max_frames_in_buffer: max_frames_in_buffer,
+                    max_frames_in_buffer,
                     bytes_per_frame: waveformatex.nBlockAlign,
                     sample_format: format.data_type,
                 };
@@ -924,15 +924,15 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             {
                 let client_flow = AudioClientFlow::Render {
-                    render_client: render_client,
+                    render_client,
                 };
                 let inner = StreamInner {
                     id: new_stream_id.clone(),
-                    audio_client: audio_client,
-                    client_flow: client_flow,
-                    event: event,
+                    audio_client,
+                    client_flow,
+                    event,
                     playing: false,
-                    max_frames_in_buffer: max_frames_in_buffer,
+                    max_frames_in_buffer,
                     bytes_per_frame: waveformatex.nBlockAlign,
                     sample_format: format.data_type,
                 };
@@ -1039,7 +1039,7 @@ impl From<*const IMMDevice> for Endpoint {
     fn from(device: *const IMMDevice) -> Self {
         unsafe {
             let endpoint = immendpoint_from_immdevice(device);
-            Endpoint { endpoint: endpoint }
+            Endpoint { endpoint }
         }
     }
 }
@@ -1118,7 +1118,7 @@ impl Devices {
             check_result_backend_specific((*collection).GetCount(&mut count))?;
 
             Ok(Devices {
-                collection: collection,
+                collection,
                 total_count: count,
                 next_item: 0,
             })
