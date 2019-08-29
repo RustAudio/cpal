@@ -96,6 +96,7 @@ pub struct Device {
 impl DeviceTrait for Device {
     type SupportedInputFormats = SupportedInputFormats;
     type SupportedOutputFormats = SupportedOutputFormats;
+    type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
