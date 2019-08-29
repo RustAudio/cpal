@@ -626,7 +626,7 @@ impl Device {
     pub(crate) fn build_input_stream_inner(
         &self,
         format: &Format,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<StreamInner, BuildStreamError>
     {
         unsafe {
             // Making sure that COM is initialized.
@@ -754,39 +754,28 @@ impl Device {
                 &mut *capture_client
             };
 
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
-            {
-                let client_flow = AudioClientFlow::Capture {
-                    capture_client,
-                };
-                let inner = StreamInner {
-                    id: new_stream_id.clone(),
-                    audio_client,
-                    client_flow,
-                    event,
-                    playing: false,
-                    max_frames_in_buffer,
-                    bytes_per_frame: waveformatex.nBlockAlign,
-                    sample_format: format.data_type,
-                };
-
-                self.push_command(Command::NewStream(inner));
+            let client_flow = AudioClientFlow::Capture {
+                capture_client,
             };
 
-            Ok(new_stream_id)
+            Ok( StreamInner {
+                audio_client,
+                client_flow,
+                event,
+                playing: false,
+                max_frames_in_buffer,
+                bytes_per_frame: waveformatex.nBlockAlign,
+                sample_format: format.data_type,
+            })
         }
     }
 
     pub(crate) fn build_output_stream_inner(
         &self,
         format: &Format,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<StreamInner, BuildStreamError>
     {
         unsafe {
             // Making sure that COM is initialized.
@@ -915,32 +904,21 @@ impl Device {
                 &mut *render_client
             };
 
-            let new_stream_id = StreamId(self.next_stream_id.fetch_add(1, Ordering::Relaxed));
-            if new_stream_id.0 == usize::max_value() {
-                return Err(BuildStreamError::StreamIdOverflow);
-            }
-
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
-            {
-                let client_flow = AudioClientFlow::Render {
-                    render_client,
-                };
-                let inner = StreamInner {
-                    id: new_stream_id.clone(),
-                    audio_client,
-                    client_flow,
-                    event,
-                    playing: false,
-                    max_frames_in_buffer,
-                    bytes_per_frame: waveformatex.nBlockAlign,
-                    sample_format: format.data_type,
-                };
-
-                self.push_command(Command::NewStream(inner));
+            let client_flow = AudioClientFlow::Render {
+                render_client,
             };
 
-            Ok(new_stream_id)
+            Ok(StreamInner {
+                audio_client,
+                client_flow,
+                event,
+                playing: false,
+                max_frames_in_buffer,
+                bytes_per_frame: waveformatex.nBlockAlign,
+                sample_format: format.data_type,
+            })
         }
     }
 }
