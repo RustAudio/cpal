@@ -19,6 +19,7 @@ use std::sync::atomic::AtomicUsize;
 
 use std::{sync::{Arc},
 thread::{self, JoinHandle}};
+use crate::traits::StreamTrait;
 
 use BackendSpecificError;
 use BuildStreamError;
@@ -109,6 +110,16 @@ impl Stream {
             pending_scheduled_event,
         }
     }
+
+    #[inline]
+    fn push_command(&self, command: Command) {
+        // Safe to unwrap: sender outlives receiver.
+        self.commands.send(command).unwrap();
+        unsafe {
+            let result = synchapi::SetEvent(self.pending_scheduled_event);
+            assert!(result != 0);
+        }
+    }
 }
 
 impl Drop for Stream {
@@ -122,6 +133,17 @@ impl Drop for Stream {
             assert!(result != 0); 
         }
         self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        self.push_command(Command::PlayStream);
+        Ok(())
+    }
+    fn pause(&self)-> Result<(), PauseStreamError> {
+        self.push_command(Command::PauseStream);
+        Ok(())
     }
 }
 
