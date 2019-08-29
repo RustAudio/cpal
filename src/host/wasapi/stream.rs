@@ -239,7 +239,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
     unsafe {
         'stream_loop: loop {
             // Process queued commands.
-            match process_commands(run_context, error_callback) {
+            match process_commands(&mut run_context) {
                 Ok(()) => (),
                 Err(err) => {
                     error_callback(err);
@@ -251,7 +251,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
             let handle_idx = match wait_for_handle_signal(&run_context.handles) {
                 Ok(idx) => idx,
                 Err(err) => {
-                    error_callback(err);
+                    error_callback(err.into());
                     break 'stream_loop;
                 }
             };
@@ -312,7 +312,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                                     buffer: slice,
                                 });
                                 let data = StreamData::Input { buffer: unknown_buffer };
-                                data_callback(stream.id.clone(), Ok(data));
+                                data_callback(data);
                                 // Release the buffer.
                                 let hresult = (*capture_client).ReleaseBuffer(frames_available);
                                 if let Err(err) = stream_error_from_hresult(hresult) {
@@ -332,7 +332,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
 
                 AudioClientFlow::Render { render_client } => {
                     // The number of frames available for writing.
-                    let frames_available = match get_available_frames(stream) {
+                    let frames_available = match get_available_frames(&stream) {
                         Ok(0) => continue, // TODO: Can this happen?
                         Ok(n) => n,
                         Err(err) => {
@@ -365,7 +365,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                                 buffer: slice
                             });
                             let data = StreamData::Output { buffer: unknown_buffer };
-                            data_callback(stream.id.clone(), Ok(data));
+                            data_callback(data);
                             let hresult = (*render_client)
                                 .ReleaseBuffer(frames_available as u32, 0);
                             if let Err(err) = stream_error_from_hresult(hresult) {
