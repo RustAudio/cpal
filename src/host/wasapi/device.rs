@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use BackendSpecificError;
 use DefaultFormatError;
@@ -72,7 +72,7 @@ use super::winapi::um::mmdeviceapi::{
 };
 
 use crate::{traits::DeviceTrait, BuildStreamError, StreamData, StreamError};
-use super::{stream::{Stream, AudioClientFlow, StreamInner, Command}, winapi::um::synchapi};
+use super::{stream::{Stream, AudioClientFlow, StreamInner}, winapi::um::synchapi};
 
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
@@ -267,7 +267,7 @@ pub unsafe fn is_format_supported(
         // has been found, but not an exact match) so we also treat this as unsupported.
         match (result, check_result(result)) {
             (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                return Err(SupportedFormatsError::DeviceNotAvailable);
+                Err(SupportedFormatsError::DeviceNotAvailable)
             },
             (_, Err(_)) => {
                 Ok(false)
@@ -486,7 +486,7 @@ impl Device {
             };
 
             // If the default format can't succeed we have no hope of finding other formats.
-            assert_eq!(try!(is_format_supported(client, default_waveformatex_ptr.0)), true);
+            assert_eq!(is_format_supported(client, default_waveformatex_ptr.0)?, true);
 
             // Copy the format to use as a test format (as to avoid mutating the original format).
             let mut test_format = {
@@ -508,7 +508,7 @@ impl Device {
                 test_format.nSamplesPerSec = rate;
                 test_format.nAvgBytesPerSec =
                     rate * (*default_waveformatex_ptr.0).nBlockAlign as DWORD;
-                if try!(is_format_supported(client, test_format.as_ptr())) {
+                if is_format_supported(client, test_format.as_ptr())? {
                     supported_sample_rates.push(rate);
                 }
             }

@@ -1,9 +1,6 @@
 use super::check_result;
-use super::com;
 use super::winapi::shared::basetsd::UINT32;
-use super::winapi::shared::ksmedia;
-use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
-use super::winapi::shared::mmreg;
+use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
@@ -13,17 +10,13 @@ use super::winapi::um::winnt;
 use std::mem;
 use std::ptr;
 use std::slice;
-use std::sync::Mutex;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::sync::atomic::AtomicUsize;
 
 use std::{sync::{Arc},
 thread::{self, JoinHandle}};
 use crate::traits::StreamTrait;
 
 use BackendSpecificError;
-use BuildStreamError;
-use Format;
 use PauseStreamError;
 use PlayStreamError;
 use SampleFormat;
@@ -257,7 +250,7 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
     Ok(())
 }
 
-fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData), error_callback: &mut dyn FnMut(StreamError)) -> () {
+fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData), error_callback: &mut dyn FnMut(StreamError)) {
     unsafe {
         'stream_loop: loop {
             // Process queued commands.
