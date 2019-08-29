@@ -113,7 +113,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         Ok(Stream::new(
-            Arc::new(self.build_input_stream_inner(format)?),
+            self.build_input_stream_inner(format)?,
             data_callback,
             error_callback,
         ))
@@ -130,7 +130,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         Ok(Stream::new(
-            Arc::new(self.build_output_stream_inner(format)?),
+            self.build_output_stream_inner(format)?,
             data_callback,
             error_callback,
         ))
