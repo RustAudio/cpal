@@ -6,7 +6,7 @@ use self::winapi::um::winnt::HRESULT;
 use std::io::Error as IoError;
 use traits::{HostTrait};
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
-pub use self::stream::{StreamId};
+pub use self::stream::Stream;
 
 mod com;
 mod device;

@@ -468,9 +468,8 @@ mod platform_impl {
     pub use crate::host::wasapi::{
         Device as WasapiDevice,
         Devices as WasapiDevices,
-        EventLoop as WasapiEventLoop,
+        Stream as WasapiStream,
         Host as WasapiHost,
-        StreamId as WasapiStreamId,
         SupportedInputFormats as WasapiSupportedInputFormats,
         SupportedOutputFormats as WasapiSupportedOutputFormats,
     };
