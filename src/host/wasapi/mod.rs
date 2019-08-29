@@ -61,8 +61,9 @@ fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificE
     match check_result(result) {
         Ok(()) => Ok(()),
         Err(err) => {
-            let description = format!("{}", err);
-            return Err(BackendSpecificError { description });
+            Err(BackendSpecificError { 
+                description: format!("{}", err),
+            })
         }
     }
 }
