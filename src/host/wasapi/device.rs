@@ -497,7 +497,7 @@ impl Device {
                 let rate = rate.0 as DWORD;
                 test_format.nSamplesPerSec = rate;
                 test_format.nAvgBytesPerSec =
-                    rate * (*default_waveformatex_ptr.0).nBlockAlign as DWORD;
+                    rate * u32::from((*default_waveformatex_ptr.0).nBlockAlign);
                 if is_format_supported(client, test_format.as_ptr())? {
                     supported_sample_rates.push(rate);
                 }
@@ -702,9 +702,9 @@ impl Device {
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
                 let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
-                if event == ptr::null_mut() {
+                if event.is_null() {
                     (*audio_client).Release();
-                    let description = format!("failed to create event");
+                    let description = "failed to create event".to_string();
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
@@ -825,21 +825,18 @@ impl Device {
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
                 let event = synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null());
-                if event == ptr::null_mut() {
+                if event.is_null() {
                     (*audio_client).Release();
-                    let description = format!("failed to create event");
+                    let description = "failed to create event".to_string();
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
 
-                match check_result((*audio_client).SetEventHandle(event)) {
-                    Err(e) => {
-                        (*audio_client).Release();
-                        let description = format!("failed to call SetEventHandle: {}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    }
-                    Ok(_) => (),
+                if let Err(e) = check_result((*audio_client).SetEventHandle(event)) {
+                    (*audio_client).Release();
+                    let description = format!("failed to call SetEventHandle: {}", e);
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
                 };
 
                 event
@@ -1078,9 +1075,9 @@ impl Devices {
                 &mut collection,
             ))?;
 
-            let mut count = mem::uninitialized();
+            let count = mem::uninitialized();
             // can fail if the parameter is null, which should never happen
-            check_result_backend_specific((*collection).GetCount(&mut count))?;
+            check_result_backend_specific((*collection).GetCount(&count))?;
 
             Ok(Devices {
                 collection,
@@ -1160,7 +1157,7 @@ fn format_to_waveformatextensible(format: &Format) -> Option<mmreg::WAVEFORMATEX
     let channels = format.channels as WORD;
     let sample_rate = format.sample_rate.0 as DWORD;
     let sample_bytes = format.data_type.sample_size() as WORD;
-    let avg_bytes_per_sec = channels as DWORD * sample_rate * sample_bytes as DWORD;
+    let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = 8 * sample_bytes;
     let cb_size = match format.data_type {
