@@ -1,12 +1,15 @@
 extern crate winapi;
 
-use BackendSpecificError;
-use DevicesError;
+pub use self::device::{
+    default_input_device, default_output_device, Device, Devices, SupportedInputFormats,
+    SupportedOutputFormats,
+};
+pub use self::stream::Stream;
 use self::winapi::um::winnt::HRESULT;
 use std::io::Error as IoError;
-use traits::{HostTrait};
-pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
-pub use self::stream::Stream;
+use traits::HostTrait;
+use BackendSpecificError;
+use DevicesError;
 
 mod com;
 mod device;
@@ -60,10 +63,8 @@ fn check_result(result: HRESULT) -> Result<(), IoError> {
 fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificError> {
     match check_result(result) {
         Ok(()) => Ok(()),
-        Err(err) => {
-            Err(BackendSpecificError { 
-                description: format!("{}", err),
-            })
-        }
+        Err(err) => Err(BackendSpecificError {
+            description: format!("{}", err),
+        }),
     }
 }
