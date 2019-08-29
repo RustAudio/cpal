@@ -13,10 +13,7 @@ use std::slice;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::traits::StreamTrait;
-use std::{
-    sync::Arc,
-    thread::{self, JoinHandle},
-};
+use std::thread::{self, JoinHandle};
 
 use BackendSpecificError;
 use PauseStreamError;
@@ -44,7 +41,7 @@ pub struct Stream {
 
 struct RunContext {
     // Streams that have been created in this event loop.
-    stream: Arc<StreamInner>,
+    stream: StreamInner,
 
     // Handles corresponding to the `event` field of each element of `voices`. Must always be in
     // sync with `voices`, except that the first element is always `pending_scheduled_event`.
@@ -53,12 +50,15 @@ struct RunContext {
     commands: Receiver<Command>,
 }
 
-pub(crate) enum Command {
+// Once we start running the eventloop, the RunContext will not be moved.
+unsafe impl Send for RunContext {}
+
+pub enum Command {
     PlayStream,
     PauseStream,
 }
 
-pub(crate) enum AudioClientFlow {
+pub enum AudioClientFlow {
     Render {
         render_client: *mut audioclient::IAudioRenderClient,
     },
@@ -67,24 +67,24 @@ pub(crate) enum AudioClientFlow {
     },
 }
 
-pub(crate) struct StreamInner {
-    audio_client: *mut audioclient::IAudioClient,
-    client_flow: AudioClientFlow,
+pub struct StreamInner {
+    pub audio_client: *mut audioclient::IAudioClient,
+    pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
-    event: winnt::HANDLE,
+    pub event: winnt::HANDLE,
     // True if the stream is currently playing. False if paused.
-    playing: bool,
+    pub playing: bool,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
-    max_frames_in_buffer: UINT32,
+    pub max_frames_in_buffer: UINT32,
     // Number of bytes that each frame occupies.
-    bytes_per_frame: WORD,
+    pub bytes_per_frame: WORD,
     // The sample format with which the stream was created.
-    sample_format: SampleFormat,
+    pub sample_format: SampleFormat,
 }
 
 impl Stream {
     pub(crate) fn new<D, E>(
-        stream_inner: Arc<StreamInner>,
+        stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
@@ -253,7 +253,7 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
 }
 
 fn run_inner(
-    run_context: RunContext,
+    mut run_context: RunContext,
     data_callback: &mut dyn FnMut(StreamData),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
@@ -283,7 +283,7 @@ fn run_inner(
                 continue;
             }
 
-            let stream = run_context.stream;
+            let stream = &mut run_context.stream;
             let sample_size = stream.sample_format.sample_size();
 
             // Obtaining a pointer to the buffer.
