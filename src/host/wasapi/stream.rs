@@ -72,7 +72,6 @@ pub (crate) enum AudioClientFlow {
 }
 
 pub (crate) struct StreamInner {
-    id: StreamId,
     audio_client: *mut audioclient::IAudioClient,
     client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
@@ -112,42 +111,6 @@ impl Stream {
     }
 }
 
-impl EventLoop {
-    #[inline]
-    pub(crate) fn destroy_stream(&self, stream_id: StreamId) {
-        self.push_command(Command::DestroyStream(stream_id));
-    }
-
-    #[inline]
-    pub(crate) fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamData)
-    {
-        self.run_inner(&mut callback);
-    }
-
-    #[inline]
-    pub(crate) fn play_stream(&self, stream: StreamId) -> Result<(), PlayStreamError> {
-        self.push_command(Command::PlayStream(stream));
-        Ok(())
-    }
-
-    #[inline]
-    pub(crate) fn pause_stream(&self, stream: StreamId) -> Result<(), PauseStreamError> {
-        self.push_command(Command::PauseStream(stream));
-        Ok(())
-    }
-
-    #[inline]
-    fn push_command(&self, command: Command) {
-        // Safe to unwrap: sender outlives receiver.
-        self.commands.send(command).unwrap();
-        unsafe {
-            let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
-        }
-    }
-}
-
 impl Drop for Stream {
     #[inline]
     fn drop(&mut self) {
@@ -161,15 +124,6 @@ impl Drop for Stream {
         self.thread.take().unwrap().join().unwrap();
     }
 }
-
-unsafe impl Send for EventLoop {
-}
-unsafe impl Sync for EventLoop {
-}
-
-// The content of a stream ID is a number that was fetched from `next_stream_id`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
 
 impl Drop for AudioClientFlow {
     fn drop(&mut self) {
