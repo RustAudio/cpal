@@ -10,11 +10,13 @@ use super::winapi::um::winnt;
 use std::mem;
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
 
-use std::{sync::{Arc},
-thread::{self, JoinHandle}};
 use crate::traits::StreamTrait;
+use std::{
+    sync::Arc,
+    thread::{self, JoinHandle},
+};
 
 use BackendSpecificError;
 use PauseStreamError;
@@ -22,8 +24,8 @@ use PlayStreamError;
 use SampleFormat;
 use StreamData;
 use StreamError;
-use UnknownTypeOutputBuffer;
 use UnknownTypeInputBuffer;
+use UnknownTypeOutputBuffer;
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -51,12 +53,12 @@ struct RunContext {
     commands: Receiver<Command>,
 }
 
-pub (crate) enum Command {
+pub(crate) enum Command {
     PlayStream,
     PauseStream,
 }
 
-pub (crate) enum AudioClientFlow {
+pub(crate) enum AudioClientFlow {
     Render {
         render_client: *mut audioclient::IAudioRenderClient,
     },
@@ -65,7 +67,7 @@ pub (crate) enum AudioClientFlow {
     },
 }
 
-pub (crate) struct StreamInner {
+pub(crate) struct StreamInner {
     audio_client: *mut audioclient::IAudioClient,
     client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
@@ -81,8 +83,15 @@ pub (crate) struct StreamInner {
 }
 
 impl Stream {
-    pub (crate) fn new<D, E>(stream_inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+    pub(crate) fn new<D, E>(
+        stream_inner: Arc<StreamInner>,
+        mut data_callback: D,
+        mut error_callback: E,
+    ) -> Stream
+    where
+        D: FnMut(StreamData) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
         let pending_scheduled_event =
             unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
         let (tx, rx) = channel();
@@ -93,9 +102,8 @@ impl Stream {
             commands: rx,
         };
 
-        let thread = thread::spawn(move || {
-            run_inner(run_context, &mut data_callback, &mut error_callback)
-        });
+        let thread =
+            thread::spawn(move || run_inner(run_context, &mut data_callback, &mut error_callback));
 
         Stream {
             thread: Some(thread),
@@ -121,9 +129,9 @@ impl Drop for Stream {
         unsafe {
             handleapi::CloseHandle(self.pending_scheduled_event);
         }
-        unsafe { 
-            let result = synchapi::SetEvent(self.pending_scheduled_event); 
-            assert!(result != 0); 
+        unsafe {
+            let result = synchapi::SetEvent(self.pending_scheduled_event);
+            assert!(result != 0);
         }
         self.thread.take().unwrap().join().unwrap();
     }
@@ -134,7 +142,7 @@ impl StreamTrait for Stream {
         self.push_command(Command::PlayStream);
         Ok(())
     }
-    fn pause(&self)-> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream);
         Ok(())
     }
@@ -168,27 +176,23 @@ fn process_commands(run_context: &mut RunContext) -> Result<(), StreamError> {
         match command {
             Command::PlayStream => {
                 if !run_context.stream.playing {
-                    let hresult = unsafe {
-                        (*run_context.stream.audio_client).Start()
-                    };
+                    let hresult = unsafe { (*run_context.stream.audio_client).Start() };
 
                     if let Err(err) = stream_error_from_hresult(hresult) {
                         return Err(err);
                     }
                     run_context.stream.playing = true;
                 }
-            },
+            }
             Command::PauseStream => {
                 if run_context.stream.playing {
-                    let hresult = unsafe {
-                        (*run_context.stream.audio_client).Stop()
-                    };
+                    let hresult = unsafe { (*run_context.stream.audio_client).Stop() };
                     if let Err(err) = stream_error_from_hresult(hresult) {
                         return Err(err);
                     }
                     run_context.stream.playing = false;
                 }
-            },
+            }
         }
     }
 
@@ -208,15 +212,13 @@ fn wait_for_handle_signal(handles: &[winnt::HANDLE]) -> Result<usize, BackendSpe
         synchapi::WaitForMultipleObjectsEx(
             handles.len() as u32,
             handles.as_ptr(),
-            FALSE, // Don't wait for all, just wait for the first
+            FALSE,             // Don't wait for all, just wait for the first
             winbase::INFINITE, // TODO: allow setting a timeout
-            FALSE, // irrelevant parameter here
+            FALSE,             // irrelevant parameter here
         )
     };
     if result == winbase::WAIT_FAILED {
-        let err = unsafe {
-            winapi::um::errhandlingapi::GetLastError()
-        };
+        let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
         let description = format!("`WaitForMultipleObjectsEx failed: {}", err);
         let err = BackendSpecificError { description };
         return Err(err);
@@ -250,7 +252,11 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
     Ok(())
 }
 
-fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData), error_callback: &mut dyn FnMut(StreamError)) {
+fn run_inner(
+    run_context: RunContext,
+    data_callback: &mut dyn FnMut(StreamData),
+    error_callback: &mut dyn FnMut(StreamError),
+) {
     unsafe {
         'stream_loop: loop {
             // Process queued commands.
@@ -282,7 +288,6 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
 
             // Obtaining a pointer to the buffer.
             match stream.client_flow {
-
                 AudioClientFlow::Capture { capture_client } => {
                     let mut frames_available = 0;
                     // Get the available data in the shared buffer.
@@ -316,17 +321,21 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                         debug_assert!(!buffer.is_null());
 
                         let buffer_len = frames_available as usize
-                            * stream.bytes_per_frame as usize / sample_size;
+                            * stream.bytes_per_frame as usize
+                            / sample_size;
 
                         // Simplify the capture callback sample format branches.
                         macro_rules! capture_callback {
                             ($T:ty, $Variant:ident) => {{
                                 let buffer_data = buffer as *mut _ as *const $T;
                                 let slice = slice::from_raw_parts(buffer_data, buffer_len);
-                                let unknown_buffer = UnknownTypeInputBuffer::$Variant(::InputBuffer {
-                                    buffer: slice,
-                                });
-                                let data = StreamData::Input { buffer: unknown_buffer };
+                                let unknown_buffer =
+                                    UnknownTypeInputBuffer::$Variant(::InputBuffer {
+                                        buffer: slice,
+                                    });
+                                let data = StreamData::Input {
+                                    buffer: unknown_buffer,
+                                };
                                 data_callback(data);
                                 // Release the buffer.
                                 let hresult = (*capture_client).ReleaseBuffer(frames_available);
@@ -343,7 +352,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                             SampleFormat::U16 => capture_callback!(u16, U16),
                         }
                     }
-                },
+                }
 
                 AudioClientFlow::Render { render_client } => {
                     // The number of frames available for writing.
@@ -357,10 +366,8 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                     };
 
                     let mut buffer: *mut BYTE = mem::uninitialized();
-                    let hresult = (*render_client).GetBuffer(
-                        frames_available,
-                        &mut buffer as *mut *mut _,
-                    );
+                    let hresult =
+                        (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
 
                     if let Err(err) = stream_error_from_hresult(hresult) {
                         error_callback(err);
@@ -368,26 +375,27 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                     }
 
                     debug_assert!(!buffer.is_null());
-                    let buffer_len = frames_available as usize
-                        * stream.bytes_per_frame as usize / sample_size;
+                    let buffer_len =
+                        frames_available as usize * stream.bytes_per_frame as usize / sample_size;
 
                     // Simplify the render callback sample format branches.
                     macro_rules! render_callback {
                         ($T:ty, $Variant:ident) => {{
                             let buffer_data = buffer as *mut $T;
                             let slice = slice::from_raw_parts_mut(buffer_data, buffer_len);
-                            let unknown_buffer = UnknownTypeOutputBuffer::$Variant(::OutputBuffer {
-                                buffer: slice
-                            });
-                            let data = StreamData::Output { buffer: unknown_buffer };
+                            let unknown_buffer =
+                                UnknownTypeOutputBuffer::$Variant(::OutputBuffer { buffer: slice });
+                            let data = StreamData::Output {
+                                buffer: unknown_buffer,
+                            };
                             data_callback(data);
-                            let hresult = (*render_client)
-                                .ReleaseBuffer(frames_available as u32, 0);
+                            let hresult =
+                                (*render_client).ReleaseBuffer(frames_available as u32, 0);
                             if let Err(err) = stream_error_from_hresult(hresult) {
                                 error_callback(err);
                                 break 'stream_loop;
                             }
-                        }}
+                        }};
                     }
 
                     match stream.sample_format {
@@ -395,7 +403,7 @@ fn run_inner(run_context: RunContext, data_callback: &mut dyn FnMut(StreamData),
                         SampleFormat::I16 => render_callback!(i16, I16),
                         SampleFormat::U16 => render_callback!(u16, U16),
                     }
-                },
+                }
             }
         }
     }
