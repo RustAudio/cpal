@@ -148,12 +148,17 @@ impl EventLoop {
     }
 }
 
-impl Drop for EventLoop {
+impl Drop for Stream {
     #[inline]
     fn drop(&mut self) {
         unsafe {
             handleapi::CloseHandle(self.pending_scheduled_event);
         }
+        unsafe { 
+            let result = synchapi::SetEvent(self.pending_scheduled_event); 
+            assert!(result != 0); 
+        }
+        self.thread.take().unwrap().join().unwrap();
     }
 }
 
