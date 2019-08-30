@@ -358,8 +358,7 @@ impl Device {
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
-            let ptr_usize: usize = *(&property_value.data as *const _ as *const usize);
-            let ptr_utf16 = ptr_usize as *const u16;
+            let ptr_utf16 = *(&property_value.data as *const _ as *const (*const u16));
 
             // Find the length of the friendly name.
             let mut len = 0;

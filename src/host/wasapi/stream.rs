@@ -224,7 +224,6 @@ fn wait_for_handle_signal(handles: &[winnt::HANDLE]) -> Result<usize, BackendSpe
         return Err(err);
     }
     // Notifying the corresponding task handler.
-    debug_assert!(result >= winbase::WAIT_OBJECT_0);
     let handle_idx = (result - winbase::WAIT_OBJECT_0) as usize;
     Ok(handle_idx)
 }
