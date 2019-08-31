@@ -515,6 +515,15 @@ impl<'a, T> Deref for InputBuffer<'a, T>
     }
 }
 
+impl<'a, T> InputBuffer<'a, T>
+    where T: Sample
+{
+    #[inline]
+    pub fn inner(&'a self) -> &'a [T] {
+        self.buffer
+    }
+}
+
 impl<'a, T> Deref for OutputBuffer<'a, T>
     where T: Sample
 {
@@ -534,6 +543,21 @@ impl<'a, T> DerefMut for OutputBuffer<'a, T>
         self.buffer
     }
 }
+
+impl<'a, T> OutputBuffer<'a, T>
+    where T: Sample
+{
+    #[inline]
+    pub fn inner(&'a self) -> &'a [T] {
+        self.buffer
+    }
+
+    #[inline]
+    pub fn inner_mut(&'a mut self) -> &'a mut [T] {
+        self.buffer
+    }
+}
+
 
 impl<'a> UnknownTypeInputBuffer<'a> {
     /// Returns the length of the buffer in number of samples.
