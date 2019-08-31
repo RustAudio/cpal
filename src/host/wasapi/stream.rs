@@ -56,6 +56,7 @@ unsafe impl Send for RunContext {}
 pub enum Command {
     PlayStream,
     PauseStream,
+    Terminate,
 }
 
 pub enum AudioClientFlow {
@@ -97,8 +98,8 @@ impl Stream {
         let (tx, rx) = channel();
 
         let run_context = RunContext {
+            handles: vec![pending_scheduled_event, stream_inner.event],
             stream: stream_inner,
-            handles: vec![pending_scheduled_event],
             commands: rx,
         };
 
@@ -118,7 +119,7 @@ impl Stream {
         self.commands.send(command).unwrap();
         unsafe {
             let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
+            assert_ne!(result, 0);
         }
     }
 }
@@ -126,14 +127,11 @@ impl Stream {
 impl Drop for Stream {
     #[inline]
     fn drop(&mut self) {
+        self.push_command(Command::Terminate);
+        self.thread.take().unwrap().join().unwrap();
         unsafe {
             handleapi::CloseHandle(self.pending_scheduled_event);
         }
-        unsafe {
-            let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert!(result != 0);
-        }
-        self.thread.take().unwrap().join().unwrap();
     }
 }
 
@@ -170,7 +168,8 @@ impl Drop for StreamInner {
 }
 
 // Process any pending commands that are queued within the `RunContext`.
-fn process_commands(run_context: &mut RunContext) -> Result<(), StreamError> {
+// Returns `true` if the loop should continue running, `false` if it should terminate.
+fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
         match command {
@@ -193,10 +192,13 @@ fn process_commands(run_context: &mut RunContext) -> Result<(), StreamError> {
                     run_context.stream.playing = false;
                 }
             }
+            Command::Terminate => {
+                return Ok(false);
+            }
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 // Wait for any of the given handles to be signalled.
 //
@@ -260,7 +262,8 @@ fn run_inner(
         'stream_loop: loop {
             // Process queued commands.
             match process_commands(&mut run_context) {
-                Ok(()) => (),
+                Ok(true) => (),
+                Ok(false) => break,
                 Err(err) => {
                     error_callback(err);
                     break 'stream_loop;
