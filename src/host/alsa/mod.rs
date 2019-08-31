@@ -1116,6 +1116,16 @@ unsafe fn set_hw_params_from_format(
         return Err(format!("channel count could not be set: {}", e));
     }
 
+    // If this isn't set manually a overlarge buffer may be used causing audio delay
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_time_near(
+        pcm_handle,
+        hw_params.0,
+        &mut 100_000,
+        &mut 0,
+    )) {
+        return Err(format!("buffer time could not be set: {}", e));
+    }
+
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params(pcm_handle, hw_params.0)) {
         return Err(format!("hardware params could not be set: {}", e));
     }
