@@ -414,9 +414,8 @@ mod platform_impl {
     pub use crate::host::coreaudio::{
         Device as CoreAudioDevice,
         Devices as CoreAudioDevices,
-        EventLoop as CoreAudioEventLoop,
         Host as CoreAudioHost,
-        StreamId as CoreAudioStreamId,
+        Stream as CoreAudioStream,
         SupportedInputFormats as CoreAudioSupportedInputFormats,
         SupportedOutputFormats as CoreAudioSupportedOutputFormats,
     };
