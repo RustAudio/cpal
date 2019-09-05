@@ -14,20 +14,18 @@ use SupportedFormatsError;
 use SampleFormat;
 use SampleRate;
 use StreamData;
-use StreamDataResult;
+use StreamError;
 use SupportedFormat;
 use UnknownTypeInputBuffer;
 use UnknownTypeOutputBuffer;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use std::ffi::CStr;
 use std::fmt;
 use std::mem;
+use std::cell::RefCell;
 use std::os::raw::c_char;
 use std::ptr::null;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::time::Duration;
 use std::slice;
 
 use self::coreaudio::audio_unit::{AudioUnit, Scope, Element};
@@ -87,7 +85,6 @@ impl Host {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
-    type EventLoop = EventLoop;
 
     fn is_available() -> bool {
         // Assume coreaudio is always available on macOS and iOS.
@@ -105,15 +102,12 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
-
-    fn event_loop(&self) -> Self::EventLoop {
-        EventLoop::new()
-    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputFormats = SupportedInputFormats;
     type SupportedOutputFormats = SupportedOutputFormats;
+	type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
@@ -134,49 +128,15 @@ impl DeviceTrait for Device {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         Device::default_output_format(self)
     }
-}
 
-impl EventLoopTrait for EventLoop {
-    type Device = Device;
-    type StreamId = StreamId;
-
-    fn build_input_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError> {
-        EventLoop::build_input_stream(self, device, format)
+    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+        Device::build_input_stream(self, format, data_callback, error_callback)
     }
 
-    fn build_output_stream(
-        &self,
-        device: &Self::Device,
-        format: &Format,
-    ) -> Result<Self::StreamId, BuildStreamError> {
-        EventLoop::build_output_stream(self, device, format)
-    }
-
-    fn play_stream(&self, stream: Self::StreamId) -> Result<(), PlayStreamError> {
-        EventLoop::play_stream(self, stream)
-    }
-
-    fn pause_stream(&self, stream: Self::StreamId) -> Result<(), PauseStreamError> {
-        EventLoop::pause_stream(self, stream)
-    }
-
-    fn destroy_stream(&self, stream: Self::StreamId) {
-        EventLoop::destroy_stream(self, stream)
-    }
-
-    fn run<F>(&self, callback: F) -> !
-    where
-        F: FnMut(Self::StreamId, StreamDataResult) + Send,
-    {
-        EventLoop::run(self, callback)
+    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+        Device::build_output_stream(self, format, data_callback, error_callback)
     }
 }
-
-impl StreamIdTrait for StreamId {}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Device {
@@ -420,31 +380,6 @@ impl fmt::Debug for Device {
     }
 }
 
-// The ID of a stream is its index within the `streams` array of the events loop.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
-
-pub struct EventLoop {
-    // This `Arc` is shared with all the callbacks of coreaudio.
-    //
-    // TODO: Eventually, CPAL's API should be changed to allow for submitting a unique callback per
-    // stream to avoid streams blocking one another.
-    user_callback: Arc<Mutex<UserCallback>>,
-    streams: Mutex<Vec<Option<StreamInner>>>,
-    loop_cond: Arc<(Mutex<bool>, Condvar)>,
-}
-
-enum UserCallback {
-    // When `run` is called with a callback, that callback will be stored here.
-    //
-    // It is essential for the safety of the program that this callback is removed before `run`
-    // returns (not possible with the current CPAL API).
-    Active(&'static mut (FnMut(StreamId, StreamDataResult) + Send)),
-    // A queue of events that have occurred but that have not yet been emitted to the user as we
-    // don't yet have a callback to do so.
-    Inactive,
-}
-
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
@@ -540,75 +475,8 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
     Ok(audio_unit)
 }
 
-impl EventLoop {
-    #[inline]
-    fn new() -> EventLoop {
-        EventLoop {
-            user_callback: Arc::new(Mutex::new(UserCallback::Inactive)),
-            streams: Mutex::new(Vec::new()),
-            loop_cond: Arc::new((Mutex::new(false), Condvar::new())),
-        }
-    }
-
-    #[inline]
-    fn run<F>(&self, mut callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult) + Send
-    {
-        {
-            let mut guard = self.user_callback.lock().unwrap();
-            if let UserCallback::Active(_) = *guard {
-                panic!("`EventLoop::run` was called when the event loop was already running");
-            }
-            let callback: &mut (FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
-            *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
-        }
-
-        // Wait on a condvar to notify, which should never happen.
-        let &(ref lock, ref cvar) = &*self.loop_cond;
-        let mut running = lock.lock().unwrap();
-        *running = true;
-        while *running {
-            running = cvar.wait(running).unwrap();
-        }
-
-        unreachable!("current `EventLoop` API requires that `run` may not return");
-
-        // It is critical that we remove the callback before returning (currently not possible).
-        // *self.user_callback.lock().unwrap() = UserCallback::Inactive;
-    }
-
-    fn next_stream_id(&self) -> usize {
-        let streams_lock = self.streams.lock().unwrap();
-        let stream_id = streams_lock
-            .iter()
-            .position(|n| n.is_none())
-            .unwrap_or(streams_lock.len());
-        stream_id
-    }
-
-    // Add the stream to the list of streams within `self`.
-    fn add_stream(&self, stream_id: usize, au: AudioUnit, device_id: AudioDeviceID) {
-        let inner = StreamInner {
-            playing: true,
-            audio_unit: au,
-            device_id: device_id,
-        };
-
-        let mut streams_lock = self.streams.lock().unwrap();
-        if stream_id == streams_lock.len() {
-            streams_lock.push(Some(inner));
-        } else {
-            streams_lock[stream_id] = Some(inner);
-        }
-    }
-
-    #[inline]
-    fn build_input_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
+impl Device {
+    fn build_input_stream<D, E>(&self, format: &Format, mut data_callback: D, _error_callback: E) -> Result<Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
         let element = Element::Input;
@@ -624,7 +492,7 @@ impl EventLoop {
             let sample_rate: f64 = 0.0;
             let data_size = mem::size_of::<f64>() as u32;
             let status = AudioObjectGetPropertyData(
-                device.audio_device_id,
+                self.audio_device_id,
                 &property_address as *const _,
                 0,
                 null(),
@@ -635,26 +503,11 @@ impl EventLoop {
 
             // If the requested sample rate is different to the device sample rate, update the device.
             if sample_rate as u32 != format.sample_rate.0 {
-
-                // In order to avoid breaking existing input streams we return an error if there is
-                // already an active input stream for this device with the actual sample rate.
-                for stream in &*self.streams.lock().unwrap() {
-                    if let Some(stream) = stream.as_ref() {
-                        if stream.device_id == device.audio_device_id {
-                            let description = "cannot change device sample rate for stream as an \
-                                existing stream is already running at the current sample rate"
-                                .into();
-                            let err = BackendSpecificError { description };
-                            return Err(err.into());
-                        }
-                    }
-                }
-
                 // Get available sample rate ranges.
                 property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
                 let data_size = 0u32;
                 let status = AudioObjectGetPropertyDataSize(
-                    device.audio_device_id,
+                    self.audio_device_id,
                     &property_address as *const _,
                     0,
                     null(),
@@ -665,7 +518,7 @@ impl EventLoop {
                 let mut ranges: Vec<u8> = vec![];
                 ranges.reserve_exact(data_size as usize);
                 let status = AudioObjectGetPropertyData(
-                    device.audio_device_id,
+                    self.audio_device_id,
                     &property_address as *const _,
                     0,
                     null(),
@@ -719,7 +572,7 @@ impl EventLoop {
                 // Add our sample rate change listener callback.
                 let reported_rate: f64 = 0.0;
                 let status = AudioObjectAddPropertyListener(
-                    device.audio_device_id,
+                    self.audio_device_id,
                     &property_address as *const _,
                     Some(rate_listener),
                     &reported_rate as *const _ as *mut _,
@@ -729,7 +582,7 @@ impl EventLoop {
                 // Finally, set the sample rate.
                 let sample_rate = sample_rate as f64;
                 let status = AudioObjectSetPropertyData(
-                    device.audio_device_id,
+                    self.audio_device_id,
                     &property_address as *const _,
                     0,
                     null(),
@@ -753,7 +606,7 @@ impl EventLoop {
 
                 // Remove the `rate_listener` callback.
                 let status = AudioObjectRemovePropertyListener(
-                    device.audio_device_id,
+                    self.audio_device_id,
                     &property_address as *const _,
                     Some(rate_listener),
                     &reported_rate as *const _ as *mut _,
@@ -762,18 +615,14 @@ impl EventLoop {
             }
         }
 
-        let mut audio_unit = audio_unit_from_device(device, true)?;
+        let mut audio_unit = audio_unit_from_device(self, true)?;
 
         // Set the stream in interleaved mode.
         let asbd = asbd_from_format(format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Determine the future ID of the stream.
-        let stream_id = self.next_stream_id();
-
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let user_callback = self.user_callback.clone();
         let sample_format = format.data_type;
         let bytes_per_channel = format.data_type.sample_size();
         type Args = render_callback::Args<data::Raw>;
@@ -789,20 +638,14 @@ impl EventLoop {
                 mData: data
             } = buffers[0];
 
-            let mut user_callback = user_callback.lock().unwrap();
-
             // A small macro to simplify handling the callback for different sample types.
             macro_rules! try_callback {
                 ($SampleFormat:ident, $SampleType:ty) => {{
                     let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
                     let data_slice = slice::from_raw_parts(data as *const $SampleType, data_len);
-                    let callback = match *user_callback {
-                        UserCallback::Active(ref mut cb) => cb,
-                        UserCallback::Inactive => return Ok(()),
-                    };
                     let unknown_type_buffer = UnknownTypeInputBuffer::$SampleFormat(::InputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Input { buffer: unknown_type_buffer };
-                    callback(StreamId(stream_id), Ok(stream_data));
+                    data_callback(stream_data);
                 }};
             }
 
@@ -815,23 +658,17 @@ impl EventLoop {
             Ok(())
         })?;
 
-        // TODO: start playing now? is that consistent with the other backends?
         audio_unit.start()?;
 
-        // Add the stream to the list of streams within `self`.
-        self.add_stream(stream_id, audio_unit, device.audio_device_id);
-
-        Ok(StreamId(stream_id))
+        Ok(Stream::new(StreamInner {
+            playing: true,
+            audio_unit,
+            device_id: self.audio_device_id,
+        }))
     }
 
-    #[inline]
-    fn build_output_stream(
-        &self,
-        device: &Device,
-        format: &Format,
-    ) -> Result<StreamId, BuildStreamError>
-    {
-        let mut audio_unit = audio_unit_from_device(device, false)?;
+    fn build_output_stream<D, E>(&self, format: &Format, mut data_callback: D, _error_callback: E) -> Result<Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+        let mut audio_unit = audio_unit_from_device(self, false)?;
 
         // The scope and element for working with a device's output stream.
         let scope = Scope::Input;
@@ -841,12 +678,8 @@ impl EventLoop {
         let asbd = asbd_from_format(format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Determine the future ID of the stream.
-        let stream_id = self.next_stream_id();
-
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let user_callback = self.user_callback.clone();
         let sample_format = format.data_type;
         let bytes_per_channel = format.data_type.sample_size();
         type Args = render_callback::Args<data::Raw>;
@@ -860,25 +693,14 @@ impl EventLoop {
                 mData: data
             } = (*args.data.data).mBuffers[0];
 
-            let mut user_callback = user_callback.lock().unwrap();
-
             // A small macro to simplify handling the callback for different sample types.
             macro_rules! try_callback {
                 ($SampleFormat:ident, $SampleType:ty, $equilibrium:expr) => {{
                     let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
                     let data_slice = slice::from_raw_parts_mut(data as *mut $SampleType, data_len);
-                    let callback = match *user_callback {
-                        UserCallback::Active(ref mut cb) => cb,
-                        UserCallback::Inactive => {
-                            for sample in data_slice.iter_mut() {
-                                *sample = $equilibrium;
-                            }
-                            return Ok(());
-                        }
-                    };
                     let unknown_type_buffer = UnknownTypeOutputBuffer::$SampleFormat(::OutputBuffer { buffer: data_slice });
                     let stream_data = StreamData::Output { buffer: unknown_type_buffer };
-                    callback(StreamId(stream_id), Ok(stream_data));
+                    data_callback(stream_data);
                 }};
             }
 
@@ -891,25 +713,31 @@ impl EventLoop {
             Ok(())
         })?;
 
-        // TODO: start playing now? is that consistent with the other backends?
         audio_unit.start()?;
 
-        // Add the stream to the list of streams within `self`.
-        self.add_stream(stream_id, audio_unit, device.audio_device_id);
-
-        Ok(StreamId(stream_id))
+        Ok(Stream::new(StreamInner {
+            playing: true,
+            audio_unit,
+            device_id: self.audio_device_id,
+        }))
     }
+}
 
-    fn destroy_stream(&self, stream_id: StreamId) {
-        {
-            let mut streams = self.streams.lock().unwrap();
-            streams[stream_id.0] = None;
+pub struct Stream {
+    inner: RefCell<StreamInner>,
+}
+
+impl Stream {
+    fn new(inner: StreamInner) -> Self {
+        Self {
+            inner: RefCell::new(inner),
         }
     }
+}
 
-    fn play_stream(&self, stream_id: StreamId) -> Result<(), PlayStreamError> {
-        let mut streams = self.streams.lock().unwrap();
-        let stream = streams[stream_id.0].as_mut().unwrap();
+impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        let mut stream = self.inner.borrow_mut();
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -922,9 +750,8 @@ impl EventLoop {
         Ok(())
     }
 
-    fn pause_stream(&self, stream_id: StreamId) -> Result<(), PauseStreamError> {
-        let mut streams = self.streams.lock().unwrap();
-        let stream = streams[stream_id.0].as_mut().unwrap();
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        let mut stream = self.inner.borrow_mut();
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
