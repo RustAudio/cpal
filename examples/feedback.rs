@@ -8,8 +8,10 @@
 
 extern crate cpal;
 extern crate failure;
+extern crate ringbuf;
 
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
+use ringbuf::RingBuffer;
 
 const LATENCY_MS: f32 = 150.0;
 
@@ -37,12 +39,13 @@ fn main() -> Result<(), failure::Error> {
     let latency_frames = (LATENCY_MS / 1_000.0) * format.sample_rate.0 as f32;
     let latency_samples = latency_frames as usize * format.channels as usize;
 
-    // The channel to share samples.
-    let (tx, rx) = std::sync::mpsc::sync_channel(latency_samples * 2);
+    // The buffer to share samples
+    let ring = RingBuffer::new(latency_samples * 2);
+    let (mut producer, mut consumer) = ring.split();
 
     // Fill the samples with 0.0 equal to the length of the delay.
     for _ in 0..latency_samples {
-        tx.send(0.0)?;
+        producer.push(0.0).unwrap();
     }
 
     // Play the streams.
@@ -66,7 +69,7 @@ fn main() -> Result<(), failure::Error> {
                     assert_eq!(id, input_stream_id);
                     let mut output_fell_behind = false;
                     for &sample in buffer.iter() {
-                        if tx.try_send(sample).is_err() {
+                        if producer.push(sample).is_err() {
                             output_fell_behind = true;
                         }
                     }
@@ -78,7 +81,7 @@ fn main() -> Result<(), failure::Error> {
                     assert_eq!(id, output_stream_id);
                     let mut input_fell_behind = None;
                     for sample in buffer.iter_mut() {
-                        *sample = match rx.try_recv() {
+                        *sample = match consumer.pop() {
                             Ok(s) => s,
                             Err(err) => {
                                 input_fell_behind = Some(err);
@@ -86,8 +89,8 @@ fn main() -> Result<(), failure::Error> {
                             },
                         };
                     }
-                    if let Some(err) = input_fell_behind {
-                        eprintln!("input stream fell behind: {}: try increasing latency", err);
+                    if let Some(_) = input_fell_behind {
+                        eprintln!("input stream fell behind: try increasing latency");
                     }
                 },
                 _ => panic!("we're expecting f32 data"),
