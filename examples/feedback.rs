@@ -45,6 +45,8 @@ fn main() -> Result<(), failure::Error> {
 
     // Fill the samples with 0.0 equal to the length of the delay.
     for _ in 0..latency_samples {
+        // The ring buffer has twice as much space as necessary to add latency here,
+        // so this should never fail
         producer.push(0.0).unwrap();
     }
 
