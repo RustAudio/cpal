@@ -1,6 +1,7 @@
 # CPAL - Cross-Platform Audio Library
 
-[![Build Status](https://travis-ci.org/RustAudio/cpal.svg?branch=master)](https://travis-ci.org/RustAudio/cpal) [![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
+[![Actions Status](https://github.com/RustAudio/cpal/workflows/cpal/badge.svg)](https://github.com/RustAudio/cpal/actions)
+ [![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
 
 Low-level library for audio input and output in pure Rust.
 
