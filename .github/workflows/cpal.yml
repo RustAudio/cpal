@@ -1,0 +1,99 @@
+name: cpal
+
+on: [push, pull_request]
+
+jobs:
+  clippy-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install alsa
+      run: sudo apt-get install libasound2-dev
+    - name: Install clippy
+      run: rustup component add clippy
+    - name: Run clippy
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all --all-features
+
+  ubuntu-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install alsa
+      run: sudo apt-get install libasound2-dev
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Run without features
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --no-default-features --verbose
+    - name: Run all features
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --all-features --verbose
+
+  asmjs-wasm32-test:
+
+    strategy:
+      matrix:
+        target: [asmjs-unknown-emscripten, wasm32-unknown-emscripten]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install emscripten
+      run: sudo apt-get install emscripten
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+    - name: Build beep example
+      run: cargo build --example beep --target ${{ matrix.target }}
+
+  windows-test:
+
+    strategy:
+      matrix:
+        version: [x86_64, i686]
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install ASIO SDK
+      env:
+        LINK: https://www.steinberg.net/asiosdk
+      shell: powershell
+      run: |
+        curl.exe -L -o asio.zip $env:LINK
+        7z.exe x -oasio asio.zip
+        move asio\*\* asio\
+    - name: Install ASIO4ALL
+      run: choco install asio4all
+    - name: Install llvm and clang
+      run: choco install llvm
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.version }}-pc-windows-msvc
+        override: true
+    - name: Run without features
+      run: cargo test --all --no-default-features --verbose
+    - name: Run all features
+      run: |
+        set CPAL_ASIO_DIR=%GITHUB_WORKSPACE%\asio
+        cargo test --all --all-features --verbose
