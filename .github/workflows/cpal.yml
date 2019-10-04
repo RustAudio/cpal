@@ -5,6 +5,8 @@ on: [push, pull_request]
 jobs:
   clippy-test:
 
+    if: github.event_name == 'push'
+
     runs-on: ubuntu-latest
 
     steps:
