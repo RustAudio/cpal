@@ -301,12 +301,8 @@ impl Device {
             return Err(err.into());
         }
 
-        let sample_rates = if min_rate == max_rate {
-            vec![(min_rate, max_rate)]
-        } else if alsa::snd_pcm_hw_params_test_rate(handle,
-                                                    hw_params.0,
-                                                    min_rate + 1,
-                                                    0) == 0
+        let sample_rates = if min_rate == max_rate ||
+            alsa::snd_pcm_hw_params_test_rate(handle, hw_params.0, min_rate + 1, 0) == 0
         {
             vec![(min_rate, max_rate)]
         } else {
