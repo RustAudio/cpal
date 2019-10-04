@@ -202,6 +202,7 @@ pub struct SupportedFormat {
 }
 
 /// Stream data passed to the `EventLoop::run` callback.
+#[derive(Debug)]
 pub enum StreamData<'a> {
     Input {
         buffer: UnknownTypeInputBuffer<'a>,
@@ -217,6 +218,7 @@ pub enum StreamData<'a> {
 /// same way as reading from a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
 // TODO: remove the wrapper and just use slices in next major version
+#[derive(Debug)]
 pub struct InputBuffer<'a, T: 'a>
 where
     T: Sample,
@@ -232,6 +234,7 @@ where
 // TODO: explain audio stuff in general
 // TODO: remove the wrapper and just use slices
 #[must_use]
+#[derive(Debug)]
 pub struct OutputBuffer<'a, T: 'a>
 where
     T: Sample,
@@ -242,6 +245,7 @@ where
 /// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to read the right buffer.
+#[derive(Debug)]
 pub enum UnknownTypeInputBuffer<'a> {
     /// Samples whose format is `u16`.
     U16(InputBuffer<'a, u16>),
@@ -254,6 +258,7 @@ pub enum UnknownTypeInputBuffer<'a> {
 /// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to fill the right buffer.
+#[derive(Debug)]
 pub enum UnknownTypeOutputBuffer<'a> {
     /// Samples whose format is `u16`.
     U16(OutputBuffer<'a, u16>),

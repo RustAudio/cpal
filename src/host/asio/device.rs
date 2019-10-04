@@ -3,7 +3,7 @@ pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Mutex, Arc};
 use BackendSpecificError;
 use DefaultFormatError;
 use DeviceNameError;
@@ -16,10 +16,14 @@ use SupportedFormatsError;
 use super::sys;
 
 /// A ASIO Device
-#[derive(Debug)]
 pub struct Device {
     /// The driver represented by this device.
     pub driver: Arc<sys::Driver>,
+
+    // Input and/or Output stream.
+    // An driver can only have one of each.
+    // They need to be created at the same time.
+    pub asio_streams: Arc<Mutex<Option<sys::AsioStreams>>>,
 }
 
 /// All available devices.
@@ -148,7 +152,11 @@ impl Iterator for Devices {
         loop {
             match self.drivers.next() {
                 Some(name) => match self.asio.load_driver(&name) {
-                    Ok(driver) => return Some(Device { driver: Arc::new(driver) }),
+                    Ok(driver) => {
+                        let driver = Arc::new(driver);
+                        let asio_streams = Arc::new(Mutex::new(None));
+                        return Some(Device { driver, asio_streams });
+                    }
                     Err(_) => continue,
                 }
                 None => return None,

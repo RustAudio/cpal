@@ -457,9 +457,8 @@ mod platform_impl {
     pub use crate::host::asio::{
         Device as AsioDevice,
         Devices as AsioDevices,
-        EventLoop as AsioEventLoop,
+        Stream as AsioStream,
         Host as AsioHost,
-        StreamId as AsioStreamId,
         SupportedInputFormats as AsioSupportedInputFormats,
         SupportedOutputFormats as AsioSupportedOutputFormats,
     };
