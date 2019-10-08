@@ -78,8 +78,8 @@ impl Device {
         }
 
         let num_channels = format.channels.clone();
-        let asio_stream = self.get_or_create_input_stream(format)?;
-        let cpal_num_samples = asio_stream.buffer_size as usize * num_channels as usize;
+        let buffer_size = self.get_or_create_input_stream(format)?;
+        let cpal_num_samples = buffer_size * num_channels as usize;
 
         // Create the buffer depending on the size of the data type.
         let len_bytes = cpal_num_samples * data_type.sample_size();
@@ -87,6 +87,7 @@ impl Device {
 
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
+        let asio_streams = self.asio_streams.clone();
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -95,6 +96,13 @@ impl Device {
             if !playing.load(Ordering::SeqCst) {
                 return
             }
+
+            // There is 0% chance of lock contention the host only locks when recreating streams.
+            let stream_lock = asio_streams.lock();
+            let ref asio_stream = match stream_lock.input {
+                Some(ref asio_stream) => asio_stream,
+                None => return,
+            };
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
@@ -134,7 +142,7 @@ impl Device {
                     process_input_callback::<i16, i16, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         from_le,
                         std::convert::identity::<i16>,
@@ -144,7 +152,7 @@ impl Device {
                     process_input_callback::<i16, i16, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         from_be,
                         std::convert::identity::<i16>,
@@ -158,7 +166,7 @@ impl Device {
                     process_input_callback::<f32, f32, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<f32>,
                         std::convert::identity::<f32>,
@@ -172,7 +180,7 @@ impl Device {
                     process_input_callback::<i32, i16, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         from_le,
                         |s| (s >> 16) as i16,
@@ -182,7 +190,7 @@ impl Device {
                     process_input_callback::<i32, i16, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         from_be,
                         |s| (s >> 16) as i16,
@@ -195,7 +203,7 @@ impl Device {
                     process_input_callback::<f64, f32, _, _, _>(
                         &mut data_callback,
                         &mut interleaved,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<f64>,
                         |s| s as f32,
@@ -235,8 +243,8 @@ impl Device {
         }
 
         let num_channels = format.channels.clone();
-        let asio_stream = self.get_or_create_output_stream(format)?;
-        let cpal_num_samples = asio_stream.buffer_size as usize * num_channels as usize;
+        let buffer_size = self.get_or_create_output_stream(format)?;
+        let cpal_num_samples = buffer_size * num_channels as usize;
 
         // Create buffers depending on data type.
         let len_bytes = cpal_num_samples * data_type.sample_size();
@@ -245,12 +253,20 @@ impl Device {
 
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
+        let asio_streams = self.asio_streams.clone();
 
         self.driver.set_callback(move |buffer_index| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
                 return
             }
+
+            // There is 0% chance of lock contention the host only locks when recreating streams.
+            let stream_lock = asio_streams.lock();
+            let ref asio_stream = match stream_lock.output {
+                Some(ref asio_stream) => asio_stream,
+                None => return,
+            };
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -325,7 +341,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<i16>,
                         to_le,
@@ -336,7 +352,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<i16>,
                         to_be,
@@ -351,7 +367,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<f32>,
                         std::convert::identity::<f32>,
@@ -366,7 +382,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         |s| (s as i32) << 16,
                         to_le,
@@ -377,7 +393,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         |s| (s as i32) << 16,
                         to_be,
@@ -391,7 +407,7 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         silence,
-                        &asio_stream,
+                        asio_stream,
                         buffer_index as usize,
                         |s| s as f64,
                         std::convert::identity::<f64>,
@@ -419,7 +435,7 @@ impl Device {
     fn get_or_create_input_stream(
         &self,
         format: &Format,
-    ) -> Result<sys::AsioStream, BuildStreamError> {
+    ) -> Result<usize, BuildStreamError> {
         match self.default_input_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
@@ -428,27 +444,26 @@ impl Device {
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
-        let ref mut streams = *self.asio_streams.lock().unwrap();
-        match streams {
-            Some(streams) => match streams.input.take() {
-                Some(input) => Ok(input),
-                None => {
-                    println!("ASIO streams have been already created");
-                    Err(BuildStreamError::DeviceNotAvailable)
-                }
-            },
+        let ref mut streams = *self.asio_streams.lock();
+        // Either create a stream if thers none or had back the
+        // size of the current one.
+        match streams.input {
+            Some(ref input) => Ok(input.buffer_size as usize),
             None => {
-                match self.driver.prepare_input_stream(None, num_channels) {
-                    Ok(mut new_streams) => {
-                        let input = new_streams.input.take().expect("missing input stream");
-                        *streams = Some(new_streams);
-                        Ok(input)
-                    }
-                    Err(e) => {
+                let output = streams.output.take();
+                self.driver
+                    .prepare_input_stream(output, num_channels)
+                    .map(|new_streams| {
+                        let bs = match new_streams.input {
+                            Some(ref inp) => inp.buffer_size as usize,
+                            None => unreachable!(),
+                        };
+                        *streams = new_streams;
+                        bs
+                    }).map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
-                        Err(BuildStreamError::DeviceNotAvailable)
-                    }
-                }
+                        BuildStreamError::DeviceNotAvailable
+                    })
             }
         }
     }
@@ -459,7 +474,7 @@ impl Device {
     fn get_or_create_output_stream(
         &self,
         format: &Format,
-    ) -> Result<sys::AsioStream, BuildStreamError> {
+    ) -> Result<usize, BuildStreamError> {
         match self.default_output_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
@@ -468,27 +483,26 @@ impl Device {
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
-        let ref mut streams = *self.asio_streams.lock().unwrap();
-        match streams {
-            Some(streams) => match streams.output.take() {
-                Some(output) => Ok(output),
-                None => {
-                    println!("ASIO streams have been already created");
-                    Err(BuildStreamError::DeviceNotAvailable)
-                }
-            },
+        let ref mut streams = *self.asio_streams.lock();
+        // Either create a stream if thers none or had back the
+        // size of the current one.
+        match streams.output {
+            Some(ref output) => Ok(output.buffer_size as usize),
             None => {
-                match self.driver.prepare_output_stream(None, num_channels) {
-                    Ok(mut new_streams) => {
-                        let output = new_streams.output.take().expect("missing output stream");
-                        *streams = Some(new_streams);
-                        Ok(output)
-                    }
-                    Err(e) => {
+                let output = streams.output.take();
+                self.driver
+                    .prepare_output_stream(output, num_channels)
+                    .map(|new_streams| {
+                        let bs = match new_streams.output {
+                            Some(ref out) => out.buffer_size as usize,
+                            None => unreachable!(),
+                        };
+                        *streams = new_streams;
+                        bs
+                    }).map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
-                        Err(BuildStreamError::DeviceNotAvailable)
-                    }
-                }
+                        BuildStreamError::DeviceNotAvailable
+                    })
             }
         }
     }

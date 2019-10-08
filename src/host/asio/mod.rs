@@ -1,4 +1,5 @@
 extern crate asio_sys as sys;
+extern crate parking_lot;
 
 use {
     BuildStreamError,
