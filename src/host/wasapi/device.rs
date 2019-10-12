@@ -552,7 +552,7 @@ impl Device {
         }
     }
 
-    fn data_flow(&self) -> EDataFlow {
+    pub(crate) fn data_flow(&self) -> EDataFlow {
         let endpoint = Endpoint::from(self.device as *const _);
         endpoint.data_flow()
     }

@@ -21,6 +21,10 @@ mod device;
 mod stream;
 
 /// The WASAPI host, the default windows host type.
+///
+/// Note: If you use a WASAPI output device as an input device it will
+/// transparently enable loopback mode (see
+/// https://docs.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording).
 #[derive(Debug)]
 pub struct Host;
 
