@@ -2,13 +2,13 @@
 //!
 //! The input data is recorded to "$CARGO_MANIFEST_DIR/recorded.wav".
 
+extern crate anyhow;
 extern crate cpal;
-extern crate failure;
 extern crate hound;
 
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> Result<(), anyhow::Error> {
     // Use the default host for working with audio devices.
     let host = cpal::default_host();
 
