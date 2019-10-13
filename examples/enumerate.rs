@@ -1,9 +1,9 @@
 extern crate cpal;
-extern crate failure;
+extern crate anyhow;
 
 use cpal::traits::{DeviceTrait, HostTrait};
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> Result<(), anyhow::Error> {
     println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
     let available_hosts = cpal::available_hosts();
     println!("Available hosts:\n  {:?}", available_hosts);

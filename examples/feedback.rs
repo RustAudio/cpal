@@ -6,8 +6,8 @@
 //! Uses a delay of `LATENCY_MS` milliseconds in case the default input and output streams are not
 //! precisely synchronised.
 
+extern crate anyhow;
 extern crate cpal;
-extern crate failure;
 extern crate ringbuf;
 
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
@@ -15,7 +15,7 @@ use ringbuf::RingBuffer;
 
 const LATENCY_MS: f32 = 150.0;
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
     let event_loop = host.event_loop();
 

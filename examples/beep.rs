@@ -1,9 +1,9 @@
+extern crate anyhow;
 extern crate cpal;
-extern crate failure;
 
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
     let device = host.default_output_device().expect("failed to find a default output device");
     let format = device.default_output_format()?;

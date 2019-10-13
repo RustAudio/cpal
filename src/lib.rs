@@ -140,7 +140,6 @@
 
 #![recursion_limit = "512"]
 
-extern crate failure;
 #[cfg(target_os = "windows")]
 #[macro_use]
 extern crate lazy_static;
@@ -148,6 +147,7 @@ extern crate lazy_static;
 #[cfg(target_os = "emscripten")]
 #[macro_use]
 extern crate stdweb;
+extern crate thiserror;
 
 pub use error::*;
 pub use platform::{
