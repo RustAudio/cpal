@@ -19,6 +19,22 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all --all-features
 
+  cargo-publish:
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run cargo publish
+      env:
+        MANIFEST: alsa-sys/Cargo.toml
+        CRATESIO_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
+      run: |
+        cargo publish --token $CRATESIO_TOKEN --manifest-path $MANIFEST
+        cargo publish --token $CRATESIO_TOKEN
+
   ubuntu-test:
 
     runs-on: ubuntu-latest
