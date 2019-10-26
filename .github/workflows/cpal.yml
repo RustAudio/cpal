@@ -11,8 +11,13 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
-    - name: Install clippy
-      run: rustup component add clippy
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        components: clippy
     - name: Run clippy
       uses: actions-rs/clippy-check@v1
       with:
@@ -27,6 +32,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
+    - name: Install alsa
+      run: sudo apt-get install libasound2-dev
     - name: Run cargo publish
       env:
         MANIFEST: alsa-sys/Cargo.toml
@@ -46,6 +53,7 @@ jobs:
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
+        profile: minimal
         toolchain: stable
         override: true
     - name: Run without features
@@ -74,6 +82,7 @@ jobs:
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
+        profile: minimal
         toolchain: stable
         target: ${{ matrix.target }}
     - name: Build beep example
@@ -103,6 +112,7 @@ jobs:
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
+        profile: minimal
         toolchain: stable
         target: ${{ matrix.version }}-pc-windows-msvc
         override: true
