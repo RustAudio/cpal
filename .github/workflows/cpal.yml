@@ -76,10 +76,9 @@ jobs:
     - name: Install ASIO SDK
       env:
         LINK: https://www.steinberg.net/asiosdk
-      shell: powershell
       run: |
-        curl.exe -L -o asio.zip $env:LINK
-        7z.exe x -oasio asio.zip
+        curl -L -o asio.zip $env:LINK
+        7z x -oasio asio.zip
         move asio\*\* asio\
     - name: Install ASIO4ALL
       run: choco install asio4all
@@ -95,5 +94,5 @@ jobs:
       run: cargo test --all --no-default-features --verbose
     - name: Run all features
       run: |
-        set CPAL_ASIO_DIR=%GITHUB_WORKSPACE%\asio
+        $Env:CPAL_ASIO_DIR = "$Env:GITHUB_WORKSPACE\asio"
         cargo test --all --all-features --verbose
