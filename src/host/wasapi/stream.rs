@@ -6,7 +6,8 @@ use super::winapi::shared::ksmedia;
 use super::winapi::shared::minwindef::{BYTE, DWORD, FALSE, WORD};
 use super::winapi::shared::mmreg;
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
-use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK};
+use super::winapi::um::audiosessiontypes::{AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK};
+use super::winapi::um::mmdeviceapi::eRender;
 use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
@@ -151,10 +152,16 @@ impl EventLoop {
                     _ => (),
                 }
 
+                // Support capturing output devices.
+                let mut stream_flags: DWORD = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+                if device.data_flow() == eRender {
+                    stream_flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
+                }
+
                 // finally initializing the audio client
                 let hresult = (*audio_client).Initialize(
                     share_mode,
-                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                    stream_flags,
                     0,
                     0,
                     &format_attempt.Format,
