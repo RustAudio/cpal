@@ -30,8 +30,6 @@ jobs:
 
     env:
       CRATESIO_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
-      ALSA: alsa-sys.txt
-      CPAL: cpal.txt
 
     runs-on: ubuntu-latest
 
@@ -44,23 +42,28 @@ jobs:
       env:
         MANIFEST: alsa-sys/Cargo.toml
       run: |
-        cargo publish --token $CRATESIO_TOKEN --manifest-path $MANIFEST 2> $ALSA
+        ALSA_TMP=$(mktemp /tmp/alsa-sysXXX.txt) || echo "::error::mktemp error"
+        echo "::set-env name=ALSA_TMP::$ALSA_TMP"
+        cargo publish --token $CRATESIO_TOKEN \
+                      --manifest-path $MANIFEST 2> $ALSA_TMP
     - name: Check if alsa-sys is already published
       run: |
         empty=0
-        grep -q '[^[:space:]]' < $ALSA || empty=1
-        [ $empty -eq 0 ] && cat $ALSA
-        [ $empty -eq 1 ] || grep -q "is already uploaded" < $ALSA
+        grep -q '[^[:space:]]' < $ALSA_TMP || empty=1
+        [ $empty -eq 0 ] && cat $ALSA_TMP
+        [ $empty -eq 1 ] || grep -q "is already uploaded" < $ALSA_TMP
     - name: Run cargo publish for cpal
       continue-on-error: true
       run: |
-        cargo publish --token $CRATESIO_TOKEN 2> $CPAL
+        CPAL_TMP=$(mktemp /tmp/cpalXXX.txt) || echo "::error::mktemp error"
+        echo "::set-env name=CPAL_TMP::$CPAL_TMP"
+        cargo publish --token $CRATESIO_TOKEN 2> $CPAL_TMP
     - name: Check if cpal is already published
       run: |
         empty=0
-        grep -q '[^[:space:]]' < $CPAL || empty=1
-        [ $empty -eq 0 ] && cat $CPAL
-        [ $empty -eq 1 ] || grep -q "is already uploaded" < $CPAL
+        grep -q '[^[:space:]]' < $CPAL_TMP || empty=1
+        [ $empty -eq 0 ] && cat $CPAL_TMP
+        [ $empty -eq 1 ] || grep -q "is already uploaded" < $CPAL_TMP
 
   ubuntu-test:
 
