@@ -1,5 +1,20 @@
 # Unreleased
 
+# Version 0.11.0 (2019-12-11)
+
+- Fix some underruns that could occur in ALSA.
+- Add name to `HostId`.
+- Use `snd_pcm_hw_params_set_buffer_time_near` rather than `set_buffer_time_max`
+  in ALSA backend.
+- Remove many uses of `std::mem::uninitialized`.
+- Fix WASAPI capture logic.
+- Panic on stream ID overflow rather than returning an error.
+- Use `ringbuffer` crate in feedback example.
+- Move errors into a separate module.
+- Switch from `failure` to `thiserror` for error handling.
+- Add `winbase` winapi feature to solve windows compile error issues.
+- Lots of CI improvements.
+
 # Version 0.10.0 (2019-07-05)
 
 - core-foundation-sys and coreaudio-rs version bumps.
