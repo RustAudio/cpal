@@ -1,9 +1,9 @@
 [package]
 name = "cpal"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Low-level cross-platform audio I/O library in pure Rust."
-repository = "https://github.com/tomaka/cpal"
+repository = "https://github.com/rustaudio/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
