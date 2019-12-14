@@ -435,9 +435,8 @@ mod platform_impl {
     pub use crate::host::emscripten::{
         Device as EmscriptenDevice,
         Devices as EmscriptenDevices,
-        EventLoop as EmscriptenEventLoop,
         Host as EmscriptenHost,
-        StreamId as EmscriptenStreamId,
+        Stream as EmscriptenStream,
         SupportedInputFormats as EmscriptenSupportedInputFormats,
         SupportedOutputFormats as EmscriptenSupportedOutputFormats,
     };
