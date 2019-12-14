@@ -128,7 +128,16 @@ pub trait DeviceTrait {
 
 /// A stream created from `Device`, with methods to control playback.
 pub trait StreamTrait {
+    /// Run the stream.
+    ///
+    /// Note: Not all platforms automatically run the stream upon creation, so it is important to
+    /// call `play` after creation if it is expected that the stream should run immediately.
     fn play(&self) -> Result<(), PlayStreamError>;
 
+    /// Some devices support pausing the audio stream. This can be useful for saving energy in
+    /// moments of silence.
+    ///
+    /// Note: Not all devices support suspending the stream at the hardware level. This method may
+    /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
 }
