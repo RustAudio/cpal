@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use BuildStreamError;
 use DefaultFormatError;
 use DevicesError;
@@ -19,8 +17,6 @@ pub struct Devices;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
-pub struct EventLoop;
-
 pub struct Host;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -30,6 +26,7 @@ pub struct SupportedInputFormats;
 pub struct SupportedOutputFormats;
 
 impl Host {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
     }
@@ -38,12 +35,6 @@ impl Host {
 impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         Ok(Devices)
-    }
-}
-
-impl EventLoop {
-    pub fn new() -> EventLoop {
-        EventLoop
     }
 }
 
