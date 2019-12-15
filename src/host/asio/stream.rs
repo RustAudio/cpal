@@ -6,6 +6,7 @@ use super::Device;
 use std;
 use std::sync::atomic::{Ordering, AtomicBool};
 use std::sync::Arc;
+use super::parking_lot::Mutex;
 use BackendSpecificError;
 use BuildStreamError;
 use Format;
@@ -41,6 +42,10 @@ struct SilenceAsioBuffer {
 
 pub struct Stream {
     playing: Arc<AtomicBool>,
+    // Ensure the `Driver` does not terminate until the last stream is dropped.
+    driver: Arc<sys::Driver>,
+    asio_streams: Arc<Mutex<sys::AsioStreams>>,
+    callback_id: sys::CallbackId,
 }
 
 impl Stream {
@@ -54,8 +59,6 @@ impl Stream {
         Ok(())
     }
 }
-
-// TODO: drop implementation
 
 impl Device {
     pub fn build_input_stream<D, E>(
@@ -91,7 +94,7 @@ impl Device {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
-        self.driver.set_callback(move |buffer_index| unsafe {
+        let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
                 return
@@ -217,10 +220,18 @@ impl Device {
             }
         });
 
+        let driver = self.driver.clone();
+        let asio_streams = self.asio_streams.clone();
+
         // Immediately start the device?
         self.driver.start().map_err(build_stream_err)?;
 
-        Ok(Stream { playing: stream_playing })
+        Ok(Stream {
+            playing: stream_playing,
+            driver,
+            asio_streams,
+            callback_id,
+        })
     }
 
     pub fn build_output_stream<D, E>(
@@ -255,7 +266,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
-        self.driver.set_callback(move |buffer_index| unsafe {
+        let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
                 return
@@ -421,10 +432,18 @@ impl Device {
             }
         });
 
+        let driver = self.driver.clone();
+        let asio_streams = self.asio_streams.clone();
+
         // Immediately start the device?
         self.driver.start().map_err(build_stream_err)?;
 
-        Ok(Stream { playing: stream_playing })
+        Ok(Stream {
+            playing: stream_playing,
+            driver,
+            asio_streams,
+            callback_id,
+        })
     }
 
     /// Create a new CPAL Input Stream.
@@ -505,6 +524,12 @@ impl Device {
                     })
             }
         }
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.driver.remove_callback(self.callback_id);
     }
 }
 

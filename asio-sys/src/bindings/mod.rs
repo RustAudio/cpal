@@ -235,6 +235,9 @@ struct BufferSizes {
     grans: c_long,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CallbackId(usize);
+
 lazy_static! {
     /// A global way to access all the callbacks.
     ///
@@ -244,7 +247,7 @@ lazy_static! {
     /// Options are used so that when a callback is removed we don't change the Vec indices.
     ///
     /// The indices are how we match a callback with a stream.
-    static ref BUFFER_CALLBACK: Mutex<Vec<Option<BufferCallback>>> = Mutex::new(Vec::new());
+    static ref BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 }
 
 impl Asio {
@@ -589,12 +592,26 @@ impl Driver {
     /// Adds a callback to the list of active callbacks.
     ///
     /// The given function receives the index of the buffer currently ready for processing.
-    pub fn set_callback<F>(&self, callback: F)
+    ///
+    /// Returns an ID uniquely associated with the given callback so that it may be removed later.
+    pub fn add_callback<F>(&self, callback: F) -> CallbackId
     where
         F: 'static + FnMut(i32) + Send,
     {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
-        bc.push(Some(BufferCallback(Box::new(callback))));
+        let id = bc
+            .last()
+            .map(|&(id, _)| CallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
+            .unwrap_or(CallbackId(0));
+        let cb = BufferCallback(Box::new(callback));
+        bc.push((id, cb));
+        id
+    }
+
+    /// Remove the callback with the given ID.
+    pub fn remove_callback(&self, rem_id: CallbackId) {
+        let mut bc = BUFFER_CALLBACK.lock().unwrap();
+        bc.retain(|&(id, _)| id != rem_id);
     }
 
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
@@ -863,10 +880,8 @@ extern "C" fn buffer_switch_time_info(
 ) -> *mut ai::ASIOTime {
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
-    for mut bc in bcs.iter_mut() {
-        if let Some(ref mut bc) = bc {
-            bc.run(double_buffer_index);
-        }
+    for &mut (_, ref mut bc) in bcs.iter_mut() {
+        bc.run(double_buffer_index);
     }
     time
 }
