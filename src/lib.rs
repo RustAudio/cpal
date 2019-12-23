@@ -2,15 +2,15 @@
 //!
 //! Here are some concepts cpal exposes:
 //!
-//! - A [**Host**](./trait.Host.html) provides access to the available audio devices on the system.
+//! - A [**Host**](./struct.Host.html) provides access to the available audio devices on the system.
 //!   Some platforms have more than one host available, but every platform supported by CPAL has at
-//!   least one [**DefaultHost**](./trait.Host.html) that is guaranteed to be available.
-//! - A [**Device**](./trait.Device.html) is an audio device that may have any number of input and
+//!   least one [**DefaultHost**](./struct.Host.html) that is guaranteed to be available.
+//! - A [**Device**](./struct.Device.html) is an audio device that may have any number of input and
 //!   output streams.
 //! - A stream is an open flow of audio data. Input streams allow you to receive audio data, output
 //!   streams allow you to play audio data. You must choose which **Device** will run your stream
 //!   before you can create one. Often, a default device can be retrieved via the **Host**.
-//! - An [**EventLoop**](./trait.EventLoop.html) is a collection of streams being run by one or
+//! - An [**EventLoop**](./struct.EventLoop.html) is a collection of streams being run by one or
 //!   more **Device**s under a single **Host**. Each stream must belong to an **EventLoop**, and
 //!   all the streams that belong to an **EventLoop** are managed together.
 //!
