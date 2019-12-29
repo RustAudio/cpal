@@ -439,7 +439,7 @@ enum UserCallback {
     //
     // It is essential for the safety of the program that this callback is removed before `run`
     // returns (not possible with the current CPAL API).
-    Active(&'static mut (FnMut(StreamId, StreamDataResult) + Send)),
+    Active(&'static mut (dyn FnMut(StreamId, StreamDataResult) + Send)),
     // A queue of events that have occurred but that have not yet been emitted to the user as we
     // don't yet have a callback to do so.
     Inactive,
@@ -559,7 +559,7 @@ impl EventLoop {
             if let UserCallback::Active(_) = *guard {
                 panic!("`EventLoop::run` was called when the event loop was already running");
             }
-            let callback: &mut (FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
+            let callback: &mut (dyn FnMut(StreamId, StreamDataResult) + Send) = &mut callback;
             *guard = UserCallback::Active(unsafe { mem::transmute(callback) });
         }
 
@@ -743,12 +743,12 @@ impl EventLoop {
                 // This should not take longer than a few ms, but we timeout after 1 sec just in case.
                 let timer = ::std::time::Instant::now();
                 while sample_rate != reported_rate {
-                    if timer.elapsed() > ::std::time::Duration::from_secs(1) {
+                    if timer.elapsed() > Duration::from_secs(1) {
                         let description = "timeout waiting for sample rate update for device".into();
                         let err = BackendSpecificError { description };
                         return Err(err.into());
                     }
-                    ::std::thread::sleep(::std::time::Duration::from_millis(5));
+                    thread::sleep(Duration::from_millis(5));
                 }
 
                 // Remove the `rate_listener` callback.
