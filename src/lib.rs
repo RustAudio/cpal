@@ -80,8 +80,9 @@
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
 //! > audio data to the system's audio device in a timely manner. On older platforms that only
 //! > provide a blocking API (e.g. ALSA), CPAL will create a thread in order to consistently
-//! > provide non-blocking behaviour. *If this is an issue for your platform or design, please
-//! > share your issue and use-case with the CPAL team on the github issue tracker for
+//! > provide non-blocking behaviour (currently this is a thread per stream, but this may change to
+//! > use a single thread for all streams). *If this is an issue for your platform or design,
+//! > please share your issue and use-case with the CPAL team on the github issue tracker for
 //! > consideration.*
 //!
 //! In this example, we simply fill the given output buffer with zeroes.

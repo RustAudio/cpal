@@ -27,6 +27,8 @@ use UnknownTypeOutputBuffer;
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
+    ///
+    /// TODO: Actually set the thread priority.
     thread: Option<JoinHandle<()>>,
 
     // Commands processed by the `run()` method that is currently running.
