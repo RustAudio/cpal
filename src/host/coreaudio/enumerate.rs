@@ -100,7 +100,7 @@ pub fn default_input_device() -> Option<Device> {
     };
 
     let audio_device_id: AudioDeviceID = 0;
-    let data_size = mem::size_of::<AudioDeviceID>();;
+    let data_size = mem::size_of::<AudioDeviceID>();
     let status = unsafe {
         AudioObjectGetPropertyData(
             kAudioObjectSystemObject,
@@ -129,7 +129,7 @@ pub fn default_output_device() -> Option<Device> {
     };
 
     let audio_device_id: AudioDeviceID = 0;
-    let data_size = mem::size_of::<AudioDeviceID>();;
+    let data_size = mem::size_of::<AudioDeviceID>();
     let status = unsafe {
         AudioObjectGetPropertyData(
             kAudioObjectSystemObject,
