@@ -48,11 +48,18 @@ macro_rules! impl_platform_host {
         ///
         /// This type may be constructed via the **host_from_id** function. **HostId**s may
         /// be acquired via the **ALL_HOSTS** const and the **available_hosts** function.
-        pub struct Host(HostInner);
+        // `Host` and `Device` cannot assume to be `Sync` as we have not yet been able to confirm
+        // whether or not the ASIO API is thread-safe.
+        //
+        // TODO: Try to contact ASIO to get more information. Review the existing implementation of
+        // the `asio` backend's `Host` and `Driver` types and see if the existing `Arc`s and
+        // `Mutex`s don't already make the API `Sync`.
+        pub struct Host(HostInner, crate::platform::NotSyncAcrossAllPlatforms);
 
         /// The **Device** implementation associated with the platform's dynamically dispatched
         /// **Host** type.
-        pub struct Device(DeviceInner);
+        // See comment above `Host` for reasoning behind `NotSyncAcrossAllPlatforms`.
+        pub struct Device(DeviceInner, crate::platform::NotSyncAcrossAllPlatforms);
 
         /// The **Devices** iterator associated with the platform's dynamically dispatched **Host**
         /// type.
@@ -60,7 +67,12 @@ macro_rules! impl_platform_host {
 
         /// The **Stream** implementation associated with the platform's dynamically dispatched
         /// **Host** type.
-        pub struct Stream(StreamInner);
+        // Streams cannot be `Send` or `Sync` if we plan to support Android's AAudio API. This is
+        // because the stream API is not thread-safe, and the API prohibits calling certain
+        // functions within the callback.
+        //
+        // TODO: Confirm this and add more specific detail and references.
+        pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
 
         /// The **SupportedInputFormats** iterator associated with the platform's dynamically
         /// dispatched **Host** type.
@@ -142,7 +154,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         DevicesInner::$HostVariant(ref mut d) => {
-                            d.next().map(DeviceInner::$HostVariant).map(Device)
+                            d.next().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -256,7 +268,7 @@ macro_rules! impl_platform_host {
                     $(
                         DeviceInner::$HostVariant(ref d) => d.build_input_stream(format, data_callback, error_callback)
                             .map(StreamInner::$HostVariant)
-                            .map(Stream),
+                            .map(Stream::from),
                     )*
                 }
             }
@@ -267,7 +279,7 @@ macro_rules! impl_platform_host {
                     $(
                         DeviceInner::$HostVariant(ref d) => d.build_output_stream(format, data_callback, error_callback)
                             .map(StreamInner::$HostVariant)
-                            .map(Stream),
+                            .map(Stream::from),
                     )*
                 }
             }
@@ -285,7 +297,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.devices().map(DevicesInner::$HostVariant).map(Devices)
+                            h.devices().map(DevicesInner::$HostVariant).map(Devices::from)
                         }
                     )*
                 }
@@ -295,7 +307,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.default_input_device().map(DeviceInner::$HostVariant).map(Device)
+                            h.default_input_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -305,7 +317,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.default_output_device().map(DeviceInner::$HostVariant).map(Device)
+                            h.default_output_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -334,28 +346,52 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl From<DeviceInner> for Device {
+            fn from(d: DeviceInner) -> Self {
+                Device(d, Default::default())
+            }
+        }
+
+        impl From<DevicesInner> for Devices {
+            fn from(d: DevicesInner) -> Self {
+                Devices(d)
+            }
+        }
+
+        impl From<HostInner> for Host {
+            fn from(h: HostInner) -> Self {
+                Host(h, Default::default())
+            }
+        }
+
+        impl From<StreamInner> for Stream {
+            fn from(s: StreamInner) -> Self {
+                Stream(s, Default::default())
+            }
+        }
+
         $(
             impl From<crate::host::$host_mod::Device> for Device {
                 fn from(h: crate::host::$host_mod::Device) -> Self {
-                    Device(DeviceInner::$HostVariant(h))
+                    DeviceInner::$HostVariant(h).into()
                 }
             }
 
             impl From<crate::host::$host_mod::Devices> for Devices {
                 fn from(h: crate::host::$host_mod::Devices) -> Self {
-                    Devices(DevicesInner::$HostVariant(h))
+                    DevicesInner::$HostVariant(h).into()
                 }
             }
 
             impl From<crate::host::$host_mod::Host> for Host {
                 fn from(h: crate::host::$host_mod::Host) -> Self {
-                    Host(HostInner::$HostVariant(h))
+                    HostInner::$HostVariant(h).into()
                 }
             }
 
             impl From<crate::host::$host_mod::Stream> for Stream {
                 fn from(h: crate::host::$host_mod::Stream) -> Self {
-                    Stream(StreamInner::$HostVariant(h))
+                    StreamInner::$HostVariant(h).into()
                 }
             }
         )*
@@ -378,7 +414,7 @@ macro_rules! impl_platform_host {
                     HostId::$HostVariant => {
                         crate::host::$host_mod::Host::new()
                             .map(HostInner::$HostVariant)
-                            .map(Host)
+                            .map(Host::from)
                     }
                 )*
             }
@@ -505,5 +541,30 @@ mod platform_impl {
         NullHost::new()
             .expect("the default host should always be available")
             .into()
+    }
+}
+
+// The following zero-sized types are for applying Send/Sync restrictions to ensure
+// consistent behaviour across different platforms. These verbosely named types are used
+// (rather than using the markers directly) in the hope of making the compile errors
+// slightly more helpful.
+//
+// TODO: Remove these in favour of using negative trait bounds if they stabilise.
+
+// A marker used to remove the `Send` and `Sync` traits.
+struct NotSendSyncAcrossAllPlatforms(std::marker::PhantomData<*mut ()>);
+
+// A marker used to remove the `Sync` traits.
+struct NotSyncAcrossAllPlatforms(std::marker::PhantomData<std::cell::RefCell<()>>);
+
+impl Default for NotSyncAcrossAllPlatforms {
+    fn default() -> Self {
+        NotSyncAcrossAllPlatforms(std::marker::PhantomData)
+    }
+}
+
+impl Default for NotSendSyncAcrossAllPlatforms {
+    fn default() -> Self {
+        NotSendSyncAcrossAllPlatforms(std::marker::PhantomData)
     }
 }
