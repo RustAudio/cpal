@@ -34,7 +34,7 @@ pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
 
 mod enumerate;
 
-/// The default linux and freebsd host type.
+/// The default linux, dragonfly and freebsd host type.
 #[derive(Debug)]
 pub struct Host;
 
@@ -50,7 +50,7 @@ impl HostTrait for Host {
     type EventLoop = EventLoop;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/freebsd.
+        // Assume ALSA is always available on linux/dragonfly/freebsd.
         true
     }
 
