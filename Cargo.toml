@@ -25,7 +25,7 @@ ringbuf = "0.1.6"
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winbase", "winuser"] }
 asio-sys = { version = "0.1", path = "asio-sys", optional = true }
 
-[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
 libc = "0.2"
 
