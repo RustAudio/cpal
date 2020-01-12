@@ -48,18 +48,11 @@ macro_rules! impl_platform_host {
         ///
         /// This type may be constructed via the **host_from_id** function. **HostId**s may
         /// be acquired via the **ALL_HOSTS** const and the **available_hosts** function.
-        // `Host` and `Device` cannot assume to be `Sync` as we have not yet been able to confirm
-        // whether or not the ASIO API is thread-safe.
-        //
-        // TODO: Try to contact ASIO to get more information. Review the existing implementation of
-        // the `asio` backend's `Host` and `Driver` types and see if the existing `Arc`s and
-        // `Mutex`s don't already make the API `Sync`.
-        pub struct Host(HostInner, crate::platform::NotSyncAcrossAllPlatforms);
+        pub struct Host(HostInner);
 
         /// The **Device** implementation associated with the platform's dynamically dispatched
         /// **Host** type.
-        // See comment above `Host` for reasoning behind `NotSyncAcrossAllPlatforms`.
-        pub struct Device(DeviceInner, crate::platform::NotSyncAcrossAllPlatforms);
+        pub struct Device(DeviceInner);
 
         /// The **Devices** iterator associated with the platform's dynamically dispatched **Host**
         /// type.
@@ -348,7 +341,7 @@ macro_rules! impl_platform_host {
 
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
-                Device(d, Default::default())
+                Device(d)
             }
         }
 
@@ -360,7 +353,7 @@ macro_rules! impl_platform_host {
 
         impl From<HostInner> for Host {
             fn from(h: HostInner) -> Self {
-                Host(h, Default::default())
+                Host(h)
             }
         }
 
@@ -553,15 +546,6 @@ mod platform_impl {
 
 // A marker used to remove the `Send` and `Sync` traits.
 struct NotSendSyncAcrossAllPlatforms(std::marker::PhantomData<*mut ()>);
-
-// A marker used to remove the `Sync` traits.
-struct NotSyncAcrossAllPlatforms(std::marker::PhantomData<std::cell::RefCell<()>>);
-
-impl Default for NotSyncAcrossAllPlatforms {
-    fn default() -> Self {
-        NotSyncAcrossAllPlatforms(std::marker::PhantomData)
-    }
-}
 
 impl Default for NotSendSyncAcrossAllPlatforms {
     fn default() -> Self {
