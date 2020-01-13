@@ -7,7 +7,7 @@ use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_long, c_void};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 // Bindings import
 use self::asio_import as ai;
@@ -85,7 +85,7 @@ pub struct SampleRate {
 }
 
 /// Holds the pointer to the callbacks that come from cpal
-struct BufferCallback(Box<FnMut(i32) + Send>);
+struct BufferCallback(Box<dyn FnMut(i32) + Send>);
 
 /// Input and Output streams.
 ///
@@ -235,6 +235,9 @@ struct BufferSizes {
     grans: c_long,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CallbackId(usize);
+
 lazy_static! {
     /// A global way to access all the callbacks.
     ///
@@ -244,7 +247,7 @@ lazy_static! {
     /// Options are used so that when a callback is removed we don't change the Vec indices.
     ///
     /// The indices are how we match a callback with a stream.
-    static ref BUFFER_CALLBACK: Mutex<Vec<Option<BufferCallback>>> = Mutex::new(Vec::new());
+    static ref BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 }
 
 impl Asio {
@@ -419,6 +422,8 @@ impl Driver {
         // To pass as ai::ASIOCallbacks
         let mut callbacks = create_asio_callbacks();
 
+        let mut state = self.inner.lock_state();
+
         // Retrieve the available buffer sizes.
         let buffer_sizes = asio_get_buffer_sizes()?;
         if buffer_sizes.pref <= 0 {
@@ -429,13 +434,12 @@ impl Driver {
         }
 
         // Ensure the driver is in the `Initialized` state.
-        if let DriverState::Running = self.inner.state() {
-            self.stop()?;
+        if let DriverState::Running = *state {
+            state.stop()?;
         }
-        if let DriverState::Prepared = self.inner.state() {
-            self.dispose_buffers()?;
+        if let DriverState::Prepared = *state {
+            state.dispose_buffers()?;
         }
-
         unsafe {
             asio_result!(ai::ASIOCreateBuffers(
                 buffer_infos.as_mut_ptr() as *mut _,
@@ -444,8 +448,8 @@ impl Driver {
                 &mut callbacks as *mut _ as *mut _,
             ))?;
         }
+        *state = DriverState::Prepared;
 
-        self.inner.set_state(DriverState::Prepared);
         Ok(buffer_sizes.pref)
     }
 
@@ -566,13 +570,14 @@ impl Driver {
     ///
     /// No-op if already `Running`.
     pub fn start(&self) -> Result<(), AsioError> {
-        if let DriverState::Running = self.inner.state() {
+        let mut state = self.inner.lock_state();
+        if let DriverState::Running = *state {
             return Ok(());
         }
         unsafe {
             asio_result!(ai::ASIOStart())?;
         }
-        self.inner.set_state(DriverState::Running);
+        *state = DriverState::Running;
         Ok(())
     }
 
@@ -589,12 +594,26 @@ impl Driver {
     /// Adds a callback to the list of active callbacks.
     ///
     /// The given function receives the index of the buffer currently ready for processing.
-    pub fn set_callback<F>(&self, callback: F)
+    ///
+    /// Returns an ID uniquely associated with the given callback so that it may be removed later.
+    pub fn add_callback<F>(&self, callback: F) -> CallbackId
     where
         F: 'static + FnMut(i32) + Send,
     {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
-        bc.push(Some(BufferCallback(Box::new(callback))));
+        let id = bc
+            .last()
+            .map(|&(id, _)| CallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
+            .unwrap_or(CallbackId(0));
+        let cb = BufferCallback(Box::new(callback));
+        bc.push((id, cb));
+        id
+    }
+
+    /// Remove the callback with the given ID.
+    pub fn remove_callback(&self, rem_id: CallbackId) {
+        let mut bc = BUFFER_CALLBACK.lock().unwrap();
+        bc.retain(|&(id, _)| id != rem_id);
     }
 
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
@@ -618,55 +637,70 @@ impl Driver {
     }
 }
 
-impl DriverInner {
-    fn state(&self) -> DriverState {
-        *self.state.lock().expect("failed to lock `DriverState`")
-    }
-
-    fn set_state(&self, state: DriverState) {
-        *self.state.lock().expect("failed to lock `DriverState`") = state;
-    }
-
-    fn stop_inner(&self) -> Result<(), AsioError> {
-        if let DriverState::Running = self.state() {
+impl DriverState {
+    fn stop(&mut self) -> Result<(), AsioError> {
+        if let DriverState::Running = *self {
             unsafe {
                 asio_result!(ai::ASIOStop())?;
             }
-            self.set_state(DriverState::Prepared);
+            *self = DriverState::Prepared;
         }
         Ok(())
     }
 
-    fn dispose_buffers_inner(&self) -> Result<(), AsioError> {
-        if let DriverState::Initialized = self.state() {
+    fn dispose_buffers(&mut self) -> Result<(), AsioError> {
+        if let DriverState::Initialized = *self {
             return Ok(());
         }
-        if let DriverState::Running = self.state() {
-            self.stop_inner()?;
+        if let DriverState::Running = *self {
+            self.stop()?;
         }
         unsafe {
             asio_result!(ai::ASIODisposeBuffers())?;
         }
-        self.set_state(DriverState::Initialized);
+        *self = DriverState::Initialized;
         Ok(())
     }
 
-    fn destroy_inner(&mut self) -> Result<(), AsioError> {
-        // Drop back through the driver state machine one state at a time.
-        if let DriverState::Running = self.state() {
-            self.stop_inner()?;
+    fn destroy(&mut self) -> Result<(), AsioError> {
+        if let DriverState::Running = *self {
+            self.stop()?;
         }
-        if let DriverState::Prepared = self.state() {
-            self.dispose_buffers_inner()?;
+        if let DriverState::Prepared = *self {
+            self.dispose_buffers()?;
         }
         unsafe {
             asio_result!(ai::ASIOExit())?;
             ai::remove_current_driver();
         }
+        Ok(())
+    }
+}
 
-        // Clear any existing stream callbacks.
-        if let Ok(mut bcs) = BUFFER_CALLBACK.lock() {
-            bcs.clear();
+impl DriverInner {
+    fn lock_state(&self) -> MutexGuard<DriverState> {
+        self.state.lock().expect("failed to lock `DriverState`")
+    }
+
+    fn stop_inner(&self) -> Result<(), AsioError> {
+        let mut state = self.lock_state();
+        state.stop()
+    }
+
+    fn dispose_buffers_inner(&self) -> Result<(), AsioError> {
+        let mut state = self.lock_state();
+        state.dispose_buffers()
+    }
+
+    fn destroy_inner(&mut self) -> Result<(), AsioError> {
+        {
+            let mut state = self.lock_state();
+            state.destroy()?;
+
+            // Clear any existing stream callbacks.
+            if let Ok(mut bcs) = BUFFER_CALLBACK.lock() {
+                bcs.clear();
+            }
         }
 
         // Signal that the driver has been destroyed.
@@ -863,10 +897,8 @@ extern "C" fn buffer_switch_time_info(
 ) -> *mut ai::ASIOTime {
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
-    for mut bc in bcs.iter_mut() {
-        if let Some(ref mut bc) = bc {
-            bc.run(double_buffer_index);
-        }
+    for &mut (_, ref mut bc) in bcs.iter_mut() {
+        bc.run(double_buffer_index);
     }
     time
 }

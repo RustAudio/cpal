@@ -7,25 +7,21 @@
 //!   least one [**DefaultHost**](./struct.Host.html) that is guaranteed to be available.
 //! - A [**Device**](./struct.Device.html) is an audio device that may have any number of input and
 //!   output streams.
-//! - A stream is an open flow of audio data. Input streams allow you to receive audio data, output
-//!   streams allow you to play audio data. You must choose which **Device** will run your stream
-//!   before you can create one. Often, a default device can be retrieved via the **Host**.
-//! - An [**EventLoop**](./struct.EventLoop.html) is a collection of streams being run by one or
-//!   more **Device**s under a single **Host**. Each stream must belong to an **EventLoop**, and
-//!   all the streams that belong to an **EventLoop** are managed together.
+//! - A [**Stream**](./trait.Stream.html) is an open flow of audio data. Input streams allow you to
+//!   receive audio data, output streams allow you to play audio data. You must choose which
+//!   **Device** will run your stream before you can create one. Often, a default device can be
+//!   retrieved via the **Host**.
 //!
-//! The first step is to initialise the `Host` (for accessing audio devices) and create an
-//! `EventLoop`:
+//! The first step is to initialise the `Host`:
 //!
 //! ```
 //! use cpal::traits::HostTrait;
 //! let host = cpal::default_host();
-//! let event_loop = host.event_loop();
 //! ```
 //!
-//! Then choose a `Device`. The easiest way is to use the default input or output `Device` via the
-//! `default_input_device()` or `default_output_device()` functions. Alternatively you can
-//! enumerate all the available devices with the `devices()` function. Beware that the
+//! Then choose an available `Device`. The easiest way is to use the default input or output
+//! `Device` via the `default_input_device()` or `default_output_device()` functions. Alternatively
+//! you can enumerate all the available devices with the `devices()` function. Beware that the
 //! `default_*_device()` functions return an `Option` in case no device is available for that
 //! stream type on the system.
 //!
@@ -56,87 +52,97 @@
 //!     .with_max_sample_rate();
 //! ```
 //!
-//! Now that we have everything for the stream, we can create it from our event loop:
+//! Now that we have everything for the stream, we are ready to create it from our selected device:
 //!
 //! ```no_run
-//! use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
+//! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
-//! # let event_loop = host.event_loop();
 //! # let device = host.default_output_device().unwrap();
-//! # let format = device.supported_output_formats().unwrap().next().unwrap().with_max_sample_rate();
-//! let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
+//! # let format = device.default_output_format().unwrap();
+//! let stream = device.build_output_stream(
+//!     &format,
+//!     move |data| {
+//!         // react to stream events and read or write stream data here.
+//!     },
+//!     move |err| {
+//!         // react to errors here.
+//!     },
+//! );
 //! ```
 //!
-//! The value returned by `build_output_stream()` is of type `StreamId` and is an identifier that
-//! will allow you to control the stream.
+//! While the stream is running, the selected audio device will periodically call the data callback
+//! that was passed to the function. The callback is passed an instance of type `StreamData` that
+//! represents the data that must be read from or written to. The inner `UnknownTypeOutputBuffer`
+//! can be one of `I16`, `U16` or `F32` depending on the format that was passed to
+//! `build_output_stream`.
 //!
-//! Now we must start the stream. This is done with the `play_stream()` method on the event loop.
-//!
-//! ```no_run
-//! # use cpal::traits::{EventLoopTrait, HostTrait};
-//! # let host = cpal::default_host();
-//! # let event_loop = host.event_loop();
-//! # let stream_id = unimplemented!();
-//! event_loop.play_stream(stream_id).expect("failed to play_stream");
-//! ```
-//!
-//! Now everything is ready! We call `run()` on the `event_loop` to begin processing.
-//!
-//! ```no_run
-//! # use cpal::traits::{EventLoopTrait, HostTrait};
-//! # let host = cpal::default_host();
-//! # let event_loop = host.event_loop();
-//! event_loop.run(move |_stream_id, _stream_result| {
-//!     // react to stream events and read or write stream data here
-//! });
-//! ```
-//!
-//! > **Note**: Calling `run()` will block the thread forever, so it's usually best done in a
-//! > separate thread.
-//!
-//! While `run()` is running, the audio device of the user will from time to time call the callback
-//! that you passed to this function. The callback gets passed the stream ID and an instance of type
-//! `StreamData` that represents the data that must be read from or written to. The inner
-//! `UnknownTypeOutputBuffer` can be one of `I16`, `U16` or `F32` depending on the format that was
-//! passed to `build_output_stream`.
+//! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
+//! > given callback is called by a dedicated, high-priority thread responsible for delivering
+//! > audio data to the system's audio device in a timely manner. On older platforms that only
+//! > provide a blocking API (e.g. ALSA), CPAL will create a thread in order to consistently
+//! > provide non-blocking behaviour (currently this is a thread per stream, but this may change to
+//! > use a single thread for all streams). *If this is an issue for your platform or design,
+//! > please share your issue and use-case with the CPAL team on the github issue tracker for
+//! > consideration.*
 //!
 //! In this example, we simply fill the given output buffer with zeroes.
 //!
 //! ```no_run
 //! use cpal::{StreamData, UnknownTypeOutputBuffer};
-//! use cpal::traits::{EventLoopTrait, HostTrait};
+//! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
-//! # let event_loop = host.event_loop();
-//! event_loop.run(move |stream_id, stream_result| {
-//!     let stream_data = match stream_result {
-//!         Ok(data) => data,
-//!         Err(err) => {
-//!             eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
-//!             return;
+//! # let device = host.default_output_device().unwrap();
+//! # let format = device.default_output_format().unwrap();
+//! let stream = device.build_output_stream(
+//!     &format,
+//!     move |data| {
+//!         match data {
+//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
+//!                 for elem in buffer.iter_mut() {
+//!                     *elem = u16::max_value() / 2;
+//!                 }
+//!             },
+//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
+//!                 for elem in buffer.iter_mut() {
+//!                     *elem = 0;
+//!                 }
+//!             },
+//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
+//!                 for elem in buffer.iter_mut() {
+//!                     *elem = 0.0;
+//!                 }
+//!             },
+//!             _ => (),
 //!         }
-//!         _ => return,
-//!     };
-//!
-//!     match stream_data {
-//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
-//!             for elem in buffer.iter_mut() {
-//!                 *elem = u16::max_value() / 2;
-//!             }
-//!         },
-//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
-//!             for elem in buffer.iter_mut() {
-//!                 *elem = 0;
-//!             }
-//!         },
-//!         StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
-//!             for elem in buffer.iter_mut() {
-//!                 *elem = 0.0;
-//!             }
-//!         },
-//!         _ => (),
-//!     }
-//! });
+//!     },
+//!     move |err| {
+//!         eprintln!("an error occurred on the output audio stream: {}", err);
+//!     },
+//! );
 //! ```
+//!
+//! Not all platforms automatically run the stream upon creation. To ensure the stream has started,
+//! we can use `Stream::play`.
+//!
+//! ```no_run
+//! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+//! # let host = cpal::default_host();
+//! # let device = host.default_output_device().unwrap();
+//! # let format = device.default_output_format().unwrap();
+//! # let stream = device.build_output_stream(&format, move |_data| {}, move |_err| {}).unwrap();
+//! stream.play().unwrap();
+//! ```
+//!
+//! Some devices support pausing the audio stream. This can be useful for saving energy in moments
+//! of silence.
+//!
+//! ```no_run
+//! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+//! # let host = cpal::default_host();
+//! # let device = host.default_output_device().unwrap();
+//! # let format = device.default_output_format().unwrap();
+//! # let stream = device.build_output_stream(&format, move |_data| {}, move |_err| {}).unwrap();
+//! stream.pause().unwrap();
 
 #![recursion_limit = "512"]
 
@@ -151,11 +157,10 @@ extern crate thiserror;
 
 pub use error::*;
 pub use platform::{
-    ALL_HOSTS, Device, Devices, EventLoop, Host, HostId, SupportedInputFormats,
-    SupportedOutputFormats, StreamId, available_hosts, default_host, host_from_id,
+    ALL_HOSTS, available_hosts, default_host, Device, Devices, Host, host_from_id,
+    HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
 };
 pub use samples_formats::{Sample, SampleFormat};
-
 use std::ops::{Deref, DerefMut};
 
 mod error;
@@ -198,6 +203,7 @@ pub struct SupportedFormat {
 }
 
 /// Stream data passed to the `EventLoop::run` callback.
+#[derive(Debug)]
 pub enum StreamData<'a> {
     Input {
         buffer: UnknownTypeInputBuffer<'a>,
@@ -207,16 +213,13 @@ pub enum StreamData<'a> {
     },
 }
 
-/// Stream data passed to the `EventLoop::run` callback, or an error in the case that the device
-/// was invalidated or some backend-specific error occurred.
-pub type StreamDataResult<'a> = Result<StreamData<'a>, StreamError>;
-
 /// Represents a buffer containing audio data that may be read.
 ///
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
 /// same way as reading from a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
 // TODO: remove the wrapper and just use slices in next major version
+#[derive(Debug)]
 pub struct InputBuffer<'a, T: 'a>
 where
     T: Sample,
@@ -232,6 +235,7 @@ where
 // TODO: explain audio stuff in general
 // TODO: remove the wrapper and just use slices
 #[must_use]
+#[derive(Debug)]
 pub struct OutputBuffer<'a, T: 'a>
 where
     T: Sample,
@@ -242,6 +246,7 @@ where
 /// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to read the right buffer.
+#[derive(Debug)]
 pub enum UnknownTypeInputBuffer<'a> {
     /// Samples whose format is `u16`.
     U16(InputBuffer<'a, u16>),
@@ -254,6 +259,7 @@ pub enum UnknownTypeInputBuffer<'a> {
 /// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
 ///
 /// Since the type of data is only known at runtime, you have to fill the right buffer.
+#[derive(Debug)]
 pub enum UnknownTypeOutputBuffer<'a> {
     /// Samples whose format is `u16`.
     U16(OutputBuffer<'a, u16>),

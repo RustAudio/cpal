@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use BuildStreamError;
 use DefaultFormatError;
 use DevicesError;
@@ -7,10 +5,11 @@ use DeviceNameError;
 use Format;
 use PauseStreamError;
 use PlayStreamError;
-use StreamDataResult;
+use StreamData;
+use StreamError;
 use SupportedFormatsError;
 use SupportedFormat;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
+use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[derive(Default)]
 pub struct Devices;
@@ -18,17 +17,16 @@ pub struct Devices;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
-pub struct EventLoop;
-
 pub struct Host;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId;
+pub struct Stream;
 
 pub struct SupportedInputFormats;
 pub struct SupportedOutputFormats;
 
 impl Host {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
     }
@@ -40,15 +38,10 @@ impl Devices {
     }
 }
 
-impl EventLoop {
-    pub fn new() -> EventLoop {
-        EventLoop
-    }
-}
-
 impl DeviceTrait for Device {
     type SupportedInputFormats = SupportedInputFormats;
     type SupportedOutputFormats = SupportedOutputFormats;
+    type Stream = Stream;
 
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -74,49 +67,22 @@ impl DeviceTrait for Device {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         unimplemented!()
     }
-}
 
-impl EventLoopTrait for EventLoop {
-    type Device = Device;
-    type StreamId = StreamId;
-
-    #[inline]
-    fn run<F>(&self, _callback: F) -> !
-        where F: FnMut(StreamId, StreamDataResult)
-    {
-        loop { /* TODO: don't spin */ }
-    }
-
-    #[inline]
-    fn build_input_stream(&self, _: &Device, _: &Format) -> Result<StreamId, BuildStreamError> {
-        Err(BuildStreamError::DeviceNotAvailable)
-    }
-
-    #[inline]
-    fn build_output_stream(&self, _: &Device, _: &Format) -> Result<StreamId, BuildStreamError> {
-        Err(BuildStreamError::DeviceNotAvailable)
-    }
-
-    #[inline]
-    fn destroy_stream(&self, _: StreamId) {
+    fn build_input_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
         unimplemented!()
     }
 
-    #[inline]
-    fn play_stream(&self, _: StreamId) -> Result<(), PlayStreamError> {
-        panic!()
-    }
-
-    #[inline]
-    fn pause_stream(&self, _: StreamId) -> Result<(), PauseStreamError> {
-        panic!()
+    /// Create an output stream.
+    fn build_output_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
+        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static{
+        unimplemented!()
     }
 }
 
 impl HostTrait for Host {
     type Device = Device;
     type Devices = Devices;
-    type EventLoop = EventLoop;
 
     fn is_available() -> bool {
         false
@@ -133,13 +99,17 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Device> {
         None
     }
-
-    fn event_loop(&self) -> Self::EventLoop {
-        EventLoop::new()
-    }
 }
 
-impl StreamIdTrait for StreamId {}
+impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        unimplemented!()
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        unimplemented!()
+    }
+}
 
 impl Iterator for Devices {
     type Item = Device;

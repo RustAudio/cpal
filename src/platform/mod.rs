@@ -58,14 +58,14 @@ macro_rules! impl_platform_host {
         /// type.
         pub struct Devices(DevicesInner);
 
-        /// The **EventLoop** implementation associated with the platform's dynamically dispatched
+        /// The **Stream** implementation associated with the platform's dynamically dispatched
         /// **Host** type.
-        pub struct EventLoop(EventLoopInner);
-
-        /// The **StreamId** implementation associated with the platform's dynamically dispatched
-        /// **Host** type.
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-        pub struct StreamId(StreamIdInner);
+        // Streams cannot be `Send` or `Sync` if we plan to support Android's AAudio API. This is
+        // because the stream API is not thread-safe, and the API prohibits calling certain
+        // functions within the callback.
+        //
+        // TODO: Confirm this and add more specific detail and references.
+        pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
 
         /// The **SupportedInputFormats** iterator associated with the platform's dynamically
         /// dispatched **Host** type.
@@ -95,22 +95,15 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        enum EventLoopInner {
-            $(
-                $HostVariant(crate::host::$host_mod::EventLoop),
-            )*
-        }
-
         enum HostInner {
             $(
                 $HostVariant(crate::host::$host_mod::Host),
             )*
         }
 
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-        enum StreamIdInner {
+        enum StreamInner {
             $(
-                $HostVariant(crate::host::$host_mod::StreamId),
+                $HostVariant(crate::host::$host_mod::Stream),
             )*
         }
 
@@ -154,7 +147,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         DevicesInner::$HostVariant(ref mut d) => {
-                            d.next().map(DeviceInner::$HostVariant).map(Device)
+                            d.next().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -212,6 +205,7 @@ macro_rules! impl_platform_host {
         impl crate::traits::DeviceTrait for Device {
             type SupportedInputFormats = SupportedInputFormats;
             type SupportedOutputFormats = SupportedOutputFormats;
+            type Stream = Stream;
 
             fn name(&self) -> Result<String, crate::DeviceNameError> {
                 match self.0 {
@@ -260,96 +254,25 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
-        }
 
-        impl crate::traits::EventLoopTrait for EventLoop {
-            type StreamId = StreamId;
-            type Device = Device;
-
-            #[allow(unreachable_patterns)]
-            fn build_input_stream(
-                &self,
-                device: &Self::Device,
-                format: &crate::Format,
-            ) -> Result<Self::StreamId, crate::BuildStreamError> {
-                match (&self.0, &device.0) {
-                    $(
-                        (&EventLoopInner::$HostVariant(ref e), &DeviceInner::$HostVariant(ref d)) => {
-                            e.build_input_stream(d, format)
-                                .map(StreamIdInner::$HostVariant)
-                                .map(StreamId)
-                        }
-                    )*
-                    _ => panic!("tried to build a stream with a device from another host"),
-                }
-            }
-
-            #[allow(unreachable_patterns)]
-            fn build_output_stream(
-                &self,
-                device: &Self::Device,
-                format: &crate::Format,
-            ) -> Result<Self::StreamId, crate::BuildStreamError> {
-                match (&self.0, &device.0) {
-                    $(
-                        (&EventLoopInner::$HostVariant(ref e), &DeviceInner::$HostVariant(ref d)) => {
-                            e.build_output_stream(d, format)
-                                .map(StreamIdInner::$HostVariant)
-                                .map(StreamId)
-                        }
-                    )*
-                    _ => panic!("tried to build a stream with a device from another host"),
-                }
-            }
-
-            #[allow(unreachable_patterns)]
-            fn play_stream(&self, stream: Self::StreamId) -> Result<(), crate::PlayStreamError> {
-                match (&self.0, stream.0) {
-                    $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
-                            e.play_stream(s.clone())
-                        }
-                    )*
-                    _ => panic!("tried to play a stream with an ID associated with another host"),
-                }
-            }
-
-            #[allow(unreachable_patterns)]
-            fn pause_stream(&self, stream: Self::StreamId) -> Result<(), crate::PauseStreamError> {
-                match (&self.0, stream.0) {
-                    $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
-                            e.pause_stream(s.clone())
-                        }
-                    )*
-                    _ => panic!("tried to pause a stream with an ID associated with another host"),
-                }
-            }
-
-            #[allow(unreachable_patterns)]
-            fn destroy_stream(&self, stream: Self::StreamId) {
-                match (&self.0, stream.0) {
-                    $(
-                        (&EventLoopInner::$HostVariant(ref e), StreamIdInner::$HostVariant(ref s)) => {
-                            e.destroy_stream(s.clone())
-                        }
-                    )*
-                    _ => panic!("tried to destroy a stream with an ID associated with another host"),
-                }
-            }
-
-            fn run<F>(&self, mut callback: F) -> !
-            where
-                F: FnMut(Self::StreamId, crate::StreamDataResult) + Send
-            {
+            fn build_input_stream<D, E>(&self, format: &crate::Format, data_callback: D, error_callback: E) -> Result<Self::Stream, crate::BuildStreamError>
+                where D: FnMut(crate::StreamData) + Send + 'static, E: FnMut(crate::StreamError) + Send + 'static {
                 match self.0 {
                     $(
-                        EventLoopInner::$HostVariant(ref e) => {
-                            e.run(|id, result| {
-                                let result = result;
-                                callback(StreamId(StreamIdInner::$HostVariant(id)), result);
-                            });
-                        },
+                        DeviceInner::$HostVariant(ref d) => d.build_input_stream(format, data_callback, error_callback)
+                            .map(StreamInner::$HostVariant)
+                            .map(Stream::from),
+                    )*
+                }
+            }
+
+            fn build_output_stream<D, E>(&self, format: &crate::Format, data_callback: D, error_callback: E) -> Result<Self::Stream, crate::BuildStreamError>
+                where D: FnMut(crate::StreamData) + Send + 'static, E: FnMut(crate::StreamError) + Send + 'static {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => d.build_output_stream(format, data_callback, error_callback)
+                            .map(StreamInner::$HostVariant)
+                            .map(Stream::from),
                     )*
                 }
             }
@@ -358,7 +281,6 @@ macro_rules! impl_platform_host {
         impl crate::traits::HostTrait for Host {
             type Devices = Devices;
             type Device = Device;
-            type EventLoop = EventLoop;
 
             fn is_available() -> bool {
                 $( crate::host::$host_mod::Host::is_available() ||)* false
@@ -368,7 +290,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.devices().map(DevicesInner::$HostVariant).map(Devices)
+                            h.devices().map(DevicesInner::$HostVariant).map(Devices::from)
                         }
                     )*
                 }
@@ -378,7 +300,7 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.default_input_device().map(DeviceInner::$HostVariant).map(Device)
+                            h.default_input_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -388,53 +310,81 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         HostInner::$HostVariant(ref h) => {
-                            h.default_output_device().map(DeviceInner::$HostVariant).map(Device)
-                        }
-                    )*
-                }
-            }
-
-            fn event_loop(&self) -> Self::EventLoop {
-                match self.0 {
-                    $(
-                        HostInner::$HostVariant(ref h) => {
-                            EventLoop(EventLoopInner::$HostVariant(h.event_loop()))
+                            h.default_output_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
             }
         }
 
-        impl crate::traits::StreamIdTrait for StreamId {}
+        impl crate::traits::StreamTrait for Stream {
+            fn play(&self) -> Result<(), crate::PlayStreamError> {
+                match self.0 {
+                    $(
+                        StreamInner::$HostVariant(ref s) => {
+                            s.play()
+                        }
+                    )*
+                }
+            }
+
+            fn pause(&self) -> Result<(), crate::PauseStreamError> {
+                match self.0 {
+                    $(
+                        StreamInner::$HostVariant(ref s) => {
+                            s.pause()
+                        }
+                    )*
+                }
+            }
+        }
+
+        impl From<DeviceInner> for Device {
+            fn from(d: DeviceInner) -> Self {
+                Device(d)
+            }
+        }
+
+        impl From<DevicesInner> for Devices {
+            fn from(d: DevicesInner) -> Self {
+                Devices(d)
+            }
+        }
+
+        impl From<HostInner> for Host {
+            fn from(h: HostInner) -> Self {
+                Host(h)
+            }
+        }
+
+        impl From<StreamInner> for Stream {
+            fn from(s: StreamInner) -> Self {
+                Stream(s, Default::default())
+            }
+        }
 
         $(
             impl From<crate::host::$host_mod::Device> for Device {
                 fn from(h: crate::host::$host_mod::Device) -> Self {
-                    Device(DeviceInner::$HostVariant(h))
+                    DeviceInner::$HostVariant(h).into()
                 }
             }
 
             impl From<crate::host::$host_mod::Devices> for Devices {
                 fn from(h: crate::host::$host_mod::Devices) -> Self {
-                    Devices(DevicesInner::$HostVariant(h))
-                }
-            }
-
-            impl From<crate::host::$host_mod::EventLoop> for EventLoop {
-                fn from(h: crate::host::$host_mod::EventLoop) -> Self {
-                    EventLoop(EventLoopInner::$HostVariant(h))
+                    DevicesInner::$HostVariant(h).into()
                 }
             }
 
             impl From<crate::host::$host_mod::Host> for Host {
                 fn from(h: crate::host::$host_mod::Host) -> Self {
-                    Host(HostInner::$HostVariant(h))
+                    HostInner::$HostVariant(h).into()
                 }
             }
 
-            impl From<crate::host::$host_mod::StreamId> for StreamId {
-                fn from(h: crate::host::$host_mod::StreamId) -> Self {
-                    StreamId(StreamIdInner::$HostVariant(h))
+            impl From<crate::host::$host_mod::Stream> for Stream {
+                fn from(h: crate::host::$host_mod::Stream) -> Self {
+                    StreamInner::$HostVariant(h).into()
                 }
             }
         )*
@@ -457,7 +407,7 @@ macro_rules! impl_platform_host {
                     HostId::$HostVariant => {
                         crate::host::$host_mod::Host::new()
                             .map(HostInner::$HostVariant)
-                            .map(Host)
+                            .map(Host::from)
                     }
                 )*
             }
@@ -471,9 +421,8 @@ mod platform_impl {
     pub use crate::host::alsa::{
         Device as AlsaDevice,
         Devices as AlsaDevices,
-        EventLoop as AlsaEventLoop,
         Host as AlsaHost,
-        StreamId as AlsaStreamId,
+        Stream as AlsaStream,
         SupportedInputFormats as AlsaSupportedInputFormats,
         SupportedOutputFormats as AlsaSupportedOutputFormats,
     };
@@ -494,9 +443,8 @@ mod platform_impl {
     pub use crate::host::coreaudio::{
         Device as CoreAudioDevice,
         Devices as CoreAudioDevices,
-        EventLoop as CoreAudioEventLoop,
         Host as CoreAudioHost,
-        StreamId as CoreAudioStreamId,
+        Stream as CoreAudioStream,
         SupportedInputFormats as CoreAudioSupportedInputFormats,
         SupportedOutputFormats as CoreAudioSupportedOutputFormats,
     };
@@ -516,9 +464,8 @@ mod platform_impl {
     pub use crate::host::emscripten::{
         Device as EmscriptenDevice,
         Devices as EmscriptenDevices,
-        EventLoop as EmscriptenEventLoop,
         Host as EmscriptenHost,
-        StreamId as EmscriptenStreamId,
+        Stream as EmscriptenStream,
         SupportedInputFormats as EmscriptenSupportedInputFormats,
         SupportedOutputFormats as EmscriptenSupportedOutputFormats,
     };
@@ -539,18 +486,16 @@ mod platform_impl {
     pub use crate::host::asio::{
         Device as AsioDevice,
         Devices as AsioDevices,
-        EventLoop as AsioEventLoop,
+        Stream as AsioStream,
         Host as AsioHost,
-        StreamId as AsioStreamId,
         SupportedInputFormats as AsioSupportedInputFormats,
         SupportedOutputFormats as AsioSupportedOutputFormats,
     };
     pub use crate::host::wasapi::{
         Device as WasapiDevice,
         Devices as WasapiDevices,
-        EventLoop as WasapiEventLoop,
+        Stream as WasapiStream,
         Host as WasapiHost,
-        StreamId as WasapiStreamId,
         SupportedInputFormats as WasapiSupportedInputFormats,
         SupportedOutputFormats as WasapiSupportedOutputFormats,
     };
@@ -589,5 +534,21 @@ mod platform_impl {
         NullHost::new()
             .expect("the default host should always be available")
             .into()
+    }
+}
+
+// The following zero-sized types are for applying Send/Sync restrictions to ensure
+// consistent behaviour across different platforms. These verbosely named types are used
+// (rather than using the markers directly) in the hope of making the compile errors
+// slightly more helpful.
+//
+// TODO: Remove these in favour of using negative trait bounds if they stabilise.
+
+// A marker used to remove the `Send` and `Sync` traits.
+struct NotSendSyncAcrossAllPlatforms(std::marker::PhantomData<*mut ()>);
+
+impl Default for NotSendSyncAcrossAllPlatforms {
+    fn default() -> Self {
+        NotSendSyncAcrossAllPlatforms(std::marker::PhantomData)
     }
 }
