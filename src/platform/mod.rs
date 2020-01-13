@@ -255,8 +255,17 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_input_stream<D, E>(&self, format: &crate::Format, data_callback: D, error_callback: E) -> Result<Self::Stream, crate::BuildStreamError>
-                where D: FnMut(crate::StreamData) + Send + 'static, E: FnMut(crate::StreamError) + Send + 'static {
+            fn build_input_stream<T, D, E>(
+                &self,
+                format: &crate::Format,
+                data_callback: D,
+                error_callback: E,
+            ) -> Result<Self::Stream, crate::BuildStreamError>
+            where
+                T: crate::Sample,
+                D: FnMut(crate::InputData<T>) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
+            {
                 match self.0 {
                     $(
                         DeviceInner::$HostVariant(ref d) => d.build_input_stream(format, data_callback, error_callback)
@@ -266,8 +275,17 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_output_stream<D, E>(&self, format: &crate::Format, data_callback: D, error_callback: E) -> Result<Self::Stream, crate::BuildStreamError>
-                where D: FnMut(crate::StreamData) + Send + 'static, E: FnMut(crate::StreamError) + Send + 'static {
+            fn build_output_stream<T, D, E>(
+                &self,
+                format: &crate::Format,
+                data_callback: D,
+                error_callback: E,
+            ) -> Result<Self::Stream, crate::BuildStreamError>
+            where
+                T: crate::Sample,
+                D: FnMut(crate::OutputData<T>) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
+            {
                 match self.0 {
                     $(
                         DeviceInner::$HostVariant(ref d) => d.build_output_stream(format, data_callback, error_callback)

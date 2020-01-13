@@ -7,6 +7,9 @@ extern crate cpal;
 extern crate hound;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::sync::{Arc, Mutex};
+use std::fs::File;
+use std::io::BufWriter;
 
 fn main() -> Result<(), anyhow::Error> {
     // Use the default host for working with audio devices.
@@ -25,55 +28,36 @@ fn main() -> Result<(), anyhow::Error> {
     const PATH: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
     let spec = wav_spec_from_format(&format);
     let writer = hound::WavWriter::create(PATH, spec)?;
-    let writer = std::sync::Arc::new(std::sync::Mutex::new(Some(writer)));
+    let writer = Arc::new(Mutex::new(Some(writer)));
 
     // A flag to indicate that recording is in progress.
     println!("Begin recording...");
 
     // Run the input stream on a separate thread.
     let writer_2 = writer.clone();
-    let stream = device.build_input_stream(&format, move |data| {
-        // Otherwise write to the wav writer.
-        match data {
-            cpal::StreamData::Input {
-                buffer: cpal::UnknownTypeInputBuffer::U16(buffer),
-            } => {
-                if let Ok(mut guard) = writer_2.try_lock() {
-                    if let Some(writer) = guard.as_mut() {
-                        for sample in buffer.iter() {
-                            let sample = cpal::Sample::to_i16(sample);
-                            writer.write_sample(sample).ok();
-                        }
-                    }
-                }
-            },
-            cpal::StreamData::Input {
-                buffer: cpal::UnknownTypeInputBuffer::I16(buffer),
-            } => {
-                if let Ok(mut guard) = writer_2.try_lock() {
-                    if let Some(writer) = guard.as_mut() {
-                        for &sample in buffer.iter() {
-                            writer.write_sample(sample).ok();
-                        }
-                    }
-                }
-            },
-            cpal::StreamData::Input {
-                buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
-            } => {
-                if let Ok(mut guard) = writer_2.try_lock() {
-                    if let Some(writer) = guard.as_mut() {
-                        for &sample in buffer.iter() {
-                            writer.write_sample(sample).ok();
-                        }
-                    }
-                }
-            },
-            _ => (),
-        }
-    }, move |err| {
+
+    let err_fn = move |err| {
         eprintln!("an error occurred on stream: {}", err);
-    })?;
+    };
+
+    let stream = match format.data_type {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &format,
+            move |mut data| write_input_data::<f32, f32>(&*data, &writer_2),
+            err_fn,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &format,
+            move |mut data| write_input_data::<i16, i16>(&*data, &writer_2),
+            err_fn,
+        ),
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &format,
+            move |mut data| write_input_data::<u16, i16>(&*data, &writer_2),
+            err_fn,
+        ),
+    }?;
+
     stream.play()?;
 
     // Let recording go for roughly three seconds.
@@ -98,5 +82,22 @@ fn wav_spec_from_format(format: &cpal::Format) -> hound::WavSpec {
         sample_rate: format.sample_rate.0 as _,
         bits_per_sample: (format.data_type.sample_size() * 8) as _,
         sample_format: sample_format(format.data_type),
+    }
+}
+
+type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
+
+fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
+where
+    T: cpal::Sample,
+    U: cpal::Sample + hound::Sample,
+{
+    if let Ok(mut guard) = writer.try_lock() {
+        if let Some(writer) = guard.as_mut() {
+            for &sample in input.iter() {
+                let sample: U = cpal::Sample::from(&sample);
+                writer.write_sample(sample).ok();
+            }
+        }
     }
 }

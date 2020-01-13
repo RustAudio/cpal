@@ -49,50 +49,44 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Build streams.
     println!("Attempting to build both streams with `{:?}`.", format);
-    let input_stream = input_device.build_input_stream(&format, move |data| {
-        match data {
-            cpal::StreamData::Input {
-                buffer: cpal::UnknownTypeInputBuffer::F32(buffer),
-            } => {
-                let mut output_fell_behind = false;
-                for &sample in buffer.iter() {
-                    if producer.push(sample).is_err() {
-                        output_fell_behind = true;
-                    }
+    let input_stream = input_device.build_input_stream(
+        &format,
+        move |data| {
+            let mut output_fell_behind = false;
+            for &sample in data.iter() {
+                if producer.push(sample).is_err() {
+                    output_fell_behind = true;
                 }
-                if output_fell_behind {
-                    eprintln!("output stream fell behind: try increasing latency");
-                }
-            },
-            _ => panic!("Expected input with f32 data"),
-        }
-    }, move |err| {
-        eprintln!("an error occurred on input stream: {}", err);
-    })?;
-    let output_stream = output_device.build_output_stream(&format, move |data| {
-        match data {
-            cpal::StreamData::Output {
-                buffer: cpal::UnknownTypeOutputBuffer::F32(mut buffer),
-            } => {
-                let mut input_fell_behind = None;
-                for sample in buffer.iter_mut() {
-                    *sample = match consumer.pop() {
-                        Ok(s) => s,
-                        Err(err) => {
-                            input_fell_behind = Some(err);
-                            0.0
-                        },
-                    };
-                }
-                if let Some(err) = input_fell_behind {
-                    eprintln!("input stream fell behind: {:?}: try increasing latency", err);
-                }
-            },
-            _ => panic!("Expected output with f32 data"),
-        }
-    }, move |err| {
-        eprintln!("an error occurred on output stream: {}", err);
-    })?;
+            }
+            if output_fell_behind {
+                eprintln!("output stream fell behind: try increasing latency");
+            }
+        },
+        |err| {
+            eprintln!("an error occurred on stream: {}", err);
+        },
+    )?;
+    let output_stream = output_device.build_output_stream(
+        &format,
+        move |mut data| {
+            let mut input_fell_behind = None;
+            for sample in data.iter_mut() {
+                *sample = match consumer.pop() {
+                    Ok(s) => s,
+                    Err(err) => {
+                        input_fell_behind = Some(err);
+                        0.0
+                    },
+                };
+            }
+            if let Some(err) = input_fell_behind {
+                eprintln!("input stream fell behind: {:?}: try increasing latency", err);
+            }
+        },
+        move |err| {
+            eprintln!("an error occurred on output stream: {}", err);
+        },
+    )?;
     println!("Successfully built streams.");
 
     // Play the streams.

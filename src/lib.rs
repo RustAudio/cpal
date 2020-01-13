@@ -143,6 +143,7 @@
 //! # let format = device.default_output_format().unwrap();
 //! # let stream = device.build_output_stream(&format, move |_data| {}, move |_err| {}).unwrap();
 //! stream.pause().unwrap();
+//! ```
 
 #![recursion_limit = "512"]
 
@@ -202,25 +203,14 @@ pub struct SupportedFormat {
     pub data_type: SampleFormat,
 }
 
-/// Stream data passed to the `EventLoop::run` callback.
-#[derive(Debug)]
-pub enum StreamData<'a> {
-    Input {
-        buffer: UnknownTypeInputBuffer<'a>,
-    },
-    Output {
-        buffer: UnknownTypeOutputBuffer<'a>,
-    },
-}
-
 /// Represents a buffer containing audio data that may be read.
 ///
 /// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
 /// same way as reading from a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
-// TODO: remove the wrapper and just use slices in next major version
+// TODO: Consider making this an `enum` with `Interleaved` and `NonInterleaved` variants.
 #[derive(Debug)]
-pub struct InputBuffer<'a, T: 'a>
+pub struct InputData<'a, T: 'a>
 where
     T: Sample,
 {
@@ -233,40 +223,14 @@ where
 /// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
 /// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
 // TODO: explain audio stuff in general
-// TODO: remove the wrapper and just use slices
+// TODO: Consider making this an `enum` with `Interleaved` and `NonInterleaved` variants.
 #[must_use]
 #[derive(Debug)]
-pub struct OutputBuffer<'a, T: 'a>
+pub struct OutputData<'a, T: 'a>
 where
     T: Sample,
 {
     buffer: &'a mut [T],
-}
-
-/// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
-///
-/// Since the type of data is only known at runtime, you have to read the right buffer.
-#[derive(Debug)]
-pub enum UnknownTypeInputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(InputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(InputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(InputBuffer<'a, f32>),
-}
-
-/// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
-///
-/// Since the type of data is only known at runtime, you have to fill the right buffer.
-#[derive(Debug)]
-pub enum UnknownTypeOutputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(OutputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(OutputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(OutputBuffer<'a, f32>),
 }
 
 impl SupportedFormat {
@@ -352,8 +316,9 @@ impl SupportedFormat {
     }
 }
 
-impl<'a, T> Deref for InputBuffer<'a, T>
-    where T: Sample
+impl<'a, T> Deref for InputData<'a, T>
+where
+    T: Sample,
 {
     type Target = [T];
 
@@ -363,8 +328,9 @@ impl<'a, T> Deref for InputBuffer<'a, T>
     }
 }
 
-impl<'a, T> Deref for OutputBuffer<'a, T>
-    where T: Sample
+impl<'a, T> Deref for OutputData<'a, T>
+where
+    T: Sample,
 {
     type Target = [T];
 
@@ -374,36 +340,13 @@ impl<'a, T> Deref for OutputBuffer<'a, T>
     }
 }
 
-impl<'a, T> DerefMut for OutputBuffer<'a, T>
-    where T: Sample
+impl<'a, T> DerefMut for OutputData<'a, T>
+where
+    T: Sample,
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.buffer
-    }
-}
-
-impl<'a> UnknownTypeInputBuffer<'a> {
-    /// Returns the length of the buffer in number of samples.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            &UnknownTypeInputBuffer::U16(ref buf) => buf.len(),
-            &UnknownTypeInputBuffer::I16(ref buf) => buf.len(),
-            &UnknownTypeInputBuffer::F32(ref buf) => buf.len(),
-        }
-    }
-}
-
-impl<'a> UnknownTypeOutputBuffer<'a> {
-    /// Returns the length of the buffer in number of samples.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            &UnknownTypeOutputBuffer::U16(ref buf) => buf.len(),
-            &UnknownTypeOutputBuffer::I16(ref buf) => buf.len(),
-            &UnknownTypeOutputBuffer::F32(ref buf) => buf.len(),
-        }
     }
 }
 
