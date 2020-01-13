@@ -416,7 +416,7 @@ macro_rules! impl_platform_host {
 }
 
 // TODO: Add pulseaudio and jack here eventually.
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))]
 mod platform_impl {
     pub use crate::host::alsa::{
         Device as AlsaDevice,
@@ -514,7 +514,7 @@ mod platform_impl {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd", target_os = "macos",
+#[cfg(not(any(windows, target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "macos",
               target_os = "ios", target_os = "emscripten")))]
 mod platform_impl {
     pub use crate::host::null::{
