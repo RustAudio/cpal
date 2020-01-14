@@ -7,18 +7,22 @@ use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
-use BuildStreamError;
-use DefaultFormatError;
-use DeviceNameError;
-use DevicesError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use SupportedFormatsError;
-use StreamData;
-use StreamError;
-use SupportedFormat;
-use UnknownTypeOutputBuffer;
+use crate::{
+    BuildStreamError,
+    DefaultFormatError,
+    DeviceNameError,
+    DevicesError,
+    Format,
+    InputData,
+    OutputData,
+    PauseStreamError,
+    PlayStreamError,
+    Sample,
+    SampleFormat,
+    StreamError,
+    SupportedFormat,
+    SupportedFormatsError,
+};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -156,29 +160,33 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(
+    fn build_input_stream<T, D, E>(
         &self,
         _format: &Format,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        T: Sample,
+        D: FnMut(InputData<T>) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
     }
 
-    fn build_output_stream<D, E>(
+    fn build_output_stream<T, D, E>(
         &self,
         _format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        T: Sample,
+        D: FnMut(OutputData<T>) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        assert_eq!(T::FORMAT, SampleFormat::F32, "emscripten backend only supports `f32` data");
+
         // Create the stream.
         let audio_ctxt_ref = js!(return new AudioContext()).into_reference().unwrap();
         let stream = Stream { audio_ctxt_ref };
@@ -193,7 +201,7 @@ impl DeviceTrait for Device {
         //
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
-        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr as *mut c_void), 10);
+        set_timeout(|| audio_callback_fn::<T, D, E>(user_data_ptr as *mut c_void), 10);
 
         Ok(stream)
     }
@@ -215,9 +223,10 @@ impl StreamTrait for Stream {
 
 // The first argument of the callback function (a `void*`) is a casted pointer to `self`
 // and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<D, E>(user_data_ptr: *mut c_void)
+fn audio_callback_fn<T, D, E>(user_data_ptr: *mut c_void)
 where
-    D: FnMut(StreamData) + Send + 'static,
+    T: Sample,
+    D: FnMut(OutputData<T>) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     unsafe {
@@ -227,11 +236,11 @@ where
         let audio_ctxt = &stream.audio_ctxt_ref;
 
         // TODO: We should be re-using a buffer.
-        let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
+        let mut temporary_buffer: Vec<_> = (0..44100 * 2 / 3).map(|_| T::from(&0.0)).collect();
 
         {
-            let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
-            let data = StreamData::Output { buffer: buffer };
+            let buffer = &mut temporary_buffer;
+            let data = OutputData { buffer };
             data_cb(data);
         }
 
@@ -272,7 +281,7 @@ where
         // TODO: handle latency better ; right now we just use setInterval with the amount of sound
         // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
         // and there may be underflows
-        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr), 330);
+        set_timeout(|| audio_callback_fn::<T, D, E>(user_data_ptr), 330);
     }
 }
 
