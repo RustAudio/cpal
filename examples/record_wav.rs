@@ -43,17 +43,17 @@ fn main() -> Result<(), anyhow::Error> {
     let stream = match format.data_type {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &format,
-            move |mut data| write_input_data::<f32, f32>(&*data, &writer_2),
+            move |data| write_input_data::<f32, f32>(&*data, &writer_2),
             err_fn,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
             &format,
-            move |mut data| write_input_data::<i16, i16>(&*data, &writer_2),
+            move |data| write_input_data::<i16, i16>(&*data, &writer_2),
             err_fn,
         ),
         cpal::SampleFormat::U16 => device.build_input_stream(
             &format,
-            move |mut data| write_input_data::<u16, i16>(&*data, &writer_2),
+            move |data| write_input_data::<u16, i16>(&*data, &writer_2),
             err_fn,
         ),
     }?;
