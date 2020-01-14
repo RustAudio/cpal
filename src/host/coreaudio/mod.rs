@@ -27,6 +27,8 @@ use std::cell::RefCell;
 use std::os::raw::c_char;
 use std::ptr::null;
 use std::slice;
+use std::thread;
+use std::time::Duration;
 
 use self::coreaudio::audio_unit::{AudioUnit, Scope, Element};
 use self::coreaudio::audio_unit::render_callback::{self, data};
