@@ -10,7 +10,7 @@ keywords = ["audio", "sound", "asio", "steinberg"]
 build = "build.rs"
 
 [target.'cfg(any(target_os = "windows"))'.build-dependencies]
-bindgen = "0.42.0"
+bindgen = "0.51.0"
 walkdir = "2"
 cc = "1.0.25"
 
