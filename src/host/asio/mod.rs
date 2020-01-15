@@ -1,17 +1,19 @@
 extern crate asio_sys as sys;
 extern crate parking_lot;
 
-use {
+use crate::{
     BuildStreamError,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
+    InputData,
+    OutputData,
     PauseStreamError,
     PlayStreamError,
-    SupportedFormatsError,
-    StreamData,
+    Sample,
     StreamError,
+    SupportedFormatsError,
 };
 use traits::{
     DeviceTrait,
@@ -89,16 +91,30 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+    fn build_input_stream<T, D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static
+        T: Sample,
+        D: FnMut(InputData<T>) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static
     {
         Device::build_input_stream(self, format, data_callback, error_callback)
     }
 
-    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
+    fn build_output_stream<T, D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static
+        T: Sample,
+        D: FnMut(OutputData<T>) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static
     {
         Device::build_output_stream(self, format, data_callback, error_callback)
     }

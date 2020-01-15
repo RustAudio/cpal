@@ -10,12 +10,12 @@ use super::parking_lot::Mutex;
 use BackendSpecificError;
 use BuildStreamError;
 use Format;
+use InputData;
+use OutputData;
 use PauseStreamError;
 use PlayStreamError;
+use Sample;
 use SampleFormat;
-use StreamData;
-use UnknownTypeInputBuffer;
-use UnknownTypeOutputBuffer;
 use StreamError;
 
 /// Sample types whose constant silent value is known.
@@ -23,14 +23,11 @@ trait Silence {
     const SILENCE: Self;
 }
 
-/// Constraints on the interleaved sample buffer format required by the CPAL API.
-trait InterleavedSample: Clone + Copy + Silence {
-    fn unknown_type_input_buffer(&[Self]) -> UnknownTypeInputBuffer;
-    fn unknown_type_output_buffer(&mut [Self]) -> UnknownTypeOutputBuffer;
-}
-
 /// Constraints on the ASIO sample types.
-trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {}
+trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {
+    fn to_cpal_sample<T: Sample>(&self) -> T;
+    fn from_cpal_sample<T: Sample>(&T) -> Self;
+}
 
 // Used to keep track of whether or not the current current asio stream buffer requires
 // being silencing before summing audio.
@@ -61,16 +58,18 @@ impl Stream {
 }
 
 impl Device {
-    pub fn build_input_stream<D, E>(
+    pub fn build_input_stream<T, D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static
+        T: Sample,
+        D: FnMut(InputData<T>) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
     {
+        assert_eq!(format.data_type, T::FORMAT, "sample type does not match `format.data_type`");
         let stream_type = self.driver.input_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
@@ -109,20 +108,18 @@ impl Device {
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
-            unsafe fn process_input_callback<A, B, D, F, G>(
+            unsafe fn process_input_callback<A, B, D, F>(
                 callback: &mut D,
                 interleaved: &mut [u8],
                 asio_stream: &sys::AsioStream,
                 buffer_index: usize,
                 from_endianness: F,
-                to_cpal_sample: G,
             )
             where
                 A: AsioSample,
-                B: InterleavedSample,
-                D: FnMut(StreamData) + Send + 'static,
+                B: Sample,
+                D: FnMut(InputData<B>) + Send + 'static,
                 F: Fn(A) -> A,
-                G: Fn(A) -> B,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
                 let interleaved: &mut [B] = cast_slice_mut(interleaved);
@@ -130,35 +127,32 @@ impl Device {
                 for ch_ix in 0..n_channels {
                     let asio_channel = asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix);
                     for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
-                        frame[ch_ix] = to_cpal_sample(from_endianness(*s_asio));
+                        frame[ch_ix] = from_endianness(*s_asio).to_cpal_sample();
                     }
                 }
 
                 // 2. Deliver the interleaved buffer to the callback.
-                callback(
-                    StreamData::Input { buffer: B::unknown_type_input_buffer(interleaved) },
-                );
+                let data = InputData { buffer: interleaved };
+                callback(data);
             }
 
             match (&stream_type, data_type) {
                 (&sys::AsioSampleType::ASIOSTInt16LSB, SampleFormat::I16) => {
-                    process_input_callback::<i16, i16, _, _, _>(
+                    process_input_callback::<i16, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
                         from_le,
-                        std::convert::identity::<i16>,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
-                    process_input_callback::<i16, i16, _, _, _>(
+                    process_input_callback::<i16, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
                         from_be,
-                        std::convert::identity::<i16>,
                     );
                 }
 
@@ -166,12 +160,11 @@ impl Device {
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
                 (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32) |
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
-                    process_input_callback::<f32, f32, _, _, _>(
+                    process_input_callback::<f32, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
-                        std::convert::identity::<f32>,
                         std::convert::identity::<f32>,
                     );
                 }
@@ -180,36 +173,33 @@ impl Device {
                 // `process_output_callback` function above by removing the unnecessary sample
                 // conversion function.
                 (&sys::AsioSampleType::ASIOSTInt32LSB, SampleFormat::I16) => {
-                    process_input_callback::<i32, i16, _, _, _>(
+                    process_input_callback::<i32, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
                         from_le,
-                        |s| (s >> 16) as i16,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I16) => {
-                    process_input_callback::<i32, i16, _, _, _>(
+                    process_input_callback::<i32, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
                         from_be,
-                        |s| (s >> 16) as i16,
                     );
                 }
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
                 (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F32) |
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F32) => {
-                    process_input_callback::<f64, f32, _, _, _>(
+                    process_input_callback::<f64, T, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         buffer_index as usize,
                         std::convert::identity::<f64>,
-                        |s| s as f32,
                     );
                 }
 
@@ -234,16 +224,18 @@ impl Device {
         })
     }
 
-    pub fn build_output_stream<D, E>(
+    pub fn build_output_stream<T, D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        T: Sample,
+        D: FnMut(OutputData<T>) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        assert_eq!(format.data_type, T::FORMAT, "sample type does not match `format.data_type`");
         let stream_type = self.driver.output_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
@@ -305,26 +297,23 @@ impl Device {
             /// 2. If required, silence the ASIO buffer.
             /// 3. Finally, write the interleaved data to the non-interleaved ASIO buffer,
             ///    performing endianness conversions as necessary.
-            unsafe fn process_output_callback<A, B, D, F, G>(
+            unsafe fn process_output_callback<A, B, D, F>(
                 callback: &mut D,
                 interleaved: &mut [u8],
                 silence_asio_buffer: bool,
                 asio_stream: &sys::AsioStream,
                 buffer_index: usize,
-                to_asio_sample: F,
-                to_endianness: G,
+                to_endianness: F,
             )
             where
-                A: InterleavedSample,
+                A: Sample,
                 B: AsioSample,
-                D: FnMut(StreamData) + Send + 'static,
-                F: Fn(A) -> B,
-                G: Fn(B) -> B,
+                D: FnMut(OutputData<A>) + Send + 'static,
+                F: Fn(B) -> B,
             {
                 // 1. Render interleaved buffer from callback.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
-                let buffer = A::unknown_type_output_buffer(interleaved);
-                callback(StreamData::Output { buffer });
+                callback(OutputData { buffer: interleaved });
 
                 // 2. Silence ASIO channels if necessary.
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
@@ -341,31 +330,29 @@ impl Device {
                     let asio_channel =
                         asio_channel_slice_mut::<B>(asio_stream, buffer_index, ch_ix);
                     for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
-                        *s_asio = *s_asio + to_endianness(to_asio_sample(frame[ch_ix]));
+                        *s_asio = *s_asio + to_endianness(B::from_cpal_sample(&frame[ch_ix]));
                     }
                 }
             }
 
             match (data_type, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
-                    process_output_callback::<i16, i16, _, _, _>(
+                    process_output_callback::<T, i16, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        std::convert::identity::<i16>,
                         to_le,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
-                    process_output_callback::<i16, i16, _, _, _>(
+                    process_output_callback::<T, i16, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        std::convert::identity::<i16>,
                         to_be,
                     );
                 }
@@ -374,13 +361,12 @@ impl Device {
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) |
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
-                    process_output_callback::<f32, f32, _, _, _>(
+                    process_output_callback::<T, f32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        std::convert::identity::<f32>,
                         std::convert::identity::<f32>,
                     );
                 }
@@ -389,24 +375,22 @@ impl Device {
                 // `process_output_callback` function above by removing the unnecessary sample
                 // conversion function.
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32LSB) => {
-                    process_output_callback::<i16, i32, _, _, _>(
+                    process_output_callback::<T, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        |s| (s as i32) << 16,
                         to_le,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32MSB) => {
-                    process_output_callback::<i16, i32, _, _, _>(
+                    process_output_callback::<T, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        |s| (s as i32) << 16,
                         to_be,
                     );
                 }
@@ -414,13 +398,12 @@ impl Device {
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB) |
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
-                    process_output_callback::<f32, f64, _, _, _>(
+                    process_output_callback::<T, f64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         buffer_index as usize,
-                        |s| s as f64,
                         std::convert::identity::<f64>,
                     );
                 }
@@ -549,33 +532,45 @@ impl Silence for f64 {
     const SILENCE: Self = 0.0;
 }
 
-impl InterleavedSample for i16 {
-    fn unknown_type_input_buffer(buffer: &[Self]) -> UnknownTypeInputBuffer {
-        UnknownTypeInputBuffer::I16(::InputBuffer { buffer })
+impl AsioSample for i16 {
+    fn to_cpal_sample<T: Sample>(&self) -> T {
+        T::from(self)
     }
-
-    fn unknown_type_output_buffer(buffer: &mut [Self]) -> UnknownTypeOutputBuffer {
-        UnknownTypeOutputBuffer::I16(::OutputBuffer { buffer })
-    }
-}
-
-impl InterleavedSample for f32 {
-    fn unknown_type_input_buffer(buffer: &[Self]) -> UnknownTypeInputBuffer {
-        UnknownTypeInputBuffer::F32(::InputBuffer { buffer })
-    }
-
-    fn unknown_type_output_buffer(buffer: &mut [Self]) -> UnknownTypeOutputBuffer {
-        UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer })
+    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+        Sample::from(t)
     }
 }
 
-impl AsioSample for i16 {}
+impl AsioSample for i32 {
+    fn to_cpal_sample<T: Sample>(&self) -> T {
+        let s = (*self >> 16) as i16;
+        s.to_cpal_sample()
+    }
+    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+        let s = i16::from_cpal_sample(t);
+        (s as i32) << 16
+    }
+}
 
-impl AsioSample for i32 {}
+impl AsioSample for f32 {
+    fn to_cpal_sample<T: Sample>(&self) -> T {
+        T::from(self)
+    }
+    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+        Sample::from(t)
+    }
+}
 
-impl AsioSample for f32 {}
-
-impl AsioSample for f64 {}
+impl AsioSample for f64 {
+    fn to_cpal_sample<T: Sample>(&self) -> T {
+        let f = *self as f32;
+        f.to_cpal_sample()
+    }
+    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+        let f = f32::from_cpal_sample(t);
+        f as f64
+    }
+}
 
 /// Check whether or not the desired format is supported by the stream.
 ///
