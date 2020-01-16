@@ -145,3 +145,23 @@ jobs:
       run: |
         $Env:CPAL_ASIO_DIR = "$Env:GITHUB_WORKSPACE\asio"
         cargo test --all --all-features --verbose
+
+  macos-test:
+    runs-on: macOS-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install llvm and clang
+      run: brew install llvm
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - name: Build beep example
+      run: cargo build --example beep
+    - name: Run without features
+      run: cargo test --all --no-default-features --verbose
+    - name: Run all features
+      run: cargo test --all --all-features --verbose
