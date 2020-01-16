@@ -150,6 +150,7 @@ jobs:
     runs-on: macOS-latest
 
     steps:
+    - uses: actions/checkout@v1
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable
@@ -158,6 +159,8 @@ jobs:
         profile: minimal
         toolchain: stable
         override: true
+    - name: Build beep example
+      run: cargo build --example beep
     - name: Run without features
       run: cargo test --all --no-default-features --verbose
     - name: Run all features
