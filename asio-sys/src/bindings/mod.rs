@@ -319,9 +319,7 @@ impl Asio {
         // Make owned CString to send to load driver
         let driver_name_cstring = CString::new(driver_name)
             .expect("failed to create `CString` from driver name");
-        let mut driver_info = ai::ASIODriverInfo {
-            _bindgen_opaque_blob: [0u32; 43],
-        };
+        let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
             // TODO: Check that a driver of the same name does not already exist?
@@ -329,7 +327,8 @@ impl Asio {
                 false => Err(LoadDriverError::LoadDriverFailed),
                 true => {
                     // Initialize ASIO.
-                    asio_result!(ai::ASIOInit(&mut driver_info))?;
+                    asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
+                    let _driver_info = driver_info.assume_init();
                     let state = Mutex::new(DriverState::Initialized);
                     let name = driver_name.to_string();
                     let destroyed = false;
