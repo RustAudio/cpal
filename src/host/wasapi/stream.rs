@@ -260,7 +260,7 @@ fn wait_for_handle_signal(handles: &[winnt::HANDLE]) -> Result<usize, BackendSpe
 // Get the number of available frames that are available for writing/reading.
 fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     unsafe {
-        let mut padding = mem::uninitialized();
+        let mut padding = 0u32;
         let hresult = (*stream.audio_client).GetCurrentPadding(&mut padding);
         stream_error_from_hresult(hresult)?;
         Ok(stream.max_frames_in_buffer - padding)
@@ -371,8 +371,8 @@ fn process_input(
     let mut frames_available = 0;
     unsafe {
         // Get the available data in the shared buffer.
-        let mut buffer: *mut BYTE = mem::uninitialized();
-        let mut flags = mem::uninitialized();
+        let mut buffer: *mut BYTE = ptr::null_mut();
+        let mut flags = mem::MaybeUninit::uninit();
         loop {
             let hresult = (*capture_client).GetNextPacketSize(&mut frames_available);
             if let Err(err) = stream_error_from_hresult(hresult) {
@@ -385,7 +385,7 @@ fn process_input(
             let hresult = (*capture_client).GetBuffer(
                 &mut buffer,
                 &mut frames_available,
-                &mut flags,
+                flags.as_mut_ptr(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             );
@@ -435,7 +435,7 @@ fn process_output(
     };
 
     unsafe {
-        let mut buffer: *mut BYTE = mem::uninitialized();
+        let mut buffer: *mut BYTE = ptr::null_mut();
         let hresult =
             (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
 
