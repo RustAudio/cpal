@@ -5,15 +5,13 @@ use crate::{
     ChannelCount,
     BackendSpecificError,
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
-    OutputData,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     SampleFormat,
     SampleRate,
     StreamError,
@@ -131,33 +129,29 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        assert_eq!(T::FORMAT, format.data_type);
         Device::build_input_stream(self, format, data_callback, error_callback)
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        assert_eq!(T::FORMAT, format.data_type);
         Device::build_output_stream(self, format, data_callback, error_callback)
     }
 }
@@ -500,15 +494,14 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 }
 
 impl Device {
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         // The scope and element for working with a device's input stream.
@@ -657,7 +650,8 @@ impl Device {
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let bytes_per_channel = std::mem::size_of::<T>();
+        let sample_format = format.data_type;
+        let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
             let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
@@ -671,10 +665,10 @@ impl Device {
                 mData: data
             } = buffers[0];
 
-            let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
-            let data_slice = slice::from_raw_parts(data as *const T, data_len);
-            let input_data = InputData { buffer: data_slice };
-            data_callback(input_data);
+            let data = data as *mut ();
+            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let data = Data::from_parts(data, len, sample_format);
+            data_callback(&data);
             Ok(())
         })?;
 
@@ -687,15 +681,14 @@ impl Device {
         }))
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut audio_unit = audio_unit_from_device(self, false)?;
@@ -710,7 +703,8 @@ impl Device {
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let bytes_per_channel = std::mem::size_of::<T>();
+        let sample_format = format.data_type;
+        let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
             // If `run()` is currently running, then a callback will be available from this list.
@@ -722,10 +716,10 @@ impl Device {
                 mData: data
             } = (*args.data.data).mBuffers[0];
 
-            let data_len = (data_byte_size as usize / bytes_per_channel) as usize;
-            let data_slice = slice::from_raw_parts_mut(data as *mut T, data_len);
-            let output_data = OutputData { buffer: data_slice };
-            data_callback(output_data);
+            let data = data as *mut ();
+            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let mut data = Data::from_parts(data, len, sample_format);
+            data_callback(&mut data);
             Ok(())
         })?;
 
