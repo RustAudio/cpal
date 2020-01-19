@@ -205,6 +205,14 @@ pub struct Data {
 
 impl Data {
     // Internal constructor for host implementations to use.
+    //
+    // The following requirements must be met in order for the safety of `Data`'s public API.
+    //
+    // - The `data` pointer must point to the first sample in the slice containing all samples.
+    // - The `len` must describe the length of the buffer as a number of samples in the expected
+    //   format specified via the `sample_format` argument.
+    // - The `sample_format` must correctly represent the underlying sample data delivered/expected
+    //   by the stream.
     pub(crate) unsafe fn from_parts(
         data: *mut (),
         len: usize,
@@ -228,9 +236,11 @@ impl Data {
 
     /// The raw slice of memory representing the underlying audio data as a slice of bytes.
     ///
-    /// It is up to the user to interprate the slice of memory based on `Data::sample_format`.
+    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
     pub fn bytes(&self) -> &[u8] {
         let len = self.len * self.sample_format.sample_size();
+        // The safety of this block relies on correct construction of the `Data` instance. See
+        // the unsafe `from_parts` constructor for these requirements.
         unsafe {
             std::slice::from_raw_parts(self.data as *const u8, len)
         }
@@ -238,9 +248,11 @@ impl Data {
 
     /// The raw slice of memory representing the underlying audio data as a slice of bytes.
     ///
-    /// It is up to the user to interprate the slice of memory based on `Data::sample_format`.
+    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
     pub fn bytes_mut(&mut self) -> &mut [u8] {
         let len = self.len * self.sample_format.sample_size();
+        // The safety of this block relies on correct construction of the `Data` instance. See
+        // the unsafe `from_parts` constructor for these requirements.
         unsafe {
             std::slice::from_raw_parts_mut(self.data as *mut u8, len)
         }
@@ -254,6 +266,8 @@ impl Data {
         T: Sample,
     {
         if T::FORMAT == self.sample_format {
+            // The safety of this block relies on correct construction of the `Data` instance. See
+            // the unsafe `from_parts` constructor for these requirements.
             unsafe {
                 Some(std::slice::from_raw_parts(self.data as *const T, self.len))
             }
@@ -270,6 +284,8 @@ impl Data {
         T: Sample,
     {
         if T::FORMAT == self.sample_format {
+            // The safety of this block relies on correct construction of the `Data` instance. See
+            // the unsafe `from_parts` constructor for these requirements.
             unsafe {
                 Some(std::slice::from_raw_parts_mut(self.data as *mut T, self.len))
             }
