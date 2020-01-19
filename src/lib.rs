@@ -152,7 +152,6 @@ pub use platform::{
     HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
 };
 pub use samples_formats::{Sample, SampleFormat};
-use std::ops::{Deref, DerefMut};
 
 mod error;
 mod host;
@@ -193,34 +192,90 @@ pub struct SupportedFormat {
     pub data_type: SampleFormat,
 }
 
-/// Represents a buffer containing audio data that may be read.
+/// Represents a buffer of audio data, delivered via a user's stream data callback function.
 ///
-/// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
-/// same way as reading from a `Vec` or any other kind of Rust array.
-// TODO: explain audio stuff in general
-// TODO: Consider making this an `enum` with `Interleaved` and `NonInterleaved` variants.
+/// Input stream callbacks receive `&Data`, while output stream callbacks expect `&mut Data`.
 #[derive(Debug)]
-pub struct InputData<'a, T: 'a>
-where
-    T: Sample,
-{
-    buffer: &'a [T],
+pub struct Data {
+    data: *mut (),
+    len: usize,
+    sample_format: SampleFormat,
 }
 
-/// Represents a buffer that must be filled with audio data. The buffer in unfilled state may
-/// contain garbage values.
-///
-/// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
-/// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
-// TODO: explain audio stuff in general
-// TODO: Consider making this an `enum` with `Interleaved` and `NonInterleaved` variants.
-#[must_use]
-#[derive(Debug)]
-pub struct OutputData<'a, T: 'a>
-where
-    T: Sample,
-{
-    buffer: &'a mut [T],
+impl Data {
+    // Internal constructor for host implementations to use.
+    pub(crate) unsafe fn from_parts(
+        data: *mut (),
+        len: usize,
+        sample_format: SampleFormat,
+    ) -> Self {
+        Data { data, len, sample_format }
+    }
+
+    /// The sample format of the internal audio data.
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    /// The full length of the buffer in samples.
+    ///
+    /// The returned length is the same length as the slice of type `T` that would be returned via
+    /// `as_slice` given a sample type that matches the inner sample format.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
+    ///
+    /// It is up to the user to interprate the slice of memory based on `Data::sample_format`.
+    pub fn bytes(&self) -> &[u8] {
+        let len = self.len * self.sample_format.sample_size();
+        unsafe {
+            std::slice::from_raw_parts(self.data as *const u8, len)
+        }
+    }
+
+    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
+    ///
+    /// It is up to the user to interprate the slice of memory based on `Data::sample_format`.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        let len = self.len * self.sample_format.sample_size();
+        unsafe {
+            std::slice::from_raw_parts_mut(self.data as *mut u8, len)
+        }
+    }
+
+    /// Access the data as a slice of sample type `T`.
+    ///
+    /// Returns `None` if the sample type does not match the expected sample format.
+    pub fn as_slice<T>(&self) -> Option<&[T]>
+    where
+        T: Sample,
+    {
+        if T::FORMAT == self.sample_format {
+            unsafe {
+                Some(std::slice::from_raw_parts(self.data as *const T, self.len))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Access the data as a slice of sample type `T`.
+    ///
+    /// Returns `None` if the sample type does not match the expected sample format.
+    pub fn as_slice_mut<T>(&mut self) -> Option<&mut [T]>
+    where
+        T: Sample,
+    {
+        if T::FORMAT == self.sample_format {
+            unsafe {
+                Some(std::slice::from_raw_parts_mut(self.data as *mut T, self.len))
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl SupportedFormat {
@@ -303,40 +358,6 @@ impl SupportedFormat {
         }
 
         self.max_sample_rate.cmp(&other.max_sample_rate)
-    }
-}
-
-impl<'a, T> Deref for InputData<'a, T>
-where
-    T: Sample,
-{
-    type Target = [T];
-
-    #[inline]
-    fn deref(&self) -> &[T] {
-        self.buffer
-    }
-}
-
-impl<'a, T> Deref for OutputData<'a, T>
-where
-    T: Sample,
-{
-    type Target = [T];
-
-    #[inline]
-    fn deref(&self) -> &[T] {
-        self.buffer
-    }
-}
-
-impl<'a, T> DerefMut for OutputData<'a, T>
-where
-    T: Sample,
-{
-    #[inline]
-    fn deref_mut(&mut self) -> &mut [T] {
-        self.buffer
     }
 }
 

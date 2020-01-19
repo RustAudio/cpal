@@ -255,15 +255,14 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_input_stream<T, D, E>(
+            fn build_input_stream<D, E>(
                 &self,
                 format: &crate::Format,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                T: crate::Sample,
-                D: FnMut(crate::InputData<T>) + Send + 'static,
+                D: FnMut(&crate::Data) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {
@@ -275,15 +274,14 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_output_stream<T, D, E>(
+            fn build_output_stream<D, E>(
                 &self,
                 format: &crate::Format,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                T: crate::Sample,
-                D: FnMut(crate::OutputData<T>) + Send + 'static,
+                D: FnMut(&mut crate::Data) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {

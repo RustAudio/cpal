@@ -5,15 +5,13 @@ use crate::{
     BackendSpecificError,
     BuildStreamError,
     ChannelCount,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
-    OutputData,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     SampleFormat,
     SampleRate,
     StreamError,
@@ -90,37 +88,31 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        // TODO: Consider removing `data_type` field from `Format` and removing this.
-        assert_eq!(format.data_type, T::FORMAT, "sample format mismatch");
         let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?;
         let stream = Stream::new_input(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        // TODO: Consider removing `data_type` field from `Format` and removing this.
-        assert_eq!(format.data_type, T::FORMAT, "sample format mismatch");
         let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?;
         let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
@@ -564,14 +556,12 @@ struct StreamWorkerContext {
     buffer: Vec<u8>,
 }
 
-fn input_stream_worker<T>(
+fn input_stream_worker(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(InputData<T>) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) where
-    T: Sample,
-{
+) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
         match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
@@ -583,7 +573,7 @@ fn input_stream_worker<T>(
                     StreamType::Input,
                     "expected input stream, but polling descriptors indicated output",
                 );
-                process_input::<T>(
+                process_input(
                     stream,
                     &mut ctxt.buffer,
                     available_frames,
@@ -595,14 +585,12 @@ fn input_stream_worker<T>(
     }
 }
 
-fn output_stream_worker<T>(
+fn output_stream_worker(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(OutputData<T>) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) where
-    T: Sample,
-{
+) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
         match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
@@ -614,7 +602,7 @@ fn output_stream_worker<T>(
                     StreamType::Output,
                     "expected output stream, but polling descriptors indicated input",
                 );
-                process_output::<T>(
+                process_output(
                     stream,
                     &mut ctxt.buffer,
                     available_frames,
@@ -729,15 +717,13 @@ fn poll_descriptors_and_prepare_buffer(
 }
 
 // Read input data from ALSA and deliver it to the user.
-fn process_input<T>(
+fn process_input(
     stream: &StreamInner,
     buffer: &mut [u8],
     available_frames: usize,
-    data_callback: &mut (dyn FnMut(InputData<T>) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
     error_callback: &mut dyn FnMut(StreamError),
-) where
-    T: Sample,
-{
+) {
     let result = unsafe {
         alsa::snd_pcm_readi(
             stream.channel,
@@ -750,28 +736,34 @@ fn process_input<T>(
         error_callback(BackendSpecificError { description }.into());
         return;
     }
-    let buffer = unsafe { cast_input_buffer::<T>(buffer) };
-    let input_data = InputData { buffer };
-    data_callback(input_data);
+    let sample_format = stream.sample_format;
+    let data = buffer.as_mut_ptr() as *mut ();
+    let len = buffer.len() / sample_format.sample_size();
+    let data = unsafe {
+        Data::from_parts(data, len, sample_format)
+    };
+    data_callback(&data);
 }
 
 // Request data from the user's function and write it via ALSA.
 //
 // Returns `true`
-fn process_output<T>(
+fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
     available_frames: usize,
-    data_callback: &mut (dyn FnMut(OutputData<T>) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
     error_callback: &mut dyn FnMut(StreamError),
-) where
-    T: Sample,
-{
+) {
     {
         // We're now sure that we're ready to write data.
-        let buffer = unsafe { cast_output_buffer::<T>(buffer) };
-        let output_data = OutputData { buffer };
-        data_callback(output_data);
+        let sample_format = stream.sample_format;
+        let data = buffer.as_mut_ptr() as *mut ();
+        let len = buffer.len() / sample_format.sample_size();
+        let mut data = unsafe {
+            Data::from_parts(data, len, sample_format)
+        };
+        data_callback(&mut data);
     }
     loop {
         let result = unsafe {
@@ -805,21 +797,20 @@ fn process_output<T>(
 }
 
 impl Stream {
-    fn new_input<T, D, E>(
+    fn new_input<D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::spawn(move || {
-            input_stream_worker::<T>(rx, &*stream, &mut data_callback, &mut error_callback);
+            input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
         });
         Stream {
             thread: Some(thread),
@@ -828,21 +819,20 @@ impl Stream {
         }
     }
 
-    fn new_output<T, D, E>(
+    fn new_output<D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::spawn(move || {
-            output_stream_worker::<T>(rx, &*stream, &mut data_callback, &mut error_callback);
+            output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
         });
         Stream {
             thread: Some(thread),
@@ -1079,18 +1069,4 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-/// Cast a byte slice into a (immutable) slice of desired type.
-/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
-unsafe fn cast_input_buffer<T>(v: &[u8]) -> &[T] {
-    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
-    std::slice::from_raw_parts(v.as_ptr() as *const T, v.len() / std::mem::size_of::<T>())
-}
-
-/// Cast a byte slice into a mutable slice of desired type.
-/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
-unsafe fn cast_output_buffer<T>(v: &mut [u8]) -> &mut [T] {
-    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
-    std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }

@@ -19,27 +19,15 @@ fn main() -> Result<(), anyhow::Error> {
         (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
-    let err_fn = |err| {
-        eprintln!("an error occurred on stream: {}", err);
+    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+
+    let data_fn = move |data: &mut cpal::Data| match data.sample_format() {
+        cpal::SampleFormat::F32 => write_data::<f32>(data, channels, &mut next_value),
+        cpal::SampleFormat::I16 => write_data::<i16>(data, channels, &mut next_value),
+        cpal::SampleFormat::U16 => write_data::<u16>(data, channels, &mut next_value),
     };
 
-    let stream = match format.data_type {
-        cpal::SampleFormat::F32 => device.build_output_stream(
-            &format,
-            move |mut data| write_data::<f32>(&mut *data, channels, &mut next_value),
-            err_fn,
-        ),
-        cpal::SampleFormat::I16 => device.build_output_stream(
-            &format,
-            move |mut data| write_data::<i16>(&mut *data, channels, &mut next_value),
-            err_fn,
-        ),
-        cpal::SampleFormat::U16 => device.build_output_stream(
-            &format,
-            move |mut data| write_data::<u16>(&mut *data, channels, &mut next_value),
-            err_fn,
-        ),
-    }?;
+    let stream = device.build_output_stream(&format, data_fn, err_fn)?;
 
     stream.play()?;
 
@@ -48,10 +36,11 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
+fn write_data<T>(output: &mut cpal::Data, channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
     T: cpal::Sample,
 {
+    let output = output.as_slice_mut::<T>().expect("unexpected sample type");
     for frame in output.chunks_mut(channels) {
         let value: T = cpal::Sample::from::<f32>(&next_sample());
         for sample in frame.iter_mut() {
