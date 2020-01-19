@@ -55,14 +55,14 @@
 //! Now that we have everything for the stream, we are ready to create it from our selected device:
 //!
 //! ```no_run
-//! use cpal::OutputData;
+//! use cpal::Data;
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
 //! let stream = device.build_output_stream(
 //!     &format,
-//!     move |data: OutputData<f32>| {
+//!     move |data: &mut Data| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -72,9 +72,8 @@
 //! ```
 //!
 //! While the stream is running, the selected audio device will periodically call the data callback
-//! that was passed to the function. The callback is passed an instance of either `InputData<T>` or
-//! `OutputData<T>` depending on whether the stream is an input stream or output stream
-//! respectively. Type `T` represents the desired sample format type. Supported format types
+//! that was passed to the function. The callback is passed an instance of either `&Data` or
+//! `&mut Data` depending on whether the stream is an input stream or output stream respectively.
 //!
 //! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
@@ -85,22 +84,24 @@
 //! > please share your issue and use-case with the CPAL team on the github issue tracker for
 //! > consideration.*
 //!
-//! In this example, we simply fill the given output buffer with zeroes.
+//! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
-//! use cpal::{OutputData, Sample, SampleFormat};
+//! use cpal::{Data, Sample, SampleFormat};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! let err_fn = move |err| eprintln!("an error occurred on the output audio stream: {}", err);
-//! let stream = match format.data_type {
-//!     SampleFormat::F32 => device.build_output_stream(&format, write_silence::<f32>, err_fn),
-//!     SampleFormat::I16 => device.build_output_stream(&format, write_silence::<i16>, err_fn),
-//!     SampleFormat::U16 => device.build_output_stream(&format, write_silence::<u16>, err_fn),
+//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+//! let data_fn = move |data: &mut Data| match data.sample_format() {
+//!     SampleFormat::F32 => write_silence::<f32>(data),
+//!     SampleFormat::I16 => write_silence::<i16>(data),
+//!     SampleFormat::U16 => write_silence::<u16>(data),
 //! };
+//! let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
 //!
-//! fn write_silence<T: Sample>(mut data: OutputData<T>) {
+//! fn write_silence<T: Sample>(data: &mut Data) {
+//!     let data = data.as_slice_mut::<T>().unwrap();
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::from(&0.0);
 //!     }
@@ -115,7 +116,7 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! # let data_fn = move |_data: cpal::OutputData<f32>| {};
+//! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
@@ -129,7 +130,7 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! # let data_fn = move |_data: cpal::OutputData<f32>| {};
+//! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
