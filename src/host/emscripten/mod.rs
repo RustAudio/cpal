@@ -9,15 +9,13 @@ use stdweb::web::set_timeout;
 
 use crate::{
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
-    OutputData,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     SampleFormat,
     StreamError,
     SupportedFormat,
@@ -160,32 +158,34 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         _format: &Format,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
-        _format: &Format,
+        format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        assert_eq!(T::FORMAT, SampleFormat::F32, "emscripten backend only supports `f32` data");
+        assert_eq!(
+            format.data_type,
+            SampleFormat::F32,
+            "emscripten backend currently only supports `f32` data",
+        );
 
         // Create the stream.
         let audio_ctxt_ref = js!(return new AudioContext()).into_reference().unwrap();
@@ -201,7 +201,7 @@ impl DeviceTrait for Device {
         //
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
-        set_timeout(|| audio_callback_fn::<T, D, E>(user_data_ptr as *mut c_void), 10);
+        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr as *mut c_void), 10);
 
         Ok(stream)
     }
@@ -223,10 +223,9 @@ impl StreamTrait for Stream {
 
 // The first argument of the callback function (a `void*`) is a casted pointer to `self`
 // and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<T, D, E>(user_data_ptr: *mut c_void)
+fn audio_callback_fn<D, E>(user_data_ptr: *mut c_void)
 where
-    T: Sample,
-    D: FnMut(OutputData<T>) + Send + 'static,
+    D: FnMut(&mut Data) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     unsafe {
@@ -236,12 +235,14 @@ where
         let audio_ctxt = &stream.audio_ctxt_ref;
 
         // TODO: We should be re-using a buffer.
-        let mut temporary_buffer: Vec<_> = (0..44100 * 2 / 3).map(|_| T::from(&0.0)).collect();
+        let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
 
         {
-            let buffer = &mut temporary_buffer;
-            let data = OutputData { buffer };
-            data_cb(data);
+            let len = temporary_buffer.len();
+            let data = temporary_buffer.as_mut_ptr() as *mut ();
+            let sample_format = SampleFormat::F32;
+            let mut data = Data::from_parts(data, len, sample_format);
+            data_cb(&mut data);
         }
 
         // TODO: directly use a TypedArray<f32> once this is supported by stdweb
@@ -281,7 +282,7 @@ where
         // TODO: handle latency better ; right now we just use setInterval with the amount of sound
         // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
         // and there may be underflows
-        set_timeout(|| audio_callback_fn::<T, D, E>(user_data_ptr), 330);
+        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr), 330);
     }
 }
 
