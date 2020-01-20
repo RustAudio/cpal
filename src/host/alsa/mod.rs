@@ -1,29 +1,28 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
-use std::{cmp, ffi, io, mem, ptr};
+use crate::{
+    BackendSpecificError,
+    BuildStreamError,
+    ChannelCount,
+    Data,
+    DefaultFormatError,
+    DeviceNameError,
+    DevicesError,
+    Format,
+    PauseStreamError,
+    PlayStreamError,
+    SampleFormat,
+    SampleRate,
+    StreamError,
+    SupportedFormat,
+    SupportedFormatsError,
+};
+use std::{cmp, ffi, io, ptr};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
-
-use BackendSpecificError;
-use BuildStreamError;
-use ChannelCount;
-use DefaultFormatError;
-use DeviceNameError;
-use DevicesError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use SampleFormat;
-use SampleRate;
-use StreamData;
-use StreamError;
-use SupportedFormat;
-use SupportedFormatsError;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
-use UnknownTypeInputBuffer;
-use UnknownTypeOutputBuffer;
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
@@ -89,12 +88,34 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
-        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?), data_callback, error_callback))
+    fn build_input_stream<D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?;
+        let stream = Stream::new_input(Arc::new(stream_inner), data_callback, error_callback);
+        Ok(stream)
     }
 
-    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError> where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
-        Ok(Stream::new(Arc::new(self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?), data_callback, error_callback))
+    fn build_output_stream<D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?;
+        let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
+        Ok(stream)
     }
 }
 
@@ -147,7 +168,11 @@ impl Drop for TriggerReceiver {
 pub struct Device(String);
 
 impl Device {
-    fn build_stream_inner(&self, format: &Format, stream_type: alsa::snd_pcm_stream_t) -> Result<StreamInner, BuildStreamError> {
+    fn build_stream_inner(
+        &self,
+        format: &Format,
+        stream_type: alsa::snd_pcm_stream_t,
+    ) -> Result<StreamInner, BuildStreamError> {
         let name = ffi::CString::new(self.0.clone()).expect("unable to clone device");
 
         let handle = unsafe {
@@ -510,6 +535,7 @@ unsafe impl Send for StreamInner {}
 
 unsafe impl Sync for StreamInner {}
 
+#[derive(Debug, Eq, PartialEq)]
 enum StreamType { Input, Output }
 
 pub struct Stream {
@@ -524,183 +550,289 @@ pub struct Stream {
     trigger: TriggerSender,
 }
 
-/// The inner body of the audio processing thread. Takes the polymorphic
-/// callback to avoid generating too much generic code.
-fn stream_worker(rx: TriggerReceiver,
-                 stream: &StreamInner,
-                 data_callback: &mut (dyn FnMut(StreamData) + Send + 'static),
-                 error_callback: &mut (dyn FnMut(StreamError) + Send + 'static)) {
-    let mut descriptors = Vec::new();
-    let mut buffer = Vec::new();
-    loop {
-        descriptors.clear();
-        // Add the self-pipe for signaling termination.
-        descriptors.push(libc::pollfd {
-            fd: rx.0,
-            events: libc::POLLIN,
-            revents: 0,
-        });
+#[derive(Default)]
+struct StreamWorkerContext {
+    descriptors: Vec<libc::pollfd>,
+    buffer: Vec<u8>,
+}
 
-        // Add ALSA polling fds.
-        descriptors.reserve(stream.num_descriptors);
-        let len = descriptors.len();
-        let filled = unsafe {
-            alsa::snd_pcm_poll_descriptors(
+fn input_stream_worker(
+    rx: TriggerReceiver,
+    stream: &StreamInner,
+    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+) {
+    let mut ctxt = StreamWorkerContext::default();
+    loop {
+        match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
+            PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::Return => return,
+            PollDescriptorsFlow::Ready { available_frames, stream_type } => {
+                assert_eq!(
+                    stream_type,
+                    StreamType::Input,
+                    "expected input stream, but polling descriptors indicated output",
+                );
+                process_input(
+                    stream,
+                    &mut ctxt.buffer,
+                    available_frames,
+                    data_callback,
+                    error_callback,
+                );
+            }
+        }
+    }
+}
+
+fn output_stream_worker(
+    rx: TriggerReceiver,
+    stream: &StreamInner,
+    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+) {
+    let mut ctxt = StreamWorkerContext::default();
+    loop {
+        match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
+            PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::Return => return,
+            PollDescriptorsFlow::Ready { available_frames, stream_type } => {
+                assert_eq!(
+                    stream_type,
+                    StreamType::Output,
+                    "expected output stream, but polling descriptors indicated input",
+                );
+                process_output(
+                    stream,
+                    &mut ctxt.buffer,
+                    available_frames,
+                    data_callback,
+                    error_callback,
+                );
+            }
+        }
+    }
+}
+
+enum PollDescriptorsFlow {
+    Continue,
+    Return,
+    Ready {
+        stream_type: StreamType,
+        available_frames: usize,
+    }
+}
+
+// This block is shared between both input and output stream worker functions.
+fn poll_descriptors_and_prepare_buffer(
+    rx: &TriggerReceiver,
+    stream: &StreamInner,
+    ctxt: &mut StreamWorkerContext,
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+) -> PollDescriptorsFlow {
+    let StreamWorkerContext {
+        ref mut descriptors,
+        ref mut buffer,
+    } = *ctxt;
+
+    descriptors.clear();
+
+    // Add the self-pipe for signaling termination.
+    descriptors.push(libc::pollfd {
+        fd: rx.0,
+        events: libc::POLLIN,
+        revents: 0,
+    });
+
+    // Add ALSA polling fds.
+    descriptors.reserve(stream.num_descriptors);
+    let len = descriptors.len();
+    let filled = unsafe {
+        alsa::snd_pcm_poll_descriptors(
+            stream.channel,
+            descriptors[len..].as_mut_ptr(),
+            stream.num_descriptors as libc::c_uint,
+        )
+    };
+    debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
+    unsafe {
+        descriptors.set_len(len + stream.num_descriptors);
+    }
+
+    let res = unsafe {
+        // Don't timeout, wait forever.
+        libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
+    };
+    if res < 0 {
+        let description = format!("`libc::poll()` failed: {}", io::Error::last_os_error());
+        error_callback(BackendSpecificError { description }.into());
+        return PollDescriptorsFlow::Continue;
+    } else if res == 0 {
+        let description = String::from("`libc::poll()` spuriously returned");
+        error_callback(BackendSpecificError { description }.into());
+        return PollDescriptorsFlow::Continue;
+    }
+
+    if descriptors[0].revents != 0 {
+        // The stream has been requested to be destroyed.
+        rx.clear_pipe();
+        return PollDescriptorsFlow::Return;
+    }
+
+    let stream_type = match check_for_pollout_or_pollin(stream, descriptors[1..].as_mut_ptr()) {
+        Ok(Some(ty)) => ty,
+        Ok(None) => {
+            // Nothing to process, poll again
+            return PollDescriptorsFlow::Continue;
+        },
+        Err(err) => {
+            error_callback(err.into());
+            return PollDescriptorsFlow::Continue;
+        }
+    };
+    // Get the number of available samples for reading/writing.
+    let available_samples = match get_available_samples(stream) {
+        Ok(n) => n,
+        Err(err) => {
+            let description = format!("Failed to query the number of available samples: {}", err);
+            error_callback(BackendSpecificError { description }.into());
+            return PollDescriptorsFlow::Continue;
+        }
+    };
+
+    // Only go on if there is at least `stream.period_len` samples.
+    if available_samples < stream.period_len {
+        return PollDescriptorsFlow::Continue;
+    }
+
+    // Prepare the data buffer.
+    let buffer_size = stream.sample_format.sample_size() * available_samples;
+    buffer.resize(buffer_size, 0u8);
+    let available_frames = available_samples / stream.num_channels as usize;
+
+    PollDescriptorsFlow::Ready {
+        stream_type,
+        available_frames,
+    }
+}
+
+// Read input data from ALSA and deliver it to the user.
+fn process_input(
+    stream: &StreamInner,
+    buffer: &mut [u8],
+    available_frames: usize,
+    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
+    error_callback: &mut dyn FnMut(StreamError),
+) {
+    let result = unsafe {
+        alsa::snd_pcm_readi(
+            stream.channel,
+            buffer.as_mut_ptr() as *mut _,
+            available_frames as alsa::snd_pcm_uframes_t,
+        )
+    };
+    if let Err(err) = check_errors(result as _) {
+        let description = format!("`snd_pcm_readi` failed: {}", err);
+        error_callback(BackendSpecificError { description }.into());
+        return;
+    }
+    let sample_format = stream.sample_format;
+    let data = buffer.as_mut_ptr() as *mut ();
+    let len = buffer.len() / sample_format.sample_size();
+    let data = unsafe {
+        Data::from_parts(data, len, sample_format)
+    };
+    data_callback(&data);
+}
+
+// Request data from the user's function and write it via ALSA.
+//
+// Returns `true`
+fn process_output(
+    stream: &StreamInner,
+    buffer: &mut [u8],
+    available_frames: usize,
+    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
+    error_callback: &mut dyn FnMut(StreamError),
+) {
+    {
+        // We're now sure that we're ready to write data.
+        let sample_format = stream.sample_format;
+        let data = buffer.as_mut_ptr() as *mut ();
+        let len = buffer.len() / sample_format.sample_size();
+        let mut data = unsafe {
+            Data::from_parts(data, len, sample_format)
+        };
+        data_callback(&mut data);
+    }
+    loop {
+        let result = unsafe {
+            alsa::snd_pcm_writei(
                 stream.channel,
-                descriptors[len..].as_mut_ptr(),
-                stream.num_descriptors as libc::c_uint,
+                buffer.as_ptr() as *const _,
+                available_frames as alsa::snd_pcm_uframes_t,
             )
         };
-        debug_assert_eq!(filled, stream.num_descriptors as libc::c_int);
-        unsafe {
-            descriptors.set_len(len + stream.num_descriptors);
-        }
-
-        let res = unsafe {
-            // Don't timeout, wait forever.
-            libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
-        };
-        if res < 0 {
-            let description = format!("`libc::poll()` failed: {}", io::Error::last_os_error());
+        if result == -libc::EPIPE as i64 {
+            // buffer underrun
+            // TODO: Notify the user of this.
+            unsafe { alsa::snd_pcm_recover(stream.channel, result as i32, 0) };
+        } else if let Err(err) = check_errors(result as _) {
+            let description = format!("`snd_pcm_writei` failed: {}", err);
             error_callback(BackendSpecificError { description }.into());
             continue;
-        } else if res == 0 {
-            let description = String::from("`libc::poll()` spuriously returned");
+        } else if result as usize != available_frames {
+            let description = format!(
+                "unexpected number of frames written: expected {}, \
+                            result {} (this should never happen)",
+                available_frames,
+                result,
+            );
             error_callback(BackendSpecificError { description }.into());
             continue;
-        }
-
-        if descriptors[0].revents != 0 {
-            // The stream has been requested to be destroyed.
-            rx.clear_pipe();
-            return;
-        }
-
-        let stream_type = match check_for_pollout_or_pollin(stream, descriptors[1..].as_mut_ptr()) {
-            Ok(Some(ty)) => ty,
-            Ok(None) => {
-                // Nothing to process, poll again
-                continue;
-            },
-            Err(err) => {
-                error_callback(err.into());
-                continue;
-            }
-        };
-        // Get the number of available samples for reading/writing.
-        let available_samples = match get_available_samples(stream) {
-            Ok(n) => n,
-            Err(err) => {
-                let description = format!("Failed to query the number of available samples: {}", err);
-                error_callback(BackendSpecificError { description }.into());
-                continue;
-            }
-        };
-
-        // Only go on if there is at least `stream.period_len` samples.
-        if available_samples < stream.period_len {
-            continue;
-        }
-
-        // Prepare the data buffer.
-        let buffer_size = stream.sample_format.sample_size() * available_samples;
-        buffer.resize(buffer_size, 0u8);
-        let available_frames = available_samples / stream.num_channels as usize;
-
-        match stream_type {
-            StreamType::Input => {
-                let result = unsafe {
-                    alsa::snd_pcm_readi(
-                        stream.channel,
-                        buffer.as_mut_ptr() as *mut _,
-                        available_frames as alsa::snd_pcm_uframes_t,
-                    )
-                };
-                if let Err(err) = check_errors(result as _) {
-                    let description = format!("`snd_pcm_readi` failed: {}", err);
-                    error_callback(BackendSpecificError { description }.into());
-                    continue;
-                }
-
-                let input_buffer = match stream.sample_format {
-                    SampleFormat::I16 => UnknownTypeInputBuffer::I16(::InputBuffer {
-                        buffer: unsafe { cast_input_buffer(&mut buffer) },
-                    }),
-                    SampleFormat::U16 => UnknownTypeInputBuffer::U16(::InputBuffer {
-                        buffer: unsafe { cast_input_buffer(&mut buffer) },
-                    }),
-                    SampleFormat::F32 => UnknownTypeInputBuffer::F32(::InputBuffer {
-                        buffer: unsafe { cast_input_buffer(&mut buffer) },
-                    }),
-                };
-                let stream_data = StreamData::Input {
-                    buffer: input_buffer,
-                };
-                data_callback(stream_data);
-            },
-            StreamType::Output => {
-                {
-                    // We're now sure that we're ready to write data.
-                    let output_buffer = match stream.sample_format {
-                        SampleFormat::I16 => UnknownTypeOutputBuffer::I16(::OutputBuffer {
-                            buffer: unsafe { cast_output_buffer(&mut buffer) },
-                        }),
-                        SampleFormat::U16 => UnknownTypeOutputBuffer::U16(::OutputBuffer {
-                            buffer: unsafe { cast_output_buffer(&mut buffer) },
-                        }),
-                        SampleFormat::F32 => UnknownTypeOutputBuffer::F32(::OutputBuffer {
-                            buffer: unsafe { cast_output_buffer(&mut buffer) },
-                        }),
-                    };
-
-                    let stream_data = StreamData::Output {
-                        buffer: output_buffer,
-                    };
-                    data_callback(stream_data);
-                }
-                loop {
-                    let result = unsafe {
-                        alsa::snd_pcm_writei(
-                            stream.channel,
-                            buffer.as_ptr() as *const _,
-                            available_frames as alsa::snd_pcm_uframes_t,
-                        )
-                    };
-
-                    if result == -libc::EPIPE as i64 {
-                        // buffer underrun
-                        // TODO: Notify the user of this.
-                        unsafe { alsa::snd_pcm_recover(stream.channel, result as i32, 0) };
-                    } else if let Err(err) = check_errors(result as _) {
-                        let description = format!("`snd_pcm_writei` failed: {}", err);
-                        error_callback(BackendSpecificError { description }.into());
-                        continue;
-                    } else if result as usize != available_frames {
-                        let description = format!(
-                            "unexpected number of frames written: expected {}, \
-                                        result {} (this should never happen)",
-                            available_frames,
-                            result,
-                        );
-                        error_callback(BackendSpecificError { description }.into());
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-            },
+        } else {
+            break;
         }
     }
 }
 
 impl Stream {
-    fn new<D, E>(inner: Arc<StreamInner>, mut data_callback: D, mut error_callback: E) -> Stream
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+    fn new_input<D, E>(
+        inner: Arc<StreamInner>,
+        mut data_callback: D,
+        mut error_callback: E,
+    ) -> Stream
+    where
+        D: FnMut(&Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::spawn(move || {
-            stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+            input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+        });
+        Stream {
+            thread: Some(thread),
+            inner,
+            trigger: tx,
+        }
+    }
+
+    fn new_output<D, E>(
+        inner: Arc<StreamInner>,
+        mut data_callback: D,
+        mut error_callback: E,
+    ) -> Stream
+    where
+        D: FnMut(&mut Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let (tx, rx) = trigger();
+        // Clone the handle for passing into worker thread.
+        let stream = inner.clone();
+        let thread = thread::spawn(move || {
+            output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
         });
         Stream {
             thread: Some(thread),
@@ -937,18 +1069,4 @@ fn check_errors(err: libc::c_int) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-/// Cast a byte slice into a (immutable) slice of desired type.
-/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
-unsafe fn cast_input_buffer<T>(v: &[u8]) -> &[T] {
-    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
-    std::slice::from_raw_parts(v.as_ptr() as *const T, v.len() / std::mem::size_of::<T>())
-}
-
-/// Cast a byte slice into a mutable slice of desired type.
-/// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
-unsafe fn cast_output_buffer<T>(v: &mut [u8]) -> &mut [T] {
-    debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
-    std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }

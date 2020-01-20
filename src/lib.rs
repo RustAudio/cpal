@@ -55,13 +55,14 @@
 //! Now that we have everything for the stream, we are ready to create it from our selected device:
 //!
 //! ```no_run
+//! use cpal::Data;
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
 //! let stream = device.build_output_stream(
 //!     &format,
-//!     move |data| {
+//!     move |data: &mut Data| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -71,10 +72,8 @@
 //! ```
 //!
 //! While the stream is running, the selected audio device will periodically call the data callback
-//! that was passed to the function. The callback is passed an instance of type `StreamData` that
-//! represents the data that must be read from or written to. The inner `UnknownTypeOutputBuffer`
-//! can be one of `I16`, `U16` or `F32` depending on the format that was passed to
-//! `build_output_stream`.
+//! that was passed to the function. The callback is passed an instance of either `&Data` or
+//! `&mut Data` depending on whether the stream is an input stream or output stream respectively.
 //!
 //! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
@@ -85,40 +84,28 @@
 //! > please share your issue and use-case with the CPAL team on the github issue tracker for
 //! > consideration.*
 //!
-//! In this example, we simply fill the given output buffer with zeroes.
+//! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
-//! use cpal::{StreamData, UnknownTypeOutputBuffer};
+//! use cpal::{Data, Sample, SampleFormat};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! let stream = device.build_output_stream(
-//!     &format,
-//!     move |data| {
-//!         match data {
-//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
-//!                 for elem in buffer.iter_mut() {
-//!                     *elem = u16::max_value() / 2;
-//!                 }
-//!             },
-//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
-//!                 for elem in buffer.iter_mut() {
-//!                     *elem = 0;
-//!                 }
-//!             },
-//!             StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
-//!                 for elem in buffer.iter_mut() {
-//!                     *elem = 0.0;
-//!                 }
-//!             },
-//!             _ => (),
-//!         }
-//!     },
-//!     move |err| {
-//!         eprintln!("an error occurred on the output audio stream: {}", err);
-//!     },
-//! );
+//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+//! let data_fn = move |data: &mut Data| match data.sample_format() {
+//!     SampleFormat::F32 => write_silence::<f32>(data),
+//!     SampleFormat::I16 => write_silence::<i16>(data),
+//!     SampleFormat::U16 => write_silence::<u16>(data),
+//! };
+//! let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
+//!
+//! fn write_silence<T: Sample>(data: &mut Data) {
+//!     let data = data.as_slice_mut::<T>().unwrap();
+//!     for sample in data.iter_mut() {
+//!         *sample = Sample::from(&0.0);
+//!     }
+//! }
 //! ```
 //!
 //! Not all platforms automatically run the stream upon creation. To ensure the stream has started,
@@ -129,7 +116,9 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! # let stream = device.build_output_stream(&format, move |_data| {}, move |_err| {}).unwrap();
+//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let err_fn = move |_err| {};
+//! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -141,8 +130,11 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! # let stream = device.build_output_stream(&format, move |_data| {}, move |_err| {}).unwrap();
+//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let err_fn = move |_err| {};
+//! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
+//! ```
 
 #![recursion_limit = "512"]
 
@@ -161,7 +153,6 @@ pub use platform::{
     HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
 };
 pub use samples_formats::{Sample, SampleFormat};
-use std::ops::{Deref, DerefMut};
 
 mod error;
 mod host;
@@ -202,71 +193,106 @@ pub struct SupportedFormat {
     pub data_type: SampleFormat,
 }
 
-/// Stream data passed to the `EventLoop::run` callback.
+/// Represents a buffer of audio data, delivered via a user's stream data callback function.
+///
+/// Input stream callbacks receive `&Data`, while output stream callbacks expect `&mut Data`.
 #[derive(Debug)]
-pub enum StreamData<'a> {
-    Input {
-        buffer: UnknownTypeInputBuffer<'a>,
-    },
-    Output {
-        buffer: UnknownTypeOutputBuffer<'a>,
-    },
+pub struct Data {
+    data: *mut (),
+    len: usize,
+    sample_format: SampleFormat,
 }
 
-/// Represents a buffer containing audio data that may be read.
-///
-/// This struct implements the `Deref` trait targeting `[T]`. Therefore this buffer can be read the
-/// same way as reading from a `Vec` or any other kind of Rust array.
-// TODO: explain audio stuff in general
-// TODO: remove the wrapper and just use slices in next major version
-#[derive(Debug)]
-pub struct InputBuffer<'a, T: 'a>
-where
-    T: Sample,
-{
-    buffer: &'a [T],
-}
+impl Data {
+    // Internal constructor for host implementations to use.
+    //
+    // The following requirements must be met in order for the safety of `Data`'s public API.
+    //
+    // - The `data` pointer must point to the first sample in the slice containing all samples.
+    // - The `len` must describe the length of the buffer as a number of samples in the expected
+    //   format specified via the `sample_format` argument.
+    // - The `sample_format` must correctly represent the underlying sample data delivered/expected
+    //   by the stream.
+    pub(crate) unsafe fn from_parts(
+        data: *mut (),
+        len: usize,
+        sample_format: SampleFormat,
+    ) -> Self {
+        Data { data, len, sample_format }
+    }
 
-/// Represents a buffer that must be filled with audio data. The buffer in unfilled state may
-/// contain garbage values.
-///
-/// This struct implements the `Deref` and `DerefMut` traits to `[T]`. Therefore writing to this
-/// buffer is done in the same way as writing to a `Vec` or any other kind of Rust array.
-// TODO: explain audio stuff in general
-// TODO: remove the wrapper and just use slices
-#[must_use]
-#[derive(Debug)]
-pub struct OutputBuffer<'a, T: 'a>
-where
-    T: Sample,
-{
-    buffer: &'a mut [T],
-}
+    /// The sample format of the internal audio data.
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
 
-/// This is the struct that is provided to you by cpal when you want to read samples from a buffer.
-///
-/// Since the type of data is only known at runtime, you have to read the right buffer.
-#[derive(Debug)]
-pub enum UnknownTypeInputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(InputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(InputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(InputBuffer<'a, f32>),
-}
+    /// The full length of the buffer in samples.
+    ///
+    /// The returned length is the same length as the slice of type `T` that would be returned via
+    /// `as_slice` given a sample type that matches the inner sample format.
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
-/// This is the struct that is provided to you by cpal when you want to write samples to a buffer.
-///
-/// Since the type of data is only known at runtime, you have to fill the right buffer.
-#[derive(Debug)]
-pub enum UnknownTypeOutputBuffer<'a> {
-    /// Samples whose format is `u16`.
-    U16(OutputBuffer<'a, u16>),
-    /// Samples whose format is `i16`.
-    I16(OutputBuffer<'a, i16>),
-    /// Samples whose format is `f32`.
-    F32(OutputBuffer<'a, f32>),
+    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
+    ///
+    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
+    pub fn bytes(&self) -> &[u8] {
+        let len = self.len * self.sample_format.sample_size();
+        // The safety of this block relies on correct construction of the `Data` instance. See
+        // the unsafe `from_parts` constructor for these requirements.
+        unsafe {
+            std::slice::from_raw_parts(self.data as *const u8, len)
+        }
+    }
+
+    /// The raw slice of memory representing the underlying audio data as a slice of bytes.
+    ///
+    /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        let len = self.len * self.sample_format.sample_size();
+        // The safety of this block relies on correct construction of the `Data` instance. See
+        // the unsafe `from_parts` constructor for these requirements.
+        unsafe {
+            std::slice::from_raw_parts_mut(self.data as *mut u8, len)
+        }
+    }
+
+    /// Access the data as a slice of sample type `T`.
+    ///
+    /// Returns `None` if the sample type does not match the expected sample format.
+    pub fn as_slice<T>(&self) -> Option<&[T]>
+    where
+        T: Sample,
+    {
+        if T::FORMAT == self.sample_format {
+            // The safety of this block relies on correct construction of the `Data` instance. See
+            // the unsafe `from_parts` constructor for these requirements.
+            unsafe {
+                Some(std::slice::from_raw_parts(self.data as *const T, self.len))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Access the data as a slice of sample type `T`.
+    ///
+    /// Returns `None` if the sample type does not match the expected sample format.
+    pub fn as_slice_mut<T>(&mut self) -> Option<&mut [T]>
+    where
+        T: Sample,
+    {
+        if T::FORMAT == self.sample_format {
+            // The safety of this block relies on correct construction of the `Data` instance. See
+            // the unsafe `from_parts` constructor for these requirements.
+            unsafe {
+                Some(std::slice::from_raw_parts_mut(self.data as *mut T, self.len))
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl SupportedFormat {
@@ -349,61 +375,6 @@ impl SupportedFormat {
         }
 
         self.max_sample_rate.cmp(&other.max_sample_rate)
-    }
-}
-
-impl<'a, T> Deref for InputBuffer<'a, T>
-    where T: Sample
-{
-    type Target = [T];
-
-    #[inline]
-    fn deref(&self) -> &[T] {
-        self.buffer
-    }
-}
-
-impl<'a, T> Deref for OutputBuffer<'a, T>
-    where T: Sample
-{
-    type Target = [T];
-
-    #[inline]
-    fn deref(&self) -> &[T] {
-        self.buffer
-    }
-}
-
-impl<'a, T> DerefMut for OutputBuffer<'a, T>
-    where T: Sample
-{
-    #[inline]
-    fn deref_mut(&mut self) -> &mut [T] {
-        self.buffer
-    }
-}
-
-impl<'a> UnknownTypeInputBuffer<'a> {
-    /// Returns the length of the buffer in number of samples.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            &UnknownTypeInputBuffer::U16(ref buf) => buf.len(),
-            &UnknownTypeInputBuffer::I16(ref buf) => buf.len(),
-            &UnknownTypeInputBuffer::F32(ref buf) => buf.len(),
-        }
-    }
-}
-
-impl<'a> UnknownTypeOutputBuffer<'a> {
-    /// Returns the length of the buffer in number of samples.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            &UnknownTypeOutputBuffer::U16(ref buf) => buf.len(),
-            &UnknownTypeOutputBuffer::I16(ref buf) => buf.len(),
-            &UnknownTypeOutputBuffer::F32(ref buf) => buf.len(),
-        }
     }
 }
 

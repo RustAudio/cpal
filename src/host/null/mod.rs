@@ -1,14 +1,16 @@
-use BuildStreamError;
-use DefaultFormatError;
-use DevicesError;
-use DeviceNameError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use StreamData;
-use StreamError;
-use SupportedFormatsError;
-use SupportedFormat;
+use crate::{
+    BuildStreamError,
+    Data,
+    DefaultFormatError,
+    DevicesError,
+    DeviceNameError,
+    Format,
+    PauseStreamError,
+    PlayStreamError,
+    StreamError,
+    SupportedFormatsError,
+    SupportedFormat,
+};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[derive(Default)]
@@ -68,14 +70,30 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_input_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static {
+    fn build_input_stream<D, E>(
+        &self,
+        _format: &Format,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
         unimplemented!()
     }
 
     /// Create an output stream.
-    fn build_output_stream<D, E>(&self, _format: &Format, _data_callback: D, _error_callback: E) -> Result<Self::Stream, BuildStreamError>
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static{
+    fn build_output_stream<D, E>(
+        &self,
+        _format: &Format,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
         unimplemented!()
     }
 }

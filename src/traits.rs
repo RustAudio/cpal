@@ -2,6 +2,7 @@
 
 use {
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
@@ -10,7 +11,6 @@ use {
     OutputDevices,
     PauseStreamError,
     PlayStreamError,
-    StreamData,
     StreamError,
     SupportedFormat,
     SupportedFormatsError,
@@ -118,12 +118,26 @@ pub trait DeviceTrait {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
 
     /// Create an input stream.
-    fn build_input_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static;
+    fn build_input_stream<D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static;
 
     /// Create an output stream.
-    fn build_output_stream<D, E>(&self, format: &Format, data_callback: D, error_callback: E) -> Result<Self::Stream, BuildStreamError>
-        where D: FnMut(StreamData) + Send + 'static, E: FnMut(StreamError) + Send + 'static;
+    fn build_output_stream<D, E>(
+        &self,
+        format: &Format,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static;
 }
 
 /// A stream created from `Device`, with methods to control playback.

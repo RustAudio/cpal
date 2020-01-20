@@ -21,20 +21,12 @@ impl SampleFormat {
             &SampleFormat::F32 => mem::size_of::<f32>(),
         }
     }
-
-    /// Deprecated. Use `sample_size` instead.
-    #[inline]
-    #[deprecated]
-    pub fn get_sample_size(&self) -> usize {
-        self.sample_size()
-    }
 }
 
 /// Trait for containers that contain PCM data.
 pub unsafe trait Sample: Copy + Clone {
-    /// Returns the `SampleFormat` corresponding to this data type.
-    // TODO: rename to `format()`. Requires a breaking change.
-    fn get_format() -> SampleFormat;
+    /// The `SampleFormat` corresponding to this data type.
+    const FORMAT: SampleFormat;
 
     /// Turns the sample into its equivalent as a floating-point.
     fn to_f32(&self) -> f32;
@@ -49,10 +41,7 @@ pub unsafe trait Sample: Copy + Clone {
 }
 
 unsafe impl Sample for u16 {
-    #[inline]
-    fn get_format() -> SampleFormat {
-        SampleFormat::U16
-    }
+    const FORMAT: SampleFormat = SampleFormat::U16;
 
     #[inline]
     fn to_f32(&self) -> f32 {
@@ -82,10 +71,7 @@ unsafe impl Sample for u16 {
 }
 
 unsafe impl Sample for i16 {
-    #[inline]
-    fn get_format() -> SampleFormat {
-        SampleFormat::I16
-    }
+    const FORMAT: SampleFormat = SampleFormat::I16;
 
     #[inline]
     fn to_f32(&self) -> f32 {
@@ -119,10 +105,7 @@ unsafe impl Sample for i16 {
 }
 
 unsafe impl Sample for f32 {
-    #[inline]
-    fn get_format() -> SampleFormat {
-        SampleFormat::F32
-    }
+    const FORMAT: SampleFormat = SampleFormat::F32;
 
     #[inline]
     fn to_f32(&self) -> f32 {

@@ -1,3 +1,16 @@
+use crate::{
+    BackendSpecificError,
+    Data,
+    DefaultFormatError,
+    DeviceNameError,
+    DevicesError,
+    Format,
+    SampleFormat,
+    SampleRate,
+    SupportedFormat,
+    SupportedFormatsError,
+    COMMON_SAMPLE_RATES,
+};
 use std;
 use std::ffi::OsString;
 use std::fmt;
@@ -8,17 +21,6 @@ use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
-
-use BackendSpecificError;
-use DefaultFormatError;
-use DeviceNameError;
-use DevicesError;
-use Format;
-use SampleFormat;
-use SampleRate;
-use SupportedFormat;
-use SupportedFormatsError;
-use COMMON_SAMPLE_RATES;
 
 use super::check_result;
 use super::check_result_backend_specific;
@@ -54,7 +56,7 @@ use super::{
     stream::{AudioClientFlow, Stream, StreamInner},
     winapi::um::synchapi,
 };
-use crate::{traits::DeviceTrait, BuildStreamError, StreamData, StreamError};
+use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
 
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
@@ -109,14 +111,11 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Ok(Stream::new(
-            self.build_input_stream_inner(format)?,
-            data_callback,
-            error_callback,
-        ))
+        let stream_inner = self.build_input_stream_inner(format)?;
+        Ok(Stream::new_input(stream_inner, data_callback, error_callback))
     }
 
     fn build_output_stream<D, E>(
@@ -126,14 +125,11 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Ok(Stream::new(
-            self.build_output_stream_inner(format)?,
-            data_callback,
-            error_callback,
-        ))
+        let stream_inner = self.build_output_stream_inner(format)?;
+        Ok(Stream::new_output(stream_inner, data_callback, error_callback))
     }
 }
 

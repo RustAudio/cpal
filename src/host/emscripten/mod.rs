@@ -7,18 +7,20 @@ use stdweb::unstable::TryInto;
 use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
 
-use BuildStreamError;
-use DefaultFormatError;
-use DeviceNameError;
-use DevicesError;
-use Format;
-use PauseStreamError;
-use PlayStreamError;
-use SupportedFormatsError;
-use StreamData;
-use StreamError;
-use SupportedFormat;
-use UnknownTypeOutputBuffer;
+use crate::{
+    BuildStreamError,
+    Data,
+    DefaultFormatError,
+    DeviceNameError,
+    DevicesError,
+    Format,
+    PauseStreamError,
+    PlayStreamError,
+    SampleFormat,
+    StreamError,
+    SupportedFormat,
+    SupportedFormatsError,
+};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -163,7 +165,7 @@ impl DeviceTrait for Device {
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
@@ -171,14 +173,20 @@ impl DeviceTrait for Device {
 
     fn build_output_stream<D, E>(
         &self,
-        _format: &Format,
+        format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(StreamData) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        assert_eq!(
+            format.data_type,
+            SampleFormat::F32,
+            "emscripten backend currently only supports `f32` data",
+        );
+
         // Create the stream.
         let audio_ctxt_ref = js!(return new AudioContext()).into_reference().unwrap();
         let stream = Stream { audio_ctxt_ref };
@@ -217,7 +225,7 @@ impl StreamTrait for Stream {
 // and to the `callback` parameter that was passed to `run`.
 fn audio_callback_fn<D, E>(user_data_ptr: *mut c_void)
 where
-    D: FnMut(StreamData) + Send + 'static,
+    D: FnMut(&mut Data) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     unsafe {
@@ -230,9 +238,11 @@ where
         let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
 
         {
-            let buffer = UnknownTypeOutputBuffer::F32(::OutputBuffer { buffer: &mut temporary_buffer });
-            let data = StreamData::Output { buffer: buffer };
-            data_cb(data);
+            let len = temporary_buffer.len();
+            let data = temporary_buffer.as_mut_ptr() as *mut ();
+            let sample_format = SampleFormat::F32;
+            let mut data = Data::from_parts(data, len, sample_format);
+            data_cb(&mut data);
         }
 
         // TODO: directly use a TypedArray<f32> once this is supported by stdweb
