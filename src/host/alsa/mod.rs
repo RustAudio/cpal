@@ -2,26 +2,14 @@ extern crate alsa_sys as alsa;
 extern crate libc;
 
 use crate::{
-    BackendSpecificError,
-    BuildStreamError,
-    ChannelCount,
-    Data,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    PauseStreamError,
-    PlayStreamError,
-    SampleFormat,
-    SampleRate,
-    StreamError,
-    SupportedFormat,
-    SupportedFormatsError,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultFormatError,
+    DeviceNameError, DevicesError, Format, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamError, SupportedFormat, SupportedFormatsError,
 };
-use std::{cmp, ffi, io, ptr};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
+use std::{cmp, ffi, io, ptr};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
@@ -72,11 +60,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
@@ -118,7 +110,6 @@ impl DeviceTrait for Device {
         Ok(stream)
     }
 }
-
 
 struct TriggerSender(libc::c_int);
 
@@ -247,8 +238,7 @@ impl Device {
     unsafe fn supported_formats(
         &self,
         stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError>
-    {
+    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError> {
         let mut handle = ptr::null_mut();
         let device_name = match ffi::CString::new(&self.0[..]) {
             Ok(name) => name,
@@ -284,14 +274,13 @@ impl Device {
         };
 
         // TODO: check endianess
-        const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] =
-            [
-                //SND_PCM_FORMAT_S8,
-                //SND_PCM_FORMAT_U8,
-                (SampleFormat::I16, alsa::SND_PCM_FORMAT_S16_LE),
-                //SND_PCM_FORMAT_S16_BE,
-                (SampleFormat::U16, alsa::SND_PCM_FORMAT_U16_LE),
-                //SND_PCM_FORMAT_U16_BE,
+        const FORMATS: [(SampleFormat, alsa::snd_pcm_format_t); 3] = [
+            //SND_PCM_FORMAT_S8,
+            //SND_PCM_FORMAT_U8,
+            (SampleFormat::I16, alsa::SND_PCM_FORMAT_S16_LE),
+            //SND_PCM_FORMAT_S16_BE,
+            (SampleFormat::U16, alsa::SND_PCM_FORMAT_U16_LE),
+            //SND_PCM_FORMAT_U16_BE,
             /*SND_PCM_FORMAT_S24_LE,
             SND_PCM_FORMAT_S24_BE,
             SND_PCM_FORMAT_U24_LE,
@@ -300,37 +289,34 @@ impl Device {
             SND_PCM_FORMAT_S32_BE,
             SND_PCM_FORMAT_U32_LE,
             SND_PCM_FORMAT_U32_BE,*/
-                (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE) /*SND_PCM_FORMAT_FLOAT_BE,
-            SND_PCM_FORMAT_FLOAT64_LE,
-            SND_PCM_FORMAT_FLOAT64_BE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
-            SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
-            SND_PCM_FORMAT_MU_LAW,
-            SND_PCM_FORMAT_A_LAW,
-            SND_PCM_FORMAT_IMA_ADPCM,
-            SND_PCM_FORMAT_MPEG,
-            SND_PCM_FORMAT_GSM,
-            SND_PCM_FORMAT_SPECIAL,
-            SND_PCM_FORMAT_S24_3LE,
-            SND_PCM_FORMAT_S24_3BE,
-            SND_PCM_FORMAT_U24_3LE,
-            SND_PCM_FORMAT_U24_3BE,
-            SND_PCM_FORMAT_S20_3LE,
-            SND_PCM_FORMAT_S20_3BE,
-            SND_PCM_FORMAT_U20_3LE,
-            SND_PCM_FORMAT_U20_3BE,
-            SND_PCM_FORMAT_S18_3LE,
-            SND_PCM_FORMAT_S18_3BE,
-            SND_PCM_FORMAT_U18_3LE,
-            SND_PCM_FORMAT_U18_3BE,*/,
-            ];
+            (SampleFormat::F32, alsa::SND_PCM_FORMAT_FLOAT_LE), /*SND_PCM_FORMAT_FLOAT_BE,
+                                                                SND_PCM_FORMAT_FLOAT64_LE,
+                                                                SND_PCM_FORMAT_FLOAT64_BE,
+                                                                SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
+                                                                SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
+                                                                SND_PCM_FORMAT_MU_LAW,
+                                                                SND_PCM_FORMAT_A_LAW,
+                                                                SND_PCM_FORMAT_IMA_ADPCM,
+                                                                SND_PCM_FORMAT_MPEG,
+                                                                SND_PCM_FORMAT_GSM,
+                                                                SND_PCM_FORMAT_SPECIAL,
+                                                                SND_PCM_FORMAT_S24_3LE,
+                                                                SND_PCM_FORMAT_S24_3BE,
+                                                                SND_PCM_FORMAT_U24_3LE,
+                                                                SND_PCM_FORMAT_U24_3BE,
+                                                                SND_PCM_FORMAT_S20_3LE,
+                                                                SND_PCM_FORMAT_S20_3BE,
+                                                                SND_PCM_FORMAT_U20_3LE,
+                                                                SND_PCM_FORMAT_U20_3BE,
+                                                                SND_PCM_FORMAT_S18_3LE,
+                                                                SND_PCM_FORMAT_S18_3BE,
+                                                                SND_PCM_FORMAT_U18_3LE,
+                                                                SND_PCM_FORMAT_U18_3BE,*/
+        ];
 
         let mut supported_formats = Vec::new();
         for &(sample_format, alsa_format) in FORMATS.iter() {
-            if alsa::snd_pcm_hw_params_test_format(handle,
-                                                   hw_params.0,
-                                                   alsa_format) == 0
-            {
+            if alsa::snd_pcm_hw_params_test_format(handle, hw_params.0, alsa_format) == 0 {
                 supported_formats.push(sample_format);
             }
         }
@@ -357,34 +343,19 @@ impl Device {
             return Err(err.into());
         }
 
-        let sample_rates = if min_rate == max_rate ||
-            alsa::snd_pcm_hw_params_test_rate(handle, hw_params.0, min_rate + 1, 0) == 0
+        let sample_rates = if min_rate == max_rate
+            || alsa::snd_pcm_hw_params_test_rate(handle, hw_params.0, min_rate + 1, 0) == 0
         {
             vec![(min_rate, max_rate)]
         } else {
             const RATES: [libc::c_uint; 13] = [
-                5512,
-                8000,
-                11025,
-                16000,
-                22050,
-                32000,
-                44100,
-                48000,
-                64000,
-                88200,
-                96000,
-                176400,
+                5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
                 192000,
             ];
 
             let mut rates = Vec::new();
             for &rate in RATES.iter() {
-                if alsa::snd_pcm_hw_params_test_rate(handle,
-                                                     hw_params.0,
-                                                     rate,
-                                                     0) == 0
-                {
+                if alsa::snd_pcm_hw_params_test_rate(handle, hw_params.0, rate, 0) == 0 {
                     rates.push((rate, rate));
                 }
             }
@@ -397,44 +368,48 @@ impl Device {
         };
 
         let mut min_channels = 0;
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_min(hw_params.0, &mut min_channels)) {
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_min(
+            hw_params.0,
+            &mut min_channels,
+        )) {
             let description = format!("unable to get minimum supported channel count: {}", desc);
             let err = BackendSpecificError { description };
             return Err(err.into());
         }
 
         let mut max_channels = 0;
-        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_max(hw_params.0, &mut max_channels)) {
+        if let Err(desc) = check_errors(alsa::snd_pcm_hw_params_get_channels_max(
+            hw_params.0,
+            &mut max_channels,
+        )) {
             let description = format!("unable to get maximum supported channel count: {}", desc);
             let err = BackendSpecificError { description };
             return Err(err.into());
         }
 
         let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
-        let supported_channels = (min_channels .. max_channels + 1)
-            .filter_map(|num| if alsa::snd_pcm_hw_params_test_channels(
-                handle,
-                hw_params.0,
-                num,
-            ) == 0
-            {
-                Some(num as ChannelCount)
-            } else {
-                None
+        let supported_channels = (min_channels..max_channels + 1)
+            .filter_map(|num| {
+                if alsa::snd_pcm_hw_params_test_channels(handle, hw_params.0, num) == 0 {
+                    Some(num as ChannelCount)
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>();
 
-        let mut output = Vec::with_capacity(supported_formats.len() * supported_channels.len() *
-                                                sample_rates.len());
+        let mut output = Vec::with_capacity(
+            supported_formats.len() * supported_channels.len() * sample_rates.len(),
+        );
         for &data_type in supported_formats.iter() {
             for channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedFormat {
-                                    channels: channels.clone(),
-                                    min_sample_rate: SampleRate(min_rate as u32),
-                                    max_sample_rate: SampleRate(max_rate as u32),
-                                    data_type: data_type,
-                                });
+                        channels: channels.clone(),
+                        min_sample_rate: SampleRate(min_rate as u32),
+                        max_sample_rate: SampleRate(max_rate as u32),
+                        data_type: data_type,
+                    });
                 }
             }
         }
@@ -445,15 +420,11 @@ impl Device {
     }
 
     fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
-        unsafe {
-            self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE)
-        }
+        unsafe { self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE) }
     }
 
     fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        unsafe {
-            self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK)
-        }
+        unsafe { self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK) }
     }
 
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
@@ -461,13 +432,12 @@ impl Device {
     fn default_format(
         &self,
         stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<Format, DefaultFormatError>
-    {
+    ) -> Result<Format, DefaultFormatError> {
         let mut formats: Vec<_> = unsafe {
             match self.supported_formats(stream_t) {
                 Err(SupportedFormatsError::DeviceNotAvailable) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
-                },
+                }
                 Err(SupportedFormatsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities but
                     // the device supports only one
@@ -492,8 +462,8 @@ impl Device {
                     format.sample_rate = HZ_44100;
                 }
                 Ok(format)
-            },
-            None => Err(DefaultFormatError::StreamTypeNotSupported)
+            }
+            None => Err(DefaultFormatError::StreamTypeNotSupported),
         }
     }
 
@@ -536,7 +506,10 @@ unsafe impl Send for StreamInner {}
 unsafe impl Sync for StreamInner {}
 
 #[derive(Debug, Eq, PartialEq)]
-enum StreamType { Input, Output }
+enum StreamType {
+    Input,
+    Output,
+}
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -567,7 +540,10 @@ fn input_stream_worker(
         match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready { available_frames, stream_type } => {
+            PollDescriptorsFlow::Ready {
+                available_frames,
+                stream_type,
+            } => {
                 assert_eq!(
                     stream_type,
                     StreamType::Input,
@@ -596,7 +572,10 @@ fn output_stream_worker(
         match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt, error_callback) {
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready { available_frames, stream_type } => {
+            PollDescriptorsFlow::Ready {
+                available_frames,
+                stream_type,
+            } => {
                 assert_eq!(
                     stream_type,
                     StreamType::Output,
@@ -620,7 +599,7 @@ enum PollDescriptorsFlow {
     Ready {
         stream_type: StreamType,
         available_frames: usize,
-    }
+    },
 }
 
 // This block is shared between both input and output stream worker functions.
@@ -661,7 +640,11 @@ fn poll_descriptors_and_prepare_buffer(
 
     let res = unsafe {
         // Don't timeout, wait forever.
-        libc::poll(descriptors.as_mut_ptr(), descriptors.len() as libc::nfds_t, -1)
+        libc::poll(
+            descriptors.as_mut_ptr(),
+            descriptors.len() as libc::nfds_t,
+            -1,
+        )
     };
     if res < 0 {
         let description = format!("`libc::poll()` failed: {}", io::Error::last_os_error());
@@ -684,7 +667,7 @@ fn poll_descriptors_and_prepare_buffer(
         Ok(None) => {
             // Nothing to process, poll again
             return PollDescriptorsFlow::Continue;
-        },
+        }
         Err(err) => {
             error_callback(err.into());
             return PollDescriptorsFlow::Continue;
@@ -739,9 +722,7 @@ fn process_input(
     let sample_format = stream.sample_format;
     let data = buffer.as_mut_ptr() as *mut ();
     let len = buffer.len() / sample_format.sample_size();
-    let data = unsafe {
-        Data::from_parts(data, len, sample_format)
-    };
+    let data = unsafe { Data::from_parts(data, len, sample_format) };
     data_callback(&data);
 }
 
@@ -760,9 +741,7 @@ fn process_output(
         let sample_format = stream.sample_format;
         let data = buffer.as_mut_ptr() as *mut ();
         let len = buffer.len() / sample_format.sample_size();
-        let mut data = unsafe {
-            Data::from_parts(data, len, sample_format)
-        };
+        let mut data = unsafe { Data::from_parts(data, len, sample_format) };
         data_callback(&mut data);
     }
     loop {
@@ -784,9 +763,8 @@ fn process_output(
         } else if result as usize != available_frames {
             let description = format!(
                 "unexpected number of frames written: expected {}, \
-                            result {} (this should never happen)",
-                available_frames,
-                result,
+                 result {} (this should never happen)",
+                available_frames, result,
             );
             error_callback(BackendSpecificError { description }.into());
             continue;
@@ -857,7 +835,7 @@ impl StreamTrait for Stream {
         // TODO: error handling
         Ok(())
     }
-    fn pause(&self)-> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), PauseStreamError> {
         unsafe {
             alsa::snd_pcm_pause(self.inner.channel, 1);
         }
@@ -888,8 +866,7 @@ fn check_for_pollout_or_pollin(
         (revent, res)
     };
     if let Err(desc) = check_errors(res) {
-        let description =
-            format!("`snd_pcm_poll_descriptors_revents` failed: {}",desc);
+        let description = format!("`snd_pcm_poll_descriptors_revents` failed: {}", desc);
         let err = BackendSpecificError { description };
         return Err(err);
     }
@@ -905,9 +882,7 @@ fn check_for_pollout_or_pollin(
 
 // Determine the number of samples that are available to read/write.
 fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificError> {
-    let available = unsafe {
-        alsa::snd_pcm_avail_update(stream.channel)
-    };
+    let available = unsafe { alsa::snd_pcm_avail_update(stream.channel) };
     if available == -32 {
         // buffer underrun
         // TODO: Notify the user some how.
@@ -929,9 +904,11 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
         return Err(format!("errors on pcm handle: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
-                                                    hw_params.0,
-                                                    alsa::SND_PCM_ACCESS_RW_INTERLEAVED)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(
+        pcm_handle,
+        hw_params.0,
+        alsa::SND_PCM_ACCESS_RW_INTERLEAVED,
+    )) {
         return Err(format!("handle not acessible: {}", e));
     }
 
@@ -949,21 +926,26 @@ unsafe fn set_hw_params_from_format(
         }
     };
 
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
-                                                    hw_params.0,
-                                                    data_type)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(
+        pcm_handle,
+        hw_params.0,
+        data_type,
+    )) {
         return Err(format!("format could not be set: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
-                                                  hw_params.0,
-                                                  format.sample_rate.0 as libc::c_uint,
-                                                  0)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(
+        pcm_handle,
+        hw_params.0,
+        format.sample_rate.0 as libc::c_uint,
+        0,
+    )) {
         return Err(format!("sample rate could not be set: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
-                                                      hw_params.0,
-                                                      format.channels as
-                                                                      libc::c_uint)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(
+        pcm_handle,
+        hw_params.0,
+        format.channels as libc::c_uint,
+    )) {
         return Err(format!("channel count could not be set: {}", e));
     }
 
@@ -987,8 +969,7 @@ unsafe fn set_hw_params_from_format(
 unsafe fn set_sw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     format: &Format,
-) -> Result<(usize, usize), String>
-{
+) -> Result<(usize, usize), String> {
     let mut sw_params = ptr::null_mut(); // TODO: RAII
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
         return Err(format!("snd_pcm_sw_params_malloc failed: {}", e));
@@ -996,20 +977,31 @@ unsafe fn set_sw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_current(pcm_handle, sw_params)) {
         return Err(format!("snd_pcm_sw_params_current failed: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, 0)) {
-        return Err(format!("snd_pcm_sw_params_set_start_threshold failed: {}", e));
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(
+        pcm_handle, sw_params, 0,
+    )) {
+        return Err(format!(
+            "snd_pcm_sw_params_set_start_threshold failed: {}",
+            e
+        ));
     }
 
     let (buffer_len, period_len) = {
         let mut buffer = 0;
         let mut period = 0;
-        if let Err(e) = check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period)) {
+        if let Err(e) = check_errors(alsa::snd_pcm_get_params(
+            pcm_handle,
+            &mut buffer,
+            &mut period,
+        )) {
             return Err(format!("failed to initialize buffer: {}", e));
         }
         if buffer == 0 {
             return Err(format!("initialization resulted in a null buffer"));
         }
-        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(pcm_handle, sw_params, period)) {
+        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(
+            pcm_handle, sw_params, period,
+        )) {
             return Err(format!("snd_pcm_sw_params_set_avail_min failed: {}", e));
         }
         let buffer = buffer as usize * format.channels as usize;

@@ -7,9 +7,9 @@ extern crate cpal;
 extern crate hound;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::io::BufWriter;
+use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), anyhow::Error> {
     // Use the default host for working with audio devices.
@@ -40,12 +40,10 @@ fn main() -> Result<(), anyhow::Error> {
         eprintln!("an error occurred on stream: {}", err);
     };
 
-    let data_fn = move |data: &cpal::Data| {
-        match data.sample_format() {
-            cpal::SampleFormat::F32 => write_input_data::<f32, f32>(data, &writer_2),
-            cpal::SampleFormat::I16 => write_input_data::<i16, i16>(data, &writer_2),
-            cpal::SampleFormat::U16 => write_input_data::<u16, i16>(data, &writer_2),
-        }
+    let data_fn = move |data: &cpal::Data| match data.sample_format() {
+        cpal::SampleFormat::F32 => write_input_data::<f32, f32>(data, &writer_2),
+        cpal::SampleFormat::I16 => write_input_data::<i16, i16>(data, &writer_2),
+        cpal::SampleFormat::U16 => write_input_data::<u16, i16>(data, &writer_2),
     };
 
     let stream = device.build_input_stream(&format, data_fn, err_fn)?;

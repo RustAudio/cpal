@@ -2,8 +2,10 @@ use std;
 pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
 
+use super::parking_lot::Mutex;
+use super::sys;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc};
+use std::sync::Arc;
 use BackendSpecificError;
 use DefaultFormatError;
 use DeviceNameError;
@@ -13,8 +15,6 @@ use SampleFormat;
 use SampleRate;
 use SupportedFormat;
 use SupportedFormatsError;
-use super::sys;
-use super::parking_lot::Mutex;
 
 /// A ASIO Device
 pub struct Device {
@@ -55,9 +55,7 @@ impl Device {
     /// Gets the supported input formats.
     /// TODO currently only supports the default.
     /// Need to find all possible formats.
-    pub fn supported_input_formats(
-        &self,
-    ) -> Result<SupportedInputFormats, SupportedFormatsError> {
+    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
         // Retrieve the default format for the total supported channels and supported sample
         // format.
         let mut f = match self.default_input_format() {
@@ -68,7 +66,12 @@ impl Device {
         // Collect a format for every combination of supported sample rate and number of channels.
         let mut supported_formats = vec![];
         for &rate in ::COMMON_SAMPLE_RATES {
-            if !self.driver.can_sample_rate(rate.0.into()).ok().unwrap_or(false) {
+            if !self
+                .driver
+                .can_sample_rate(rate.0.into())
+                .ok()
+                .unwrap_or(false)
+            {
                 continue;
             }
             for channels in 1..f.channels + 1 {
@@ -96,7 +99,12 @@ impl Device {
         // Collect a format for every combination of supported sample rate and number of channels.
         let mut supported_formats = vec![];
         for &rate in ::COMMON_SAMPLE_RATES {
-            if !self.driver.can_sample_rate(rate.0.into()).ok().unwrap_or(false) {
+            if !self
+                .driver
+                .can_sample_rate(rate.0.into())
+                .ok()
+                .unwrap_or(false)
+            {
                 continue;
             }
             for channels in 1..f.channels + 1 {
@@ -114,8 +122,8 @@ impl Device {
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         // Map th ASIO sample type to a CPAL sample type
         let data_type = self.driver.input_data_type().map_err(default_format_err)?;
-        let data_type = convert_data_type(&data_type)
-            .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        let data_type =
+            convert_data_type(&data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
             channels,
             sample_rate,
@@ -128,8 +136,8 @@ impl Device {
         let channels = self.driver.channels().map_err(default_format_err)?.outs as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
         let data_type = self.driver.output_data_type().map_err(default_format_err)?;
-        let data_type = convert_data_type(&data_type)
-            .ok_or(DefaultFormatError::StreamTypeNotSupported)?;
+        let data_type =
+            convert_data_type(&data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
         Ok(Format {
             channels,
             sample_rate,
@@ -159,10 +167,13 @@ impl Iterator for Devices {
                             input: None,
                             output: None,
                         }));
-                        return Some(Device { driver, asio_streams });
+                        return Some(Device {
+                            driver,
+                            asio_streams,
+                        });
                     }
                     Err(_) => continue,
-                }
+                },
                 None => return None,
             }
         }
@@ -193,8 +204,9 @@ pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat
 
 fn default_format_err(e: sys::AsioError) -> DefaultFormatError {
     match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => DefaultFormatError::DeviceNotAvailable,
+        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
+            DefaultFormatError::DeviceNotAvailable
+        }
         sys::AsioError::NoRate => DefaultFormatError::StreamTypeNotSupported,
         err => {
             let description = format!("{}", err);

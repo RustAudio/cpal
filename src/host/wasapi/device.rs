@@ -1,15 +1,6 @@
 use crate::{
-    BackendSpecificError,
-    Data,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    SampleFormat,
-    SampleRate,
-    SupportedFormat,
-    SupportedFormatsError,
-    COMMON_SAMPLE_RATES,
+    BackendSpecificError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
+    SampleFormat, SampleRate, SupportedFormat, SupportedFormatsError, COMMON_SAMPLE_RATES,
 };
 use std;
 use std::ffi::OsString;
@@ -115,7 +106,11 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_inner(format)?;
-        Ok(Stream::new_input(stream_inner, data_callback, error_callback))
+        Ok(Stream::new_input(
+            stream_inner,
+            data_callback,
+            error_callback,
+        ))
     }
 
     fn build_output_stream<D, E>(
@@ -129,7 +124,11 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_output_stream_inner(format)?;
-        Ok(Stream::new_output(stream_inner, data_callback, error_callback))
+        Ok(Stream::new_output(
+            stream_inner,
+            data_callback,
+            error_callback,
+        ))
     }
 }
 
@@ -716,8 +715,7 @@ impl Device {
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = {
-                let mut capture_client: *mut audioclient::IAudioCaptureClient =
-                    ptr::null_mut();
+                let mut capture_client: *mut audioclient::IAudioCaptureClient = ptr::null_mut();
                 let hresult = (*audio_client).GetService(
                     &audioclient::IID_IAudioCaptureClient,
                     &mut capture_client as *mut *mut audioclient::IAudioCaptureClient as *mut _,

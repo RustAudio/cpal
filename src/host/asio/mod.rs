@@ -2,22 +2,10 @@ extern crate asio_sys as sys;
 extern crate parking_lot;
 
 use crate::{
-    BuildStreamError,
-    Data,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    PauseStreamError,
-    PlayStreamError,
-    StreamError,
-    SupportedFormatsError,
+    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
+    PauseStreamError, PlayStreamError, StreamError, SupportedFormatsError,
 };
-use traits::{
-    DeviceTrait,
-    HostTrait,
-    StreamTrait,
-};
+use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats};
 pub use self::stream::Stream;
@@ -73,11 +61,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
@@ -97,7 +89,7 @@ impl DeviceTrait for Device {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static
+        E: FnMut(StreamError) + Send + 'static,
     {
         Device::build_input_stream(self, format, data_callback, error_callback)
     }
@@ -110,7 +102,7 @@ impl DeviceTrait for Device {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static
+        E: FnMut(StreamError) + Send + 'static,
     {
         Device::build_output_stream(self, format, data_callback, error_callback)
     }

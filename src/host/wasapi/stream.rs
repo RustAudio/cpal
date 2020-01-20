@@ -1,16 +1,3 @@
-use crate::{
-    BackendSpecificError,
-    Data,
-    PauseStreamError,
-    PlayStreamError,
-    SampleFormat,
-    StreamError,
-};
-use crate::traits::StreamTrait;
-use std::mem;
-use std::ptr;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{self, JoinHandle};
 use super::check_result;
 use super::winapi::shared::basetsd::UINT32;
 use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
@@ -19,6 +6,14 @@ use super::winapi::um::handleapi;
 use super::winapi::um::synchapi;
 use super::winapi::um::winbase;
 use super::winapi::um::winnt;
+use crate::traits::StreamTrait;
+use crate::{
+    BackendSpecificError, Data, PauseStreamError, PlayStreamError, SampleFormat, StreamError,
+};
+use std::mem;
+use std::ptr;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::{self, JoinHandle};
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -295,7 +290,12 @@ fn run_input(
             AudioClientFlow::Capture { capture_client } => capture_client,
             _ => unreachable!(),
         };
-        match process_input(&mut run_ctxt.stream, capture_client, data_callback, error_callback) {
+        match process_input(
+            &mut run_ctxt.stream,
+            capture_client,
+            data_callback,
+            error_callback,
+        ) {
             ControlFlow::Break => break,
             ControlFlow::Continue => continue,
         }
@@ -317,7 +317,12 @@ fn run_output(
             AudioClientFlow::Render { render_client } => render_client,
             _ => unreachable!(),
         };
-        match process_output(&mut run_ctxt.stream, render_client, data_callback, error_callback) {
+        match process_output(
+            &mut run_ctxt.stream,
+            render_client,
+            data_callback,
+            error_callback,
+        ) {
             ControlFlow::Break => break,
             ControlFlow::Continue => continue,
         }
@@ -401,8 +406,7 @@ fn process_input(
             debug_assert!(!buffer.is_null());
 
             let data = buffer as *mut ();
-            let len = frames_available as usize
-                * stream.bytes_per_frame as usize
+            let len = frames_available as usize * stream.bytes_per_frame as usize
                 / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
             data_callback(&data);
@@ -436,8 +440,7 @@ fn process_output(
 
     unsafe {
         let mut buffer: *mut BYTE = ptr::null_mut();
-        let hresult =
-            (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
+        let hresult = (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
 
         if let Err(err) = stream_error_from_hresult(hresult) {
             error_callback(err);
@@ -447,8 +450,7 @@ fn process_output(
         debug_assert!(!buffer.is_null());
 
         let data = buffer as *mut ();
-        let len = frames_available as usize
-            * stream.bytes_per_frame as usize
+        let len = frames_available as usize * stream.bytes_per_frame as usize
             / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         data_callback(&mut data);

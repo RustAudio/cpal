@@ -2,23 +2,14 @@ use std::mem;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
 use stdweb;
-use stdweb::Reference;
 use stdweb::unstable::TryInto;
-use stdweb::web::TypedArray;
 use stdweb::web::set_timeout;
+use stdweb::web::TypedArray;
+use stdweb::Reference;
 
 use crate::{
-    BuildStreamError,
-    Data,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    PauseStreamError,
-    PlayStreamError,
-    SampleFormat,
-    StreamError,
-    SupportedFormat,
+    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamError, SupportedFormat,
     SupportedFormatsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -83,16 +74,13 @@ impl Device {
         //
         //       UPDATE: We can do this now. Might be best to use `crate::COMMON_SAMPLE_RATES` and
         //       filter out those that lay outside the range specified above.
-        Ok(
-            vec![
-                SupportedFormat {
-                    channels: 2,
-                    min_sample_rate: ::SampleRate(44100),
-                    max_sample_rate: ::SampleRate(44100),
-                    data_type: ::SampleFormat::F32,
-                },
-            ].into_iter(),
-        )
+        Ok(vec![SupportedFormat {
+            channels: 2,
+            min_sample_rate: ::SampleRate(44100),
+            max_sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        }]
+        .into_iter())
     }
 
     fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
@@ -101,13 +89,11 @@ impl Device {
 
     fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
         // TODO: because it is hard coded, see supported_output_formats.
-        Ok(
-            Format {
-                channels: 2,
-                sample_rate: ::SampleRate(44100),
-                data_type: ::SampleFormat::F32,
-            },
-        )
+        Ok(Format {
+            channels: 2,
+            sample_rate: ::SampleRate(44100),
+            data_type: ::SampleFormat::F32,
+        })
     }
 }
 
@@ -142,11 +128,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
@@ -201,7 +191,10 @@ impl DeviceTrait for Device {
         //
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
-        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr as *mut c_void), 10);
+        set_timeout(
+            || audio_callback_fn::<D, E>(user_data_ptr as *mut c_void),
+            10,
+        );
 
         Ok(stream)
     }
@@ -323,9 +316,10 @@ fn default_output_device() -> Option<Device> {
 fn is_webaudio_available() -> bool {
     stdweb::initialize();
     js!(if (!AudioContext) {
-            return false;
-        } else {
-            return true;
-        }).try_into()
-        .unwrap()
+        return false;
+    } else {
+        return true;
+    })
+    .try_into()
+    .unwrap()
 }
