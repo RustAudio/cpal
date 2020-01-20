@@ -20,7 +20,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::check_result;
 use super::check_result_backend_specific;
@@ -196,7 +196,7 @@ impl DerefMut for WaveFormat {
 }
 
 unsafe fn immendpoint_from_immdevice(device: *const IMMDevice) -> *mut IMMEndpoint {
-    let mut endpoint: *mut IMMEndpoint = mem::uninitialized();
+    let mut endpoint: *mut IMMEndpoint = ptr::null_mut();
     check_result(
         (*device).QueryInterface(&IMMEndpoint::uuidof(), &mut endpoint as *mut _ as *mut _),
     )
@@ -205,10 +205,10 @@ unsafe fn immendpoint_from_immdevice(device: *const IMMDevice) -> *mut IMMEndpoi
 }
 
 unsafe fn data_flow_from_immendpoint(endpoint: *const IMMEndpoint) -> EDataFlow {
-    let mut data_flow = mem::uninitialized();
-    check_result((*endpoint).GetDataFlow(&mut data_flow))
+    let mut data_flow = std::mem::MaybeUninit::<EDataFlow>::uninit();
+    check_result((*endpoint).GetDataFlow(data_flow.as_mut_ptr()))
         .expect("could not get endpoint data_flow");
-    data_flow
+    data_flow.assume_init()
 }
 
 // Given the audio client and format, returns whether or not the format is supported.
@@ -354,7 +354,7 @@ impl Device {
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
-            let ptr_utf16 = *(&property_value.data as *const _ as *const (*const u16));
+            let ptr_utf16 = *(&property_value.data as *const _ as *const *const u16);
 
             // Find the length of the friendly name.
             let mut len = 0;
@@ -395,7 +395,7 @@ impl Device {
         }
 
         let audio_client: *mut IAudioClient = unsafe {
-            let mut audio_client = mem::uninitialized();
+            let mut audio_client = ptr::null_mut();
             let hresult = (*self.device).Activate(
                 &IID_IAudioClient,
                 CLSCTX_ALL,
@@ -454,7 +454,7 @@ impl Device {
 
         unsafe {
             // Retrieve the pointer to the default WAVEFORMATEX.
-            let mut default_waveformatex_ptr = WaveFormatExPtr(mem::uninitialized());
+            let mut default_waveformatex_ptr = WaveFormatExPtr(ptr::null_mut());
             match check_result((*client).GetMixFormat(&mut default_waveformatex_ptr.0)) {
                 Ok(()) => (),
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
@@ -571,7 +571,7 @@ impl Device {
         let client = lock.unwrap().0;
 
         unsafe {
-            let mut format_ptr = WaveFormatExPtr(mem::uninitialized());
+            let mut format_ptr = WaveFormatExPtr(ptr::null_mut());
             match check_result((*client).GetMixFormat(&mut format_ptr.0)) {
                 Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                     return Err(DefaultFormatError::DeviceNotAvailable);
@@ -674,7 +674,7 @@ impl Device {
 
             // obtaining the size of the samples buffer in number of frames
             let max_frames_in_buffer = {
-                let mut max_frames_in_buffer = mem::uninitialized();
+                let mut max_frames_in_buffer = 0u32;
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
@@ -717,7 +717,7 @@ impl Device {
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = {
                 let mut capture_client: *mut audioclient::IAudioCaptureClient =
-                    mem::uninitialized();
+                    ptr::null_mut();
                 let hresult = (*audio_client).GetService(
                     &audioclient::IID_IAudioCaptureClient,
                     &mut capture_client as *mut *mut audioclient::IAudioCaptureClient as *mut _,
@@ -839,7 +839,7 @@ impl Device {
 
             // obtaining the size of the samples buffer in number of frames
             let max_frames_in_buffer = {
-                let mut max_frames_in_buffer = mem::uninitialized();
+                let mut max_frames_in_buffer = 0u32;
                 let hresult = (*audio_client).GetBufferSize(&mut max_frames_in_buffer);
 
                 match check_result(hresult) {
@@ -861,7 +861,7 @@ impl Device {
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = {
-                let mut render_client: *mut audioclient::IAudioRenderClient = mem::uninitialized();
+                let mut render_client: *mut audioclient::IAudioRenderClient = ptr::null_mut();
                 let hresult = (*audio_client).GetService(
                     &audioclient::IID_IAudioRenderClient,
                     &mut render_client as *mut *mut audioclient::IAudioRenderClient as *mut _,
@@ -1021,7 +1021,7 @@ lazy_static! {
 
         // building the devices enumerator object
         unsafe {
-            let mut enumerator: *mut IMMDeviceEnumerator = mem::uninitialized();
+            let mut enumerator: *mut IMMDeviceEnumerator = ptr::null_mut();
 
             let hresult = CoCreateInstance(
                 &CLSID_MMDeviceEnumerator,
@@ -1062,7 +1062,7 @@ pub struct Devices {
 impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         unsafe {
-            let mut collection: *mut IMMDeviceCollection = mem::uninitialized();
+            let mut collection: *mut IMMDeviceCollection = ptr::null_mut();
             // can fail because of wrong parameters (should never happen) or out of memory
             check_result_backend_specific((*ENUMERATOR.0).EnumAudioEndpoints(
                 eAll,
@@ -1070,7 +1070,7 @@ impl Devices {
                 &mut collection,
             ))?;
 
-            let count = mem::uninitialized();
+            let count = 0u32;
             // can fail if the parameter is null, which should never happen
             check_result_backend_specific((*collection).GetCount(&count))?;
 
@@ -1104,7 +1104,7 @@ impl Iterator for Devices {
         }
 
         unsafe {
-            let mut device = mem::uninitialized();
+            let mut device = ptr::null_mut();
             // can fail if out of range, which we just checked above
             check_result((*self.collection).Item(self.next_item, &mut device)).unwrap();
 
@@ -1123,7 +1123,7 @@ impl Iterator for Devices {
 
 fn default_device(data_flow: EDataFlow) -> Option<Device> {
     unsafe {
-        let mut device = mem::uninitialized();
+        let mut device = ptr::null_mut();
         let hres = (*ENUMERATOR.0).GetDefaultAudioEndpoint(data_flow, eConsole, &mut device);
         if let Err(_err) = check_result(hres) {
             return None; // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
