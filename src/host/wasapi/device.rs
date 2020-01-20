@@ -1,12 +1,10 @@
 use crate::{
     BackendSpecificError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
-    OutputData,
-    Sample,
     SampleFormat,
     SampleRate,
     SupportedFormat,
@@ -106,30 +104,28 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_inner(format)?;
         Ok(Stream::new_input(stream_inner, data_callback, error_callback))
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_output_stream_inner(format)?;

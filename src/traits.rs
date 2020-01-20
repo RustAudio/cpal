@@ -2,17 +2,15 @@
 
 use {
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
     InputDevices,
-    OutputData,
     OutputDevices,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     StreamError,
     SupportedFormat,
     SupportedFormatsError,
@@ -120,27 +118,25 @@ pub trait DeviceTrait {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
 
     /// Create an input stream.
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create an output stream.
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }
 

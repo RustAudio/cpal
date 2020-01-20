@@ -3,15 +3,13 @@ extern crate parking_lot;
 
 use crate::{
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DeviceNameError,
     DevicesError,
     Format,
-    InputData,
-    OutputData,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     StreamError,
     SupportedFormatsError,
 };
@@ -91,29 +89,27 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static
     {
         Device::build_input_stream(self, format, data_callback, error_callback)
     }
 
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         format: &Format,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static
     {
         Device::build_output_stream(self, format, data_callback, error_callback)

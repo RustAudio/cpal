@@ -1,17 +1,14 @@
 use crate::{
     BackendSpecificError,
-    InputData,
-    OutputData,
+    Data,
     PauseStreamError,
     PlayStreamError,
-    Sample,
     SampleFormat,
     StreamError,
 };
 use crate::traits::StreamTrait;
 use std::mem;
 use std::ptr;
-use std::slice;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use super::check_result;
@@ -85,14 +82,13 @@ pub struct StreamInner {
 }
 
 impl Stream {
-    pub(crate) fn new_input<T, D, E>(
+    pub(crate) fn new_input<D, E>(
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        T: Sample,
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -115,14 +111,13 @@ impl Stream {
         }
     }
 
-    pub(crate) fn new_output<T, D, E>(
+    pub(crate) fn new_output<D, E>(
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
-        T: Sample,
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -285,13 +280,11 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
     Ok(())
 }
 
-fn run_input<T>(
+fn run_input(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(InputData<T>),
+    data_callback: &mut dyn FnMut(&Data),
     error_callback: &mut dyn FnMut(StreamError),
-) where
-    T: Sample,
-{
+) {
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -309,13 +302,11 @@ fn run_input<T>(
     }
 }
 
-fn run_output<T>(
+fn run_output(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(OutputData<T>),
+    data_callback: &mut dyn FnMut(&mut Data),
     error_callback: &mut dyn FnMut(StreamError),
-) where
-    T: Sample,
-{
+) {
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -371,15 +362,12 @@ fn process_commands_and_await_signal(
 }
 
 // The loop for processing pending input data.
-fn process_input<T>(
+fn process_input(
     stream: &StreamInner,
     capture_client: *mut audioclient::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(InputData<T>),
+    data_callback: &mut dyn FnMut(&Data),
     error_callback: &mut dyn FnMut(StreamError),
-) -> ControlFlow
-where
-    T: Sample,
-{
+) -> ControlFlow {
     let mut frames_available = 0;
     unsafe {
         // Get the available data in the shared buffer.
@@ -412,15 +400,13 @@ where
 
             debug_assert!(!buffer.is_null());
 
-            let buffer_len = frames_available as usize
+            let data = buffer as *mut ();
+            let len = frames_available as usize
                 * stream.bytes_per_frame as usize
-                / mem::size_of::<T>();
+                / stream.sample_format.sample_size();
+            let data = Data::from_parts(data, len, stream.sample_format);
+            data_callback(&data);
 
-            // Simplify the capture callback sample format branches.
-            let buffer_data = buffer as *mut _ as *const T;
-            let slice = slice::from_raw_parts(buffer_data, buffer_len);
-            let input_data = InputData { buffer: slice };
-            data_callback(input_data);
             // Release the buffer.
             let hresult = (*capture_client).ReleaseBuffer(frames_available);
             if let Err(err) = stream_error_from_hresult(hresult) {
@@ -432,15 +418,12 @@ where
 }
 
 // The loop for writing output data.
-fn process_output<T>(
+fn process_output(
     stream: &StreamInner,
     render_client: *mut audioclient::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(OutputData<T>),
+    data_callback: &mut dyn FnMut(&mut Data),
     error_callback: &mut dyn FnMut(StreamError),
-) -> ControlFlow
-where
-    T: Sample,
-{
+) -> ControlFlow {
     // The number of frames available for writing.
     let frames_available = match get_available_frames(&stream) {
         Ok(0) => return ControlFlow::Continue, // TODO: Can this happen?
@@ -462,13 +445,14 @@ where
         }
 
         debug_assert!(!buffer.is_null());
-        let buffer_len =
-            frames_available as usize * stream.bytes_per_frame as usize / mem::size_of::<T>();
 
-        let buffer_data = buffer as *mut T;
-        let slice = slice::from_raw_parts_mut(buffer_data, buffer_len);
-        let output_data = OutputData { buffer: slice };
-        data_callback(output_data);
+        let data = buffer as *mut ();
+        let len = frames_available as usize
+            * stream.bytes_per_frame as usize
+            / stream.sample_format.sample_size();
+        let mut data = Data::from_parts(data, len, stream.sample_format);
+        data_callback(&mut data);
+
         let hresult = (*render_client).ReleaseBuffer(frames_available as u32, 0);
         if let Err(err) = stream_error_from_hresult(hresult) {
             error_callback(err);

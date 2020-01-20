@@ -1,11 +1,10 @@
 use crate::{
     BuildStreamError,
+    Data,
     DefaultFormatError,
     DevicesError,
     DeviceNameError,
     Format,
-    InputData,
-    OutputData,
     PauseStreamError,
     PlayStreamError,
     StreamError,
@@ -71,28 +70,28 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_input_stream<T, D, E>(
+    fn build_input_stream<D, E>(
         &self,
         _format: &Format,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(InputData<T>) + Send + 'static,
+        D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
     }
 
     /// Create an output stream.
-    fn build_output_stream<T, D, E>(
+    fn build_output_stream<D, E>(
         &self,
         _format: &Format,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(OutputData<T>) + Send + 'static,
+        D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
