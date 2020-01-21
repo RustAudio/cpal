@@ -2,8 +2,8 @@ pub mod asio_import;
 #[macro_use]
 pub mod errors;
 
-use num_traits::FromPrimitive;
 use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
+use num_traits::FromPrimitive;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_long, c_void};
@@ -165,9 +165,12 @@ pub struct AsioBufferInfo {
 struct AsioCallbacks {
     buffer_switch: extern "C" fn(double_buffer_index: c_long, direct_process: c_long) -> (),
     sample_rate_did_change: extern "C" fn(s_rate: c_double) -> (),
-    asio_message:
-        extern "C" fn(selector: c_long, value: c_long, message: *mut (), opt: *mut c_double)
-            -> c_long,
+    asio_message: extern "C" fn(
+        selector: c_long,
+        value: c_long,
+        message: *mut (),
+        opt: *mut c_double,
+    ) -> c_long,
     buffer_switch_time_info: extern "C" fn(
         params: *mut ai::ASIOTime,
         double_buffer_index: c_long,
@@ -276,8 +279,9 @@ impl Asio {
         }
 
         unsafe {
-            let num_drivers = ai::get_driver_names(driver_name_ptrs.as_mut_ptr(), MAX_DRIVERS as i32);
-            (0 .. num_drivers)
+            let num_drivers =
+                ai::get_driver_names(driver_name_ptrs.as_mut_ptr(), MAX_DRIVERS as i32);
+            (0..num_drivers)
                 .map(|i| driver_name_to_utf8(&driver_names[i as usize]).to_string())
                 .collect()
         }
@@ -317,8 +321,8 @@ impl Asio {
         }
 
         // Make owned CString to send to load driver
-        let driver_name_cstring = CString::new(driver_name)
-            .expect("failed to create `CString` from driver name");
+        let driver_name_cstring =
+            CString::new(driver_name).expect("failed to create `CString` from driver name");
         let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
@@ -332,9 +336,15 @@ impl Asio {
                     let state = Mutex::new(DriverState::Initialized);
                     let name = driver_name.to_string();
                     let destroyed = false;
-                    let inner = Arc::new(DriverInner { name, state, destroyed });
-                    *self.loaded_driver.lock().expect("failed to acquire loaded driver lock") =
-                        Arc::downgrade(&inner);
+                    let inner = Arc::new(DriverInner {
+                        name,
+                        state,
+                        destroyed,
+                    });
+                    *self
+                        .loaded_driver
+                        .lock()
+                        .expect("failed to acquire loaded driver lock") = Arc::downgrade(&inner);
                     let driver = Driver { inner };
                     Ok(driver)
                 }
@@ -461,7 +471,10 @@ impl Driver {
         mut input_buffer_infos: Vec<AsioBufferInfo>,
         mut output_buffer_infos: Vec<AsioBufferInfo>,
     ) -> Result<AsioStreams, AsioError> {
-        let (input, output) = match (input_buffer_infos.is_empty(), output_buffer_infos.is_empty()) {
+        let (input, output) = match (
+            input_buffer_infos.is_empty(),
+            output_buffer_infos.is_empty(),
+        ) {
             // Both stream exist.
             (false, false) => {
                 // Create one continuous slice of buffers.
@@ -481,7 +494,7 @@ impl Driver {
                     buffer_size,
                 });
                 (input, output)
-            },
+            }
             // Just input
             (false, true) => {
                 let buffer_size = self.create_buffers(&mut input_buffer_infos)?;
@@ -491,7 +504,7 @@ impl Driver {
                 });
                 let output = None;
                 (input, output)
-            },
+            }
             // Just output
             (true, false) => {
                 let buffer_size = self.create_buffers(&mut output_buffer_infos)?;
@@ -501,7 +514,7 @@ impl Driver {
                     buffer_size,
                 });
                 (input, output)
-            },
+            }
             // Impossible
             (true, true) => unreachable!("Trying to create streams without preparing"),
         };
@@ -729,7 +742,11 @@ fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo
             let channel_num = ch as c_long;
             // To be filled by ASIOCreateBuffers.
             let buffers = [std::ptr::null_mut(); 2];
-            AsioBufferInfo { is_input, channel_num, buffers }
+            AsioBufferInfo {
+                is_input,
+                channel_num,
+                buffers,
+            }
         })
         .collect()
 }
@@ -788,18 +805,14 @@ fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
 ///
 /// This converts to utf8.
 fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
-    unsafe {
-        CStr::from_ptr(bytes.as_ptr()).to_string_lossy()
-    }
+    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
 /// ASIO uses null terminated c strings for channel names.
 ///
 /// This converts to utf8.
 fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
-    unsafe {
-        CStr::from_ptr(bytes.as_ptr()).to_string_lossy()
-    }
+    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
 /// Indicates the stream sample rate has changed.
@@ -917,8 +930,9 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
             &mut time.time_info.system_time,
         );
         if let Ok(()) = asio_result!(res) {
-            time.time_info.flags =
-                (ai::AsioTimeInfoFlags::kSystemTimeValid | ai::AsioTimeInfoFlags::kSamplePositionValid).0;
+            time.time_info.flags = (ai::AsioTimeInfoFlags::kSystemTimeValid
+                | ai::AsioTimeInfoFlags::kSamplePositionValid)
+                .0;
         }
         time
     };
@@ -930,7 +944,16 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
 
 #[test]
 fn check_type_sizes() {
-    assert_eq!(std::mem::size_of::<AsioSampleRate>(), std::mem::size_of::<ai::ASIOSampleRate>());
-    assert_eq!(std::mem::size_of::<AsioTimeCode>(), std::mem::size_of::<ai::ASIOTimeCode>());
-    assert_eq!(std::mem::size_of::<AsioTime>(), std::mem::size_of::<ai::ASIOTime>());
+    assert_eq!(
+        std::mem::size_of::<AsioSampleRate>(),
+        std::mem::size_of::<ai::ASIOSampleRate>()
+    );
+    assert_eq!(
+        std::mem::size_of::<AsioTimeCode>(),
+        std::mem::size_of::<ai::ASIOTimeCode>()
+    );
+    assert_eq!(
+        std::mem::size_of::<AsioTime>(),
+        std::mem::size_of::<ai::ASIOTime>()
+    );
 }

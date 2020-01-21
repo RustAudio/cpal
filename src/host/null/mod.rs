@@ -1,15 +1,6 @@
 use crate::{
-    BuildStreamError,
-    Data,
-    DefaultFormatError,
-    DevicesError,
-    DeviceNameError,
-    Format,
-    PauseStreamError,
-    PlayStreamError,
-    StreamError,
-    SupportedFormatsError,
-    SupportedFormat,
+    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
+    PauseStreamError, PlayStreamError, StreamError, SupportedFormat, SupportedFormatsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 

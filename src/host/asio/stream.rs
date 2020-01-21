@@ -2,11 +2,11 @@ extern crate asio_sys as sys;
 extern crate num_traits;
 
 use self::num_traits::PrimInt;
+use super::parking_lot::Mutex;
 use super::Device;
 use std;
-use std::sync::atomic::{Ordering, AtomicBool};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use super::parking_lot::Mutex;
 use BackendSpecificError;
 use BuildStreamError;
 use Data;
@@ -93,7 +93,7 @@ impl Device {
         let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
-                return
+                return;
             }
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
@@ -111,8 +111,7 @@ impl Device {
                 asio_stream: &sys::AsioStream,
                 buffer_index: usize,
                 from_endianness: F,
-            )
-            where
+            ) where
                 A: AsioSample,
                 B: Sample,
                 D: FnMut(&Data) + Send + 'static,
@@ -157,8 +156,8 @@ impl Device {
 
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32) |
-                (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
+                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32)
+                | (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
                     process_input_callback::<f32, f32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
@@ -191,8 +190,8 @@ impl Device {
                 }
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F32) |
-                (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F32) => {
+                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F32)
+                | (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F32) => {
                     process_input_callback::<f64, f32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
@@ -202,10 +201,11 @@ impl Device {
                     );
                 }
 
-                unsupported_format_pair => {
-                    unreachable!("`build_input_stream` should have returned with unsupported \
-                                 format {:?}", unsupported_format_pair)
-                }
+                unsupported_format_pair => unreachable!(
+                    "`build_input_stream` should have returned with unsupported \
+                     format {:?}",
+                    unsupported_format_pair
+                ),
             }
         });
 
@@ -258,7 +258,7 @@ impl Device {
         let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
-                return
+                return;
             }
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
@@ -301,8 +301,7 @@ impl Device {
                 asio_stream: &sys::AsioStream,
                 buffer_index: usize,
                 to_endianness: F,
-            )
-            where
+            ) where
                 A: Sample,
                 B: AsioSample,
                 D: FnMut(&mut Data) + Send + 'static,
@@ -321,7 +320,9 @@ impl Device {
                     for ch_ix in 0..n_channels {
                         let asio_channel =
                             asio_channel_slice_mut::<B>(asio_stream, buffer_index, ch_ix);
-                        asio_channel.iter_mut().for_each(|s| *s = to_endianness(B::SILENCE));
+                        asio_channel
+                            .iter_mut()
+                            .for_each(|s| *s = to_endianness(B::SILENCE));
                     }
                 }
 
@@ -359,8 +360,8 @@ impl Device {
 
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) |
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB)
+                | (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
                     process_output_callback::<f32, f32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
@@ -396,8 +397,8 @@ impl Device {
                 }
                 // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
                 // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB) |
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64LSB)
+                | (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
                     process_output_callback::<f32, f64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
@@ -408,10 +409,11 @@ impl Device {
                     );
                 }
 
-                unsupported_format_pair => {
-                    unreachable!("`build_output_stream` should have returned with unsupported \
-                                 format {:?}", unsupported_format_pair)
-                }
+                unsupported_format_pair => unreachable!(
+                    "`build_output_stream` should have returned with unsupported \
+                     format {:?}",
+                    unsupported_format_pair
+                ),
             }
         });
 
@@ -434,15 +436,12 @@ impl Device {
     /// If there is no existing ASIO Input Stream it will be created.
     ///
     /// On success, the buffer size of the stream is returned.
-    fn get_or_create_input_stream(
-        &self,
-        format: &Format,
-    ) -> Result<usize, BuildStreamError> {
+    fn get_or_create_input_stream(&self, format: &Format) -> Result<usize, BuildStreamError> {
         match self.default_input_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 check_format(&self.driver, format, num_asio_channels)
-            },
+            }
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
@@ -462,7 +461,8 @@ impl Device {
                         };
                         *streams = new_streams;
                         bs
-                    }).map_err(|ref e| {
+                    })
+                    .map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
                         BuildStreamError::DeviceNotAvailable
                     })
@@ -473,15 +473,12 @@ impl Device {
     /// Create a new CPAL Output Stream.
     ///
     /// If there is no existing ASIO Output Stream it will be created.
-    fn get_or_create_output_stream(
-        &self,
-        format: &Format,
-    ) -> Result<usize, BuildStreamError> {
+    fn get_or_create_output_stream(&self, format: &Format) -> Result<usize, BuildStreamError> {
         match self.default_output_format() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
                 check_format(&self.driver, format, num_asio_channels)
-            },
+            }
             Err(_) => Err(BuildStreamError::FormatNotSupported),
         }?;
         let num_channels = format.channels as usize;
@@ -501,7 +498,8 @@ impl Device {
                         };
                         *streams = new_streams;
                         bs
-                    }).map_err(|ref e| {
+                    })
+                    .map_err(|ref e| {
                         println!("Error preparing stream: {}", e);
                         BuildStreamError::DeviceNotAvailable
                     })
@@ -588,7 +586,10 @@ fn check_format(
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();
     if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
-        if driver.can_sample_rate(sample_rate).map_err(build_stream_err)? {
+        if driver
+            .can_sample_rate(sample_rate)
+            .map_err(build_stream_err)?
+        {
             driver
                 .set_sample_rate(sample_rate)
                 .map_err(build_stream_err)?;
@@ -656,19 +657,17 @@ unsafe fn asio_channel_slice_mut<T>(
     buffer_index: usize,
     channel_index: usize,
 ) -> &mut [T] {
-    let buff_ptr: *mut T = asio_stream
-        .buffer_infos[channel_index]
-        .buffers[buffer_index as usize]
-        as *mut _;
+    let buff_ptr: *mut T =
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *mut _;
     std::slice::from_raw_parts_mut(buff_ptr, asio_stream.buffer_size as usize)
 }
 
 fn build_stream_err(e: sys::AsioError) -> BuildStreamError {
     match e {
-        sys::AsioError::NoDrivers |
-        sys::AsioError::HardwareMalfunction => BuildStreamError::DeviceNotAvailable,
-        sys::AsioError::InvalidInput |
-        sys::AsioError::BadMode => BuildStreamError::InvalidArgument,
+        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
+            BuildStreamError::DeviceNotAvailable
+        }
+        sys::AsioError::InvalidInput | sys::AsioError::BadMode => BuildStreamError::InvalidArgument,
         err => {
             let description = format!("{}", err);
             BackendSpecificError { description }.into()

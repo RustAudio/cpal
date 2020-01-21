@@ -64,8 +64,8 @@ fn create_lib(cpal_asio_dir: &PathBuf) {
             let entry = match entry {
                 Err(e) => {
                     println!("error: {}", e);
-                continue
-                },
+                    continue;
+                }
                 Ok(entry) => entry,
             };
             match entry.path().extension().and_then(|s| s.to_str()) {
@@ -127,8 +127,13 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         ($opt_header:expr, $FILE_NAME:expr) => {
             match $opt_header.as_ref() {
                 None => {
-                    panic!("Could not find {} in {}: {}", $FILE_NAME, CPAL_ASIO_DIR, cpal_asio_dir.display());
-                },
+                    panic!(
+                        "Could not find {} in {}: {}",
+                        $FILE_NAME,
+                        CPAL_ASIO_DIR,
+                        cpal_asio_dir.display()
+                    );
+                }
                 Some(path) => path.to_str().expect("Could not convert path to str"),
             }
         };
@@ -152,9 +157,9 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++14")
-        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host/pc") )
-        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "host") )
-        .clang_arg( format!("-I{}/{}", cpal_asio_dir.display(), "common") )
+        .clang_arg(format!("-I{}/{}", cpal_asio_dir.display(), "host/pc"))
+        .clang_arg(format!("-I{}/{}", cpal_asio_dir.display(), "host"))
+        .clang_arg(format!("-I{}/{}", cpal_asio_dir.display(), "common"))
         // Need to whitelist to avoid binding tp c++ std::*
         .whitelist_type("AsioDrivers")
         .whitelist_type("AsioDriver")

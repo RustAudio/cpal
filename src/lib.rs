@@ -149,8 +149,8 @@ extern crate thiserror;
 
 pub use error::*;
 pub use platform::{
-    ALL_HOSTS, available_hosts, default_host, Device, Devices, Host, host_from_id,
-    HostId, Stream, SupportedInputFormats, SupportedOutputFormats,
+    available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
+    SupportedInputFormats, SupportedOutputFormats, ALL_HOSTS,
 };
 pub use samples_formats::{Sample, SampleFormat};
 
@@ -218,7 +218,11 @@ impl Data {
         len: usize,
         sample_format: SampleFormat,
     ) -> Self {
-        Data { data, len, sample_format }
+        Data {
+            data,
+            len,
+            sample_format,
+        }
     }
 
     /// The sample format of the internal audio data.
@@ -241,9 +245,7 @@ impl Data {
         let len = self.len * self.sample_format.sample_size();
         // The safety of this block relies on correct construction of the `Data` instance. See
         // the unsafe `from_parts` constructor for these requirements.
-        unsafe {
-            std::slice::from_raw_parts(self.data as *const u8, len)
-        }
+        unsafe { std::slice::from_raw_parts(self.data as *const u8, len) }
     }
 
     /// The raw slice of memory representing the underlying audio data as a slice of bytes.
@@ -253,9 +255,7 @@ impl Data {
         let len = self.len * self.sample_format.sample_size();
         // The safety of this block relies on correct construction of the `Data` instance. See
         // the unsafe `from_parts` constructor for these requirements.
-        unsafe {
-            std::slice::from_raw_parts_mut(self.data as *mut u8, len)
-        }
+        unsafe { std::slice::from_raw_parts_mut(self.data as *mut u8, len) }
     }
 
     /// Access the data as a slice of sample type `T`.
@@ -268,9 +268,7 @@ impl Data {
         if T::FORMAT == self.sample_format {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
-            unsafe {
-                Some(std::slice::from_raw_parts(self.data as *const T, self.len))
-            }
+            unsafe { Some(std::slice::from_raw_parts(self.data as *const T, self.len)) }
         } else {
             None
         }
@@ -287,7 +285,10 @@ impl Data {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
             unsafe {
-                Some(std::slice::from_raw_parts_mut(self.data as *mut T, self.len))
+                Some(std::slice::from_raw_parts_mut(
+                    self.data as *mut T,
+                    self.len,
+                ))
             }
         } else {
             None
@@ -365,10 +366,9 @@ impl SupportedFormat {
         }
 
         const HZ_44100: SampleRate = SampleRate(44_100);
-        let r44100_in_self = self.min_sample_rate <= HZ_44100
-            && HZ_44100 <= self.max_sample_rate;
-        let r44100_in_other = other.min_sample_rate <= HZ_44100
-            && HZ_44100 <= other.max_sample_rate;
+        let r44100_in_self = self.min_sample_rate <= HZ_44100 && HZ_44100 <= self.max_sample_rate;
+        let r44100_in_other =
+            other.min_sample_rate <= HZ_44100 && HZ_44100 <= other.max_sample_rate;
         let cmp_r44100 = r44100_in_self.cmp(&r44100_in_other);
         if cmp_r44100 != Equal {
             return cmp_r44100;

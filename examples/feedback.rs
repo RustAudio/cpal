@@ -69,11 +69,14 @@ fn main() -> Result<(), anyhow::Error> {
                 Err(err) => {
                     input_fell_behind = Some(err);
                     0.0
-                },
+                }
             };
         }
         if let Some(err) = input_fell_behind {
-            eprintln!("input stream fell behind: {:?}: try increasing latency", err);
+            eprintln!(
+                "input stream fell behind: {:?}: try increasing latency",
+                err
+            );
         }
     };
 

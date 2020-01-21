@@ -1,9 +1,9 @@
-use {BackendSpecificError, DevicesError};
-use super::Device;
 use super::alsa;
 use super::check_errors;
+use super::Device;
 use std::ffi::CString;
 use std::ptr;
+use {BackendSpecificError, DevicesError};
 
 /// ALSA implementation for `Devices`.
 pub struct Devices {
@@ -36,10 +36,8 @@ impl Devices {
     }
 }
 
-unsafe impl Send for Devices {
-}
-unsafe impl Sync for Devices {
-}
+unsafe impl Send for Devices {}
+unsafe impl Sync for Devices {}
 
 impl Drop for Devices {
     #[inline]
@@ -61,8 +59,10 @@ impl Iterator for Devices {
                 }
 
                 let name = {
-                    let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
-                                                               b"NAME\0".as_ptr() as *const _);
+                    let n_ptr = alsa::snd_device_name_get_hint(
+                        *self.next_str as *const _,
+                        b"NAME\0".as_ptr() as *const _,
+                    );
                     if !n_ptr.is_null() {
                         let bytes = CString::from_raw(n_ptr).into_bytes();
                         let string = String::from_utf8(bytes).unwrap();
@@ -73,8 +73,10 @@ impl Iterator for Devices {
                 };
 
                 let io = {
-                    let n_ptr = alsa::snd_device_name_get_hint(*self.next_str as *const _,
-                                                               b"IOID\0".as_ptr() as *const _);
+                    let n_ptr = alsa::snd_device_name_get_hint(
+                        *self.next_str as *const _,
+                        b"IOID\0".as_ptr() as *const _,
+                    );
                     if !n_ptr.is_null() {
                         let bytes = CString::from_raw(n_ptr).into_bytes();
                         let string = String::from_utf8(bytes).unwrap();
@@ -99,7 +101,7 @@ impl Iterator for Devices {
                             continue;
                         }
                         name
-                    },
+                    }
                     _ => continue,
                 };
 
