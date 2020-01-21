@@ -5,7 +5,13 @@ fn main() {
     for driver in asio.driver_names() {
         println!("Driver: {}", driver);
         let driver = asio.load_driver(&driver).expect("failed to load drivers");
-        println!("  Channels: {:?}", driver.channels().expect("failed to get channels"));
-        println!("  Sample rate: {:?}", driver.sample_rate().expect("failed to get sample rate"));
+        println!(
+            "  Channels: {:?}",
+            driver.channels().expect("failed to get channels")
+        );
+        println!(
+            "  Sample rate: {:?}",
+            driver.sample_rate().expect("failed to get sample rate")
+        );
     }
 }

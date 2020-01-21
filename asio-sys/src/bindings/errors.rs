@@ -112,7 +112,9 @@ macro_rules! asio_result {
             r if r == AsioErrorWrapper::ASE_OK as i32 => Ok(()),
             r if r == AsioErrorWrapper::ASE_SUCCESS as i32 => Ok(()),
             r if r == AsioErrorWrapper::ASE_NotPresent as i32 => Err(AsioError::NoDrivers),
-            r if r == AsioErrorWrapper::ASE_HWMalfunction as i32 => Err(AsioError::HardwareMalfunction),
+            r if r == AsioErrorWrapper::ASE_HWMalfunction as i32 => {
+                Err(AsioError::HardwareMalfunction)
+            }
             r if r == AsioErrorWrapper::ASE_InvalidParameter as i32 => Err(AsioError::InvalidInput),
             r if r == AsioErrorWrapper::ASE_InvalidMode as i32 => Err(AsioError::BadMode),
             r if r == AsioErrorWrapper::ASE_SPNotAdvancing as i32 => Err(AsioError::HardwareStuck),
