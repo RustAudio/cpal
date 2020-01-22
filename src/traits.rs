@@ -2,8 +2,8 @@
 
 use {
     BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
-    InputDevices, OutputDevices, PauseStreamError, PlayStreamError, StreamError, SupportedFormat,
-    SupportedFormatsError,
+    InputDevices, OutputDevices, PauseStreamError, PlayStreamError, Sample, Shape, StreamError,
+    SupportedFormat, SupportedFormatsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -113,6 +113,54 @@ pub trait DeviceTrait {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
 
     /// Create an input stream.
+    fn build_input_stream<T, D, E>(
+        &self,
+        shape: &Shape,
+        mut data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        T: Sample,
+        D: FnMut(&[T]) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        self.build_input_stream_raw(
+            &Format::with_shape(shape, T::FORMAT),
+            move |data| {
+                data_callback(
+                    data.as_slice()
+                        .expect("host supplied incorrect sample type"),
+                )
+            },
+            error_callback,
+        )
+    }
+
+    /// Create an output stream.
+    fn build_output_stream<T, D, E>(
+        &self,
+        shape: &Shape,
+        mut data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        T: Sample,
+        D: FnMut(&mut [T]) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        self.build_output_stream_raw(
+            &Format::with_shape(shape, T::FORMAT),
+            move |data| {
+                data_callback(
+                    data.as_slice_mut()
+                        .expect("host supplied incorrect sample type"),
+                )
+            },
+            error_callback,
+        )
+    }
+
+    /// Create a dynamically typed input stream.
     fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
@@ -123,7 +171,7 @@ pub trait DeviceTrait {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
-    /// Create an output stream.
+    /// Create a dynamically typed output stream.
     fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,

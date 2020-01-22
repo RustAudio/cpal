@@ -29,12 +29,11 @@ fn main() -> Result<(), anyhow::Error> {
     println!("Using default output device: \"{}\"", output_device.name()?);
 
     // We'll try and use the same format between streams to keep it simple
-    let mut format = input_device.default_input_format()?;
-    format.data_type = cpal::SampleFormat::F32;
+    let shape = input_device.default_input_format()?.shape();
 
     // Create a delay in case the input and output devices aren't synced.
-    let latency_frames = (LATENCY_MS / 1_000.0) * format.sample_rate.0 as f32;
-    let latency_samples = latency_frames as usize * format.channels as usize;
+    let latency_frames = (LATENCY_MS / 1_000.0) * shape.sample_rate.0 as f32;
+    let latency_samples = latency_frames as usize * shape.channels as usize;
 
     // The buffer to share samples
     let ring = RingBuffer::new(latency_samples * 2);
@@ -47,9 +46,8 @@ fn main() -> Result<(), anyhow::Error> {
         producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &cpal::Data| {
+    let input_data_fn = move |data: &[f32]| {
         let mut output_fell_behind = false;
-        let data = data.as_slice::<f32>().expect("unexpected sample type");
         for &sample in data {
             if producer.push(sample).is_err() {
                 output_fell_behind = true;
@@ -60,9 +58,8 @@ fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let output_data_fn = move |data: &mut cpal::Data| {
+    let output_data_fn = move |data: &mut [f32]| {
         let mut input_fell_behind = None;
-        let data = data.as_slice_mut::<f32>().expect("unexpected sample type");
         for sample in data {
             *sample = match consumer.pop() {
                 Ok(s) => s,
@@ -81,9 +78,12 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     // Build streams.
-    println!("Attempting to build both streams with `{:?}`.", format);
-    let input_stream = input_device.build_input_stream_raw(&format, input_data_fn, err_fn)?;
-    let output_stream = output_device.build_output_stream_raw(&format, output_data_fn, err_fn)?;
+    println!(
+        "Attempting to build both streams with f32 samples and `{:?}`.",
+        shape
+    );
+    let input_stream = input_device.build_input_stream(&shape, input_data_fn, err_fn)?;
+    let output_stream = output_device.build_output_stream(&shape, output_data_fn, err_fn)?;
     println!("Successfully built streams.");
 
     // Play the streams.

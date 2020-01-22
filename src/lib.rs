@@ -59,10 +59,10 @@
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let format = device.default_output_format().unwrap();
-//! let stream = device.build_output_stream_raw(
-//!     &format,
-//!     move |data: &mut Data| {
+//! # let shape = device.default_output_format().unwrap().shape();
+//! let stream = device.build_output_stream(
+//!     &shape,
+//!     move |data: &mut [f32]| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -93,15 +93,14 @@
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
 //! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
-//! let data_fn = move |data: &mut Data| match data.sample_format() {
-//!     SampleFormat::F32 => write_silence::<f32>(data),
-//!     SampleFormat::I16 => write_silence::<i16>(data),
-//!     SampleFormat::U16 => write_silence::<u16>(data),
-//! };
-//! let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
+//! let shape = format.shape();
+//! let stream = match format.data_type {
+//!     SampleFormat::F32 => device.build_output_stream(&shape, write_silence::<f32>, err_fn),
+//!     SampleFormat::I16 => device.build_output_stream(&shape, write_silence::<i16>, err_fn),
+//!     SampleFormat::U16 => device.build_output_stream(&shape, write_silence::<u16>, err_fn),
+//! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut Data) {
-//!     let data = data.as_slice_mut::<T>().unwrap();
+//! fn write_silence<T: Sample>(data: &mut [T]) {
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::from(&0.0);
 //!     }
@@ -181,6 +180,38 @@ pub struct Format {
     pub data_type: SampleFormat,
 }
 
+impl Format {
+    /// Construct a format having a particular `shape` and `data_type`.
+    pub fn with_shape(shape: &Shape, data_type: SampleFormat) -> Self {
+        Self {
+            channels: shape.channels,
+            sample_rate: shape.sample_rate,
+            data_type,
+        }
+    }
+
+    /// Extract aspects of the format independent of the data type.
+    pub fn shape(&self) -> Shape {
+        self.clone().into()
+    }
+}
+
+/// The properties of an input or output audio stream excluding its data type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shape {
+    pub channels: ChannelCount,
+    pub sample_rate: SampleRate,
+}
+
+impl From<Format> for Shape {
+    fn from(x: Format) -> Self {
+        Self {
+            channels: x.channels,
+            sample_rate: x.sample_rate,
+        }
+    }
+}
+
 /// Describes a range of supported stream formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedFormat {
@@ -193,9 +224,10 @@ pub struct SupportedFormat {
     pub data_type: SampleFormat,
 }
 
-/// Represents a buffer of audio data, delivered via a user's stream data callback function.
+/// A buffer of dynamically typed audio data, passed to raw stream callbacks.
 ///
-/// Input stream callbacks receive `&Data`, while output stream callbacks expect `&mut Data`.
+/// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
+/// Data`.
 #[derive(Debug)]
 pub struct Data {
     data: *mut (),
