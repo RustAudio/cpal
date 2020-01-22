@@ -61,7 +61,7 @@ impl DeviceTrait for Device {
         unimplemented!()
     }
 
-    fn build_input_stream<D, E>(
+    fn build_input_stream_raw<D, E>(
         &self,
         _format: &Format,
         _data_callback: D,
@@ -75,7 +75,7 @@ impl DeviceTrait for Device {
     }
 
     /// Create an output stream.
-    fn build_output_stream<D, E>(
+    fn build_output_stream_raw<D, E>(
         &self,
         _format: &Format,
         _data_callback: D,

@@ -95,7 +95,7 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(
+    fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -105,7 +105,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_input_stream_inner(format)?;
+        let stream_inner = self.build_input_stream_raw_inner(format)?;
         Ok(Stream::new_input(
             stream_inner,
             data_callback,
@@ -113,7 +113,7 @@ impl DeviceTrait for Device {
         ))
     }
 
-    fn build_output_stream<D, E>(
+    fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -123,7 +123,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_output_stream_inner(format)?;
+        let stream_inner = self.build_output_stream_raw_inner(format)?;
         Ok(Stream::new_output(
             stream_inner,
             data_callback,
@@ -610,7 +610,7 @@ impl Device {
         }
     }
 
-    pub(crate) fn build_input_stream_inner(
+    pub(crate) fn build_input_stream_raw_inner(
         &self,
         format: &Format,
     ) -> Result<StreamInner, BuildStreamError> {
@@ -754,7 +754,7 @@ impl Device {
         }
     }
 
-    pub(crate) fn build_output_stream_inner(
+    pub(crate) fn build_output_stream_raw_inner(
         &self,
         format: &Format,
     ) -> Result<StreamInner, BuildStreamError> {

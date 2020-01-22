@@ -87,7 +87,7 @@ pub trait DeviceTrait {
     type SupportedInputFormats: Iterator<Item = SupportedFormat>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputFormats: Iterator<Item = SupportedFormat>;
-    /// The stream type created by `build_input_stream` and `build_output_stream`.
+    /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
     type Stream: StreamTrait;
 
     /// The human-readable name of the device.
@@ -113,7 +113,7 @@ pub trait DeviceTrait {
     fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
 
     /// Create an input stream.
-    fn build_input_stream<D, E>(
+    fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -124,7 +124,7 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create an output stream.
-    fn build_output_stream<D, E>(
+    fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,

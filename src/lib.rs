@@ -60,7 +60,7 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let format = device.default_output_format().unwrap();
-//! let stream = device.build_output_stream(
+//! let stream = device.build_output_stream_raw(
 //!     &format,
 //!     move |data: &mut Data| {
 //!         // react to stream events and read or write stream data here.
@@ -98,7 +98,7 @@
 //!     SampleFormat::I16 => write_silence::<i16>(data),
 //!     SampleFormat::U16 => write_silence::<u16>(data),
 //! };
-//! let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
+//! let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
 //!
 //! fn write_silence<T: Sample>(data: &mut Data) {
 //!     let data = data.as_slice_mut::<T>().unwrap();
@@ -118,7 +118,7 @@
 //! # let format = device.default_output_format().unwrap();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -132,7 +132,7 @@
 //! # let format = device.default_output_format().unwrap();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream(&format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
 //! ```
 

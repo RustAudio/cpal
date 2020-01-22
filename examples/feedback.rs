@@ -82,8 +82,8 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Build streams.
     println!("Attempting to build both streams with `{:?}`.", format);
-    let input_stream = input_device.build_input_stream(&format, input_data_fn, err_fn)?;
-    let output_stream = output_device.build_output_stream(&format, output_data_fn, err_fn)?;
+    let input_stream = input_device.build_input_stream_raw(&format, input_data_fn, err_fn)?;
+    let output_stream = output_device.build_output_stream_raw(&format, output_data_fn, err_fn)?;
     println!("Successfully built streams.");
 
     // Play the streams.

@@ -27,7 +27,7 @@ fn main() -> Result<(), anyhow::Error> {
         cpal::SampleFormat::U16 => write_data::<u16>(data, channels, &mut next_value),
     };
 
-    let stream = device.build_output_stream(&format, data_fn, err_fn)?;
+    let stream = device.build_output_stream_raw(&format, data_fn, err_fn)?;
 
     stream.play()?;
 
