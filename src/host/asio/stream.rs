@@ -57,7 +57,7 @@ impl Stream {
 }
 
 impl Device {
-    pub fn build_input_stream<D, E>(
+    pub fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
@@ -202,7 +202,7 @@ impl Device {
                 }
 
                 unsupported_format_pair => unreachable!(
-                    "`build_input_stream` should have returned with unsupported \
+                    "`build_input_stream_raw` should have returned with unsupported \
                      format {:?}",
                     unsupported_format_pair
                 ),
@@ -223,7 +223,7 @@ impl Device {
         })
     }
 
-    pub fn build_output_stream<D, E>(
+    pub fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,
         mut data_callback: D,
@@ -410,7 +410,7 @@ impl Device {
                 }
 
                 unsupported_format_pair => unreachable!(
-                    "`build_output_stream` should have returned with unsupported \
+                    "`build_output_stream_raw` should have returned with unsupported \
                      format {:?}",
                     unsupported_format_pair
                 ),

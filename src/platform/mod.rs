@@ -255,7 +255,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn build_input_stream<D, E>(
+            fn build_input_stream_raw<D, E>(
                 &self,
                 format: &crate::Format,
                 data_callback: D,
@@ -267,14 +267,14 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_input_stream(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d.build_input_stream_raw(format, data_callback, error_callback)
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*
                 }
             }
 
-            fn build_output_stream<D, E>(
+            fn build_output_stream_raw<D, E>(
                 &self,
                 format: &crate::Format,
                 data_callback: D,
@@ -286,7 +286,7 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_output_stream(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d.build_output_stream_raw(format, data_callback, error_callback)
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*

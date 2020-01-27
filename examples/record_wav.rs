@@ -40,13 +40,23 @@ fn main() -> Result<(), anyhow::Error> {
         eprintln!("an error occurred on stream: {}", err);
     };
 
-    let data_fn = move |data: &cpal::Data| match data.sample_format() {
-        cpal::SampleFormat::F32 => write_input_data::<f32, f32>(data, &writer_2),
-        cpal::SampleFormat::I16 => write_input_data::<i16, i16>(data, &writer_2),
-        cpal::SampleFormat::U16 => write_input_data::<u16, i16>(data, &writer_2),
+    let stream = match format.data_type {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &format.shape(),
+            move |data| write_input_data::<f32, f32>(data, &writer_2),
+            err_fn,
+        )?,
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &format.shape(),
+            move |data| write_input_data::<i16, i16>(data, &writer_2),
+            err_fn,
+        )?,
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &format.shape(),
+            move |data| write_input_data::<u16, i16>(data, &writer_2),
+            err_fn,
+        )?,
     };
-
-    let stream = device.build_input_stream(&format, data_fn, err_fn)?;
 
     stream.play()?;
 
@@ -77,12 +87,11 @@ fn wav_spec_from_format(format: &cpal::Format) -> hound::WavSpec {
 
 type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
-fn write_input_data<T, U>(input: &cpal::Data, writer: &WavWriterHandle)
+fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
 where
     T: cpal::Sample,
     U: cpal::Sample + hound::Sample,
 {
-    let input = input.as_slice::<T>().expect("unexpected sample format");
     if let Ok(mut guard) = writer.try_lock() {
         if let Some(writer) = guard.as_mut() {
             for &sample in input.iter() {

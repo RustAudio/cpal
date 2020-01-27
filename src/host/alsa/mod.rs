@@ -80,7 +80,7 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(
+    fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -95,7 +95,7 @@ impl DeviceTrait for Device {
         Ok(stream)
     }
 
-    fn build_output_stream<D, E>(
+    fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,

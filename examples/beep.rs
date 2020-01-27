@@ -9,8 +9,22 @@ fn main() -> Result<(), anyhow::Error> {
         .default_output_device()
         .expect("failed to find a default output device");
     let format = device.default_output_format()?;
-    let sample_rate = format.sample_rate.0 as f32;
-    let channels = format.channels as usize;
+
+    match format.data_type {
+        cpal::SampleFormat::F32 => run::<f32>(&device, &format.shape())?,
+        cpal::SampleFormat::I16 => run::<i16>(&device, &format.shape())?,
+        cpal::SampleFormat::U16 => run::<u16>(&device, &format.shape())?,
+    }
+
+    Ok(())
+}
+
+fn run<T>(device: &cpal::Device, shape: &cpal::Shape) -> Result<(), anyhow::Error>
+where
+    T: cpal::Sample,
+{
+    let sample_rate = shape.sample_rate.0 as f32;
+    let channels = shape.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.
     let mut sample_clock = 0f32;
@@ -21,14 +35,11 @@ fn main() -> Result<(), anyhow::Error> {
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
-    let data_fn = move |data: &mut cpal::Data| match data.sample_format() {
-        cpal::SampleFormat::F32 => write_data::<f32>(data, channels, &mut next_value),
-        cpal::SampleFormat::I16 => write_data::<i16>(data, channels, &mut next_value),
-        cpal::SampleFormat::U16 => write_data::<u16>(data, channels, &mut next_value),
-    };
-
-    let stream = device.build_output_stream(&format, data_fn, err_fn)?;
-
+    let stream = device.build_output_stream(
+        shape,
+        move |data: &mut [T]| write_data(data, channels, &mut next_value),
+        err_fn,
+    )?;
     stream.play()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -36,11 +47,10 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn write_data<T>(output: &mut cpal::Data, channels: usize, next_sample: &mut dyn FnMut() -> f32)
+fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
     T: cpal::Sample,
 {
-    let output = output.as_slice_mut::<T>().expect("unexpected sample type");
     for frame in output.chunks_mut(channels) {
         let value: T = cpal::Sample::from::<f32>(&next_sample());
         for sample in frame.iter_mut() {

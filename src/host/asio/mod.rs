@@ -81,7 +81,7 @@ impl DeviceTrait for Device {
         Device::default_output_format(self)
     }
 
-    fn build_input_stream<D, E>(
+    fn build_input_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -91,10 +91,10 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream(self, format, data_callback, error_callback)
+        Device::build_input_stream_raw(self, format, data_callback, error_callback)
     }
 
-    fn build_output_stream<D, E>(
+    fn build_output_stream_raw<D, E>(
         &self,
         format: &Format,
         data_callback: D,
@@ -104,7 +104,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream(self, format, data_callback, error_callback)
+        Device::build_output_stream_raw(self, format, data_callback, error_callback)
     }
 }
 
