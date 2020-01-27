@@ -2,9 +2,9 @@ extern crate alsa_sys as alsa;
 extern crate libc;
 
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultFormatError,
-    DeviceNameError, DevicesError, Format, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamError, SupportedFormat, SupportedFormatsError,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -14,8 +14,8 @@ use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
-pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
-pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
+pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 
 mod enumerate;
 
@@ -52,37 +52,37 @@ impl HostTrait for Host {
 }
 
 impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    fn supported_input_formats(
+    fn supported_input_configs(
         &self,
-    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
-        Device::supported_input_formats(self)
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+        Device::supported_input_configs(self)
     }
 
-    fn supported_output_formats(
+    fn supported_output_configs(
         &self,
-    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
-        Device::supported_output_formats(self)
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+        Device::supported_output_configs(self)
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_input_format(self)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_input_config(self)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_output_format(self)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &Format,
+        conf: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -90,14 +90,14 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_CAPTURE)?;
+        let stream_inner = self.build_stream_inner(conf, alsa::SND_PCM_STREAM_CAPTURE)?;
         let stream = Stream::new_input(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        conf: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -105,7 +105,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_stream_inner(format, alsa::SND_PCM_STREAM_PLAYBACK)?;
+        let stream_inner = self.build_stream_inner(conf, alsa::SND_PCM_STREAM_PLAYBACK)?;
         let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
     }
@@ -161,7 +161,7 @@ pub struct Device(String);
 impl Device {
     fn build_stream_inner(
         &self,
-        format: &Format,
+        conf: &SupportedStreamConfig,
         stream_type: alsa::snd_pcm_stream_t,
     ) -> Result<StreamInner, BuildStreamError> {
         let name = ffi::CString::new(self.0.clone()).expect("unable to clone device");
@@ -185,13 +185,13 @@ impl Device {
         };
         let can_pause = unsafe {
             let hw_params = HwParams::alloc();
-            set_hw_params_from_format(handle, &hw_params, format)
+            set_hw_params_from_format(handle, &hw_params, conf)
                 .map_err(|description| BackendSpecificError { description })?;
 
             alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1
         };
         let (buffer_len, period_len) = unsafe {
-            set_sw_params_from_format(handle, format)
+            set_sw_params_from_format(handle, conf)
                 .map_err(|description| BackendSpecificError { description })?
         };
 
@@ -213,9 +213,9 @@ impl Device {
 
         let stream_inner = StreamInner {
             channel: handle,
-            sample_format: format.data_type,
+            sample_format: conf.sample_format,
             num_descriptors,
-            num_channels: format.channels as u16,
+            num_channels: conf.channels as u16,
             buffer_len,
             period_len,
             can_pause,
@@ -235,10 +235,10 @@ impl Device {
         Ok(self.0.clone())
     }
 
-    unsafe fn supported_formats(
+    unsafe fn supported_configs(
         &self,
         stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<VecIntoIter<SupportedFormat>, SupportedFormatsError> {
+    ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
         let mut handle = ptr::null_mut();
         let device_name = match ffi::CString::new(&self.0[..]) {
             Ok(name) => name,
@@ -256,8 +256,8 @@ impl Device {
             alsa::SND_PCM_NONBLOCK,
         ) {
             -2 |
-            -16 /* determined empirically */ => return Err(SupportedFormatsError::DeviceNotAvailable),
-            -22 => return Err(SupportedFormatsError::InvalidArgument),
+            -16 /* determined empirically */ => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
+            -22 => return Err(SupportedStreamConfigsError::InvalidArgument),
             e => if let Err(description) = check_errors(e) {
                 let err = BackendSpecificError { description };
                 return Err(err.into())
@@ -402,14 +402,14 @@ impl Device {
         let mut output = Vec::with_capacity(
             supported_formats.len() * supported_channels.len() * sample_rates.len(),
         );
-        for &data_type in supported_formats.iter() {
+        for &sample_format in supported_formats.iter() {
             for channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
-                    output.push(SupportedFormat {
+                    output.push(SupportedStreamConfigRange {
                         channels: channels.clone(),
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
-                        data_type: data_type,
+                        sample_format: sample_format,
                     });
                 }
             }
@@ -420,31 +420,35 @@ impl Device {
         Ok(output.into_iter())
     }
 
-    fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
-        unsafe { self.supported_formats(alsa::SND_PCM_STREAM_CAPTURE) }
+    fn supported_input_configs(
+        &self,
+    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+        unsafe { self.supported_configs(alsa::SND_PCM_STREAM_CAPTURE) }
     }
 
-    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        unsafe { self.supported_formats(alsa::SND_PCM_STREAM_PLAYBACK) }
+    fn supported_output_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+        unsafe { self.supported_configs(alsa::SND_PCM_STREAM_PLAYBACK) }
     }
 
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
-    // the `SupportedFormat::cmp_default_heuristics` order and select the greatest.
-    fn default_format(
+    // the `SupportedStreamConfigRange::cmp_default_heuristics` order and select the greatest.
+    fn default_config(
         &self,
         stream_t: alsa::snd_pcm_stream_t,
-    ) -> Result<Format, DefaultFormatError> {
+    ) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let mut formats: Vec<_> = unsafe {
-            match self.supported_formats(stream_t) {
-                Err(SupportedFormatsError::DeviceNotAvailable) => {
-                    return Err(DefaultFormatError::DeviceNotAvailable);
+            match self.supported_configs(stream_t) {
+                Err(SupportedStreamConfigsError::DeviceNotAvailable) => {
+                    return Err(DefaultStreamConfigError::DeviceNotAvailable);
                 }
-                Err(SupportedFormatsError::InvalidArgument) => {
+                Err(SupportedStreamConfigsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities but
                     // the device supports only one
-                    return Err(DefaultFormatError::StreamTypeNotSupported);
+                    return Err(DefaultStreamConfigError::StreamTypeNotSupported);
                 }
-                Err(SupportedFormatsError::BackendSpecific { err }) => {
+                Err(SupportedStreamConfigsError::BackendSpecific { err }) => {
                     return Err(err.into());
                 }
                 Ok(fmts) => fmts.collect(),
@@ -464,16 +468,16 @@ impl Device {
                 }
                 Ok(format)
             }
-            None => Err(DefaultFormatError::StreamTypeNotSupported),
+            None => Err(DefaultStreamConfigError::StreamTypeNotSupported),
         }
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(alsa::SND_PCM_STREAM_CAPTURE)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        self.default_config(alsa::SND_PCM_STREAM_CAPTURE)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(alsa::SND_PCM_STREAM_PLAYBACK)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        self.default_config(alsa::SND_PCM_STREAM_PLAYBACK)
     }
 }
 
@@ -900,7 +904,7 @@ fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificE
 unsafe fn set_hw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     hw_params: &HwParams,
-    format: &Format,
+    format: &SupportedStreamConfig,
 ) -> Result<(), String> {
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
         return Err(format!("errors on pcm handle: {}", e));
@@ -913,14 +917,14 @@ unsafe fn set_hw_params_from_format(
         return Err(format!("handle not acessible: {}", e));
     }
 
-    let data_type = if cfg!(target_endian = "big") {
-        match format.data_type {
+    let sample_format = if cfg!(target_endian = "big") {
+        match format.sample_format {
             SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_BE,
             SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_BE,
             SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_BE,
         }
     } else {
-        match format.data_type {
+        match format.sample_format {
             SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_LE,
             SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_LE,
             SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_LE,
@@ -930,7 +934,7 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(
         pcm_handle,
         hw_params.0,
-        data_type,
+        sample_format,
     )) {
         return Err(format!("format could not be set: {}", e));
     }
@@ -969,7 +973,7 @@ unsafe fn set_hw_params_from_format(
 
 unsafe fn set_sw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
-    format: &Format,
+    format: &SupportedStreamConfig,
 ) -> Result<(usize, usize), String> {
     let mut sw_params = ptr::null_mut(); // TODO: RAII
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {

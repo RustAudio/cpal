@@ -47,7 +47,7 @@ pub enum DeviceNameError {
 
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug, Error)]
-pub enum SupportedFormatsError {
+pub enum SupportedStreamConfigsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
@@ -67,7 +67,7 @@ pub enum SupportedFormatsError {
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
 #[derive(Debug, Error)]
-pub enum DefaultFormatError {
+pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]

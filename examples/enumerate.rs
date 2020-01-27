@@ -21,48 +21,48 @@ fn main() -> Result<(), anyhow::Error> {
         for (device_index, device) in devices.enumerate() {
             println!("  {}. \"{}\"", device_index + 1, device.name()?);
 
-            // Input formats
-            if let Ok(fmt) = device.default_input_format() {
-                println!("    Default input stream format:\n      {:?}", fmt);
+            // Input configs
+            if let Ok(fmt) = device.default_input_config() {
+                println!("    Default input stream config:\n      {:?}", fmt);
             }
-            let mut input_formats = match device.supported_input_formats() {
+            let mut input_configs = match device.supported_input_configs() {
                 Ok(f) => f.peekable(),
                 Err(e) => {
                     println!("Error: {:?}", e);
                     continue;
                 }
             };
-            if input_formats.peek().is_some() {
-                println!("    All supported input stream formats:");
-                for (format_index, format) in input_formats.enumerate() {
+            if input_configs.peek().is_some() {
+                println!("    All supported input stream configs:");
+                for (config_index, config) in input_configs.enumerate() {
                     println!(
                         "      {}.{}. {:?}",
                         device_index + 1,
-                        format_index + 1,
-                        format
+                        config_index + 1,
+                        config
                     );
                 }
             }
 
-            // Output formats
-            if let Ok(fmt) = device.default_output_format() {
-                println!("    Default output stream format:\n      {:?}", fmt);
+            // Output configs
+            if let Ok(fmt) = device.default_output_config() {
+                println!("    Default output stream config:\n      {:?}", fmt);
             }
-            let mut output_formats = match device.supported_output_formats() {
+            let mut output_configs = match device.supported_output_configs() {
                 Ok(f) => f.peekable(),
                 Err(e) => {
                     println!("Error: {:?}", e);
                     continue;
                 }
             };
-            if output_formats.peek().is_some() {
-                println!("    All supported output stream formats:");
-                for (format_index, format) in output_formats.enumerate() {
+            if output_configs.peek().is_some() {
+                println!("    All supported output stream configs:");
+                for (config_index, config) in output_configs.enumerate() {
                     println!(
                         "      {}.{}. {:?}",
                         device_index + 1,
-                        format_index + 1,
-                        format
+                        config_index + 1,
+                        config
                     );
                 }
             }

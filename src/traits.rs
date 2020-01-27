@@ -1,9 +1,9 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
 use {
-    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
-    InputDevices, OutputDevices, PauseStreamError, PlayStreamError, Sample, Shape, StreamError,
-    SupportedFormat, SupportedFormatsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError, InputDevices,
+    OutputDevices, PauseStreamError, PlayStreamError, Sample, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -56,7 +56,7 @@ pub trait HostTrait {
     fn input_devices(&self) -> Result<InputDevices<Self::Devices>, DevicesError> {
         fn supports_input<D: DeviceTrait>(device: &D) -> bool {
             device
-                .supported_input_formats()
+                .supported_input_configs()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -70,7 +70,7 @@ pub trait HostTrait {
     fn output_devices(&self) -> Result<OutputDevices<Self::Devices>, DevicesError> {
         fn supports_output<D: DeviceTrait>(device: &D) -> bool {
             device
-                .supported_output_formats()
+                .supported_output_configs()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -84,9 +84,9 @@ pub trait HostTrait {
 /// methods that involve a device return a `Result` allowing the user to handle this case.
 pub trait DeviceTrait {
     /// The iterator type yielding supported input stream formats.
-    type SupportedInputFormats: Iterator<Item = SupportedFormat>;
+    type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
-    type SupportedOutputFormats: Iterator<Item = SupportedFormat>;
+    type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
     type Stream: StreamTrait;
 
@@ -96,26 +96,27 @@ pub trait DeviceTrait {
     /// An iterator yielding formats that are supported by the backend.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_input_formats(&self)
-        -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
+    fn supported_input_configs(
+        &self,
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError>;
 
     /// An iterator yielding output stream formats that are supported by the device.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_output_formats(
+    fn supported_output_configs(
         &self,
-    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError>;
 
     /// The default input stream format for the device.
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError>;
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
 
     /// The default output stream format for the device.
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError>;
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
 
     /// Create an input stream.
     fn build_input_stream<T, D, E>(
         &self,
-        shape: &Shape,
+        config: &StreamConfig,
         mut data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -125,7 +126,7 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
-            &Format::with_shape(shape, T::FORMAT),
+            &SupportedStreamConfig::from_config(config, T::FORMAT),
             move |data| {
                 data_callback(
                     data.as_slice()
@@ -139,7 +140,7 @@ pub trait DeviceTrait {
     /// Create an output stream.
     fn build_output_stream<T, D, E>(
         &self,
-        shape: &Shape,
+        config: &StreamConfig,
         mut data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -149,7 +150,7 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_output_stream_raw(
-            &Format::with_shape(shape, T::FORMAT),
+            &SupportedStreamConfig::from_config(config, T::FORMAT),
             move |data| {
                 data_callback(
                     data.as_slice_mut()
@@ -163,7 +164,7 @@ pub trait DeviceTrait {
     /// Create a dynamically typed input stream.
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &Format,
+        format: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -174,7 +175,7 @@ pub trait DeviceTrait {
     /// Create a dynamically typed output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        format: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>

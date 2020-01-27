@@ -1,6 +1,7 @@
 use crate::{
-    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
-    PauseStreamError, PlayStreamError, StreamError, SupportedFormat, SupportedFormatsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    PauseStreamError, PlayStreamError, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -15,8 +16,8 @@ pub struct Host;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
-pub struct SupportedInputFormats;
-pub struct SupportedOutputFormats;
+pub struct SupportedInputConfigs;
+pub struct SupportedOutputConfigs;
 
 impl Host {
     #[allow(dead_code)]
@@ -32,8 +33,8 @@ impl Devices {
 }
 
 impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
     #[inline]
@@ -42,28 +43,32 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_configs(
+        &self,
+    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
     #[inline]
-    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
     #[inline]
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
     #[inline]
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _format: &Format,
+        _format: &SupportedStreamConfig,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -77,7 +82,7 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        _format: &Format,
+        _format: &SupportedStreamConfig,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -129,20 +134,20 @@ impl Iterator for Devices {
     }
 }
 
-impl Iterator for SupportedInputFormats {
-    type Item = SupportedFormat;
+impl Iterator for SupportedInputConfigs {
+    type Item = SupportedStreamConfigRange;
 
     #[inline]
-    fn next(&mut self) -> Option<SupportedFormat> {
+    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
         None
     }
 }
 
-impl Iterator for SupportedOutputFormats {
-    type Item = SupportedFormat;
+impl Iterator for SupportedOutputConfigs {
+    type Item = SupportedStreamConfigRange;
 
     #[inline]
-    fn next(&mut self) -> Option<SupportedFormat> {
+    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
         None
     }
 }
