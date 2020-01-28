@@ -71,9 +71,9 @@ impl Device {
 
         // Ensure that the desired sample type is supported.
         let sample_format = super::device::convert_data_type(&stream_type)
-            .ok_or(BuildStreamError::FormatNotSupported)?;
+            .ok_or(BuildStreamError::StreamConfigNotSupported)?;
         if config.sample_format != sample_format {
-            return Err(BuildStreamError::FormatNotSupported);
+            return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
         let num_channels = config.channels.clone();
@@ -237,9 +237,9 @@ impl Device {
 
         // Ensure that the desired sample type is supported.
         let sample_format = super::device::convert_data_type(&stream_type)
-            .ok_or(BuildStreamError::FormatNotSupported)?;
+            .ok_or(BuildStreamError::StreamConfigNotSupported)?;
         if config.sample_format != sample_format {
-            return Err(BuildStreamError::FormatNotSupported);
+            return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
         let num_channels = config.channels.clone();
@@ -445,7 +445,7 @@ impl Device {
                 let num_asio_channels = f.channels;
                 check_config(&self.driver, config, num_asio_channels)
             }
-            Err(_) => Err(BuildStreamError::FormatNotSupported),
+            Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
         let ref mut streams = *self.asio_streams.lock();
@@ -485,7 +485,7 @@ impl Device {
                 let num_asio_channels = f.channels;
                 check_config(&self.driver, config, num_asio_channels)
             }
-            Err(_) => Err(BuildStreamError::FormatNotSupported),
+            Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
         let ref mut streams = *self.asio_streams.lock();
@@ -600,16 +600,16 @@ fn check_config(
                 .set_sample_rate(sample_rate)
                 .map_err(build_stream_err)?;
         } else {
-            return Err(BuildStreamError::FormatNotSupported);
+            return Err(BuildStreamError::StreamConfigNotSupported);
         }
     }
     // unsigned formats are not supported by asio
     match sample_format {
         SampleFormat::I16 | SampleFormat::F32 => (),
-        SampleFormat::U16 => return Err(BuildStreamError::FormatNotSupported),
+        SampleFormat::U16 => return Err(BuildStreamError::StreamConfigNotSupported),
     }
     if *channels > num_asio_channels {
-        return Err(BuildStreamError::FormatNotSupported);
+        return Err(BuildStreamError::StreamConfigNotSupported);
     }
     Ok(())
 }

@@ -395,7 +395,7 @@ impl From<coreaudio::Error> for BuildStreamError {
             | coreaudio::Error::NoKnownSubtype
             | coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported)
             | coreaudio::Error::AudioCodec(_)
-            | coreaudio::Error::AudioFormat(_) => BuildStreamError::FormatNotSupported,
+            | coreaudio::Error::AudioFormat(_) => BuildStreamError::StreamConfigNotSupported,
             _ => BuildStreamError::DeviceNotAvailable,
         }
     }
@@ -541,7 +541,7 @@ impl Device {
                     r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate
                 });
                 let range_index = match maybe_index {
-                    None => return Err(BuildStreamError::FormatNotSupported),
+                    None => return Err(BuildStreamError::StreamConfigNotSupported),
                     Some(i) => i,
                 };
 

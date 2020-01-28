@@ -242,7 +242,7 @@ pub unsafe fn is_format_supported(
         },
         (winerror::S_FALSE, _) => {
             (*audio_client).Release();
-            return Err(BuildStreamError::FormatNotSupported);
+            return Err(BuildStreamError::StreamConfigNotSupported);
         },
         (_, Ok(())) => (),
     };
@@ -639,12 +639,12 @@ impl Device {
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(BuildStreamError::FormatNotSupported)?;
+                    .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::FormatNotSupported),
+                    Ok(false) => return Err(BuildStreamError::StreamConfigNotSupported),
                     Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
                     _ => (),
                 }
@@ -783,12 +783,12 @@ impl Device {
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = format_to_waveformatextensible(format)
-                    .ok_or(BuildStreamError::FormatNotSupported)?;
+                    .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::FormatNotSupported),
+                    Ok(false) => return Err(BuildStreamError::StreamConfigNotSupported),
                     Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
                     _ => (),
                 }

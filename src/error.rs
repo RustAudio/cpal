@@ -90,9 +90,9 @@ pub enum BuildStreamError {
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
-    /// The required format is not supported.
-    #[error("The requested stream format is not supported by the device.")]
-    FormatNotSupported,
+    /// The specified stream configuration is not supported.
+    #[error("The requested stream configuration is not supported by the device.")]
+    StreamConfigNotSupported,
     /// We called something the C-Layer did not understand
     ///
     /// On ALSA device functions called with a feature they do not support will yield this. E.g.
