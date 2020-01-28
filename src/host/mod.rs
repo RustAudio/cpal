@@ -9,3 +9,5 @@ pub(crate) mod emscripten;
 pub(crate) mod null;
 #[cfg(windows)]
 pub(crate) mod wasapi;
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+pub(crate) mod webaudio;
