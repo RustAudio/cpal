@@ -128,6 +128,25 @@ jobs:
     - name: Build beep example
       run: cargo build --example beep --target ${{ matrix.target }}
 
+  wasm32-bindgen-test:
+
+    strategy:
+      matrix:
+        target: [wasm32-unknown-unknown]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+      - name: Build beep example
+        run: cargo build --example beep --target ${{ matrix.target }} --features=wasm-bindgen
+
   windows-test:
 
     strategy:
