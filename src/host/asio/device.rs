@@ -1,20 +1,20 @@
 use std;
-pub type SupportedInputFormats = std::vec::IntoIter<SupportedFormat>;
-pub type SupportedOutputFormats = std::vec::IntoIter<SupportedFormat>;
+pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 
 use super::parking_lot::Mutex;
 use super::sys;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use BackendSpecificError;
-use DefaultFormatError;
+use DefaultStreamConfigError;
 use DeviceNameError;
 use DevicesError;
-use Format;
 use SampleFormat;
 use SampleRate;
-use SupportedFormat;
-use SupportedFormatsError;
+use SupportedStreamConfig;
+use SupportedStreamConfigRange;
+use SupportedStreamConfigsError;
 
 /// A ASIO Device
 pub struct Device {
@@ -52,52 +52,21 @@ impl Device {
         Ok(self.driver.name().to_string())
     }
 
-    /// Gets the supported input formats.
+    /// Gets the supported input configs.
     /// TODO currently only supports the default.
-    /// Need to find all possible formats.
-    pub fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
-        // Retrieve the default format for the total supported channels and supported sample
-        // format.
-        let mut f = match self.default_input_format() {
-            Err(_) => return Err(SupportedFormatsError::DeviceNotAvailable),
-            Ok(f) => f,
-        };
-
-        // Collect a format for every combination of supported sample rate and number of channels.
-        let mut supported_formats = vec![];
-        for &rate in ::COMMON_SAMPLE_RATES {
-            if !self
-                .driver
-                .can_sample_rate(rate.0.into())
-                .ok()
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            for channels in 1..f.channels + 1 {
-                f.channels = channels;
-                f.sample_rate = rate;
-                supported_formats.push(SupportedFormat::from(f.clone()));
-            }
-        }
-        Ok(supported_formats.into_iter())
-    }
-
-    /// Gets the supported output formats.
-    /// TODO currently only supports the default.
-    /// Need to find all possible formats.
-    pub fn supported_output_formats(
+    /// Need to find all possible configs.
+    pub fn supported_input_configs(
         &self,
-    ) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        // Retrieve the default format for the total supported channels and supported sample
+    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+        // Retrieve the default config for the total supported channels and supported sample
         // format.
-        let mut f = match self.default_output_format() {
-            Err(_) => return Err(SupportedFormatsError::DeviceNotAvailable),
+        let mut f = match self.default_input_config() {
+            Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
             Ok(f) => f,
         };
 
-        // Collect a format for every combination of supported sample rate and number of channels.
-        let mut supported_formats = vec![];
+        // Collect a config for every combination of supported sample rate and number of channels.
+        let mut supported_configs = vec![];
         for &rate in ::COMMON_SAMPLE_RATES {
             if !self
                 .driver
@@ -110,38 +79,71 @@ impl Device {
             for channels in 1..f.channels + 1 {
                 f.channels = channels;
                 f.sample_rate = rate;
-                supported_formats.push(SupportedFormat::from(f.clone()));
+                supported_configs.push(SupportedStreamConfigRange::from(f.clone()));
             }
         }
-        Ok(supported_formats.into_iter())
+        Ok(supported_configs.into_iter())
     }
 
-    /// Returns the default input format
-    pub fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        let channels = self.driver.channels().map_err(default_format_err)?.ins as u16;
-        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
+    /// Gets the supported output configs.
+    /// TODO currently only supports the default.
+    /// Need to find all possible configs.
+    pub fn supported_output_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+        // Retrieve the default config for the total supported channels and supported sample
+        // format.
+        let mut f = match self.default_output_config() {
+            Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
+            Ok(f) => f,
+        };
+
+        // Collect a config for every combination of supported sample rate and number of channels.
+        let mut supported_configs = vec![];
+        for &rate in ::COMMON_SAMPLE_RATES {
+            if !self
+                .driver
+                .can_sample_rate(rate.0.into())
+                .ok()
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            for channels in 1..f.channels + 1 {
+                f.channels = channels;
+                f.sample_rate = rate;
+                supported_configs.push(SupportedStreamConfigRange::from(f.clone()));
+            }
+        }
+        Ok(supported_configs.into_iter())
+    }
+
+    /// Returns the default input config
+    pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        let channels = self.driver.channels().map_err(default_config_err)?.ins as u16;
+        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
         // Map th ASIO sample type to a CPAL sample type
-        let data_type = self.driver.input_data_type().map_err(default_format_err)?;
-        let data_type =
-            convert_data_type(&data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
-        Ok(Format {
+        let data_type = self.driver.input_data_type().map_err(default_config_err)?;
+        let sample_format = convert_data_type(&data_type)
+            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
+        Ok(SupportedStreamConfig {
             channels,
             sample_rate,
-            data_type,
+            sample_format,
         })
     }
 
-    /// Returns the default output format
-    pub fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        let channels = self.driver.channels().map_err(default_format_err)?.outs as u16;
-        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_format_err)? as _);
-        let data_type = self.driver.output_data_type().map_err(default_format_err)?;
-        let data_type =
-            convert_data_type(&data_type).ok_or(DefaultFormatError::StreamTypeNotSupported)?;
-        Ok(Format {
+    /// Returns the default output config
+    pub fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        let channels = self.driver.channels().map_err(default_config_err)?.outs as u16;
+        let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
+        let data_type = self.driver.output_data_type().map_err(default_config_err)?;
+        let sample_format = convert_data_type(&data_type)
+            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
+        Ok(SupportedStreamConfig {
             channels,
             sample_rate,
-            data_type,
+            sample_format,
         })
     }
 }
@@ -202,12 +204,12 @@ pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat
     Some(fmt)
 }
 
-fn default_format_err(e: sys::AsioError) -> DefaultFormatError {
+fn default_config_err(e: sys::AsioError) -> DefaultStreamConfigError {
     match e {
         sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
-            DefaultFormatError::DeviceNotAvailable
+            DefaultStreamConfigError::DeviceNotAvailable
         }
-        sys::AsioError::NoRate => DefaultFormatError::StreamTypeNotSupported,
+        sys::AsioError::NoRate => DefaultStreamConfigError::StreamTypeNotSupported,
         err => {
             let description = format!("{}", err);
             BackendSpecificError { description }.into()
