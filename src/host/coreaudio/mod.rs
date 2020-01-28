@@ -20,9 +20,9 @@ use self::coreaudio::sys::{
 };
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultFormatError,
-    DeviceNameError, DevicesError, Format, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamError, SupportedFormat, SupportedFormatsError,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -37,8 +37,8 @@ use std::time::Duration;
 mod enumerate;
 
 pub use self::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputFormats,
-    SupportedOutputFormats,
+    default_input_device, default_output_device, Devices, SupportedInputConfigs,
+    SupportedOutputConfigs,
 };
 
 /// Coreaudio host, the default host on macOS and iOS.
@@ -74,37 +74,37 @@ impl HostTrait for Host {
 }
 
 impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    fn supported_input_formats(
+    fn supported_input_configs(
         &self,
-    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
-        Device::supported_input_formats(self)
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+        Device::supported_input_configs(self)
     }
 
-    fn supported_output_formats(
+    fn supported_output_configs(
         &self,
-    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
-        Device::supported_output_formats(self)
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+        Device::supported_output_configs(self)
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_input_format(self)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_input_config(self)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_output_format(self)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -112,12 +112,12 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream_raw(self, format, data_callback, error_callback)
+        Device::build_input_stream_raw(self, config, data_callback, error_callback)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &SupportedStreamConfig,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -125,7 +125,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream_raw(self, format, data_callback, error_callback)
+        Device::build_output_stream_raw(self, config, data_callback, error_callback)
     }
 }
 
@@ -165,11 +165,11 @@ impl Device {
         Ok(c_str.to_string_lossy().into_owned())
     }
 
-    // Logic re-used between `supported_input_formats` and `supported_output_formats`.
-    fn supported_formats(
+    // Logic re-used between `supported_input_configs` and `supported_output_configs`.
+    fn supported_configs(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: scope,
@@ -255,11 +255,11 @@ impl Device {
             // Collect the supported formats for the device.
             let mut fmts = vec![];
             for range in ranges {
-                let fmt = SupportedFormat {
+                let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
-                    data_type: sample_format,
+                    sample_format: sample_format,
                 };
                 fmts.push(fmt);
             }
@@ -268,19 +268,25 @@ impl Device {
         }
     }
 
-    fn supported_input_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        self.supported_formats(kAudioObjectPropertyScopeInput)
+    fn supported_input_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+        self.supported_configs(kAudioObjectPropertyScopeInput)
     }
 
-    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
-        self.supported_formats(kAudioObjectPropertyScopeOutput)
+    fn supported_output_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+        self.supported_configs(kAudioObjectPropertyScopeOutput)
     }
 
-    fn default_format(
+    fn default_config(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<Format, DefaultFormatError> {
-        fn default_format_error_from_os_status(status: OSStatus) -> Result<(), DefaultFormatError> {
+    ) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        fn default_config_error_from_os_status(
+            status: OSStatus,
+        ) -> Result<(), DefaultStreamConfigError> {
             let err = match coreaudio::Error::from_os_status(status) {
                 Err(err) => err,
                 Ok(_) => return Ok(()),
@@ -291,10 +297,10 @@ impl Device {
                 )
                 | coreaudio::Error::AudioCodec(_)
                 | coreaudio::Error::AudioFormat(_) => {
-                    Err(DefaultFormatError::StreamTypeNotSupported)
+                    Err(DefaultStreamConfigError::StreamTypeNotSupported)
                 }
                 coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::NoConnection) => {
-                    Err(DefaultFormatError::DeviceNotAvailable)
+                    Err(DefaultStreamConfigError::DeviceNotAvailable)
                 }
                 err => {
                     let description = format!("{}", std::error::Error::description(&err));
@@ -321,7 +327,7 @@ impl Device {
                 &data_size as *const _ as *mut _,
                 &asbd as *const _ as *mut _,
             );
-            default_format_error_from_os_status(status)?;
+            default_config_error_from_os_status(status)?;
 
             let sample_format = {
                 let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
@@ -330,7 +336,7 @@ impl Device {
                 );
                 let flags = match audio_format {
                     Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
-                    _ => return Err(DefaultFormatError::StreamTypeNotSupported),
+                    _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
                 };
                 let maybe_sample_format =
                     coreaudio::audio_unit::SampleFormat::from_flags_and_bytes_per_frame(
@@ -340,25 +346,25 @@ impl Device {
                 match maybe_sample_format {
                     Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
                     Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
-                    _ => return Err(DefaultFormatError::StreamTypeNotSupported),
+                    _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
                 }
             };
 
-            let format = Format {
+            let config = SupportedStreamConfig {
                 sample_rate: SampleRate(asbd.mSampleRate as _),
                 channels: asbd.mChannelsPerFrame as _,
-                data_type: sample_format,
+                sample_format: sample_format,
             };
-            Ok(format)
+            Ok(config)
         }
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(kAudioObjectPropertyScopeInput)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        self.default_config(kAudioObjectPropertyScopeInput)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        self.default_format(kAudioObjectPropertyScopeOutput)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        self.default_config(kAudioObjectPropertyScopeOutput)
     }
 }
 
@@ -396,15 +402,15 @@ impl From<coreaudio::Error> for BuildStreamError {
 }
 
 // Create a coreaudio AudioStreamBasicDescription from a CPAL Format.
-fn asbd_from_format(format: &Format) -> AudioStreamBasicDescription {
-    let n_channels = format.channels as usize;
-    let sample_rate = format.sample_rate.0;
-    let bytes_per_channel = format.data_type.sample_size();
+fn asbd_from_config(config: &SupportedStreamConfig) -> AudioStreamBasicDescription {
+    let n_channels = config.channels as usize;
+    let sample_rate = config.sample_rate.0;
+    let bytes_per_channel = config.sample_format.sample_size();
     let bits_per_channel = bytes_per_channel * 8;
     let bytes_per_frame = n_channels * bytes_per_channel;
     let frames_per_packet = 1;
     let bytes_per_packet = frames_per_packet * bytes_per_frame;
-    let sample_format = format.data_type;
+    let sample_format = config.sample_format;
     let format_flags = match sample_format {
         SampleFormat::F32 => (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
         _ => kAudioFormatFlagIsPacked as u32,
@@ -469,7 +475,7 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 impl Device {
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &SupportedStreamConfig,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -502,7 +508,7 @@ impl Device {
             coreaudio::Error::from_os_status(status)?;
 
             // If the requested sample rate is different to the device sample rate, update the device.
-            if sample_rate as u32 != format.sample_rate.0 {
+            if sample_rate as u32 != config.sample_rate.0 {
                 // Get available sample rate ranges.
                 property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
                 let data_size = 0u32;
@@ -530,7 +536,7 @@ impl Device {
                 let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
                 // Now that we have the available ranges, pick the one matching the desired rate.
-                let sample_rate = format.sample_rate.0;
+                let sample_rate = config.sample_rate.0;
                 let maybe_index = ranges.iter().position(|r| {
                     r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate
                 });
@@ -619,12 +625,12 @@ impl Device {
         let mut audio_unit = audio_unit_from_device(self, true)?;
 
         // Set the stream in interleaved mode.
-        let asbd = asbd_from_format(format);
+        let asbd = asbd_from_config(config);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let sample_format = format.data_type;
+        let sample_format = config.sample_format;
         let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
@@ -657,7 +663,7 @@ impl Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &SupportedStreamConfig,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -672,12 +678,12 @@ impl Device {
         let element = Element::Output;
 
         // Set the stream in interleaved mode.
-        let asbd = asbd_from_format(format);
+        let asbd = asbd_from_config(config);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let sample_format = format.data_type;
+        let sample_format = config.sample_format;
         let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
