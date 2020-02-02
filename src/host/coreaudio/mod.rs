@@ -22,7 +22,8 @@ use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -104,7 +105,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -112,12 +114,13 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream_raw(self, config, data_callback, error_callback)
+        Device::build_input_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -125,7 +128,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream_raw(self, config, data_callback, error_callback)
+        Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 }
 
@@ -402,15 +405,17 @@ impl From<coreaudio::Error> for BuildStreamError {
 }
 
 // Create a coreaudio AudioStreamBasicDescription from a CPAL Format.
-fn asbd_from_config(config: &SupportedStreamConfig) -> AudioStreamBasicDescription {
+fn asbd_from_config(
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+) -> AudioStreamBasicDescription {
     let n_channels = config.channels as usize;
     let sample_rate = config.sample_rate.0;
-    let bytes_per_channel = config.sample_format.sample_size();
+    let bytes_per_channel = sample_format.sample_size();
     let bits_per_channel = bytes_per_channel * 8;
     let bytes_per_frame = n_channels * bytes_per_channel;
     let frames_per_packet = 1;
     let bytes_per_packet = frames_per_packet * bytes_per_frame;
-    let sample_format = config.sample_format;
     let format_flags = match sample_format {
         SampleFormat::F32 => (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
         _ => kAudioFormatFlagIsPacked as u32,
@@ -475,7 +480,8 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 impl Device {
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -625,12 +631,11 @@ impl Device {
         let mut audio_unit = audio_unit_from_device(self, true)?;
 
         // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config);
+        let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let sample_format = config.sample_format;
         let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
@@ -663,7 +668,8 @@ impl Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -678,12 +684,11 @@ impl Device {
         let element = Element::Output;
 
         // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config);
+        let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let sample_format = config.sample_format;
         let bytes_per_channel = sample_format.sample_size();
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {

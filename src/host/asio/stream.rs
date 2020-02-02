@@ -14,6 +14,7 @@ use PauseStreamError;
 use PlayStreamError;
 use Sample;
 use SampleFormat;
+use StreamConfig;
 use StreamError;
 use SupportedStreamConfig;
 
@@ -59,7 +60,8 @@ impl Stream {
 impl Device {
     pub fn build_input_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -70,14 +72,14 @@ impl Device {
         let stream_type = self.driver.input_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
-        let sample_format = super::device::convert_data_type(&stream_type)
+        let expected_sample_format = super::device::convert_data_type(&stream_type)
             .ok_or(BuildStreamError::StreamConfigNotSupported)?;
-        if config.sample_format != sample_format {
+        if sample_format != expected_sample_format {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
         let num_channels = config.channels.clone();
-        let buffer_size = self.get_or_create_input_stream(config)?;
+        let buffer_size = self.get_or_create_input_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
         // Create the buffer depending on the size of the data type.
@@ -225,7 +227,8 @@ impl Device {
 
     pub fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
@@ -236,14 +239,14 @@ impl Device {
         let stream_type = self.driver.output_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
-        let sample_format = super::device::convert_data_type(&stream_type)
+        let expected_sample_format = super::device::convert_data_type(&stream_type)
             .ok_or(BuildStreamError::StreamConfigNotSupported)?;
-        if config.sample_format != sample_format {
+        if sample_format != expected_sample_format {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
         let num_channels = config.channels.clone();
-        let buffer_size = self.get_or_create_output_stream(config)?;
+        let buffer_size = self.get_or_create_output_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
         // Create buffers depending on data type.
@@ -438,12 +441,13 @@ impl Device {
     /// On success, the buffer size of the stream is returned.
     fn get_or_create_input_stream(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
     ) -> Result<usize, BuildStreamError> {
         match self.default_input_config() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
-                check_config(&self.driver, config, num_asio_channels)
+                check_config(&self.driver, config, sample_format, num_asio_channels)
             }
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
@@ -478,12 +482,13 @@ impl Device {
     /// If there is no existing ASIO Output Stream it will be created.
     fn get_or_create_output_stream(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
     ) -> Result<usize, BuildStreamError> {
         match self.default_output_config() {
             Ok(f) => {
                 let num_asio_channels = f.channels;
-                check_config(&self.driver, config, num_asio_channels)
+                check_config(&self.driver, config, sample_format, num_asio_channels)
             }
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
@@ -581,13 +586,13 @@ impl AsioSample for f64 {
 /// Checks sample rate, data type and then finally the number of channels.
 fn check_config(
     driver: &sys::Driver,
-    config: &SupportedStreamConfig,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
     num_asio_channels: u16,
 ) -> Result<(), BuildStreamError> {
-    let SupportedStreamConfig {
+    let StreamConfig {
         channels,
         sample_rate,
-        sample_format,
     } = config;
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();
