@@ -9,8 +9,8 @@ use stdweb::Reference;
 
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -154,7 +154,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: &SupportedStreamConfig,
+        _config: &StreamConfig,
+        _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -167,7 +168,8 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        _config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -176,7 +178,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         assert_eq!(
-            config.sample_format,
+            sample_format,
             SampleFormat::F32,
             "emscripten backend currently only supports `f32` data",
         );
