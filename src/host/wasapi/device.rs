@@ -1,6 +1,6 @@
 use crate::{
     BackendSpecificError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    SampleFormat, SampleRate, SupportedStreamConfig, SupportedStreamConfigRange,
+    SampleFormat, SampleRate, StreamConfig, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std;
@@ -98,7 +98,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -106,7 +107,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_input_stream_raw_inner(config)?;
+        let stream_inner = self.build_input_stream_raw_inner(config, sample_format)?;
         Ok(Stream::new_input(
             stream_inner,
             data_callback,
@@ -116,7 +117,8 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -124,7 +126,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_output_stream_raw_inner(config)?;
+        let stream_inner = self.build_output_stream_raw_inner(config, sample_format)?;
         Ok(Stream::new_output(
             stream_inner,
             data_callback,
@@ -616,7 +618,8 @@ impl Device {
 
     pub(crate) fn build_input_stream_raw_inner(
         &self,
-        format: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
@@ -638,7 +641,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = format_to_waveformatextensible(format)
+                let format_attempt = config_to_waveformatextensible(config, sample_format)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
@@ -753,14 +756,15 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                sample_format: format.sample_format,
+                sample_format,
             })
         }
     }
 
     pub(crate) fn build_output_stream_raw_inner(
         &self,
-        format: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
@@ -782,7 +786,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = format_to_waveformatextensible(format)
+                let format_attempt = config_to_waveformatextensible(config, sample_format)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
@@ -897,7 +901,7 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                sample_format: format.sample_format,
+                sample_format,
             })
         }
     }
@@ -1145,21 +1149,22 @@ pub fn default_output_device() -> Option<Device> {
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 //
 // Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
-fn format_to_waveformatextensible(
-    config: &SupportedStreamConfig,
+fn config_to_waveformatextensible(
+    config: &StreamConfig,
+    sample_format: SampleFormat,
 ) -> Option<mmreg::WAVEFORMATEXTENSIBLE> {
-    let format_tag = match config.sample_format {
+    let format_tag = match sample_format {
         SampleFormat::I16 => mmreg::WAVE_FORMAT_PCM,
         SampleFormat::F32 => mmreg::WAVE_FORMAT_EXTENSIBLE,
         SampleFormat::U16 => return None,
     };
     let channels = config.channels as WORD;
     let sample_rate = config.sample_rate.0 as DWORD;
-    let sample_bytes = config.sample_format.sample_size() as WORD;
+    let sample_bytes = sample_format.sample_size() as WORD;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = 8 * sample_bytes;
-    let cb_size = match config.sample_format {
+    let cb_size = match sample_format {
         SampleFormat::I16 => 0,
         SampleFormat::F32 => {
             let extensible_size = mem::size_of::<mmreg::WAVEFORMATEXTENSIBLE>();
@@ -1183,7 +1188,7 @@ fn format_to_waveformatextensible(
     const KSAUDIO_SPEAKER_DIRECTOUT: DWORD = 0;
     let channel_mask = KSAUDIO_SPEAKER_DIRECTOUT;
 
-    let sub_format = match config.sample_format {
+    let sub_format = match sample_format {
         SampleFormat::I16 => ksmedia::KSDATAFORMAT_SUBTYPE_PCM,
         SampleFormat::F32 => ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
         SampleFormat::U16 => return None,
