@@ -257,7 +257,8 @@ macro_rules! impl_platform_host {
 
             fn build_input_stream_raw<D, E>(
                 &self,
-                format: &crate::SupportedStreamConfig,
+                config: &crate::StreamConfig,
+                sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
@@ -267,7 +268,13 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_input_stream_raw(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_input_stream_raw(
+                                config,
+                                sample_format,
+                                data_callback,
+                                error_callback,
+                            )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*
@@ -276,7 +283,8 @@ macro_rules! impl_platform_host {
 
             fn build_output_stream_raw<D, E>(
                 &self,
-                format: &crate::SupportedStreamConfig,
+                config: &crate::StreamConfig,
+                sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
@@ -286,7 +294,13 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_output_stream_raw(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_output_stream_raw(
+                                config,
+                                sample_format,
+                                data_callback,
+                                error_callback,
+                            )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*

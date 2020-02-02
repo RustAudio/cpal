@@ -4,7 +4,8 @@ extern crate libc;
 use crate::{
     BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -82,7 +83,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        conf: &SupportedStreamConfig,
+        conf: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -90,14 +92,16 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_stream_inner(conf, alsa::SND_PCM_STREAM_CAPTURE)?;
+        let stream_inner =
+            self.build_stream_inner(conf, sample_format, alsa::SND_PCM_STREAM_CAPTURE)?;
         let stream = Stream::new_input(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        conf: &SupportedStreamConfig,
+        conf: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -105,7 +109,8 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let stream_inner = self.build_stream_inner(conf, alsa::SND_PCM_STREAM_PLAYBACK)?;
+        let stream_inner =
+            self.build_stream_inner(conf, sample_format, alsa::SND_PCM_STREAM_PLAYBACK)?;
         let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
     }
@@ -161,7 +166,8 @@ pub struct Device(String);
 impl Device {
     fn build_stream_inner(
         &self,
-        conf: &SupportedStreamConfig,
+        conf: &StreamConfig,
+        sample_format: SampleFormat,
         stream_type: alsa::snd_pcm_stream_t,
     ) -> Result<StreamInner, BuildStreamError> {
         let name = ffi::CString::new(self.0.clone()).expect("unable to clone device");
@@ -185,7 +191,7 @@ impl Device {
         };
         let can_pause = unsafe {
             let hw_params = HwParams::alloc();
-            set_hw_params_from_format(handle, &hw_params, conf)
+            set_hw_params_from_format(handle, &hw_params, conf, sample_format)
                 .map_err(|description| BackendSpecificError { description })?;
 
             alsa::snd_pcm_hw_params_can_pause(hw_params.0) == 1
@@ -213,7 +219,7 @@ impl Device {
 
         let stream_inner = StreamInner {
             channel: handle,
-            sample_format: conf.sample_format,
+            sample_format,
             num_descriptors,
             num_channels: conf.channels as u16,
             buffer_len,
@@ -904,7 +910,8 @@ fn get_available_samples(stream: &StreamInner) -> Result<usize, BackendSpecificE
 unsafe fn set_hw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     hw_params: &HwParams,
-    format: &SupportedStreamConfig,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
 ) -> Result<(), String> {
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
         return Err(format!("errors on pcm handle: {}", e));
@@ -918,13 +925,13 @@ unsafe fn set_hw_params_from_format(
     }
 
     let sample_format = if cfg!(target_endian = "big") {
-        match format.sample_format {
+        match sample_format {
             SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_BE,
             SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_BE,
             SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_BE,
         }
     } else {
-        match format.sample_format {
+        match sample_format {
             SampleFormat::I16 => alsa::SND_PCM_FORMAT_S16_LE,
             SampleFormat::U16 => alsa::SND_PCM_FORMAT_U16_LE,
             SampleFormat::F32 => alsa::SND_PCM_FORMAT_FLOAT_LE,
@@ -941,7 +948,7 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(
         pcm_handle,
         hw_params.0,
-        format.sample_rate.0 as libc::c_uint,
+        config.sample_rate.0 as libc::c_uint,
         0,
     )) {
         return Err(format!("sample rate could not be set: {}", e));
@@ -949,7 +956,7 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(
         pcm_handle,
         hw_params.0,
-        format.channels as libc::c_uint,
+        config.channels as libc::c_uint,
     )) {
         return Err(format!("channel count could not be set: {}", e));
     }
@@ -973,7 +980,7 @@ unsafe fn set_hw_params_from_format(
 
 unsafe fn set_sw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
-    format: &SupportedStreamConfig,
+    config: &StreamConfig,
 ) -> Result<(usize, usize), String> {
     let mut sw_params = ptr::null_mut(); // TODO: RAII
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
@@ -1009,8 +1016,8 @@ unsafe fn set_sw_params_from_format(
         )) {
             return Err(format!("snd_pcm_sw_params_set_avail_min failed: {}", e));
         }
-        let buffer = buffer as usize * format.channels as usize;
-        let period = period as usize * format.channels as usize;
+        let buffer = buffer as usize * config.channels as usize;
+        let period = period as usize * config.channels as usize;
         (buffer, period)
     };
 

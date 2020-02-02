@@ -94,7 +94,7 @@
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
 //! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
-//! let sample_format = supported_config.sample_format;
+//! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
 //!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
@@ -117,10 +117,11 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -132,10 +133,11 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
 //! ```
 
@@ -202,9 +204,9 @@ pub struct SupportedStreamConfigRange {
 /// `SupportedStreamConfigRange` instance or one of the `Device::default_input/output_config` methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedStreamConfig {
-    pub channels: ChannelCount,
-    pub sample_rate: SampleRate,
-    pub sample_format: SampleFormat,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
+    sample_format: SampleFormat,
 }
 
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
@@ -219,12 +221,22 @@ pub struct Data {
 }
 
 impl SupportedStreamConfig {
-    /// Construct a `SupportedStreamConfig` from an existing `StreamConfig`.
-    pub fn from_config(conf: &StreamConfig, fmt: SampleFormat) -> Self {
-        Self {
-            channels: conf.channels,
-            sample_rate: conf.sample_rate,
-            sample_format: fmt,
+    pub fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    pub fn config(&self) -> StreamConfig {
+        StreamConfig {
+            channels: self.channels,
+            sample_rate: self.sample_rate,
         }
     }
 }
@@ -406,12 +418,7 @@ impl SupportedStreamConfigRange {
 
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
-        let channels = conf.channels;
-        let sample_rate = conf.sample_rate;
-        StreamConfig {
-            channels,
-            sample_rate,
-        }
+        conf.config()
     }
 }
 

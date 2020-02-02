@@ -10,7 +10,7 @@ fn main() -> Result<(), anyhow::Error> {
         .expect("failed to find a default output device");
     let config = device.default_output_config()?;
 
-    match config.sample_format {
+    match config.sample_format() {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into())?,
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into())?,
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into())?,

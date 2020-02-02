@@ -40,7 +40,7 @@ fn main() -> Result<(), anyhow::Error> {
         eprintln!("an error occurred on stream: {}", err);
     };
 
-    let stream = match config.sample_format {
+    let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
             move |data| write_input_data::<f32, f32>(data, &writer_2),
@@ -78,10 +78,10 @@ fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
 
 fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec {
     hound::WavSpec {
-        channels: config.channels as _,
-        sample_rate: config.sample_rate.0 as _,
-        bits_per_sample: (config.sample_format.sample_size() * 8) as _,
-        sample_format: sample_format(config.sample_format),
+        channels: config.channels() as _,
+        sample_rate: config.sample_rate().0 as _,
+        bits_per_sample: (config.sample_format().sample_size() * 8) as _,
+        sample_format: sample_format(config.sample_format()),
     }
 }
 

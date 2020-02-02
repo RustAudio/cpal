@@ -1,7 +1,7 @@
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -68,7 +68,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _format: &SupportedStreamConfig,
+        _config: &StreamConfig,
+        _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -82,7 +83,8 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        _format: &SupportedStreamConfig,
+        _config: &StreamConfig,
+        _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
