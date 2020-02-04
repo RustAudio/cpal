@@ -47,7 +47,7 @@ pub enum DeviceNameError {
 
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Debug, Error)]
-pub enum SupportedFormatsError {
+pub enum SupportedStreamConfigsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
@@ -67,7 +67,7 @@ pub enum SupportedFormatsError {
 
 /// May occur when attempting to request the default input or output stream format from a `Device`.
 #[derive(Debug, Error)]
-pub enum DefaultFormatError {
+pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
@@ -90,9 +90,9 @@ pub enum BuildStreamError {
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
-    /// The required format is not supported.
-    #[error("The requested stream format is not supported by the device.")]
-    FormatNotSupported,
+    /// The specified stream configuration is not supported.
+    #[error("The requested stream configuration is not supported by the device.")]
+    StreamConfigNotSupported,
     /// We called something the C-Layer did not understand
     ///
     /// On ALSA device functions called with a feature they do not support will yield this. E.g.

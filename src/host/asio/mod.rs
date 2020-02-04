@@ -2,12 +2,13 @@ extern crate asio_sys as sys;
 extern crate parking_lot;
 
 use crate::{
-    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
-    PauseStreamError, PlayStreamError, StreamError, SupportedFormatsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
-pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats};
+pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};
 pub use self::stream::Stream;
 use std::sync::Arc;
 
@@ -53,37 +54,38 @@ impl HostTrait for Host {
 }
 
 impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    fn supported_input_formats(
+    fn supported_input_configs(
         &self,
-    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
-        Device::supported_input_formats(self)
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+        Device::supported_input_configs(self)
     }
 
-    fn supported_output_formats(
+    fn supported_output_configs(
         &self,
-    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
-        Device::supported_output_formats(self)
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+        Device::supported_output_configs(self)
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_input_format(self)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_input_config(self)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_output_format(self)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -91,12 +93,13 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream_raw(self, format, data_callback, error_callback)
+        Device::build_input_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -104,7 +107,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream_raw(self, format, data_callback, error_callback)
+        Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 }
 

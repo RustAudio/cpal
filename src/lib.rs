@@ -31,24 +31,25 @@
 //! let device = host.default_output_device().expect("no output device available");
 //! ```
 //!
-//! Before we can create a stream, we must decide what the format of the audio samples is going to
-//! be. You can query all the supported formats with the `supported_input_formats()` and
-//! `supported_output_formats()` methods. These produce a list of `SupportedFormat` structs which
-//! can later be turned into actual `Format` structs. If you don't want to query the list of
-//! formats, you can also build your own `Format` manually, but doing so could lead to an error
-//! when building the stream if the format is not supported by the device.
+//! Before we can create a stream, we must decide what the configuration of the audio stream is
+//! going to be. You can query all the supported configurations with the
+//! `supported_input_configs()` and `supported_output_configs()` methods. These produce a list of
+//! `SupportedStreamConfigRange` structs which can later be turned into actual
+//! `SupportedStreamConfig` structs. If you don't want to query the list of configs, you can also
+//! build your own `StreamConfig` manually, but doing so could lead to an error when building the
+//! stream if the config is not supported by the device.
 //!
-//! > **Note**: the `supported_formats()` method could return an error for example if the device
-//! > has been disconnected.
+//! > **Note**: the `supported_input/output_configs()` methods could return an error for example if
+//! > the device has been disconnected.
 //!
 //! ```no_run
 //! use cpal::traits::{DeviceTrait, HostTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! let mut supported_formats_range = device.supported_output_formats()
-//!     .expect("error while querying formats");
-//! let format = supported_formats_range.next()
-//!     .expect("no supported format?!")
+//! let mut supported_configs_range = device.supported_output_configs()
+//!     .expect("error while querying configs");
+//! let supported_config = supported_configs_range.next()
+//!     .expect("no supported config?!")
 //!     .with_max_sample_rate();
 //! ```
 //!
@@ -59,9 +60,9 @@
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let shape = device.default_output_format().unwrap().shape();
+//! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
-//!     &shape,
+//!     &config,
 //!     move |data: &mut [f32]| {
 //!         // react to stream events and read or write stream data here.
 //!     },
@@ -91,13 +92,14 @@
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let format = device.default_output_format().unwrap();
+//! # let supported_config = device.default_output_config().unwrap();
 //! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
-//! let shape = format.shape();
-//! let stream = match format.data_type {
-//!     SampleFormat::F32 => device.build_output_stream(&shape, write_silence::<f32>, err_fn),
-//!     SampleFormat::I16 => device.build_output_stream(&shape, write_silence::<i16>, err_fn),
-//!     SampleFormat::U16 => device.build_output_stream(&shape, write_silence::<u16>, err_fn),
+//! let sample_format = supported_config.sample_format();
+//! let config = supported_config.into();
+//! let stream = match sample_format {
+//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
+//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
+//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
 //! }.unwrap();
 //!
 //! fn write_silence<T: Sample>(data: &mut [T]) {
@@ -114,10 +116,12 @@
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let format = device.default_output_format().unwrap();
+//! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
+//! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -128,10 +132,12 @@
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let format = device.default_output_format().unwrap();
+//! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
+//! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
 //! ```
 
@@ -149,7 +155,7 @@ extern crate thiserror;
 pub use error::*;
 pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
-    SupportedInputFormats, SupportedOutputFormats, ALL_HOSTS,
+    SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 pub use samples_formats::{Sample, SampleFormat};
 
@@ -172,56 +178,35 @@ pub type ChannelCount = u16;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleRate(pub u32);
 
-/// The format of an input or output audio stream.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Format {
-    pub channels: ChannelCount,
-    pub sample_rate: SampleRate,
-    pub data_type: SampleFormat,
-}
-
-impl Format {
-    /// Construct a format having a particular `shape` and `data_type`.
-    pub fn with_shape(shape: &Shape, data_type: SampleFormat) -> Self {
-        Self {
-            channels: shape.channels,
-            sample_rate: shape.sample_rate,
-            data_type,
-        }
-    }
-
-    /// Extract aspects of the format independent of the data type.
-    pub fn shape(&self) -> Shape {
-        self.clone().into()
-    }
-}
-
-/// The properties of an input or output audio stream excluding its data type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Shape {
+/// The set of parameters used to describe how to open a stream.
+///
+/// The sample format is omitted in favour of using a sample type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
 }
 
-impl From<Format> for Shape {
-    fn from(x: Format) -> Self {
-        Self {
-            channels: x.channels,
-            sample_rate: x.sample_rate,
-        }
-    }
-}
-
-/// Describes a range of supported stream formats.
+/// Describes a range of supported stream configurations, retrieved via the
+/// `Device::supported_input/output_configs` method.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SupportedFormat {
-    pub channels: ChannelCount,
+pub struct SupportedStreamConfigRange {
+    pub(crate) channels: ChannelCount,
     /// Minimum value for the samples rate of the supported formats.
-    pub min_sample_rate: SampleRate,
+    pub(crate) min_sample_rate: SampleRate,
     /// Maximum value for the samples rate of the supported formats.
-    pub max_sample_rate: SampleRate,
+    pub(crate) max_sample_rate: SampleRate,
     /// Type of data expected by the device.
-    pub data_type: SampleFormat,
+    pub(crate) sample_format: SampleFormat,
+}
+
+/// Describes a single supported stream configuration, retrieved via either a
+/// `SupportedStreamConfigRange` instance or one of the `Device::default_input/output_config` methods.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedStreamConfig {
+    channels: ChannelCount,
+    sample_rate: SampleRate,
+    sample_format: SampleFormat,
 }
 
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
@@ -233,6 +218,27 @@ pub struct Data {
     data: *mut (),
     len: usize,
     sample_format: SampleFormat,
+}
+
+impl SupportedStreamConfig {
+    pub fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    pub fn config(&self) -> StreamConfig {
+        StreamConfig {
+            channels: self.channels,
+            sample_rate: self.sample_rate,
+        }
+    }
 }
 
 impl Data {
@@ -328,25 +334,54 @@ impl Data {
     }
 }
 
-impl SupportedFormat {
-    /// Turns this `SupportedFormat` into a `Format` corresponding to the maximum samples rate.
-    #[inline]
-    pub fn with_max_sample_rate(self) -> Format {
-        Format {
+impl SupportedStreamConfigRange {
+    pub fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+
+    pub fn min_sample_rate(&self) -> SampleRate {
+        self.min_sample_rate
+    }
+
+    pub fn max_sample_rate(&self) -> SampleRate {
+        self.max_sample_rate
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    /// Retrieve a `SupportedStreamConfig` with the given sample rate.
+    ///
+    /// **panic!**s if the given `sample_rate` is outside the range specified within this
+    /// `SupportedStreamConfigRange` instance.
+    pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {
+        assert!(sample_rate <= self.min_sample_rate && sample_rate <= self.max_sample_rate);
+        SupportedStreamConfig {
             channels: self.channels,
-            sample_rate: self.max_sample_rate,
-            data_type: self.data_type,
+            sample_format: self.sample_format,
+            sample_rate,
         }
     }
 
-    /// A comparison function which compares two `SupportedFormat`s in terms of their priority of
+    /// Turns this `SupportedStreamConfigRange` into a `SupportedStreamConfig` corresponding to the maximum samples rate.
+    #[inline]
+    pub fn with_max_sample_rate(self) -> SupportedStreamConfig {
+        SupportedStreamConfig {
+            channels: self.channels,
+            sample_rate: self.max_sample_rate,
+            sample_format: self.sample_format,
+        }
+    }
+
+    /// A comparison function which compares two `SupportedStreamConfigRange`s in terms of their priority of
     /// use as a default stream format.
     ///
     /// Some backends do not provide a default stream format for their audio devices. In these
     /// cases, CPAL attempts to decide on a reasonable default format for the user. To do this we
     /// use the "greatest" of all supported stream formats when compared with this method.
     ///
-    /// Formats are prioritised by the following heuristics:
+    /// SupportedStreamConfigs are prioritised by the following heuristics:
     ///
     /// **Channels**:
     ///
@@ -382,17 +417,17 @@ impl SupportedFormat {
             return cmp_channels;
         }
 
-        let cmp_f32 = (self.data_type == F32).cmp(&(other.data_type == F32));
+        let cmp_f32 = (self.sample_format == F32).cmp(&(other.sample_format == F32));
         if cmp_f32 != Equal {
             return cmp_f32;
         }
 
-        let cmp_i16 = (self.data_type == I16).cmp(&(other.data_type == I16));
+        let cmp_i16 = (self.sample_format == I16).cmp(&(other.sample_format == I16));
         if cmp_i16 != Equal {
             return cmp_i16;
         }
 
-        let cmp_u16 = (self.data_type == U16).cmp(&(other.data_type == U16));
+        let cmp_u16 = (self.sample_format == U16).cmp(&(other.sample_format == U16));
         if cmp_u16 != Equal {
             return cmp_u16;
         }
@@ -410,14 +445,20 @@ impl SupportedFormat {
     }
 }
 
-impl From<Format> for SupportedFormat {
+impl From<SupportedStreamConfig> for StreamConfig {
+    fn from(conf: SupportedStreamConfig) -> Self {
+        conf.config()
+    }
+}
+
+impl From<SupportedStreamConfig> for SupportedStreamConfigRange {
     #[inline]
-    fn from(format: Format) -> SupportedFormat {
-        SupportedFormat {
+    fn from(format: SupportedStreamConfig) -> SupportedStreamConfigRange {
+        SupportedStreamConfigRange {
             channels: format.channels,
             min_sample_rate: format.sample_rate,
             max_sample_rate: format.sample_rate,
-            data_type: format.data_type,
+            sample_format: format.sample_format,
         }
     }
 }

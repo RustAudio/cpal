@@ -8,23 +8,23 @@ fn main() -> Result<(), anyhow::Error> {
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
-    let format = device.default_output_format()?;
+    let config = device.default_output_config()?;
 
-    match format.data_type {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &format.shape())?,
-        cpal::SampleFormat::I16 => run::<i16>(&device, &format.shape())?,
-        cpal::SampleFormat::U16 => run::<u16>(&device, &format.shape())?,
+    match config.sample_format() {
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into())?,
+        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into())?,
+        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into())?,
     }
 
     Ok(())
 }
 
-fn run<T>(device: &cpal::Device, shape: &cpal::Shape) -> Result<(), anyhow::Error>
+fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
     T: cpal::Sample,
 {
-    let sample_rate = shape.sample_rate.0 as f32;
-    let channels = shape.channels as usize;
+    let sample_rate = config.sample_rate.0 as f32;
+    let channels = config.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.
     let mut sample_clock = 0f32;
@@ -36,7 +36,7 @@ where
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
     let stream = device.build_output_stream(
-        shape,
+        config,
         move |data: &mut [T]| write_data(data, channels, &mut next_value),
         err_fn,
     )?;

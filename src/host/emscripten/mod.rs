@@ -8,9 +8,9 @@ use stdweb::web::TypedArray;
 use stdweb::Reference;
 
 use crate::{
-    BuildStreamError, Data, DefaultFormatError, DeviceNameError, DevicesError, Format,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamError, SupportedFormat,
-    SupportedFormatsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -37,8 +37,8 @@ pub struct Stream {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
 
-pub type SupportedInputFormats = ::std::vec::IntoIter<SupportedFormat>;
-pub type SupportedOutputFormats = ::std::vec::IntoIter<SupportedFormat>;
+pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -60,12 +60,16 @@ impl Device {
     }
 
     #[inline]
-    fn supported_input_formats(&self) -> Result<SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_configs(
+        &self,
+    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!();
     }
 
     #[inline]
-    fn supported_output_formats(&self) -> Result<SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_configs(
+        &self,
+    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         // TODO: right now cpal's API doesn't allow flexibility here
         //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
         //       this ever becomes more flexible, don't forget to change that
@@ -74,25 +78,25 @@ impl Device {
         //
         //       UPDATE: We can do this now. Might be best to use `crate::COMMON_SAMPLE_RATES` and
         //       filter out those that lay outside the range specified above.
-        Ok(vec![SupportedFormat {
+        Ok(vec![SupportedStreamConfigRange {
             channels: 2,
             min_sample_rate: ::SampleRate(44100),
             max_sample_rate: ::SampleRate(44100),
-            data_type: ::SampleFormat::F32,
+            sample_format: ::SampleFormat::F32,
         }]
         .into_iter())
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!();
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        // TODO: because it is hard coded, see supported_output_formats.
-        Ok(Format {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        // TODO: because it is hard coded, see supported_output_configs.
+        Ok(SupportedStreamConfig {
             channels: 2,
             sample_rate: ::SampleRate(44100),
-            data_type: ::SampleFormat::F32,
+            sample_format: ::SampleFormat::F32,
         })
     }
 }
@@ -120,37 +124,38 @@ impl HostTrait for Host {
 }
 
 impl DeviceTrait for Device {
-    type SupportedInputFormats = SupportedInputFormats;
-    type SupportedOutputFormats = SupportedOutputFormats;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    fn supported_input_formats(
+    fn supported_input_configs(
         &self,
-    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
-        Device::supported_input_formats(self)
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+        Device::supported_input_configs(self)
     }
 
-    fn supported_output_formats(
+    fn supported_output_configs(
         &self,
-    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
-        Device::supported_output_formats(self)
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+        Device::supported_output_configs(self)
     }
 
-    fn default_input_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_input_format(self)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_input_config(self)
     }
 
-    fn default_output_format(&self) -> Result<Format, DefaultFormatError> {
-        Device::default_output_format(self)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        Device::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _format: &Format,
+        _config: &StreamConfig,
+        _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -163,7 +168,8 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &Format,
+        _config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -172,7 +178,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         assert_eq!(
-            format.data_type,
+            sample_format,
             SampleFormat::F32,
             "emscripten backend currently only supports `f32` data",
         );

@@ -1,7 +1,7 @@
 //! Feeds back the input stream directly into the output stream.
 //!
-//! Assumes that the input and output devices can use the same stream format and that they support
-//! the f32 sample format.
+//! Assumes that the input and output devices can use the same stream configuration and that they
+//! support the f32 sample format.
 //!
 //! Uses a delay of `LATENCY_MS` milliseconds in case the default input and output streams are not
 //! precisely synchronised.
@@ -28,12 +28,12 @@ fn main() -> Result<(), anyhow::Error> {
     println!("Using default input device: \"{}\"", input_device.name()?);
     println!("Using default output device: \"{}\"", output_device.name()?);
 
-    // We'll try and use the same format between streams to keep it simple
-    let shape = input_device.default_input_format()?.shape();
+    // We'll try and use the same configuration between streams to keep it simple.
+    let config: cpal::StreamConfig = input_device.default_input_config()?.into();
 
     // Create a delay in case the input and output devices aren't synced.
-    let latency_frames = (LATENCY_MS / 1_000.0) * shape.sample_rate.0 as f32;
-    let latency_samples = latency_frames as usize * shape.channels as usize;
+    let latency_frames = (LATENCY_MS / 1_000.0) * config.sample_rate.0 as f32;
+    let latency_samples = latency_frames as usize * config.channels as usize;
 
     // The buffer to share samples
     let ring = RingBuffer::new(latency_samples * 2);
@@ -80,10 +80,10 @@ fn main() -> Result<(), anyhow::Error> {
     // Build streams.
     println!(
         "Attempting to build both streams with f32 samples and `{:?}`.",
-        shape
+        config
     );
-    let input_stream = input_device.build_input_stream(&shape, input_data_fn, err_fn)?;
-    let output_stream = output_device.build_output_stream(&shape, output_data_fn, err_fn)?;
+    let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn)?;
+    let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn)?;
     println!("Successfully built streams.");
 
     // Play the streams.

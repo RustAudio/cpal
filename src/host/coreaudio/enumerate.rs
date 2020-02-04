@@ -9,7 +9,7 @@ use super::Device;
 use std::mem;
 use std::ptr::null;
 use std::vec::IntoIter as VecIntoIter;
-use {BackendSpecificError, DevicesError, SupportedFormat};
+use {BackendSpecificError, DevicesError, SupportedStreamConfigRange};
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
@@ -143,5 +143,5 @@ pub fn default_output_device() -> Option<Device> {
     Some(device)
 }
 
-pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
-pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
+pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;

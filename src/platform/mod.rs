@@ -27,8 +27,8 @@ pub use self::platform_impl::*;
 // }
 // ```
 //
-// And so on for Device, Devices, EventLoop, Host, StreamId, SupportedInputFormats,
-// SupportedOutputFormats and all their necessary trait implementations.
+// And so on for Device, Devices, EventLoop, Host, StreamId, SupportedInputConfigs,
+// SupportedOutputConfigs and all their necessary trait implementations.
 // ```
 macro_rules! impl_platform_host {
     ($($HostVariant:ident $host_mod:ident $host_name:literal),*) => {
@@ -67,13 +67,13 @@ macro_rules! impl_platform_host {
         // TODO: Confirm this and add more specific detail and references.
         pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
 
-        /// The **SupportedInputFormats** iterator associated with the platform's dynamically
+        /// The **SupportedInputConfigs** iterator associated with the platform's dynamically
         /// dispatched **Host** type.
-        pub struct SupportedInputFormats(SupportedInputFormatsInner);
+        pub struct SupportedInputConfigs(SupportedInputConfigsInner);
 
-        /// The **SupportedOutputFormats** iterator associated with the platform's dynamically
+        /// The **SupportedOutputConfigs** iterator associated with the platform's dynamically
         /// dispatched **Host** type.
-        pub struct SupportedOutputFormats(SupportedOutputFormatsInner);
+        pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
         #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -107,15 +107,15 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        enum SupportedInputFormatsInner {
+        enum SupportedInputConfigsInner {
             $(
-                $HostVariant(crate::host::$host_mod::SupportedInputFormats),
+                $HostVariant(crate::host::$host_mod::SupportedInputConfigs),
             )*
         }
 
-        enum SupportedOutputFormatsInner {
+        enum SupportedOutputConfigsInner {
             $(
-                $HostVariant(crate::host::$host_mod::SupportedOutputFormats),
+                $HostVariant(crate::host::$host_mod::SupportedOutputConfigs),
             )*
         }
 
@@ -162,13 +162,13 @@ macro_rules! impl_platform_host {
             }
         }
 
-        impl Iterator for SupportedInputFormats {
-            type Item = crate::SupportedFormat;
+        impl Iterator for SupportedInputConfigs {
+            type Item = crate::SupportedStreamConfigRange;
 
             fn next(&mut self) -> Option<Self::Item> {
                 match self.0 {
                     $(
-                        SupportedInputFormatsInner::$HostVariant(ref mut s) => s.next(),
+                        SupportedInputConfigsInner::$HostVariant(ref mut s) => s.next(),
                     )*
                 }
             }
@@ -176,19 +176,19 @@ macro_rules! impl_platform_host {
             fn size_hint(&self) -> (usize, Option<usize>) {
                 match self.0 {
                     $(
-                        SupportedInputFormatsInner::$HostVariant(ref d) => d.size_hint(),
+                        SupportedInputConfigsInner::$HostVariant(ref d) => d.size_hint(),
                     )*
                 }
             }
         }
 
-        impl Iterator for SupportedOutputFormats {
-            type Item = crate::SupportedFormat;
+        impl Iterator for SupportedOutputConfigs {
+            type Item = crate::SupportedStreamConfigRange;
 
             fn next(&mut self) -> Option<Self::Item> {
                 match self.0 {
                     $(
-                        SupportedOutputFormatsInner::$HostVariant(ref mut s) => s.next(),
+                        SupportedOutputConfigsInner::$HostVariant(ref mut s) => s.next(),
                     )*
                 }
             }
@@ -196,15 +196,15 @@ macro_rules! impl_platform_host {
             fn size_hint(&self) -> (usize, Option<usize>) {
                 match self.0 {
                     $(
-                        SupportedOutputFormatsInner::$HostVariant(ref d) => d.size_hint(),
+                        SupportedOutputConfigsInner::$HostVariant(ref d) => d.size_hint(),
                     )*
                 }
             }
         }
 
         impl crate::traits::DeviceTrait for Device {
-            type SupportedInputFormats = SupportedInputFormats;
-            type SupportedOutputFormats = SupportedOutputFormats;
+            type SupportedInputConfigs = SupportedInputConfigs;
+            type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
 
             fn name(&self) -> Result<String, crate::DeviceNameError> {
@@ -215,49 +215,50 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, crate::SupportedFormatsError> {
+            fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
                 match self.0 {
                     $(
                         DeviceInner::$HostVariant(ref d) => {
-                            d.supported_input_formats()
-                                .map(SupportedInputFormatsInner::$HostVariant)
-                                .map(SupportedInputFormats)
+                            d.supported_input_configs()
+                                .map(SupportedInputConfigsInner::$HostVariant)
+                                .map(SupportedInputConfigs)
                         }
                     )*
                 }
             }
 
-            fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, crate::SupportedFormatsError> {
+            fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
                 match self.0 {
                     $(
                         DeviceInner::$HostVariant(ref d) => {
-                            d.supported_output_formats()
-                                .map(SupportedOutputFormatsInner::$HostVariant)
-                                .map(SupportedOutputFormats)
+                            d.supported_output_configs()
+                                .map(SupportedOutputConfigsInner::$HostVariant)
+                                .map(SupportedOutputConfigs)
                         }
                     )*
                 }
             }
 
-            fn default_input_format(&self) -> Result<crate::Format, crate::DefaultFormatError> {
+            fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.default_input_format(),
+                        DeviceInner::$HostVariant(ref d) => d.default_input_config(),
                     )*
                 }
             }
 
-            fn default_output_format(&self) -> Result<crate::Format, crate::DefaultFormatError> {
+            fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.default_output_format(),
+                        DeviceInner::$HostVariant(ref d) => d.default_output_config(),
                     )*
                 }
             }
 
             fn build_input_stream_raw<D, E>(
                 &self,
-                format: &crate::Format,
+                config: &crate::StreamConfig,
+                sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
@@ -267,7 +268,13 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_input_stream_raw(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_input_stream_raw(
+                                config,
+                                sample_format,
+                                data_callback,
+                                error_callback,
+                            )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*
@@ -276,7 +283,8 @@ macro_rules! impl_platform_host {
 
             fn build_output_stream_raw<D, E>(
                 &self,
-                format: &crate::Format,
+                config: &crate::StreamConfig,
+                sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
@@ -286,7 +294,13 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
-                        DeviceInner::$HostVariant(ref d) => d.build_output_stream_raw(format, data_callback, error_callback)
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_output_stream_raw(
+                                config,
+                                sample_format,
+                                data_callback,
+                                error_callback,
+                            )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
                     )*
@@ -436,8 +450,8 @@ macro_rules! impl_platform_host {
 mod platform_impl {
     pub use crate::host::alsa::{
         Device as AlsaDevice, Devices as AlsaDevices, Host as AlsaHost, Stream as AlsaStream,
-        SupportedInputFormats as AlsaSupportedInputFormats,
-        SupportedOutputFormats as AlsaSupportedOutputFormats,
+        SupportedInputConfigs as AlsaSupportedInputConfigs,
+        SupportedOutputConfigs as AlsaSupportedOutputConfigs,
     };
 
     impl_platform_host!(Alsa alsa "ALSA");
@@ -454,8 +468,8 @@ mod platform_impl {
 mod platform_impl {
     pub use crate::host::coreaudio::{
         Device as CoreAudioDevice, Devices as CoreAudioDevices, Host as CoreAudioHost,
-        Stream as CoreAudioStream, SupportedInputFormats as CoreAudioSupportedInputFormats,
-        SupportedOutputFormats as CoreAudioSupportedOutputFormats,
+        Stream as CoreAudioStream, SupportedInputConfigs as CoreAudioSupportedInputConfigs,
+        SupportedOutputConfigs as CoreAudioSupportedOutputConfigs,
     };
 
     impl_platform_host!(CoreAudio coreaudio "CoreAudio");
@@ -472,8 +486,8 @@ mod platform_impl {
 mod platform_impl {
     pub use crate::host::emscripten::{
         Device as EmscriptenDevice, Devices as EmscriptenDevices, Host as EmscriptenHost,
-        Stream as EmscriptenStream, SupportedInputFormats as EmscriptenSupportedInputFormats,
-        SupportedOutputFormats as EmscriptenSupportedOutputFormats,
+        Stream as EmscriptenStream, SupportedInputConfigs as EmscriptenSupportedInputConfigs,
+        SupportedOutputConfigs as EmscriptenSupportedOutputConfigs,
     };
 
     impl_platform_host!(Emscripten emscripten "Emscripten");
@@ -491,13 +505,13 @@ mod platform_impl {
     #[cfg(feature = "asio")]
     pub use crate::host::asio::{
         Device as AsioDevice, Devices as AsioDevices, Host as AsioHost, Stream as AsioStream,
-        SupportedInputFormats as AsioSupportedInputFormats,
-        SupportedOutputFormats as AsioSupportedOutputFormats,
+        SupportedInputConfigs as AsioSupportedInputConfigs,
+        SupportedOutputConfigs as AsioSupportedOutputConfigs,
     };
     pub use crate::host::wasapi::{
         Device as WasapiDevice, Devices as WasapiDevices, Host as WasapiHost,
-        Stream as WasapiStream, SupportedInputFormats as WasapiSupportedInputFormats,
-        SupportedOutputFormats as WasapiSupportedOutputFormats,
+        Stream as WasapiStream, SupportedInputConfigs as WasapiSupportedInputConfigs,
+        SupportedOutputConfigs as WasapiSupportedOutputConfigs,
     };
 
     #[cfg(feature = "asio")]
@@ -526,8 +540,8 @@ mod platform_impl {
 mod platform_impl {
     pub use crate::host::null::{
         Device as NullDevice, Devices as NullDevices, EventLoop as NullEventLoop, Host as NullHost,
-        StreamId as NullStreamId, SupportedInputFormats as NullSupportedInputFormats,
-        SupportedOutputFormats as NullSupportedOutputFormats,
+        StreamId as NullStreamId, SupportedInputConfigs as NullSupportedInputConfigs,
+        SupportedOutputConfigs as NullSupportedOutputConfigs,
     };
 
     impl_platform_host!(Null null "Null");

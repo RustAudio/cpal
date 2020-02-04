@@ -1,4 +1,4 @@
-//! Records a WAV file (roughly 3 seconds long) using the default input device and format.
+//! Records a WAV file (roughly 3 seconds long) using the default input device and config.
 //!
 //! The input data is recorded to "$CARGO_MANIFEST_DIR/recorded.wav".
 
@@ -15,18 +15,18 @@ fn main() -> Result<(), anyhow::Error> {
     // Use the default host for working with audio devices.
     let host = cpal::default_host();
 
-    // Setup the default input device and stream with the default input format.
+    // Setup the default input device and stream with the default input config.
     let device = host
         .default_input_device()
         .expect("Failed to get default input device");
     println!("Default input device: {}", device.name()?);
-    let format = device
-        .default_input_format()
-        .expect("Failed to get default input format");
-    println!("Default input format: {:?}", format);
+    let config = device
+        .default_input_config()
+        .expect("Failed to get default input config");
+    println!("Default input config: {:?}", config);
     // The WAV file we're recording to.
     const PATH: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
-    let spec = wav_spec_from_format(&format);
+    let spec = wav_spec_from_config(&config);
     let writer = hound::WavWriter::create(PATH, spec)?;
     let writer = Arc::new(Mutex::new(Some(writer)));
 
@@ -40,19 +40,19 @@ fn main() -> Result<(), anyhow::Error> {
         eprintln!("an error occurred on stream: {}", err);
     };
 
-    let stream = match format.data_type {
+    let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &format.shape(),
+            &config.into(),
             move |data| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
         )?,
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &format.shape(),
+            &config.into(),
             move |data| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
         )?,
         cpal::SampleFormat::U16 => device.build_input_stream(
-            &format.shape(),
+            &config.into(),
             move |data| write_input_data::<u16, i16>(data, &writer_2),
             err_fn,
         )?,
@@ -76,12 +76,12 @@ fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
     }
 }
 
-fn wav_spec_from_format(format: &cpal::Format) -> hound::WavSpec {
+fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec {
     hound::WavSpec {
-        channels: format.channels as _,
-        sample_rate: format.sample_rate.0 as _,
-        bits_per_sample: (format.data_type.sample_size() * 8) as _,
-        sample_format: sample_format(format.data_type),
+        channels: config.channels() as _,
+        sample_rate: config.sample_rate().0 as _,
+        bits_per_sample: (config.sample_format().sample_size() * 8) as _,
+        sample_format: sample_format(config.sample_format()),
     }
 }
 
