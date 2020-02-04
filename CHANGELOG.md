@@ -1,5 +1,23 @@
 # Unreleased
 
+- Large refactor removing the blocking EventLoop API.
+- Rename many `Format` types to `StreamConfig`:
+    - `Format` type's `data_type` field renamed to `sample_format`.
+    - `Shape` -> `StreamConfig` - The configuration input required to build a stream.
+    - `Format` -> `SupportedStreamConfig` - Describes a single supported stream configuration.
+    - `SupportedFormat` -> `SupportedStreamConfigRange` - Describes a range of supported configurations.
+    - `Device::default_input/output_format` -> `Device::default_input/output_config`.
+    - `Device::supported_input/output_formats` -> `Device::supported_input/output_configs`.
+    - `Device::SupportedInput/OutputFormats` -> `Device::SupportedInput/OutputConfigs`.
+    - `SupportedFormatsError` -> `SupportedStreamConfigsError`
+    - `DefaultFormatError` -> `DefaultStreamConfigError`
+    - `BuildStreamError::FormatNotSupported` -> `BuildStreamError::StreamConfigNotSupported`
+- Address deprecated use of `mem::uninitialized` in WASAPI.
+- Removed `UnknownTypeBuffer` in favour of specifying sample type.
+- Added `build_input/output_stream_raw` methods allowing for dynamically
+  handling sample format type.
+- Added support for DragonFly platform.
+
 # Version 0.11.0 (2019-12-11)
 
 - Fix some underruns that could occur in ALSA.
