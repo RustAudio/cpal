@@ -3,8 +3,8 @@ extern crate parking_lot;
 
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigsError,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -84,7 +84,8 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -92,12 +93,13 @@ impl DeviceTrait for Device {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream_raw(self, config, data_callback, error_callback)
+        Device::build_input_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -105,7 +107,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream_raw(self, config, data_callback, error_callback)
+        Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
     }
 }
 

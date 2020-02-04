@@ -2,8 +2,8 @@
 
 use {
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError, InputDevices,
-    OutputDevices, PauseStreamError, PlayStreamError, Sample, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    OutputDevices, PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -126,7 +126,8 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
-            &SupportedStreamConfig::from_config(config, T::FORMAT),
+            config,
+            T::FORMAT,
             move |data| {
                 data_callback(
                     data.as_slice()
@@ -150,7 +151,8 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_output_stream_raw(
-            &SupportedStreamConfig::from_config(config, T::FORMAT),
+            config,
+            T::FORMAT,
             move |data| {
                 data_callback(
                     data.as_slice_mut()
@@ -164,7 +166,8 @@ pub trait DeviceTrait {
     /// Create a dynamically typed input stream.
     fn build_input_stream_raw<D, E>(
         &self,
-        format: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
@@ -175,7 +178,8 @@ pub trait DeviceTrait {
     /// Create a dynamically typed output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        format: &SupportedStreamConfig,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>

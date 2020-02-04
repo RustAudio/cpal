@@ -22,8 +22,8 @@ fn main() -> Result<(), anyhow::Error> {
             println!("  {}. \"{}\"", device_index + 1, device.name()?);
 
             // Input configs
-            if let Ok(fmt) = device.default_input_config() {
-                println!("    Default input stream config:\n      {:?}", fmt);
+            if let Ok(conf) = device.default_input_config() {
+                println!("    Default input stream config:\n      {:?}", conf);
             }
             let mut input_configs = match device.supported_input_configs() {
                 Ok(f) => f.peekable(),
@@ -45,8 +45,8 @@ fn main() -> Result<(), anyhow::Error> {
             }
 
             // Output configs
-            if let Ok(fmt) = device.default_output_config() {
-                println!("    Default output stream config:\n      {:?}", fmt);
+            if let Ok(conf) = device.default_output_config() {
+                println!("    Default output stream config:\n      {:?}", conf);
             }
             let mut output_configs = match device.supported_output_configs() {
                 Ok(f) => f.peekable(),
