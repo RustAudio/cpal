@@ -7,8 +7,5 @@ description = "Bindings for the ALSA project (Advanced Linux Sound Architecture)
 license = "MIT"
 links = "alsa"
 
-[dependencies]
-libc = "0.2.7"
-
 [build-dependencies]
 pkg-config = "0.3"
