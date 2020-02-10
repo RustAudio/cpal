@@ -27,7 +27,7 @@ asio-sys = { version = "0.1", path = "asio-sys", optional = true }
 parking_lot = "0.9"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))'.dependencies]
-alsa-sys = { version = "0.1", path = "alsa-sys" }
+alsa-sys = { version = "0.2", path = "alsa-sys" }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio_unit", "core_audio"] }

@@ -1,6 +1,6 @@
 [package]
 name = "alsa-sys"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 build = "build.rs"
 description = "Bindings for the ALSA project (Advanced Linux Sound Architecture)"
