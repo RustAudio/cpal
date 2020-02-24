@@ -25,7 +25,7 @@ fn main() -> Result<(), anyhow::Error> {
         .expect("Failed to get default input config");
     println!("Default input config: {:?}", config);
     // The WAV file we're recording to.
-    const PATH: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
     let spec = wav_spec_from_config(&config);
     let writer = hound::WavWriter::create(PATH, spec)?;
     let writer = Arc::new(Mutex::new(Some(writer)));

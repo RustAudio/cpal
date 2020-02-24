@@ -1,6 +1,6 @@
 use std::env;
 
-const CPAL_ASIO_DIR: &'static str = "CPAL_ASIO_DIR";
+const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
 
 fn main() {
     // If ASIO directory isn't set silently return early

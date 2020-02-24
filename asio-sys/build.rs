@@ -6,11 +6,11 @@ use std::env;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-const CPAL_ASIO_DIR: &'static str = "CPAL_ASIO_DIR";
+const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
 
-const ASIO_HEADER: &'static str = "asio.h";
-const ASIO_SYS_HEADER: &'static str = "asiosys.h";
-const ASIO_DRIVERS_HEADER: &'static str = "asiodrivers.h";
+const ASIO_HEADER: &str = "asio.h";
+const ASIO_SYS_HEADER: &str = "asiosys.h";
+const ASIO_DRIVERS_HEADER: &str = "asiodrivers.h";
 
 fn main() {
     // If ASIO directory isn't set silently return early
