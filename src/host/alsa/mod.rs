@@ -1,6 +1,7 @@
 extern crate alsa_sys as alsa;
 extern crate libc;
 
+use self::libc::c_long;
 use crate::{
     BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
@@ -763,7 +764,7 @@ fn process_output(
                 available_frames as alsa::snd_pcm_uframes_t,
             )
         };
-        if result == -libc::EPIPE as i64 {
+        if result == -libc::EPIPE as c_long {
             // buffer underrun
             // TODO: Notify the user of this.
             unsafe { alsa::snd_pcm_recover(stream.channel, result as i32, 0) };
