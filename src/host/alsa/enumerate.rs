@@ -49,13 +49,15 @@ impl Iterator for Devices {
 
                     // See if the device has an available output stream.
                     let has_available_output = {
-                        let playback_handle = alsa::pcm::PCM::new(&name, alsa::Direction::Playback, true);
+                        let playback_handle =
+                            alsa::pcm::PCM::new(&name, alsa::Direction::Playback, true);
                         playback_handle.is_ok()
                     };
 
                     // See if the device has an available input stream.
                     let has_available_input = {
-                        let capture_handle = alsa::pcm::PCM::new(&name, alsa::Direction::Capture, true);
+                        let capture_handle =
+                            alsa::pcm::PCM::new(&name, alsa::Direction::Capture, true);
                         capture_handle.is_ok()
                     };
 

@@ -8,10 +8,10 @@ use crate::{
     StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
+use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
-use std::cmp;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
@@ -173,7 +173,8 @@ impl Device {
     ) -> Result<StreamInner, BuildStreamError> {
         let name = &self.0;
 
-        let handle = match alsa::pcm::PCM::new(name, stream_type, true).map_err(|e| (e, e.errno())) {
+        let handle = match alsa::pcm::PCM::new(name, stream_type, true).map_err(|e| (e, e.errno()))
+        {
             Err((_, Some(nix::errno::Errno::EBUSY))) => {
                 return Err(BuildStreamError::DeviceNotAvailable)
             }
@@ -747,11 +748,11 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.inner.channel.pause(false)?;
+        self.inner.channel.pause(false).ok();
         Ok(())
     }
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.inner.channel.pause(true)?;
+        self.inner.channel.pause(true).ok();
         Ok(())
     }
 }
