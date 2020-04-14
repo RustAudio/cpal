@@ -178,7 +178,11 @@ impl DeviceTrait for Device {
                 return Err(BuildStreamError::BackendSpecific{err: BackendSpecificError{ description: e.to_string()}})
             }
         };
-        let stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
+
+        if(self.connect_ports_automatically) {
+            stream.connect_to_system_inputs();
+        }
         Ok(stream)
     }
 
@@ -210,7 +214,11 @@ impl DeviceTrait for Device {
                 return Err(BuildStreamError::BackendSpecific{err: BackendSpecificError{ description: e.to_string()}})
             }
         };
-        let stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
+
+        if(self.connect_ports_automatically) {
+            stream.connect_to_system_outputs();
+        }
         Ok(stream)
     }
 }
