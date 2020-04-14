@@ -1,7 +1,7 @@
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError, BackendSpecificError
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
+    DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
@@ -15,7 +15,6 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
-
 
 /// If a device is for input or output.
 /// Until we have duplex stream support JACK clients and CPAL devices for JACK will be either input or output.
@@ -175,14 +174,19 @@ impl DeviceTrait for Device {
         match super::get_client(&self.name, client_options) {
             Ok(c) => client = c,
             Err(e) => {
-                return Err(BuildStreamError::BackendSpecific{err: BackendSpecificError{ description: e.to_string()}})
+                return Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: e.to_string(),
+                    },
+                })
             }
         };
         let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
 
-        if(self.connect_ports_automatically) {
+        if self.connect_ports_automatically {
             stream.connect_to_system_inputs();
         }
+
         Ok(stream)
     }
 
@@ -211,14 +215,19 @@ impl DeviceTrait for Device {
         match super::get_client(&self.name, client_options) {
             Ok(c) => client = c,
             Err(e) => {
-                return Err(BuildStreamError::BackendSpecific{err: BackendSpecificError{ description: e.to_string()}})
+                return Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: e.to_string(),
+                    },
+                })
             }
         };
         let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
 
-        if(self.connect_ports_automatically) {
+        if self.connect_ports_automatically {
             stream.connect_to_system_outputs();
         }
+
         Ok(stream)
     }
 }

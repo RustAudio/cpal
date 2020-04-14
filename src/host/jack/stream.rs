@@ -1,7 +1,7 @@
-use crate::{ChannelCount};
-use traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::{Arc, Mutex};
+use crate::ChannelCount;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
@@ -59,7 +59,7 @@ impl Stream {
 
         // TODO: Add notification handler, using the error callback?
         let async_client = client.activate_async((), input_process_handler).unwrap();
-        
+
         Stream {
             playing,
             async_client,
@@ -87,7 +87,7 @@ impl Stream {
                 .expect("Failed to create JACK port.");
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
-            } 
+            }
             ports.push(port);
         }
 
@@ -105,7 +105,7 @@ impl Stream {
 
         // TODO: Add notification handler, using the error callback?
         let async_client = client.activate_async((), output_process_handler).unwrap();
-        
+
         Stream {
             playing,
             async_client,
@@ -129,7 +129,8 @@ impl Stream {
             if i >= system_ports.len() {
                 break;
             }
-            match self.async_client
+            match self
+                .async_client
                 .as_client()
                 .connect_ports_by_name(&self.output_port_names[i], &system_ports[i])
             {
@@ -154,7 +155,8 @@ impl Stream {
             if i >= system_ports.len() {
                 break;
             }
-            match self.async_client
+            match self
+                .async_client
                 .as_client()
                 .connect_ports_by_name(&self.input_port_names[i], &system_ports[i])
             {
@@ -204,7 +206,6 @@ impl LocalProcessHandler {
         playing: Arc<AtomicBool>,
         buffer_size: usize,
     ) -> Self {
-        
         let mut temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
         let mut temp_output_buffer_index: usize = 0;
 
@@ -236,7 +237,6 @@ fn temp_output_buffer_to_data(temp_output_buffer: &mut Vec<f32>) -> Data {
 
 impl jack::ProcessHandler for LocalProcessHandler {
     fn process(&mut self, _: &jack::Client, process_scope: &jack::ProcessScope) -> jack::Control {
-
         if !self.playing.load(Ordering::SeqCst) {
             return jack::Control::Continue;
         }
@@ -279,7 +279,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
                     // TODO: This could be very slow, it would be faster to store pointers to these slices, but I don't know how
                     // to avoid lifetime issues and allocation
                     let output_channel = &mut self.out_ports[ch_ix].as_mut_slice(process_scope);
-                    output_channel[i] = self.temp_output_buffer[ch_ix + self.temp_output_buffer_index*num_out_channels];
+                    output_channel[i] = self.temp_output_buffer
+                        [ch_ix + self.temp_output_buffer_index * num_out_channels];
                 }
                 // Increase the index into the temporary buffer
                 self.temp_output_buffer_index += 1;

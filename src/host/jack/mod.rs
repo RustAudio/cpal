@@ -10,7 +10,7 @@ use traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::cell::RefCell;
 
 mod device;
-pub use self::device::{Device};
+pub use self::device::Device;
 pub use self::stream::Stream;
 mod stream;
 
