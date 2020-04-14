@@ -250,7 +250,7 @@ fn temp_output_buffer_to_data(temp_output_buffer: &mut Vec<f32>) -> Data {
 fn temp_input_buffer_to_data(temp_input_buffer: &mut Vec<f32>, total_buffer_size: usize) -> Data {
     let slice = &temp_input_buffer[0..total_buffer_size];
     let data = slice.as_ptr() as *mut ();
-    let len = temp_input_buffer.len();
+    let len = total_buffer_size;
     let data = unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) };
     data
 }
