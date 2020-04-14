@@ -3,7 +3,7 @@ extern crate jack;
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigsError, SupportedStreamConfigRange,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -65,7 +65,6 @@ impl Host {
 }
 
 impl HostTrait for Host {
-    
     type Device = Device;
     type Devices = std::vec::IntoIter<Device>;
 
@@ -82,7 +81,11 @@ impl HostTrait for Host {
 
     fn default_input_device(&self) -> Option<Self::Device> {
         // TODO: Check if a device with that name was already created and add it to the list when created if it wasn't
-        let device_res = Device::default_input_device(&self.name, self. connect_ports_automatically,self.start_server_automatically);
+        let device_res = Device::default_input_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
         match device_res {
             Ok(device) => Some(device),
             Err(err) => {
@@ -94,7 +97,11 @@ impl HostTrait for Host {
 
     fn default_output_device(&self) -> Option<Self::Device> {
         // TODO: Check if a device with that name was already created and add it to the list when created if it wasn't
-        let device_res = Device::default_output_device(&self.name, self.connect_ports_automatically, self.start_server_automatically);
+        let device_res = Device::default_output_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
         match device_res {
             Ok(device) => Some(device),
             Err(err) => {
@@ -114,7 +121,7 @@ fn get_client_options(start_server_automatically: bool) -> jack::ClientOptions {
     client_options
 }
 
-fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::Client, &str> {
+fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::Client, String> {
     let c_res = jack::Client::new(name, client_options);
     match c_res {
         Ok((client, status)) => {
@@ -125,27 +132,35 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
                 status
             );
             if status.intersects(jack::ClientStatus::SERVER_ERROR) {
-                return Err("There was an error communicating with the JACK server!");
+                return Err(String::from(
+                    "There was an error communicating with the JACK server!",
+                ));
             } else if status.intersects(jack::ClientStatus::SERVER_FAILED) {
-                return Err("Could not connect to the JACK server!");
+                return Err(String::from("Could not connect to the JACK server!"));
             } else if status.intersects(jack::ClientStatus::VERSION_ERROR) {
-                return Err("Error connecting to JACK server: Client's protocol version does not match!");
+                return Err(String::from(
+                    "Error connecting to JACK server: Client's protocol version does not match!",
+                ));
             } else if status.intersects(jack::ClientStatus::INIT_FAILURE) {
-                return Err("Error connecting to JACK server: Unable to initialize client!");
+                return Err(String::from(
+                    "Error connecting to JACK server: Unable to initialize client!",
+                ));
             } else if status.intersects(jack::ClientStatus::SHM_FAILURE) {
-                return Err("Error connecting to JACK server: Unable to access shared memory!");
+                return Err(String::from(
+                    "Error connecting to JACK server: Unable to access shared memory!",
+                ));
             } else if status.intersects(jack::ClientStatus::NO_SUCH_CLIENT) {
-                return Err(
+                return Err(String::from(
                     "Error connecting to JACK server: Requested client does not exist!",
-                );
+                ));
             } else if status.intersects(jack::ClientStatus::INVALID_OPTION) {
-                return Err("Error connecting to JACK server: The operation contained an invalid or unsupported option!");
+                return Err(String::from("Error connecting to JACK server: The operation contained an invalid or unsupported option!"));
             }
 
             return Ok(client);
         }
         Err(e) => {
-            return Err(&format!("Failed to open client because of error: {:?}", e));
+            return Err(format!("Failed to open client because of error: {:?}", e));
         }
     }
 }

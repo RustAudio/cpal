@@ -1,6 +1,6 @@
 use crate::{ChannelCount};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
@@ -32,17 +32,17 @@ impl Stream {
         D: FnMut(&Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let ports = vec![];
-        let port_names: Vec<String> = vec![];
+        let mut ports = vec![];
+        let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
             let mut port = client
                 .register_port(&format!("in_{}", i), jack::AudioIn::default())
                 .expect("Failed to create JACK port.");
-            ports.push(port);
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
-            }   
+            }
+            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
@@ -51,7 +51,7 @@ impl Stream {
             vec![],
             ports,
             SampleRate(client.sample_rate() as u32),
-            Some(Box::new(data_callback)),
+            Some(Arc::new(Mutex::new(Box::new(data_callback)))),
             None,
             playing.clone(),
             client.buffer_size() as usize,
@@ -78,17 +78,17 @@ impl Stream {
         D: FnMut(&mut Data) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let ports = vec![];
-        let port_names: Vec<String> = vec![];
+        let mut ports = vec![];
+        let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
             let mut port = client
                 .register_port(&format!("out_{}", i), jack::AudioOut::default())
                 .expect("Failed to create JACK port.");
-            ports.push(port);
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
-            }   
+            } 
+            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
@@ -98,7 +98,7 @@ impl Stream {
             vec![],
             SampleRate(client.sample_rate() as u32),
             None,
-            Some(Box::new(data_callback)),
+            Some(Arc::new(Mutex::new(Box::new(data_callback)))),
             playing.clone(),
             client.buffer_size() as usize,
         );
@@ -139,7 +139,7 @@ impl Stream {
         }
     }
 
-    /// Connect to the standard system outputs in jack, system:playback_1 and system:playback_2
+    /// Connect to the standard system outputs in jack, system:capture_1 and system:capture_2
     /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
     pub fn connect_to_system_inputs(&mut self) {
         // Get the system ports
@@ -184,8 +184,8 @@ struct LocalProcessHandler {
     // out_port_buffers: Vec<&mut [f32]>,
     // in_port_buffers: Vec<&[f32]>,
     sample_rate: SampleRate,
-    input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
-    output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
+    input_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&Data) + Send + 'static>>>>,
+    output_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&mut Data) + Send + 'static>>>>,
     // JACK audio samples are 32 bit float (unless you do some custom dark magic)
     temp_output_buffer: Vec<f32>,
     /// The number of frames in the temp_output_buffer
@@ -199,8 +199,8 @@ impl LocalProcessHandler {
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
         sample_rate: SampleRate,
-        input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
-        output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
+        input_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&Data) + Send + 'static>>>>,
+        output_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&mut Data) + Send + 'static>>>>,
         playing: Arc<AtomicBool>,
         buffer_size: usize,
     ) -> Self {
@@ -227,13 +227,13 @@ impl LocalProcessHandler {
             playing,
         }
     }
+}
 
-    fn temp_output_buffer_to_data(&mut self) -> Data {
-        let data = self.temp_output_buffer.as_mut_ptr() as *mut ();
-        let len = self.temp_output_buffer.len();
-        let data = unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) };
-        data
-    }
+fn temp_output_buffer_to_data(temp_output_buffer: &mut Vec<f32>) -> Data {
+    let data = temp_output_buffer.as_mut_ptr() as *mut ();
+    let len = temp_output_buffer.len();
+    let data = unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) };
+    data
 }
 
 impl jack::ProcessHandler for LocalProcessHandler {
@@ -255,7 +255,9 @@ impl jack::ProcessHandler for LocalProcessHandler {
             // }
         }
 
-        if let Some(output_callback) = &mut self.output_data_callback {
+        if let Some(output_callback_mutex) = &mut self.output_data_callback {
+            // Nothing else should ever lock this Mutex
+            let output_callback = &mut *output_callback_mutex.lock().unwrap();
             // There is an output callback.
 
             // Get the mutable slices for each output port buffer
@@ -270,7 +272,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
             for i in 0..current_buffer_size {
                 if self.temp_output_buffer_index == self.temp_output_buffer_size {
                     // Get new samples if the temporary buffer is depleted
-                    let data = self.temp_output_buffer_to_data();
+                    let mut data = temp_output_buffer_to_data(&mut self.temp_output_buffer);
                     output_callback(&mut data);
                     self.temp_output_buffer_index = 0;
                 }

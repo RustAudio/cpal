@@ -35,18 +35,18 @@ pub struct Device {
 
 impl Device {
     fn new_device(
-        name: &str,
+        name: String,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
         device_type: DeviceType,
-    ) -> Result<Self, &str> {
+    ) -> Result<Self, String> {
         // ClientOptions are bit flags that you can set with the constants provided
         let client_options = super::get_client_options(start_server_automatically);
 
         // Create a dummy client to find out the sample rate of the server to be able to provide it as a possible config.
         // This client will be dropped and a new one will be created when making the stream.
         // This is a hack due to the fact that the Client must be moved to create the AsyncClient.
-        match super::get_client(name, client_options) {
+        match super::get_client(&name, client_options) {
             Ok(client) => Ok(Device {
                 name: client.name().to_string(),
                 sample_rate: SampleRate(client.sample_rate() as u32),
@@ -62,10 +62,10 @@ impl Device {
         name: &str,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-    ) -> Result<Self, &str> {
+    ) -> Result<Self, String> {
         let output_client_name = format!("{}_out", name);
         Device::new_device(
-            &output_client_name,
+            output_client_name,
             connect_ports_automatically,
             start_server_automatically,
             DeviceType::OutputDevice,
@@ -76,10 +76,10 @@ impl Device {
         name: &str,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-    ) -> Result<Self, &str> {
+    ) -> Result<Self, String> {
         let input_client_name = format!("{}_in", name);
         Device::new_device(
-            &input_client_name,
+            input_client_name,
             connect_ports_automatically,
             start_server_automatically,
             DeviceType::InputDevice,
@@ -122,7 +122,7 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.name)
+        Ok(self.name.clone())
     }
 
     fn supported_input_configs(
