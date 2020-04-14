@@ -205,9 +205,7 @@ impl LocalProcessHandler {
         buffer_size: usize,
     ) -> Self {
         
-        // TODO: Is there a better way than to allocate the temporary buffer on the heap?
-        // Allocation happens before any audio callbacks so it should be fine.
-        let mut temp_output_buffer = Vec::with_capacity(out_ports.len() * buffer_size);
+        let mut temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
         let mut temp_output_buffer_index: usize = 0;
 
         // let out_port_buffers = Vec::with_capacity(out_ports.len());
