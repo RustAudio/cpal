@@ -448,12 +448,22 @@ macro_rules! impl_platform_host {
 // TODO: Add pulseaudio and jack here eventually.
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))]
 mod platform_impl {
+    #[cfg(feature = "jack")]
+    pub use crate::host::jack::{
+        Device as JackDevice, Devices as JackDevices, Host as JackHost, Stream as JackStream,
+        SupportedInputConfigs as JackSupportedInputConfigs,
+        SupportedOutputConfigs as JackSupportedOutputConfigs,
+    };
     pub use crate::host::alsa::{
         Device as AlsaDevice, Devices as AlsaDevices, Host as AlsaHost, Stream as AlsaStream,
         SupportedInputConfigs as AlsaSupportedInputConfigs,
         SupportedOutputConfigs as AlsaSupportedOutputConfigs,
     };
 
+    #[cfg(feature = "jack")]
+    impl_platform_host!(Jack jack "JACK", Alsa alsa "ALSA");
+
+    #[cfg(not(feature = "jack"))]
     impl_platform_host!(Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.

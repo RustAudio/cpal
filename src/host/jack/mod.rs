@@ -10,13 +10,15 @@ use traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::cell::RefCell;
 
 mod device;
-use self::device::Device;
+pub use self::device::{Device};
+pub use self::stream::Stream;
 mod stream;
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type Devices = std::vec::IntoIter<Device>;
 
 /// The JACK Host type
 #[derive(Debug)]
@@ -66,7 +68,7 @@ impl Host {
 
 impl HostTrait for Host {
     type Device = Device;
-    type Devices = std::vec::IntoIter<Device>;
+    type Devices = Devices;
 
     fn is_available() -> bool {
         // TODO: Determine if JACK is available. What does that mean? That the server is started?
