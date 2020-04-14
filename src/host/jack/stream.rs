@@ -158,7 +158,7 @@ impl Stream {
             match self
                 .async_client
                 .as_client()
-                .connect_ports_by_name(&self.input_port_names[i], &system_ports[i])
+                .connect_ports_by_name(&system_ports[i], &self.input_port_names[i])
             {
                 Ok(_) => (),
                 Err(e) => println!("Unable to connect to port with error {}", e),
@@ -188,6 +188,12 @@ struct LocalProcessHandler {
     sample_rate: SampleRate,
     input_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&Data) + Send + 'static>>>>,
     output_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&mut Data) + Send + 'static>>>>,
+
+    temp_input_buffer: Vec<f32>,
+    /// The number of frames in the temp_input_buffer i.e. temp_input_buffer.len() / in_ports.len()
+    temp_input_buffer_size: usize,
+    temp_input_buffer_index: usize,
+
     // JACK audio samples are 32 bit float (unless you do some custom dark magic)
     temp_output_buffer: Vec<f32>,
     /// The number of frames in the temp_output_buffer
@@ -206,8 +212,11 @@ impl LocalProcessHandler {
         playing: Arc<AtomicBool>,
         buffer_size: usize,
     ) -> Self {
+        // buffer_size is the maximum number of samples per port JACK can request/provide in a single call
+        // If it can be fewer than that per call the temp_input_buffer needs to be the smallest multiple of that.
+        let mut temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
+
         let mut temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
-        let mut temp_output_buffer_index: usize = 0;
 
         // let out_port_buffers = Vec::with_capacity(out_ports.len());
         // let in_port_buffers = Vec::with_capacity(in_ports.len());
@@ -220,6 +229,9 @@ impl LocalProcessHandler {
             sample_rate,
             input_data_callback,
             output_data_callback,
+            temp_input_buffer,
+            temp_input_buffer_size: buffer_size,
+            temp_input_buffer_index: 0,
             temp_output_buffer,
             temp_output_buffer_size: buffer_size,
             temp_output_buffer_index: 0,
@@ -235,6 +247,14 @@ fn temp_output_buffer_to_data(temp_output_buffer: &mut Vec<f32>) -> Data {
     data
 }
 
+fn temp_input_buffer_to_data(temp_input_buffer: &mut Vec<f32>, total_buffer_size: usize) -> Data {
+    let slice = &temp_input_buffer[0..total_buffer_size];
+    let data = slice.as_ptr() as *mut ();
+    let len = temp_input_buffer.len();
+    let data = unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) };
+    data
+}
+
 impl jack::ProcessHandler for LocalProcessHandler {
     fn process(&mut self, _: &jack::Client, process_scope: &jack::ProcessScope) -> jack::Control {
         if !self.playing.load(Ordering::SeqCst) {
@@ -243,30 +263,40 @@ impl jack::ProcessHandler for LocalProcessHandler {
 
         let current_buffer_size = process_scope.n_frames() as usize;
 
-        if let Some(input_callback) = &mut self.input_data_callback {
+        if let Some(input_callback_mutex) = &mut self.input_data_callback {
             // There is an input callback
+            let input_callback = &mut *input_callback_mutex.lock().unwrap();
             // Let's get the data from the input ports and run the callback
 
-            // Get the mutable slices for each input port buffer
-            // for i in 0..self.in_ports.len() {
-            //     self.in_port_buffers[i] = self.in_ports[i].as_slice(process_scope);
-            // }
+            let num_in_channels = self.in_ports.len();
+
+            // Read the data from the input ports into the temporary buffer
+            // Go through every channel and store its data in the temporary input buffer
+            for ch_ix in 0..num_in_channels {
+                let input_channel = &self.in_ports[ch_ix].as_slice(process_scope);
+                for i in 0..current_buffer_size {
+                    self.temp_input_buffer[ch_ix + i * num_in_channels] = input_channel[i];
+                }
+            }
+            // Create a slice of exactly current_buffer_size frames
+            let data = temp_input_buffer_to_data(&mut self.temp_input_buffer, current_buffer_size*num_in_channels);
+            input_callback(&data);
         }
 
         if let Some(output_callback_mutex) = &mut self.output_data_callback {
             // Nothing else should ever lock this Mutex
             let output_callback = &mut *output_callback_mutex.lock().unwrap();
-            // There is an output callback.
 
             // Get the mutable slices for each output port buffer
             // for i in 0..self.out_ports.len() {
             //     self.out_port_buffers[i] = self.out_ports[i].as_mut_slice(process_scope);
             // }
 
-            // Create a buffer to store the audio data for this tick
             let num_out_channels = self.out_ports.len();
 
             // Run the output callback on the temporary output buffer until we have filled the output ports
+            // JACK ports each provide a mutable slice to be filled with samples whereas CPAL uses interleaved 
+            // channels. The formats therefore have to be bridged.
             for i in 0..current_buffer_size {
                 if self.temp_output_buffer_index == self.temp_output_buffer_size {
                     // Get new samples if the temporary buffer is depleted
