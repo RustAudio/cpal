@@ -799,6 +799,7 @@ fn set_hw_params_from_format<'a>(
     // If this isn't set manually a overlarge buffer may be used causing audio delay
     let mut hw_params_copy = hw_params.clone();
     if let Err(_) = hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest) {
+        // Swap out the params with errors for a snapshot taken before the error was introduced.
         mem::swap(&mut hw_params_copy, &mut hw_params);
     }
 
