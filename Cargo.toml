@@ -20,6 +20,7 @@ num-traits = "0.2.6"
 anyhow = "1.0.12"
 hound = "3.4"
 ringbuf = "0.1.6"
+rand = { version = "0.7.3", features = ["small_rng"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "std", "synchapi", "winbase", "winuser"] }
