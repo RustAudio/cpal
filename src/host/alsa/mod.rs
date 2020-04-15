@@ -8,10 +8,10 @@ use crate::{
     StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::{cmp, mem};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
+use std::{cmp, mem};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
