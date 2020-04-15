@@ -54,21 +54,6 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
-    - name: Run cargo publish for alsa-sys
-      continue-on-error: true
-      env:
-        MANIFEST: alsa-sys/Cargo.toml
-      run: |
-        ALSA_TMP=$(mktemp /tmp/alsa-sysXXX.txt) || echo "::error::mktemp error"
-        echo "::set-env name=ALSA_TMP::$ALSA_TMP"
-        cargo publish --token $CRATESIO_TOKEN \
-                      --manifest-path $MANIFEST 2> $ALSA_TMP
-    - name: Check if alsa-sys is already published
-      run: |
-        empty=0
-        grep -q '[^[:space:]]' < $ALSA_TMP || empty=1
-        [ $empty -eq 0 ] && cat $ALSA_TMP
-        [ $empty -eq 1 ] || grep -q "is already uploaded" < $ALSA_TMP
     - name: Run cargo publish for cpal
       continue-on-error: true
       run: |
