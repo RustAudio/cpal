@@ -8,7 +8,7 @@ use crate::{
     StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::cmp;
+use std::{cmp, mem};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
@@ -775,7 +775,7 @@ fn set_hw_params_from_format<'a>(
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
-    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    let mut hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
@@ -797,7 +797,10 @@ fn set_hw_params_from_format<'a>(
     hw_params.set_channels(config.channels as u32)?;
 
     // If this isn't set manually a overlarge buffer may be used causing audio delay
-    hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+    let mut hw_params_copy = hw_params.clone();
+    if let Err(_) = hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest) {
+        mem::swap(&mut hw_params_copy, &mut hw_params);
+    }
 
     pcm_handle.hw_params(&hw_params)?;
 
