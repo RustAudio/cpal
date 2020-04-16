@@ -28,9 +28,7 @@ where
     let channels = config.channels as usize;
 
     let mut rng = SmallRng::from_entropy();
-    let mut next_value = move || {
-        rng.gen()
-    };
+    let mut next_value = move || rng.gen();
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
