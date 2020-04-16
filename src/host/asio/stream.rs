@@ -111,7 +111,7 @@ impl Device {
             ) where
                 A: AsioSample,
                 B: Sample,
-                D: FnMut(&Data) + Send + 'static,
+                D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
                 F: Fn(A) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
@@ -303,7 +303,7 @@ impl Device {
             ) where
                 A: Sample,
                 B: AsioSample,
-                D: FnMut(&mut Data) + Send + 'static,
+                D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(B) -> B,
             {
                 // 1. Render interleaved buffer from callback.
@@ -312,7 +312,7 @@ impl Device {
                 let len = interleaved.len();
                 let mut data = Data::from_parts(data, len, A::FORMAT);
                 let info = OutputCallbackInfo {};
-                callback(&mut data);
+                callback(&mut data, &info);
 
                 // 2. Silence ASIO channels if necessary.
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
