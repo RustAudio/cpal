@@ -1,7 +1,8 @@
 use crate::{
     BackendSpecificError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    SampleFormat, SampleRate, StreamConfig, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    COMMON_SAMPLE_RATES,
 };
 use std;
 use std::ffi::OsString;
@@ -104,7 +105,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format)?;
@@ -123,7 +124,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format)?;

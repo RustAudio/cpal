@@ -1,9 +1,10 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
 use {
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError, InputDevices,
-    OutputDevices, PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig,
-    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
+    PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -122,16 +123,17 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         T: Sample,
-        D: FnMut(&[T]) + Send + 'static,
+        D: FnMut(&[T], &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
             config,
             T::FORMAT,
-            move |data| {
+            move |data, info| {
                 data_callback(
                     data.as_slice()
                         .expect("host supplied incorrect sample type"),
+                    info,
                 )
             },
             error_callback,
@@ -147,16 +149,17 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         T: Sample,
-        D: FnMut(&mut [T]) + Send + 'static,
+        D: FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_output_stream_raw(
             config,
             T::FORMAT,
-            move |data| {
+            move |data, info| {
                 data_callback(
                     data.as_slice_mut()
                         .expect("host supplied incorrect sample type"),
+                    info,
                 )
             },
             error_callback,
@@ -172,7 +175,7 @@ pub trait DeviceTrait {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create a dynamically typed output stream.
@@ -184,7 +187,7 @@ pub trait DeviceTrait {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }
 
