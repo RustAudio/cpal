@@ -32,17 +32,20 @@ pub struct Host {
     /// If the JACK server should be started automatically if it isn't already when creating a Client (default is false).
     start_server_automatically: bool,
     /// A list of the devices that have been created from this Host.
-    devices_created: RefCell<Vec<Device>>,
+    devices_created: Vec<Device>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        Ok(Host {
+        let mut host = Host {
             name: "cpal_client".to_owned(),
             connect_ports_automatically: true,
             start_server_automatically: false,
-            devices_created: RefCell::new(vec![]),
-        })
+            devices_created: vec![],
+        };
+        // Devices don't exist for JACK, they have to be created
+        host.initialize_default_devices();
+        Ok(host)
     }
     /// Set whether the ports should automatically be connected to system
     /// (default is true)
@@ -64,6 +67,33 @@ impl Host {
         self.name = name.to_owned();
         self.default_output_device()
     }
+
+    fn initialize_default_devices(&mut self) {
+        let in_device_res = Device::default_input_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
+
+        match in_device_res {
+            Ok(device) => self.devices_created.push(device),
+            Err(err) => {
+                println!("{}", err);
+            }
+        }
+
+        let out_device_res = Device::default_output_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
+        match out_device_res {
+            Ok(device) => self.devices_created.push(device),
+            Err(err) => {
+                println!("{}", err);
+            }
+        }
+    }
 }
 
 impl HostTrait for Host {
@@ -71,46 +101,37 @@ impl HostTrait for Host {
     type Devices = Devices;
 
     fn is_available() -> bool {
-        // TODO: Determine if JACK is available. What does that mean? That the server is started?
-        // To properly check if the server is started we need to create a Client, but we cannot do this
-        // until we know what name to give the client.
+        // JACK is available if
+        // - the jack feature flag is set
+        // - libjack is installed (wouldn't compile without it)
+        // - the JACK server can be started
+        // 
+        // There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl
+        // Users can choose to automatically start the server if it isn't already started when creating a client
+        // so this should always return true.
         true
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Ok(self.devices_created.borrow().clone().into_iter())
+        Ok(self.devices_created.clone().into_iter())
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        // TODO: Check if a device with that name was already created and add it to the list when created if it wasn't
-        let device_res = Device::default_input_device(
-            &self.name,
-            self.connect_ports_automatically,
-            self.start_server_automatically,
-        );
-        match device_res {
-            Ok(device) => Some(device),
-            Err(err) => {
-                println!("{}", err);
-                None
+        for device in &self.devices_created {
+            if device.is_input() {
+                return Some(device.clone());
             }
         }
+        None
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        // TODO: Check if a device with that name was already created and add it to the list when created if it wasn't
-        let device_res = Device::default_output_device(
-            &self.name,
-            self.connect_ports_automatically,
-            self.start_server_automatically,
-        );
-        match device_res {
-            Ok(device) => Some(device),
-            Err(err) => {
-                println!("{}", err);
-                None
+        for device in &self.devices_created {
+            if device.is_output() {
+                return Some(device.clone());
             }
         }
+        None
     }
 }
 

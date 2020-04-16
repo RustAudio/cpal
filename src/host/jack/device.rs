@@ -113,6 +113,20 @@ impl Device {
         }
         supported_configs
     }
+
+    pub fn is_input(&self) -> bool {
+        match self.device_type {
+            DeviceType::InputDevice => true,
+            _ => false
+        }
+    }
+
+    pub fn is_output(&self) -> bool {
+        match self.device_type {
+            DeviceType::OutputDevice => true,
+            _ => false
+        }
+    }
 }
 
 impl DeviceTrait for Device {
