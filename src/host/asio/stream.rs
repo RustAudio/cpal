@@ -87,7 +87,7 @@ impl Device {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
-        let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
+        let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
                 return;
@@ -106,7 +106,8 @@ impl Device {
                 callback: &mut D,
                 interleaved: &mut [u8],
                 asio_stream: &sys::AsioStream,
-                buffer_index: usize,
+                asio_info: &sys::CallbackInfo,
+                sample_rate: crate::SampleRate,
                 from_endianness: F,
             ) where
                 A: AsioSample,
@@ -116,7 +117,9 @@ impl Device {
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
                 let interleaved: &mut [B] = cast_slice_mut(interleaved);
-                let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
+                let n_frames = asio_stream.buffer_size as usize;
+                let n_channels = interleaved.len() / n_frames;
+                let buffer_index = asio_info.buffer_index as usize;
                 for ch_ix in 0..n_channels {
                     let asio_channel = asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix);
                     for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
@@ -128,7 +131,13 @@ impl Device {
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
                 let data = Data::from_parts(data, len, B::FORMAT);
-                let info = InputCallbackInfo {};
+                let callback = system_time_to_stream_instant(asio_info.system_time);
+                let delay = frames_to_duration(n_frames, sample_rate);
+                let capture = callback
+                    .sub(delay)
+                    .expect("`capture` occurs before origin of alsa `StreamInstant`");
+                let timestamp = InputStreamTimestamp { callback, capture };
+                let info = InputCallbackInfo { timestamp };
                 callback(&data, &info);
             }
 
@@ -138,7 +147,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         from_le,
                     );
                 }
@@ -147,7 +157,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         from_be,
                     );
                 }
@@ -160,7 +171,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         std::convert::identity::<f32>,
                     );
                 }
@@ -173,7 +185,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         from_le,
                     );
                 }
@@ -182,7 +195,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         from_be,
                     );
                 }
@@ -194,7 +208,8 @@ impl Device {
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         std::convert::identity::<f64>,
                     );
                 }
@@ -254,7 +269,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
-        let callback_id = self.driver.add_callback(move |buffer_index| unsafe {
+        let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
                 return;
@@ -298,7 +313,8 @@ impl Device {
                 interleaved: &mut [u8],
                 silence_asio_buffer: bool,
                 asio_stream: &sys::AsioStream,
-                buffer_index: usize,
+                asio_info: &sys::CallbackInfo,
+                sample_rate: crate::SampleRate,
                 to_endianness: F,
             ) where
                 A: Sample,
@@ -311,11 +327,19 @@ impl Device {
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
                 let mut data = Data::from_parts(data, len, A::FORMAT);
-                let info = OutputCallbackInfo {};
+                let callback = system_time_to_stream_instant(asio_info.system_time);
+                let n_frames = asio_stream.buffer_size as usize;
+                let delay = frames_to_duration(n_frames, sample_rate);
+                let playback = callback
+                    .add(delay)
+                    .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+                let timestamp = OutputStreamTimestamp { callback, playback };
+                let info = OutputCallbackInfo { timestamp };
                 callback(&mut data, &info);
 
                 // 2. Silence ASIO channels if necessary.
-                let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
+                let n_channels = interleaved.len() / n_frames;
+                let buffer_index = asio_info.buffer_index as usize;
                 if silence_asio_buffer {
                     for ch_ix in 0..n_channels {
                         let asio_channel =
@@ -343,7 +367,8 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         to_le,
                     );
                 }
@@ -354,6 +379,7 @@ impl Device {
                         silence,
                         asio_stream,
                         buffer_index as usize,
+                        config.sample_rate,
                         to_be,
                     );
                 }
@@ -367,7 +393,8 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         std::convert::identity::<f32>,
                     );
                 }
@@ -381,7 +408,8 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         to_le,
                     );
                 }
@@ -391,7 +419,8 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         to_be,
                     );
                 }
@@ -404,7 +433,8 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
+                        config.sample_rate,
                         std::convert::identity::<f64>,
                     );
                 }
@@ -576,6 +606,21 @@ impl AsioSample for f64 {
         let f = f32::from_cpal_sample(t);
         f as f64
     }
+}
+
+/// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
+fn system_time_to_stream_instant(system_time: ai::ASIOTimeStamp) -> crate::StreamInstant {
+    let secs = system_time as u64 / 1_000;
+    let nanos = ((system_time as u64 - secs * 1_000) * 1_000_000) as u32;
+    crate::StreamInstant::new(secs, nanos)
+}
+
+/// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate.0 as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }
 
 /// Check whether or not the desired config is supported by the stream.
