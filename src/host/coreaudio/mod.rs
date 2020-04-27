@@ -637,6 +637,7 @@ impl Device {
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
+        let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
             let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
@@ -653,7 +654,17 @@ impl Device {
             let data = data as *mut ();
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let data = Data::from_parts(data, len, sample_format);
-            let info = InputCallbackInfo {};
+
+            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
+            let callback = host_time_to_stream_instant(args.time_stamp.mHostTime);
+            let buffer_frames = len / channels;
+            let delay = frames_to_duration(buffer_frames, sample_rate);
+            let capture = callback
+                .sub(delay)
+                .expect("`capture` occurs before origin of alsa `StreamInstant`");
+            let timestamp = crate::InputStreamTimestamp { callback, capture };
+
+            let info = InputCallbackInfo { timestamp };
             data_callback(&data, &info);
             Ok(())
         })?;
@@ -691,13 +702,14 @@ impl Device {
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
+        let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
             // If `run()` is currently running, then a callback will be available from this list.
             // Otherwise, we just fill the buffer with zeroes and return.
 
             let AudioBuffer {
-                mNumberChannels: _num_channels,
+                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
             } = (*args.data.data).mBuffers[0];
@@ -705,7 +717,17 @@ impl Device {
             let data = data as *mut ();
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let mut data = Data::from_parts(data, len, sample_format);
-            let info = OutputCallbackInfo {};
+
+            let callback = host_time_to_stream_instant(args.time_stamp.mHostTime);
+            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
+            let buffer_frames = len / channels;
+            let delay = frames_to_duration(buffer_frames, sample_rate);
+            let playback = callback
+                .add(delay)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+
+            let info = OutputCallbackInfo { timestamp };
             data_callback(&mut data, &info);
             Ok(())
         })?;
@@ -718,6 +740,30 @@ impl Device {
             device_id: self.audio_device_id,
         }))
     }
+}
+
+fn host_time_to_stream_instant(
+    m_host_time: u64,
+) -> Result<crate::StreamInstant, BackendSpecificError> {
+    let mut info: coreaudio::sys::mach_timebase_info_data_t = unimplemented!();
+    let res = coreaudio::sys::mach_timebase_info(&mut info);
+    if res != SUCCESS {
+        let description = unimplemented!();
+        let err = BackendSpecificError { description };
+        return Err(err.into());
+    }
+    let nanos = m_host_time * info.numer / info.denom;
+    let secs = nanos / 1_000_000_000;
+    let subsec_nanos = nanos - secs * 1_000_000_000;
+    crate::StreamInstant::new(secs, subsec_nanos)
+}
+
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate.0 as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }
 
 pub struct Stream {
