@@ -263,7 +263,7 @@ macro_rules! impl_platform_host {
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                D: FnMut(&crate::Data) + Send + 'static,
+                D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {
@@ -289,7 +289,7 @@ macro_rules! impl_platform_host {
                 error_callback: E,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
-                D: FnMut(&mut crate::Data) + Send + 'static,
+                D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
                 E: FnMut(crate::StreamError) + Send + 'static,
             {
                 match self.0 {

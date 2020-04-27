@@ -8,7 +8,8 @@ use super::winapi::um::winbase;
 use super::winapi::um::winnt;
 use crate::traits::StreamTrait;
 use crate::{
-    BackendSpecificError, Data, PauseStreamError, PlayStreamError, SampleFormat, StreamError,
+    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, StreamError,
 };
 use std::mem;
 use std::ptr;
@@ -83,7 +84,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -112,7 +113,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -277,7 +278,7 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
 
 fn run_input(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&Data),
+    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
     loop {
@@ -304,7 +305,7 @@ fn run_input(
 
 fn run_output(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&mut Data),
+    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
     loop {
@@ -370,7 +371,7 @@ fn process_commands_and_await_signal(
 fn process_input(
     stream: &StreamInner,
     capture_client: *mut audioclient::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(&Data),
+    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
     let mut frames_available = 0;
@@ -409,7 +410,8 @@ fn process_input(
             let len = frames_available as usize * stream.bytes_per_frame as usize
                 / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
-            data_callback(&data);
+            let info = InputCallbackInfo {};
+            data_callback(&data, &info);
 
             // Release the buffer.
             let hresult = (*capture_client).ReleaseBuffer(frames_available);
@@ -425,7 +427,7 @@ fn process_input(
 fn process_output(
     stream: &StreamInner,
     render_client: *mut audioclient::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(&mut Data),
+    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
     // The number of frames available for writing.
@@ -453,7 +455,8 @@ fn process_output(
         let len = frames_available as usize * stream.bytes_per_frame as usize
             / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        data_callback(&mut data);
+        let info = OutputCallbackInfo {};
+        data_callback(&mut data, &info);
 
         let hresult = (*render_client).ReleaseBuffer(frames_available as u32, 0);
         if let Err(err) = stream_error_from_hresult(hresult) {

@@ -4,9 +4,9 @@ extern crate libc;
 use self::alsa::poll::Descriptors;
 use crate::{
     BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -90,7 +90,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner =
@@ -107,7 +107,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner =
@@ -464,7 +464,7 @@ struct StreamWorkerContext {
 fn input_stream_worker(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
 ) {
     let mut ctxt = StreamWorkerContext::default();
@@ -499,7 +499,7 @@ fn input_stream_worker(
 fn output_stream_worker(
     rx: TriggerReceiver,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
 ) {
     let mut ctxt = StreamWorkerContext::default();
@@ -636,14 +636,15 @@ fn poll_descriptors_and_prepare_buffer(
 fn process_input(
     stream: &StreamInner,
     buffer: &mut [u8],
-    data_callback: &mut (dyn FnMut(&Data) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), BackendSpecificError> {
     stream.channel.io().readi(buffer)?;
     let sample_format = stream.sample_format;
     let data = buffer.as_mut_ptr() as *mut ();
     let len = buffer.len() / sample_format.sample_size();
     let data = unsafe { Data::from_parts(data, len, sample_format) };
-    data_callback(&data);
+    let info = crate::InputCallbackInfo {};
+    data_callback(&data, &info);
 
     Ok(())
 }
@@ -655,7 +656,7 @@ fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
     available_frames: usize,
-    data_callback: &mut (dyn FnMut(&mut Data) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
     {
@@ -664,7 +665,8 @@ fn process_output(
         let data = buffer.as_mut_ptr() as *mut ();
         let len = buffer.len() / sample_format.sample_size();
         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-        data_callback(&mut data);
+        let info = crate::OutputCallbackInfo {};
+        data_callback(&mut data, &info);
     }
     loop {
         match stream.channel.io().writei(buffer) {
@@ -700,7 +702,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
@@ -722,7 +724,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();

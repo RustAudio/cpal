@@ -46,7 +46,7 @@ fn main() -> Result<(), anyhow::Error> {
         producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32]| {
+    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
             if producer.push(sample).is_err() {
@@ -58,7 +58,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let output_data_fn = move |data: &mut [f32]| {
+    let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = None;
         for sample in data {
             *sample = match consumer.pop() {

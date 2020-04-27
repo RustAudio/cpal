@@ -4,11 +4,11 @@ on: [push, pull_request]
 
 jobs:
   clippy-test:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Install stable
@@ -27,7 +27,7 @@ jobs:
   rustfmt-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -42,16 +42,14 @@ jobs:
         args: --all -- --check
 
   cargo-publish:
-
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-
     env:
       CRATESIO_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Run cargo publish for cpal
@@ -68,11 +66,11 @@ jobs:
         [ $empty -eq 1 ] || grep -q "is already uploaded" < $CPAL_TMP
 
   ubuntu-test:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Install stable
@@ -93,15 +91,12 @@ jobs:
         args: --all --all-features --verbose
 
   asmjs-wasm32-test:
-
     strategy:
       matrix:
         target: [asmjs-unknown-emscripten, wasm32-unknown-emscripten]
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install emscripten
       run: sudo apt-get install emscripten
     - name: Install stable
@@ -114,15 +109,12 @@ jobs:
       run: cargo build --example beep --target ${{ matrix.target }}
 
   windows-test:
-
     strategy:
       matrix:
         version: [x86_64, i686]
-
     runs-on: windows-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install ASIO SDK
       env:
         LINK: https://www.steinberg.net/asiosdk
@@ -150,9 +142,8 @@ jobs:
 
   macos-test:
     runs-on: macOS-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable

@@ -63,7 +63,7 @@
 //! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
 //!     &config,
-//!     move |data: &mut [f32]| {
+//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -102,7 +102,7 @@
 //!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T]) {
+//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::from(&0.0);
 //!     }
@@ -119,7 +119,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
@@ -135,7 +135,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
@@ -219,6 +219,14 @@ pub struct Data {
     len: usize,
     sample_format: SampleFormat,
 }
+
+/// Information relevant to a single call to the user's output stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputCallbackInfo {}
+
+/// Information relevant to a single call to the user's input stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputCallbackInfo {}
 
 impl SupportedStreamConfig {
     pub fn channels(&self) -> ChannelCount {

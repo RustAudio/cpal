@@ -4,19 +4,14 @@ extern crate num_traits;
 use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
+use crate::{
+    BackendSpecificError, BuildStreamError, Data, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError,
+    SupportedStreamConfig,
+};
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use BackendSpecificError;
-use BuildStreamError;
-use Data;
-use PauseStreamError;
-use PlayStreamError;
-use Sample;
-use SampleFormat;
-use StreamConfig;
-use StreamError;
-use SupportedStreamConfig;
 
 /// Sample types whose constant silent value is known.
 trait Silence {
@@ -66,7 +61,7 @@ impl Device {
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_type = self.driver.input_data_type().map_err(build_stream_err)?;
@@ -116,7 +111,7 @@ impl Device {
             ) where
                 A: AsioSample,
                 B: Sample,
-                D: FnMut(&Data) + Send + 'static,
+                D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
                 F: Fn(A) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
@@ -133,7 +128,8 @@ impl Device {
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
                 let data = Data::from_parts(data, len, B::FORMAT);
-                callback(&data);
+                let info = InputCallbackInfo {};
+                callback(&data, &info);
             }
 
             match (&stream_type, sample_format) {
@@ -233,7 +229,7 @@ impl Device {
         _error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_type = self.driver.output_data_type().map_err(build_stream_err)?;
@@ -307,7 +303,7 @@ impl Device {
             ) where
                 A: Sample,
                 B: AsioSample,
-                D: FnMut(&mut Data) + Send + 'static,
+                D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(B) -> B,
             {
                 // 1. Render interleaved buffer from callback.
@@ -315,7 +311,8 @@ impl Device {
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
                 let mut data = Data::from_parts(data, len, A::FORMAT);
-                callback(&mut data);
+                let info = OutputCallbackInfo {};
+                callback(&mut data, &info);
 
                 // 2. Silence ASIO channels if necessary.
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;

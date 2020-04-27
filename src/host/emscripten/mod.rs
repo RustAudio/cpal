@@ -9,8 +9,9 @@ use stdweb::Reference;
 
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -160,7 +161,7 @@ impl DeviceTrait for Device {
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
@@ -174,7 +175,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         assert_eq!(
@@ -224,7 +225,7 @@ impl StreamTrait for Stream {
 // and to the `callback` parameter that was passed to `run`.
 fn audio_callback_fn<D, E>(user_data_ptr: *mut c_void)
 where
-    D: FnMut(&mut Data) + Send + 'static,
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     unsafe {
@@ -241,7 +242,8 @@ where
             let data = temporary_buffer.as_mut_ptr() as *mut ();
             let sample_format = SampleFormat::F32;
             let mut data = Data::from_parts(data, len, sample_format);
-            data_cb(&mut data);
+            let info = OutputCallbackInfo {};
+            data_cb(&mut data, &info);
         }
 
         // TODO: directly use a TypedArray<f32> once this is supported by stdweb

@@ -37,7 +37,9 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T]| write_data(data, channels, &mut next_value),
+        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+            write_data(data, channels, &mut next_value)
+        },
         err_fn,
     )?;
     stream.play()?;
