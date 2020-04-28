@@ -204,6 +204,7 @@ impl Device {
         };
 
         // Check to see if we can retrieve valid timestamps from the device.
+        // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let ts = handle.status()?.get_htstamp();
         let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
             (0, 0) => Some(std::time::Instant::now()),
@@ -741,8 +742,6 @@ fn stream_timestamp(stream: &StreamInner) -> Result<crate::StreamInstant, Backen
         None => {
             let status = stream.channel.status()?;
             let trigger_ts = status.get_trigger_htstamp();
-            // TODO: This is returning `0` on ALSA where default device forwards to pulse.
-            // Possibly related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
             let ts = status.get_htstamp();
             let nanos = timespec_diff_nanos(ts, trigger_ts)
                 .try_into()
