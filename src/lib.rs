@@ -158,6 +158,7 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 pub use samples_formats::{Sample, SampleFormat};
+use std::convert::TryInto;
 use std::time::Duration;
 
 mod error;
@@ -231,7 +232,7 @@ pub struct Data {
 /// or equal to the moment the stream from which it was created begins.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
-    secs: u64,
+    secs: i64,
     nanos: u32,
 }
 
@@ -298,7 +299,10 @@ impl StreamInstant {
         if self < earlier {
             None
         } else {
-            Some(self.as_duration() - earlier.as_duration())
+            (self.as_nanos() - earlier.as_nanos())
+                .try_into()
+                .ok()
+                .map(Duration::from_nanos)
         }
     }
 
@@ -307,9 +311,9 @@ impl StreamInstant {
     /// Returns `None` if the resulting instant would exceed the bounds of the underlying data
     /// structure.
     pub fn add(&self, duration: Duration) -> Option<Self> {
-        self.as_duration()
-            .checked_add(duration)
-            .map(Self::from_duration)
+        self.as_nanos()
+            .checked_add(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
     }
 
     /// Returns the instant in time one `duration` ago.
@@ -318,21 +322,34 @@ impl StreamInstant {
     /// consider that on some platforms the `StreamInstant` may begin at `0` from the moment the
     /// source stream is created.
     pub fn sub(&self, duration: Duration) -> Option<Self> {
-        self.as_duration()
-            .checked_sub(duration)
-            .map(Self::from_duration)
+        self.as_nanos()
+            .checked_sub(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
     }
 
-    fn new(secs: u64, nanos: u32) -> Self {
+    fn as_nanos(&self) -> i128 {
+        (self.secs as i128 * 1_000_000_000) + self.nanos as i128
+    }
+
+    fn from_nanos(nanos: i64) -> Self {
+        let secs = nanos / 1_000_000_000;
+        let subsec_nanos = nanos - secs * 1_000_000_000;
+        Self::new(secs as i64, subsec_nanos as u32)
+    }
+
+    fn from_nanos_i128(nanos: i128) -> Option<Self> {
+        let secs = nanos / 1_000_000_000;
+        if secs > std::i64::MAX as i128 || secs < std::i64::MIN as i128 {
+            None
+        } else {
+            let subsec_nanos = nanos - secs * 1_000_000_000;
+            debug_assert!(subsec_nanos < std::u32::MAX as i128);
+            Some(Self::new(secs as i64, subsec_nanos as u32))
+        }
+    }
+
+    fn new(secs: i64, nanos: u32) -> Self {
         StreamInstant { secs, nanos }
-    }
-
-    fn as_duration(&self) -> Duration {
-        Duration::new(self.secs, self.nanos)
-    }
-
-    fn from_duration(d: Duration) -> Self {
-        Self::new(d.as_secs(), d.subsec_nanos())
     }
 }
 
@@ -592,3 +609,37 @@ const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
     SampleRate(176400),
     SampleRate(192000),
 ];
+
+#[test]
+fn test_stream_instant() {
+    let a = StreamInstant::new(2, 0);
+    let b = StreamInstant::new(-2, 0);
+    let min = StreamInstant::new(std::i64::MIN, 0);
+    let max = StreamInstant::new(std::i64::MAX, 0);
+    assert_eq!(
+        a.sub(Duration::from_secs(1)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(3)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(min.sub(Duration::from_secs(1)), None);
+    assert_eq!(
+        b.add(Duration::from_secs(1)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(3)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(max.add(Duration::from_secs(1)), None);
+}
