@@ -203,6 +203,13 @@ impl Device {
             num_descriptors
         };
 
+        // Check to see if we can retrieve valid timestamps from the device.
+        let ts = handle.status()?.get_htstamp();
+        let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
+            (0, 0) => Some(std::time::Instant::now()),
+            _ => None,
+        };
+
         handle.start()?;
 
         let stream_inner = StreamInner {
@@ -213,6 +220,7 @@ impl Device {
             buffer_len,
             period_len,
             can_pause,
+            creation_instant,
         };
 
         Ok(stream_inner)
@@ -433,6 +441,16 @@ struct StreamInner {
 
     // Whether or not the hardware supports pausing the stream.
     can_pause: bool,
+
+    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
+    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
+    //
+    // If this field is `Some`, then the stream will use the duration since this instant as a
+    // source for timestamps.
+    //
+    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
+    // `get_htstamp` is used.
+    creation_instant: Option<std::time::Instant>,
 }
 
 // Assume that the ALSA library is built with thread safe option.
@@ -653,7 +671,7 @@ fn process_input(
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
         .sub(delay_duration)
-        .expect("`capture` occurs before origin of alsa `StreamInstant`");
+        .expect("`capture` is earlier than representation supported by `StreamInstant`");
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = crate::InputCallbackInfo { timestamp };
     data_callback(&data, &info);
@@ -715,24 +733,35 @@ fn process_output(
     Ok(())
 }
 
-// Use the duration since the start of the stream.
+// Use the elapsed duration since the start of the stream.
 //
 // This ensures positive values that are compatible with our `StreamInstant` representation.
 fn stream_timestamp(stream: &StreamInner) -> Result<crate::StreamInstant, BackendSpecificError> {
-    let status = stream.channel.status()?;
-    let trigger_ts = status.get_trigger_htstamp();
-    // TODO: This is returning `0` on ALSA where default device forwards to pulse.
-    // Possibly related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
-    let ts = status.get_htstamp();
-    let nanos = timespec_diff_nanos(ts, trigger_ts)
-        .try_into()
-        .unwrap_or_else(|_| {
-            panic!(
-                "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
-                ts, trigger_ts
-            );
-        });
-    Ok(crate::StreamInstant::from_nanos(nanos))
+    match stream.creation_instant {
+        None => {
+            let status = stream.channel.status()?;
+            let trigger_ts = status.get_trigger_htstamp();
+            // TODO: This is returning `0` on ALSA where default device forwards to pulse.
+            // Possibly related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
+            let ts = status.get_htstamp();
+            let nanos = timespec_diff_nanos(ts, trigger_ts)
+                .try_into()
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
+                        ts, trigger_ts
+                    );
+                });
+            Ok(crate::StreamInstant::from_nanos(nanos))
+        }
+        Some(creation) => {
+            let now = std::time::Instant::now();
+            let duration = now.duration_since(creation);
+            let instant = crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128)
+                .expect("stream duration has exceeded `StreamInstant` representation");
+            Ok(instant)
+        }
+    }
 }
 
 // Adapted from `timestamp2ns` here:
@@ -891,8 +920,9 @@ fn set_sw_params_from_format(
     };
 
     sw_params.set_tstamp_mode(true)?;
-    // TODO: `sw_params.set_tstamp_type(CLOCK_MONOTONIC_RAW)`
-    // Pending addressing https://github.com/diwic/alsa-sys/issues/6
+    // TODO:
+    // Pending new version of alsa-sys and alsa-rs getting published.
+    // sw_params.set_tstamp_type(alsa::pcm::TstampType::MonotonicRaw)?;
 
     pcm_handle.sw_params(&sw_params)?;
 
