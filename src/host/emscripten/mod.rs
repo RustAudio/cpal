@@ -228,6 +228,8 @@ where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
+    const SAMPLE_RATE: usize = 44100;
+
     unsafe {
         let user_data_ptr2 = user_data_ptr as *mut (&Stream, D, E);
         let user_data = &mut *user_data_ptr2;
@@ -235,14 +237,32 @@ where
         let audio_ctxt = &stream.audio_ctxt_ref;
 
         // TODO: We should be re-using a buffer.
-        let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
+        let mut temporary_buffer = vec![0.0; SAMPLE_RATE * 2 / 3];
 
         {
             let len = temporary_buffer.len();
             let data = temporary_buffer.as_mut_ptr() as *mut ();
             let sample_format = SampleFormat::F32;
             let mut data = Data::from_parts(data, len, sample_format);
-            let info = OutputCallbackInfo {};
+
+            let now_secs: f64 = js!(@{audio_ctxt}.getOutputTimestamp().currentTime)
+                .try_into()
+                .expect("failed to retrieve Value as f64");
+            let callback = {
+                let secs = now_secs as i64;
+                let nanos = ((now_secs * 1_000_000_000.0) - secs as f64 * 1_000_000_000.0) as u32;
+                crate::StreamInstant::new(secs, nanos)
+            };
+            // TODO: Use proper latency instead. Currently unsupported on most browsers though so
+            // we estimate based on buffer size instead. Probably should use this, but it's only
+            // supported by firefox (2020-04-28).
+            // let latency_secs: f64 = js!(@{audio_ctxt}.outputLatency).try_into().unwrap();
+            let buffer_duration = frames_to_duration(len, SAMPLE_RATE);
+            let playback = callback
+                .add(buffer_duration)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+            let info = OutputCallbackInfo { timestamp };
             data_cb(&mut data, &info);
         }
 
@@ -330,4 +350,12 @@ fn is_webaudio_available() -> bool {
     })
     .try_into()
     .unwrap()
+}
+
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: usize) -> std::time::Duration {
+    let secsf = frames as f64 / rate as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }
