@@ -230,6 +230,16 @@ pub struct Data {
 ///
 /// **StreamInstant** represents a duration since some unspecified origin occurring either before
 /// or equal to the moment the stream from which it was created begins.
+///
+/// ## Host `StreamInstant` Sources
+///
+/// | Host | Source |
+/// | ---- | ------ |
+/// | alsa | `snd_pcm_status_get_htstamp` |
+/// | coreaudio | `mach_absolute_time` |
+/// | wasapi | `QueryPerformanceCounter` |
+/// | asio | `timeGetTime` |
+/// | emscripten | `AudioContext.getOutputTimestamp` |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
     secs: i64,
