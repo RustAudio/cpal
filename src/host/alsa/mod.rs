@@ -189,7 +189,7 @@ impl Device {
             let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
             hw_params.can_pause()
         };
-        let (buffer_len, period_len) = set_sw_params_from_format(&handle, conf)?;
+        let (_buffer_len, period_len) = set_sw_params_from_format(&handle, conf)?;
 
         handle.prepare()?;
 
@@ -218,7 +218,6 @@ impl Device {
             sample_format,
             num_descriptors,
             conf: conf.clone(),
-            buffer_len,
             period_len,
             can_pause,
             creation_instant,
@@ -434,9 +433,6 @@ struct StreamInner {
     // The configuration used to open this stream.
     conf: StreamConfig,
 
-    // Number of samples that can fit in the buffer.
-    buffer_len: usize,
-
     // Minimum number of samples to put in the buffer.
     period_len: usize,
 
@@ -499,6 +495,7 @@ fn input_stream_worker(
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
+                status,
                 avail_frames: _,
                 delay_frames,
                 stream_type,
@@ -508,7 +505,13 @@ fn input_stream_worker(
                     StreamType::Input,
                     "expected input stream, but polling descriptors indicated output",
                 );
-                let res = process_input(stream, &mut ctxt.buffer, delay_frames, data_callback);
+                let res = process_input(
+                    stream,
+                    &mut ctxt.buffer,
+                    status,
+                    delay_frames,
+                    data_callback,
+                );
                 report_error(res, error_callback);
             }
         }
@@ -533,6 +536,7 @@ fn output_stream_worker(
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
+                status,
                 avail_frames,
                 delay_frames,
                 stream_type,
@@ -545,6 +549,7 @@ fn output_stream_worker(
                 let res = process_output(
                     stream,
                     &mut ctxt.buffer,
+                    status,
                     avail_frames,
                     delay_frames,
                     data_callback,
@@ -577,6 +582,7 @@ enum PollDescriptorsFlow {
     Return,
     Ready {
         stream_type: StreamType,
+        status: alsa::pcm::Status,
         avail_frames: usize,
         delay_frames: usize,
     },
@@ -636,8 +642,14 @@ fn poll_descriptors_and_prepare_buffer(
             return Ok(PollDescriptorsFlow::Continue);
         }
     };
-    // Get the number of available samples for reading/writing.
-    let (avail_frames, delay_frames) = get_avail_delay(stream)?;
+
+    let status = stream.channel.status()?;
+    let avail_frames = status.get_avail() as usize;
+    let delay_frames = match status.get_delay() {
+        // Buffer underrun. TODO: Notify the user.
+        d if d < 0 => 0,
+        d => d as usize,
+    };
     let available_samples = avail_frames * stream.conf.channels as usize;
 
     // Only go on if there is at least `stream.period_len` samples.
@@ -651,6 +663,7 @@ fn poll_descriptors_and_prepare_buffer(
 
     Ok(PollDescriptorsFlow::Ready {
         stream_type,
+        status,
         avail_frames,
         delay_frames,
     })
@@ -660,6 +673,7 @@ fn poll_descriptors_and_prepare_buffer(
 fn process_input(
     stream: &StreamInner,
     buffer: &mut [u8],
+    status: alsa::pcm::Status,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), BackendSpecificError> {
@@ -668,7 +682,7 @@ fn process_input(
     let data = buffer.as_mut_ptr() as *mut ();
     let len = buffer.len() / sample_format.sample_size();
     let data = unsafe { Data::from_parts(data, len, sample_format) };
-    let callback = stream_timestamp(stream)?;
+    let callback = stream_timestamp(&status, stream.creation_instant)?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
         .sub(delay_duration)
@@ -686,6 +700,7 @@ fn process_input(
 fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
+    status: alsa::pcm::Status,
     available_frames: usize,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
@@ -697,7 +712,7 @@ fn process_output(
         let data = buffer.as_mut_ptr() as *mut ();
         let len = buffer.len() / sample_format.sample_size();
         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-        let callback = stream_timestamp(stream)?;
+        let callback = stream_timestamp(&status, stream.creation_instant)?;
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
         let playback = callback
             .add(delay_duration)
@@ -737,10 +752,12 @@ fn process_output(
 // Use the elapsed duration since the start of the stream.
 //
 // This ensures positive values that are compatible with our `StreamInstant` representation.
-fn stream_timestamp(stream: &StreamInner) -> Result<crate::StreamInstant, BackendSpecificError> {
-    match stream.creation_instant {
+fn stream_timestamp(
+    status: &alsa::pcm::Status,
+    creation_instant: Option<std::time::Instant>,
+) -> Result<crate::StreamInstant, BackendSpecificError> {
+    match creation_instant {
         None => {
-            let status = stream.channel.status()?;
             let trigger_ts = status.get_trigger_htstamp();
             let ts = status.get_htstamp();
             let nanos = timespec_diff_nanos(ts, trigger_ts)
@@ -844,19 +861,6 @@ impl StreamTrait for Stream {
     fn pause(&self) -> Result<(), PauseStreamError> {
         self.inner.channel.pause(true).ok();
         Ok(())
-    }
-}
-
-// Determine the number of frames that are available to read/write along with the latency.
-fn get_avail_delay(stream: &StreamInner) -> Result<(usize, usize), BackendSpecificError> {
-    match stream.channel.avail_delay() {
-        Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
-            // buffer underrun
-            // TODO: Notify the user some how.
-            Ok((stream.buffer_len, 0))
-        }
-        Err(err) => Err(err.into()),
-        Ok((avail, delay)) => Ok((avail as usize, delay as usize)),
     }
 }
 
