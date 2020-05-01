@@ -169,9 +169,15 @@ impl Device {
                 );
                 check_os_status(status)?;
                 let mut buf: [i8; 255] = [0; 255];
-                let result = CFStringGetCString(device_name, buf.as_mut_ptr(), buf.len() as _, kCFStringEncodingUTF8);
+                let result = CFStringGetCString(
+                    device_name,
+                    buf.as_mut_ptr(),
+                    buf.len() as _,
+                    kCFStringEncodingUTF8,
+                );
                 if result == 0 {
-                    let description = "core foundation failed to return device name string".to_string();
+                    let description =
+                        "core foundation failed to return device name string".to_string();
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
