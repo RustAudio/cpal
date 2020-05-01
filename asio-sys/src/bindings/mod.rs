@@ -916,9 +916,7 @@ extern "C" fn buffer_switch_time_info(
 ) -> *mut ai::ASIOTime {
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
-    let asio_time: &mut AsioTime = unsafe {
-        &mut *(time as *mut AsioTime)
-    };
+    let asio_time: &mut AsioTime = unsafe { &mut *(time as *mut AsioTime) };
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
         system_time: asio_time.time_info.system_time,
