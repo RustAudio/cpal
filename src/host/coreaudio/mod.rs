@@ -1,7 +1,7 @@
 extern crate core_foundation_sys;
 extern crate coreaudio;
 
-use self::core_foundation_sys::string::{CFStringGetCStringPtr, CFStringRef};
+use self::core_foundation_sys::string::{CFStringGetCString, CFStringGetCStringPtr, CFStringRef};
 use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
@@ -159,9 +159,24 @@ impl Device {
 
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
             if c_string == null() {
-                let description = "core foundation unexpectedly returned null string".to_string();
-                let err = BackendSpecificError { description };
-                return Err(err.into());
+                let status = AudioObjectGetPropertyData(
+                    self.audio_device_id,
+                    &property_address as *const _,
+                    0,
+                    null(),
+                    &data_size as *const _ as *mut _,
+                    &device_name as *const _ as *mut _,
+                );
+                check_os_status(status)?;
+                let mut buf: [i8; 255] = [0; 255];
+                let result = CFStringGetCString(device_name, buf.as_mut_ptr(), buf.len() as _, kCFStringEncodingUTF8);
+                if result == 0 {
+                    let description = "core foundation failed to return device name string".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+                let name: &CStr = unsafe { CStr::from_ptr(buf.as_ptr()) };
+                return Ok(name.to_str().unwrap().to_owned());
             }
             CStr::from_ptr(c_string as *mut _)
         };
