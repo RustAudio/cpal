@@ -87,6 +87,7 @@ impl Device {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
+        let config = config.clone();
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
@@ -103,7 +104,7 @@ impl Device {
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
             unsafe fn process_input_callback<A, B, D, F>(
-                callback: &mut D,
+                data_callback: &mut D,
                 interleaved: &mut [u8],
                 asio_stream: &sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
@@ -136,9 +137,9 @@ impl Device {
                 let capture = callback
                     .sub(delay)
                     .expect("`capture` occurs before origin of alsa `StreamInstant`");
-                let timestamp = InputStreamTimestamp { callback, capture };
+                let timestamp = crate::InputStreamTimestamp { callback, capture };
                 let info = InputCallbackInfo { timestamp };
-                callback(&data, &info);
+                data_callback(&data, &info);
             }
 
             match (&stream_type, sample_format) {
@@ -269,6 +270,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
+        let config = config.clone();
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
@@ -288,7 +290,7 @@ impl Device {
             // the current `buffer_index`.
             //
             // If not, we will silence it and set the opposite buffer half to unsilenced.
-            let silence = match buffer_index {
+            let silence = match callback_info.buffer_index {
                 0 if !silence_asio_buffer.first => {
                     silence_asio_buffer.first = true;
                     silence_asio_buffer.second = false;
@@ -309,7 +311,7 @@ impl Device {
             /// 3. Finally, write the interleaved data to the non-interleaved ASIO buffer,
             ///    performing endianness conversions as necessary.
             unsafe fn process_output_callback<A, B, D, F>(
-                callback: &mut D,
+                data_callback: &mut D,
                 interleaved: &mut [u8],
                 silence_asio_buffer: bool,
                 asio_stream: &sys::AsioStream,
@@ -333,9 +335,9 @@ impl Device {
                 let playback = callback
                     .add(delay)
                     .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-                let timestamp = OutputStreamTimestamp { callback, playback };
+                let timestamp = crate::OutputStreamTimestamp { callback, playback };
                 let info = OutputCallbackInfo { timestamp };
-                callback(&mut data, &info);
+                data_callback(&mut data, &info);
 
                 // 2. Silence ASIO channels if necessary.
                 let n_channels = interleaved.len() / n_frames;
@@ -378,7 +380,7 @@ impl Device {
                         &mut interleaved,
                         silence,
                         asio_stream,
-                        buffer_index as usize,
+                        callback_info,
                         config.sample_rate,
                         to_be,
                     );
@@ -608,10 +610,18 @@ impl AsioSample for f64 {
     }
 }
 
+fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
+    let two_raised_to_32 = 4294967296.0;
+    val.lo as f64 + val.hi as f64 * two_raised_to_32
+}
+
 /// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
-fn system_time_to_stream_instant(system_time: ai::ASIOTimeStamp) -> crate::StreamInstant {
-    let secs = system_time as u64 / 1_000;
-    let nanos = ((system_time as u64 - secs * 1_000) * 1_000_000) as u32;
+fn system_time_to_stream_instant(
+    system_time: sys::bindings::asio_import::ASIOTimeStamp,
+) -> crate::StreamInstant {
+    let systime_ns = asio_ns_to_double(system_time);
+    let secs = systime_ns as i64 / 1_000_000_000;
+    let nanos = (systime_ns as i64 - secs * 1_000_000_000) as u32;
     crate::StreamInstant::new(secs, nanos)
 }
 

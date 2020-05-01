@@ -896,7 +896,7 @@ extern "C" fn asio_message(
             // Informs the driver whether the application is interested in time code info. If an
             // application does not need to know about time code, the driver has less work to do.
             // TODO: Provide an option for this?
-            0
+            1
         }
 
         _ => 0, // Unknown/unhandled message type.
@@ -916,12 +916,12 @@ extern "C" fn buffer_switch_time_info(
 ) -> *mut ai::ASIOTime {
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
-    let time: &mut AsioTime = unsafe {
+    let asio_time: &mut AsioTime = unsafe {
         &mut *(time as *mut AsioTime)
     };
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
-        system_time: time.time_info.system_time,
+        system_time: asio_time.time_info.system_time,
     };
     for &mut (_, ref mut bc) in bcs.iter_mut() {
         bc.run(&callback_info);
