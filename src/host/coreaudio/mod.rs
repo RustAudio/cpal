@@ -483,7 +483,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        mut error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -646,7 +646,7 @@ impl Device {
 
             // TODO: Perhaps loop over all buffers instead?
             let AudioBuffer {
-                mNumberChannels: _num_channels,
+                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
             } = buffers[0];
@@ -656,8 +656,14 @@ impl Device {
             let data = Data::from_parts(data, len, sample_format);
 
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
-            let callback = host_time_to_stream_instant(args.time_stamp.mHostTime);
-            let buffer_frames = len / channels;
+            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                Err(err) => {
+                    error_callback(err.into());
+                    return Err(());
+                }
+                Ok(cb) => cb,
+            };
+            let buffer_frames = len / channels as usize;
             let delay = frames_to_duration(buffer_frames, sample_rate);
             let capture = callback
                 .sub(delay)
@@ -683,7 +689,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        mut error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -718,9 +724,15 @@ impl Device {
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let mut data = Data::from_parts(data, len, sample_format);
 
-            let callback = host_time_to_stream_instant(args.time_stamp.mHostTime);
+            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                Err(err) => {
+                    error_callback(err.into());
+                    return Err(());
+                }
+                Ok(cb) => cb,
+            };
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
-            let buffer_frames = len / channels;
+            let buffer_frames = len / channels as usize;
             let delay = frames_to_duration(buffer_frames, sample_rate);
             let playback = callback
                 .add(delay)
@@ -745,17 +757,13 @@ impl Device {
 fn host_time_to_stream_instant(
     m_host_time: u64,
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
-    let mut info: coreaudio::sys::mach_timebase_info_data_t = unimplemented!();
-    let res = coreaudio::sys::mach_timebase_info(&mut info);
-    if res != SUCCESS {
-        let description = unimplemented!();
-        let err = BackendSpecificError { description };
-        return Err(err.into());
-    }
-    let nanos = m_host_time * info.numer / info.denom;
+    let mut info: mach::mach_time::mach_timebase_info = Default::default();
+    let res = unsafe { mach::mach_time::mach_timebase_info(&mut info) };
+    check_os_status(res)?;
+    let nanos = m_host_time * info.numer as u64 / info.denom as u64;
     let secs = nanos / 1_000_000_000;
     let subsec_nanos = nanos - secs * 1_000_000_000;
-    crate::StreamInstant::new(secs, subsec_nanos)
+    Ok(crate::StreamInstant::new(secs as i64, subsec_nanos as u32))
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
