@@ -84,8 +84,15 @@ pub struct SampleRate {
     pub rate: u32,
 }
 
+/// Information provided to the BufferCallback.
+#[derive(Debug)]
+pub struct CallbackInfo {
+    pub buffer_index: i32,
+    pub system_time: ai::ASIOTimeStamp,
+}
+
 /// Holds the pointer to the callbacks that come from cpal
-struct BufferCallback(Box<dyn FnMut(i32) + Send>);
+struct BufferCallback(Box<dyn FnMut(&CallbackInfo) + Send>);
 
 /// Input and Output streams.
 ///
@@ -355,9 +362,9 @@ impl Asio {
 
 impl BufferCallback {
     /// Calls the inner callback.
-    fn run(&mut self, index: i32) {
+    fn run(&mut self, callback_info: &CallbackInfo) {
         let cb = &mut self.0;
-        cb(index);
+        cb(callback_info);
     }
 }
 
@@ -610,7 +617,7 @@ impl Driver {
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
     pub fn add_callback<F>(&self, callback: F) -> CallbackId
     where
-        F: 'static + FnMut(i32) + Send,
+        F: 'static + FnMut(&CallbackInfo) + Send,
     {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
         let id = bc
@@ -889,7 +896,7 @@ extern "C" fn asio_message(
             // Informs the driver whether the application is interested in time code info. If an
             // application does not need to know about time code, the driver has less work to do.
             // TODO: Provide an option for this?
-            0
+            1
         }
 
         _ => 0, // Unknown/unhandled message type.
@@ -909,8 +916,15 @@ extern "C" fn buffer_switch_time_info(
 ) -> *mut ai::ASIOTime {
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
+    let asio_time: &mut AsioTime = unsafe {
+        &mut *(time as *mut AsioTime)
+    };
+    let callback_info = CallbackInfo {
+        buffer_index: double_buffer_index,
+        system_time: asio_time.time_info.system_time,
+    };
     for &mut (_, ref mut bc) in bcs.iter_mut() {
-        bc.run(double_buffer_index);
+        bc.run(&callback_info);
     }
     time
 }
@@ -951,6 +965,10 @@ fn check_type_sizes() {
     assert_eq!(
         std::mem::size_of::<AsioTimeCode>(),
         std::mem::size_of::<ai::ASIOTimeCode>()
+    );
+    assert_eq!(
+        std::mem::size_of::<AsioTimeInfo>(),
+        std::mem::size_of::<ai::AsioTimeInfo>(),
     );
     assert_eq!(
         std::mem::size_of::<AsioTime>(),
