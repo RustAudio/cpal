@@ -525,7 +525,11 @@ impl SupportedStreamConfigRange {
     ///
     /// **panic!**s if the given `sample_rate` or the give `buffer_size` is outside the range specified within this
     /// `SupportedStreamConfigRange` instance.
-    pub fn with_sample_rate_and_buffer_size(self, sample_rate: SampleRate, buffer_size: BufferSize) -> SupportedStreamConfig {
+    pub fn with_sample_rate_and_buffer_size(
+        self,
+        sample_rate: SampleRate,
+        buffer_size: BufferSize,
+    ) -> SupportedStreamConfig {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         assert!(self.buffer_size.min <= buffer_size && buffer_size <= self.buffer_size.max);
         if self.buffer_size.requires_power_of_two {
@@ -533,9 +537,9 @@ impl SupportedStreamConfigRange {
         }
         SupportedStreamConfig {
             channels: self.channels,
+            sample_rate: self.max_sample_rate,
             sample_format: self.sample_format,
             buffer_size,
-            sample_rate: self.max_sample_rate,
         }
     }
 
