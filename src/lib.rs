@@ -535,7 +535,7 @@ impl SupportedStreamConfigRange {
             channels: self.channels,
             sample_format: self.sample_format,
             buffer_size,
-            sample_rate,
+            sample_rate: self.max_sample_rate,
         }
     }
 
