@@ -158,6 +158,8 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 pub use samples_formats::{Sample, SampleFormat};
+use std::convert::TryInto;
+use std::time::Duration;
 
 mod error;
 mod host;
@@ -220,13 +222,63 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
-/// Information relevant to a single call to the user's output stream data callback.
-#[derive(Debug, Clone, PartialEq)]
-pub struct OutputCallbackInfo {}
+/// A monotonic time instance associated with a stream, retrieved from either:
+///
+/// 1. A timestamp provided to the stream's underlying audio data callback or
+/// 2. The same time source used to generate timestamps for a stream's underlying audio data
+///    callback.
+///
+/// **StreamInstant** represents a duration since some unspecified origin occurring either before
+/// or equal to the moment the stream from which it was created begins.
+///
+/// ## Host `StreamInstant` Sources
+///
+/// | Host | Source |
+/// | ---- | ------ |
+/// | alsa | `snd_pcm_status_get_htstamp` |
+/// | coreaudio | `mach_absolute_time` |
+/// | wasapi | `QueryPerformanceCounter` |
+/// | asio | `timeGetTime` |
+/// | emscripten | `AudioContext.getOutputTimestamp` |
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct StreamInstant {
+    secs: i64,
+    nanos: u32,
+}
+
+/// A timestamp associated with a call to an input stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct InputStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The instant that data was captured from the device.
+    ///
+    /// E.g. The instant data was read from an ADC.
+    pub capture: StreamInstant,
+}
+
+/// A timestamp associated with a call to an output stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct OutputStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The predicted instant that data written will be delivered to the device for playback.
+    ///
+    /// E.g. The instant data will be played by a DAC.
+    pub playback: StreamInstant,
+}
 
 /// Information relevant to a single call to the user's input stream data callback.
 #[derive(Debug, Clone, PartialEq)]
-pub struct InputCallbackInfo {}
+pub struct InputCallbackInfo {
+    timestamp: InputStreamTimestamp,
+}
+
+/// Information relevant to a single call to the user's output stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputCallbackInfo {
+    timestamp: OutputStreamTimestamp,
+}
 
 impl SupportedStreamConfig {
     pub fn channels(&self) -> ChannelCount {
@@ -246,6 +298,82 @@ impl SupportedStreamConfig {
             channels: self.channels,
             sample_rate: self.sample_rate,
         }
+    }
+}
+
+impl StreamInstant {
+    /// The amount of time elapsed from another instant to this one.
+    ///
+    /// Returns `None` if `earlier` is later than self.
+    pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
+        if self < earlier {
+            None
+        } else {
+            (self.as_nanos() - earlier.as_nanos())
+                .try_into()
+                .ok()
+                .map(Duration::from_nanos)
+        }
+    }
+
+    /// Returns the instant in time after the given duration has passed.
+    ///
+    /// Returns `None` if the resulting instant would exceed the bounds of the underlying data
+    /// structure.
+    pub fn add(&self, duration: Duration) -> Option<Self> {
+        self.as_nanos()
+            .checked_add(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
+    }
+
+    /// Returns the instant in time one `duration` ago.
+    ///
+    /// Returns `None` if the resulting instant would underflow. As a result, it is important to
+    /// consider that on some platforms the `StreamInstant` may begin at `0` from the moment the
+    /// source stream is created.
+    pub fn sub(&self, duration: Duration) -> Option<Self> {
+        self.as_nanos()
+            .checked_sub(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
+    }
+
+    fn as_nanos(&self) -> i128 {
+        (self.secs as i128 * 1_000_000_000) + self.nanos as i128
+    }
+
+    fn from_nanos(nanos: i64) -> Self {
+        let secs = nanos / 1_000_000_000;
+        let subsec_nanos = nanos - secs * 1_000_000_000;
+        Self::new(secs as i64, subsec_nanos as u32)
+    }
+
+    fn from_nanos_i128(nanos: i128) -> Option<Self> {
+        let secs = nanos / 1_000_000_000;
+        if secs > std::i64::MAX as i128 || secs < std::i64::MIN as i128 {
+            None
+        } else {
+            let subsec_nanos = nanos - secs * 1_000_000_000;
+            debug_assert!(subsec_nanos < std::u32::MAX as i128);
+            Some(Self::new(secs as i64, subsec_nanos as u32))
+        }
+    }
+
+    fn new(secs: i64, nanos: u32) -> Self {
+        StreamInstant { secs, nanos }
+    }
+}
+
+impl InputCallbackInfo {
+    /// The timestamp associated with the call to an input stream's data callback.
+    pub fn timestamp(&self) -> InputStreamTimestamp {
+        self.timestamp
+    }
+}
+
+impl OutputCallbackInfo {
+    /// The timestamp associated with the call to an output stream's data callback.
+    pub fn timestamp(&self) -> OutputStreamTimestamp {
+        self.timestamp
     }
 }
 
@@ -491,3 +619,37 @@ const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
     SampleRate(176400),
     SampleRate(192000),
 ];
+
+#[test]
+fn test_stream_instant() {
+    let a = StreamInstant::new(2, 0);
+    let b = StreamInstant::new(-2, 0);
+    let min = StreamInstant::new(std::i64::MIN, 0);
+    let max = StreamInstant::new(std::i64::MAX, 0);
+    assert_eq!(
+        a.sub(Duration::from_secs(1)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(3)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(min.sub(Duration::from_secs(1)), None);
+    assert_eq!(
+        b.add(Duration::from_secs(1)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(3)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(max.add(Duration::from_secs(1)), None);
+}

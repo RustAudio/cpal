@@ -42,8 +42,7 @@ use super::winapi::um::mmdeviceapi::{
     eAll, eCapture, eConsole, eRender, CLSID_MMDeviceEnumerator, EDataFlow, IMMDevice,
     IMMDeviceCollection, IMMDeviceEnumerator, IMMEndpoint, DEVICE_STATE_ACTIVE,
 };
-use super::winapi::um::winnt::LPWSTR;
-use super::winapi::um::winnt::WCHAR;
+use super::winapi::um::winnt::{LPWSTR, WCHAR};
 
 use super::{
     stream::{AudioClientFlow, Stream, StreamInner},
@@ -750,13 +749,20 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Capture { capture_client };
 
+            let audio_clock = get_audio_clock(audio_client).map_err(|err| {
+                (*audio_client).Release();
+                err
+            })?;
+
             Ok(StreamInner {
                 audio_client,
+                audio_clock,
                 client_flow,
                 event,
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
+                config: config.clone(),
                 sample_format,
             })
         }
@@ -895,13 +901,20 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Render { render_client };
 
+            let audio_clock = get_audio_clock(audio_client).map_err(|err| {
+                (*audio_client).Release();
+                err
+            })?;
+
             Ok(StreamInner {
                 audio_client,
+                audio_clock,
                 client_flow,
                 event,
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
+                config: config.clone(),
                 sample_format,
             })
         }
@@ -1145,6 +1158,29 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     default_device(eRender)
+}
+
+/// Get the audio clock used to produce `StreamInstant`s.
+unsafe fn get_audio_clock(
+    audio_client: *mut audioclient::IAudioClient,
+) -> Result<*mut audioclient::IAudioClock, BuildStreamError> {
+    let mut audio_clock: *mut audioclient::IAudioClock = ptr::null_mut();
+    let hresult = (*audio_client).GetService(
+        &audioclient::IID_IAudioClock,
+        &mut audio_clock as *mut *mut audioclient::IAudioClock as *mut _,
+    );
+    match check_result(hresult) {
+        Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+            return Err(BuildStreamError::DeviceNotAvailable);
+        }
+        Err(e) => {
+            let description = format!("failed to build audio clock: {}", e);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+        Ok(()) => (),
+    };
+    Ok(audio_clock)
 }
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
