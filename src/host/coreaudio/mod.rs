@@ -6,7 +6,7 @@ use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyDeviceNameCFString,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
+    kAudioDevicePropertyBufferFrameSizeRange,kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
@@ -20,10 +20,10 @@ use self::coreaudio::sys::{
 };
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, 
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -276,6 +276,18 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
+            let mut audio_unit = audio_unit_from_device(self, true)?;
+            let buffer_size_range = audio_unit.get_property(
+                kAudioDevicePropertyBufferFrameSizeRange, 
+                Scope::Global, 
+                Element::Output)?; 
+            
+            let buffer_size = SupportedBufferSizeRange {
+                min: buffer_size_range.mMinimum;
+                max: buffer_size_range.mMaximum;
+                requires_power_of_two: false,
+            };
+
             // Collect the supported formats for the device.
             let mut fmts = vec![];
             for range in ranges {
@@ -283,6 +295,7 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
+                    buffer_size,
                     sample_format: sample_format,
                 };
                 fmts.push(fmt);

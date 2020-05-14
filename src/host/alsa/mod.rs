@@ -3,9 +3,9 @@ extern crate libc;
 
 use self::alsa::poll::Descriptors;
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::convert::TryInto;
@@ -339,6 +339,15 @@ impl Device {
             })
             .collect::<Vec<_>>();
 
+        let min_buffer_size = hw_params.get_buffer_size_min()?;
+        let max_buffer_size = hw_params.get_buffer_size_max()?;
+
+        let buffer_size_range = SupportedBufferSizeRange {
+            min: min_buffer_size,
+            max: max_buffer_size,
+            requires_power_of_two: false,
+        };
+
         let mut output = Vec::with_capacity(
             supported_formats.len() * supported_channels.len() * sample_rates.len(),
         );
@@ -349,6 +358,7 @@ impl Device {
                         channels: channels.clone(),
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
+                        buffer_size: buffer_size_range,
                         sample_format: sample_format,
                     });
                 }
