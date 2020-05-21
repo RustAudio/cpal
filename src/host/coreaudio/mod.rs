@@ -6,8 +6,8 @@ use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyDeviceNameCFString,
-    kAudioDevicePropertyBufferFrameSizeRange,kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
-    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,kAudioDevicePropertyNominalSampleRate, 
+    kAudioDevicePropertyScopeOutput, kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
     kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
@@ -277,15 +277,9 @@ impl Device {
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
             let mut audio_unit = audio_unit_from_device(self, true)?;
-            let buffer_size_range = audio_unit.get_property(
-                kAudioDevicePropertyBufferFrameSizeRange, 
-                Scope::Global, 
-                Element::Output)?; 
-            
-            let buffer_size = SupportedBufferSizeRange {
-                min: buffer_size_range.mMinimum;
-                max: buffer_size_range.mMaximum;
-                requires_power_of_two: false,
+            let buffer_size = match get_io_buffer_frame_size_range(&audio_unit) {
+                Ok(v) => v.unwrap(),
+                Err(_) => return SupportedStreamConfigsError::DeviceNotAvailable,
             };
 
             // Collect the supported formats for the device.
@@ -387,9 +381,13 @@ impl Device {
                 }
             };
 
+            let mut audio_unit = audio_unit_from_device(self, true)?;
+            let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
+
             let config = SupportedStreamConfig {
                 sample_rate: SampleRate(asbd.mSampleRate as _),
                 channels: asbd.mChannelsPerFrame as _,
+                buffer_size: buffer_size,
                 sample_format: sample_format,
             };
             Ok(config)
@@ -669,6 +667,19 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
+        // Set the buffersize 
+        match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                audio_unit.set_property(
+                    kAudioDevicePropertyBufferFrameSize,
+                    scope,
+                    element,
+                    Some(&v),
+                )?
+            },
+            BufferSize::Default => (),
+        }
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -739,6 +750,19 @@ impl Device {
         // Set the stream in interleaved mode.
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
+
+        // Set the buffersize 
+        match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                audio_unit.set_property(
+                    kAudioDevicePropertyBufferFrameSize,
+                    scope,
+                    element,
+                    Some(&v),
+                )?
+            },
+            BufferSize::Default => (),
+        }
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
@@ -860,4 +884,20 @@ fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
             Err(BackendSpecificError { description })
         }
     }
+}
+
+fn get_io_buffer_frame_size_range(
+    audio_unit: &AudioUnit,
+) -> Result<SupportedBufferSizeRange, coreaudio::Error> {
+    let buffer_size_range: AudioValueRange = audio_unit.get_property(
+        kAudioDevicePropertyBufferFrameSizeRange,
+        Scope::Global,
+        Element::Output,
+    )?;
+
+    Ok(SupportedBufferSizeRange {
+        min: buffer_size_range.mMinimum as u32,
+        max: buffer_size_range.mMaximum as u32,
+        requires_power_of_two: false,
+    })
 }
