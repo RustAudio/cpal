@@ -3,10 +3,10 @@ extern crate libc;
 
 use self::alsa::poll::Descriptors;
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    BufferSize, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, 
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, 
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -343,8 +343,8 @@ impl Device {
         let max_buffer_size = hw_params.get_buffer_size_max()?;
 
         let buffer_size_range = SupportedBufferSizeRange {
-            min: min_buffer_size,
-            max: max_buffer_size,
+            min: min_buffer_size as u32,
+            max: max_buffer_size as u32,
             requires_power_of_two: false,
         };
 
@@ -358,7 +358,7 @@ impl Device {
                         channels: channels.clone(),
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
-                        buffer_size: buffer_size_range,
+                        buffer_size: buffer_size_range.clone(),
                         sample_format: sample_format,
                     });
                 }
@@ -899,6 +899,11 @@ fn set_hw_params_from_format<'a>(
     hw_params.set_format(sample_format)?;
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
+
+    match config.buffer_size {
+        BufferSize::Fixed(v) => hw_params.set_buffer_size(v as i64)?,
+        BufferSize::Default => (),
+    }
 
     // If this isn't set manually a overlarge buffer may be used causing audio delay
     let mut hw_params_copy = hw_params.clone();

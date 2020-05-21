@@ -29,8 +29,9 @@ fn main() -> Result<(), anyhow::Error> {
     println!("Using default output device: \"{}\"", output_device.name()?);
 
     // We'll try and use the same configuration between streams to keep it simple.
-    let config: cpal::StreamConfig = input_device.default_input_config()?.into();
-
+    let mut config: cpal::StreamConfig = input_device.default_input_config()?.into();
+    config.buffer_size = cpal::BufferSize::Fixed(1024);
+    
     // Create a delay in case the input and output devices aren't synced.
     let latency_frames = (LATENCY_MS / 1_000.0) * config.sample_rate.0 as f32;
     let latency_samples = latency_frames as usize * config.channels as usize;
@@ -47,6 +48,7 @@ fn main() -> Result<(), anyhow::Error> {
     }
 
     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+        println!("data len = {}", data.len());
         let mut output_fell_behind = false;
         for &sample in data {
             if producer.push(sample).is_err() {
