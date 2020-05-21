@@ -504,8 +504,8 @@ mod platform_impl {
 mod platform_impl {
     pub use crate::host::webaudio::{
         Device as WebAudioDevice, Devices as WebAudioDevices, Host as WebAudioHost,
-        Stream as WebAudioStream, SupportedInputFormats as WebAudioSupportedInputFormats,
-        SupportedOutputFormats as WebAudioSupportedOutputFormats,
+        Stream as WebAudioStream, SupportedInputConfigs as WebAudioSupportedInputConfigs,
+        SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
     };
 
     impl_platform_host!(WebAudio webaudio "WebAudio");
