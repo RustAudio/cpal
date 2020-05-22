@@ -278,11 +278,8 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
-            let mut audio_unit = audio_unit_from_device(self, true)?;
-            let buffer_size = match get_io_buffer_frame_size_range(&audio_unit) {
-                Ok(v) => v.unwrap(),
-                Err(_) => return SupportedStreamConfigsError::DeviceNotAvailable,
-            };
+            let audio_unit = audio_unit_from_device(self, true)?;
+            let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
             let mut fmts = vec![];
@@ -291,7 +288,7 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
-                    buffer_size,
+                    buffer_size: buffer_size.clone(),
                     sample_format: sample_format,
                 };
                 fmts.push(fmt);
@@ -436,6 +433,24 @@ impl From<coreaudio::Error> for BuildStreamError {
             | coreaudio::Error::AudioFormat(_) => BuildStreamError::StreamConfigNotSupported,
             _ => BuildStreamError::DeviceNotAvailable,
         }
+    }
+}
+
+impl From<coreaudio::Error> for SupportedStreamConfigsError {
+    fn from(err: coreaudio::Error) -> SupportedStreamConfigsError {
+        let description = format!("{}", err);
+        let err = BackendSpecificError { description };
+        // Check for possible DeviceNotAvailable variant
+        SupportedStreamConfigsError::BackendSpecific { err }
+    }
+}
+
+impl From<coreaudio::Error> for DefaultStreamConfigError {
+    fn from(err: coreaudio::Error) -> DefaultStreamConfigError {
+        let description = format!("{}", err);
+        let err = BackendSpecificError { description };
+        // Check for possible DeviceNotAvailable variant
+        DefaultStreamConfigError::BackendSpecific { err }
     }
 }
 
@@ -671,12 +686,19 @@ impl Device {
 
         // Set the buffersize
         match config.buffer_size {
-            BufferSize::Fixed(v) => audio_unit.set_property(
-                kAudioDevicePropertyBufferFrameSize,
-                scope,
-                element,
-                Some(&v),
-            )?,
+            BufferSize::Fixed(v) => {
+                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
+                if v >= buffer_size_range.min && v <= buffer_size_range.max {
+                    audio_unit.set_property(
+                        kAudioDevicePropertyBufferFrameSize,
+                        scope,
+                        element,
+                        Some(&v),
+                    )?
+                } else {
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+            }
             BufferSize::Default => (),
         }
 
@@ -753,12 +775,19 @@ impl Device {
 
         // Set the buffersize
         match config.buffer_size {
-            BufferSize::Fixed(v) => audio_unit.set_property(
-                kAudioDevicePropertyBufferFrameSize,
-                scope,
-                element,
-                Some(&v),
-            )?,
+            BufferSize::Fixed(v) => {
+                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
+                if v >= buffer_size_range.min && v <= buffer_size_range.max {
+                    audio_unit.set_property(
+                        kAudioDevicePropertyBufferFrameSize,
+                        scope,
+                        element,
+                        Some(&v),
+                    )?
+                } else {
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+            }
             BufferSize::Default => (),
         }
 
