@@ -248,11 +248,7 @@ where
             let now_secs: f64 = js!(@{audio_ctxt}.getOutputTimestamp().currentTime)
                 .try_into()
                 .expect("failed to retrieve Value as f64");
-            let callback = {
-                let secs = now_secs as i64;
-                let nanos = ((now_secs * 1_000_000_000.0) - secs as f64 * 1_000_000_000.0) as u32;
-                crate::StreamInstant::new(secs, nanos)
-            };
+            let callback = crate::StreamInstant::from_secs_f64(now_secs);
             // TODO: Use proper latency instead. Currently unsupported on most browsers though so
             // we estimate based on buffer size instead. Probably should use this, but it's only
             // supported by firefox (2020-04-28).

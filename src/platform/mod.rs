@@ -500,6 +500,24 @@ mod platform_impl {
     }
 }
 
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+mod platform_impl {
+    pub use crate::host::webaudio::{
+        Device as WebAudioDevice, Devices as WebAudioDevices, Host as WebAudioHost,
+        Stream as WebAudioStream, SupportedInputConfigs as WebAudioSupportedInputConfigs,
+        SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
+    };
+
+    impl_platform_host!(WebAudio webaudio "WebAudio");
+
+    /// The default host for the current compilation target platform.
+    pub fn default_host() -> Host {
+        WebAudioHost::new()
+            .expect("the default host should always be available")
+            .into()
+    }
+}
+
 #[cfg(windows)]
 mod platform_impl {
     #[cfg(feature = "asio")]
@@ -535,7 +553,8 @@ mod platform_impl {
     target_os = "freebsd",
     target_os = "macos",
     target_os = "ios",
-    target_os = "emscripten"
+    target_os = "emscripten",
+    all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
 mod platform_impl {
     pub use crate::host::null::{
