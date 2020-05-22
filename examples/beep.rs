@@ -4,7 +4,9 @@ extern crate cpal;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 fn main() -> Result<(), anyhow::Error> {
-    let host = cpal::default_host();
+    //let host = cpal::default_host();
+    let host =
+        cpal::host_from_id(cpal::platform::HostId::Asio).expect("failed to initialise ASIO host");
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
@@ -23,6 +25,9 @@ fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyh
 where
     T: cpal::Sample,
 {
+    let mut config: cpal::StreamConfig = config.clone();
+    config.buffer_size = cpal::BufferSize::Fixed(256);
+
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
@@ -36,7 +41,7 @@ where
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
     let stream = device.build_output_stream(
-        config,
+        &config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
             write_data(data, channels, &mut next_value)
         },

@@ -531,10 +531,7 @@ impl SupportedStreamConfigRange {
     ///
     /// **panic!**s if the given `sample_rate` is outside the range specified within this
     /// `SupportedStreamConfigRange` instance.
-    pub fn with_sample_rate(
-        self,
-        sample_rate: SampleRate,
-    ) -> SupportedStreamConfig {
+    pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         SupportedStreamConfig {
             channels: self.channels,

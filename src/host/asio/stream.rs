@@ -5,9 +5,9 @@ use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig,
+    StreamError,
 };
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -482,6 +482,12 @@ impl Device {
         }?;
         let num_channels = config.channels as usize;
         let ref mut streams = *self.asio_streams.lock();
+
+        let buffer_size = match config.buffer_size {
+            BufferSize::Fixed(v) => Some(v as i32),
+            BufferSize::Default => None,
+        };
+
         // Either create a stream if thers none or had back the
         // size of the current one.
         match streams.input {
@@ -489,7 +495,7 @@ impl Device {
             None => {
                 let output = streams.output.take();
                 self.driver
-                    .prepare_input_stream(output, num_channels)
+                    .prepare_input_stream(output, num_channels, buffer_size)
                     .map(|new_streams| {
                         let bs = match new_streams.input {
                             Some(ref inp) => inp.buffer_size as usize,
@@ -523,6 +529,12 @@ impl Device {
         }?;
         let num_channels = config.channels as usize;
         let ref mut streams = *self.asio_streams.lock();
+
+        let buffer_size = match config.buffer_size {
+            BufferSize::Fixed(v) => Some(v as i32),
+            BufferSize::Default => None,
+        };
+
         // Either create a stream if thers none or had back the
         // size of the current one.
         match streams.output {
@@ -530,7 +542,7 @@ impl Device {
             None => {
                 let output = streams.output.take();
                 self.driver
-                    .prepare_output_stream(output, num_channels)
+                    .prepare_output_stream(output, num_channels, buffer_size)
                     .map(|new_streams| {
                         let bs = match new_streams.output {
                             Some(ref out) => out.buffer_size as usize,
@@ -645,6 +657,7 @@ fn check_config(
     let StreamConfig {
         channels,
         sample_rate,
+        buffer_size,
     } = config;
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();

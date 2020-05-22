@@ -5,9 +5,10 @@ use self::core_foundation_sys::string::{CFStringGetCString, CFStringGetCStringPt
 use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
-    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyDeviceNameCFString,
-    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,kAudioDevicePropertyNominalSampleRate, 
-    kAudioDevicePropertyScopeOutput, kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceNameCFString,
+    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
+    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
     kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
@@ -20,10 +21,11 @@ use self::coreaudio::sys::{
 };
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, 
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSizeRange, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -667,16 +669,14 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Set the buffersize 
+        // Set the buffersize
         match config.buffer_size {
-            BufferSize::Fixed(v) => {
-                audio_unit.set_property(
-                    kAudioDevicePropertyBufferFrameSize,
-                    scope,
-                    element,
-                    Some(&v),
-                )?
-            },
+            BufferSize::Fixed(v) => audio_unit.set_property(
+                kAudioDevicePropertyBufferFrameSize,
+                scope,
+                element,
+                Some(&v),
+            )?,
             BufferSize::Default => (),
         }
 
@@ -751,16 +751,14 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Set the buffersize 
+        // Set the buffersize
         match config.buffer_size {
-            BufferSize::Fixed(v) => {
-                audio_unit.set_property(
-                    kAudioDevicePropertyBufferFrameSize,
-                    scope,
-                    element,
-                    Some(&v),
-                )?
-            },
+            BufferSize::Fixed(v) => audio_unit.set_property(
+                kAudioDevicePropertyBufferFrameSize,
+                scope,
+                element,
+                Some(&v),
+            )?,
             BufferSize::Default => (),
         }
 

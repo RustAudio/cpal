@@ -3,10 +3,11 @@ extern crate libc;
 
 use self::alsa::poll::Descriptors;
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    BufferSize, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, 
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSizeRange, 
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSizeRange, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::convert::TryInto;
 use std::sync::Arc;

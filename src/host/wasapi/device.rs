@@ -319,6 +319,7 @@ unsafe fn format_from_waveformatex_ptr(
         _ => return None,
     };
     let format = SupportedStreamConfig {
+        buffer_size: unimplemented!(),
         channels: (*waveformatex_ptr).nChannels as _,
         sample_rate: SampleRate((*waveformatex_ptr).nSamplesPerSec),
         sample_format,
@@ -526,7 +527,8 @@ impl Device {
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
                 format.sample_rate = SampleRate(rate as _);
-                supported_formats.push(SupportedStreamConfigRange::from(format.clone()));
+                unimplemented!();
+                //supported_formats.push(SupportedStreamConfigRange::from(format.clone()));
             }
             Ok(supported_formats.into_iter())
         }
