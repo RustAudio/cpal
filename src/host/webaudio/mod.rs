@@ -242,6 +242,7 @@ impl DeviceTrait for Device {
                 .write()
                 .unwrap()
                 .replace(Closure::wrap(Box::new(move || {
+                    let now = ctx_handle.current_time();
                     let time_at_start_of_buffer = {
                         let time_at_start_of_buffer = time_handle
                             .read()
@@ -251,7 +252,7 @@ impl DeviceTrait for Device {
                             *time_at_start_of_buffer
                         } else {
                             // 25ms of time to fetch the first sample data, increase to avoid initial underruns.
-                            ctx_handle.current_time() + 0.025
+                            now + 0.025
                         }
                     };
 
@@ -262,8 +263,8 @@ impl DeviceTrait for Device {
                         let sample_format = SampleFormat::F32;
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
                         let mut data_callback = data_callback_handle.lock().unwrap();
-                        let callback = unimplemented!();
-                        let playback = unimplemented!();
+                        let callback = crate::StreamInstant::from_secs_f64(now);
+                        let playback = crate::StreamInstant::from_secs_f64(time_at_start_of_buffer);
                         let timestamp = crate::OutputStreamTimestamp { callback, playback };
                         let info = OutputCallbackInfo { timestamp };
                         (data_callback.deref_mut())(&mut data, &info);
