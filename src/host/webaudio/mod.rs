@@ -85,7 +85,8 @@ impl Device {
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
-        unimplemented!();
+        // TODO
+        Ok(Vec::new().into_iter())
     }
 
     #[inline]
@@ -105,7 +106,8 @@ impl Device {
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        unimplemented!();
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
     #[inline]
@@ -167,7 +169,8 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        unimplemented!()
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 
     /// Create an output stream.
@@ -406,7 +409,8 @@ impl Iterator for Devices {
 
 #[inline]
 fn default_input_device() -> Option<Device> {
-    unimplemented!();
+    // TODO
+    None
 }
 
 #[inline]
