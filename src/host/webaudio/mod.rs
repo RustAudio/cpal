@@ -7,15 +7,14 @@ use self::wasm_bindgen::prelude::*;
 use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleRate,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
-use {BackendSpecificError, SampleFormat};
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
@@ -28,10 +27,19 @@ pub struct Host;
 pub struct Stream {
     ctx: Arc<AudioContext>,
     on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>>,
+    config: StreamConfig,
+    buffer_size_frames: usize,
 }
 
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+
+const MIN_CHANNELS: u16 = 1;
+const MAX_CHANNELS: u16 = 32;
+const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
+const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
+const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -77,43 +85,42 @@ impl Device {
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
-        unimplemented!();
+        // TODO
+        Ok(Vec::new().into_iter())
     }
 
     #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
-        // TODO: right now cpal's API doesn't allow flexibility here
-        //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
-        //       this ever becomes more flexible, don't forget to change that
-        //       According to https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createBuffer
-        //       browsers must support 1 to 32 channels at leats and 8,000 Hz to 96,000 Hz.
-        //
-        //       UPDATE: We can do this now. Might be best to use `crate::COMMON_SAMPLE_RATES` and
-        //       filter out those that lay outside the range specified above.
-        Ok(vec![SupportedStreamConfigRange {
-            channels: 2,
-            min_sample_rate: SampleRate(44100),
-            max_sample_rate: SampleRate(44100),
-            sample_format: ::SampleFormat::F32,
-        }]
-        .into_iter())
+        let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
+            .map(|channels| SupportedStreamConfigRange {
+                channels,
+                min_sample_rate: MIN_SAMPLE_RATE,
+                max_sample_rate: MAX_SAMPLE_RATE,
+                sample_format: SUPPORTED_SAMPLE_FORMAT,
+            })
+            .collect();
+        Ok(configs.into_iter())
     }
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        unimplemented!();
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO: because it is hard coded, see supported_output_formats.
-        Ok(SupportedStreamConfig {
-            channels: 2,
-            sample_rate: ::SampleRate(44100),
-            sample_format: ::SampleFormat::F32,
-        })
+        const EXPECT: &str = "expected at least one valid webaudio stream config";
+        let mut configs: Vec<_> = self.supported_output_configs().expect(EXPECT).collect();
+        configs.sort_by(|a, b| a.cmp_default_heuristics(b));
+        let config = configs
+            .into_iter()
+            .next()
+            .expect(EXPECT)
+            .with_sample_rate(DEFAULT_SAMPLE_RATE);
+        Ok(config)
     }
 }
 
@@ -162,7 +169,8 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        unimplemented!()
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 
     /// Create an output stream.
@@ -177,14 +185,16 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        assert_eq!(
-            sample_format,
-            SampleFormat::F32,
-            "WebAudio backend currently only supports `f32` data",
-        );
+        if !valid_config(config, sample_format) {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
 
+        let n_channels = config.channels as usize;
         // Use a buffer period of 1/3s for this early proof of concept.
-        let buffer_length = (config.sample_rate.0 as f64 / 3.0).round() as usize;
+        // TODO: Change this to the requested buffer size when updating for the buffer size API.
+        let buffer_size_frames = (config.sample_rate.0 as f64 / 3.0).round() as usize;
+        let buffer_size_samples = buffer_size_frames * n_channels;
+        let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 
         // Create the WebAudio stream.
@@ -206,22 +216,23 @@ impl DeviceTrait for Device {
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
 
-        // Create a set of closures / callbacks which will continuously fetch and schedule sample playback.
-        // Starting with two workers, eg a front and back buffer so that audio frames can be fetched in the background.
+        // Create a set of closures / callbacks which will continuously fetch and schedule sample
+        // playback. Starting with two workers, eg a front and back buffer so that audio frames
+        // can be fetched in the background.
         for _i in 0..2 {
             let data_callback_handle = data_callback.clone();
             let ctx_handle = ctx.clone();
             let time_handle = time.clone();
 
             // A set of temporary buffers to be used for intermediate sample transformation steps.
-            let mut temporary_buffer = vec![0f32; buffer_length * config.channels as usize];
-            let mut temporary_channel_buffer = vec![0f32; buffer_length];
+            let mut temporary_buffer = vec![0f32; buffer_size_samples];
+            let mut temporary_channel_buffer = vec![0f32; buffer_size_frames];
 
             // Create a webaudio buffer which will be reused to avoid allocations.
             let ctx_buffer = ctx
                 .create_buffer(
                     config.channels as u32,
-                    buffer_length as u32,
+                    buffer_size_frames as u32,
                     config.sample_rate.0 as f32,
                 )
                 .map_err(|err| -> BuildStreamError {
@@ -235,9 +246,6 @@ impl DeviceTrait for Device {
                 Arc::new(RwLock::new(None));
             let on_ended_closure_handle = on_ended_closure.clone();
 
-            let n_channels = config.channels as usize;
-            let sample_rate = config.sample_rate.0 as f64;
-
             on_ended_closure
                 .write()
                 .unwrap()
@@ -247,11 +255,13 @@ impl DeviceTrait for Device {
                         let time_at_start_of_buffer = time_handle
                             .read()
                             .expect("Unable to get a read lock on the time cursor");
-                        // Synchronise first buffer as necessary (eg. keep the time value referenced to the context clock).
+                        // Synchronise first buffer as necessary (eg. keep the time value
+                        // referenced to the context clock).
                         if *time_at_start_of_buffer > 0.001 {
                             *time_at_start_of_buffer
                         } else {
-                            // 25ms of time to fetch the first sample data, increase to avoid initial underruns.
+                            // 25ms of time to fetch the first sample data, increase to avoid
+                            // initial underruns.
                             now + 0.025
                         }
                     };
@@ -260,7 +270,6 @@ impl DeviceTrait for Device {
                     {
                         let len = temporary_buffer.len();
                         let data = temporary_buffer.as_mut_ptr() as *mut ();
-                        let sample_format = SampleFormat::F32;
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
                         let mut data_callback = data_callback_handle.lock().unwrap();
                         let callback = crate::StreamInstant::from_secs_f64(now);
@@ -274,7 +283,7 @@ impl DeviceTrait for Device {
                     // We do not reference the audio context buffer directly eg getChannelData.
                     // As wasm-bindgen only gives us a copy, not a direct reference.
                     for channel in 0..n_channels {
-                        for i in 0..buffer_length {
+                        for i in 0..buffer_size_frames {
                             temporary_channel_buffer[i] =
                                 temporary_buffer[n_channels * i + channel];
                         }
@@ -283,7 +292,8 @@ impl DeviceTrait for Device {
                             .expect("Unable to write sample data into the audio context buffer");
                     }
 
-                    // Create an AudioBufferSourceNode, scheduled it to playback the reused buffer in the future.
+                    // Create an AudioBufferSourceNode, schedule it to playback the reused buffer
+                    // in the future.
                     let source = ctx_handle
                         .create_buffer_source()
                         .expect("Unable to create a webaudio buffer source");
@@ -308,8 +318,7 @@ impl DeviceTrait for Device {
                         .expect("Unable to start the webaudio buffer source");
 
                     // Keep track of when the next buffer worth of samples should be played.
-                    *time_handle.write().unwrap() =
-                        time_at_start_of_buffer + (buffer_length as f64 / sample_rate);
+                    *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
                 }) as Box<dyn FnMut()>));
 
             on_ended_closures.push(on_ended_closure);
@@ -318,6 +327,8 @@ impl DeviceTrait for Device {
         Ok(Stream {
             ctx,
             on_ended_closures,
+            config: config.clone(),
+            buffer_size_frames,
         })
     }
 }
@@ -327,8 +338,12 @@ impl StreamTrait for Stream {
         let window = web_sys::window().unwrap();
         match self.ctx.resume() {
             Ok(_) => {
-                // Begin webaudio playback, initially scheduling the closures to fire on a timeout event.
+                // Begin webaudio playback, initially scheduling the closures to fire on a timeout
+                // event.
                 let mut offset_ms = 10;
+                let time_step_secs =
+                    buffer_time_step_secs(self.buffer_size_frames, self.config.sample_rate);
+                let time_step_ms = (time_step_secs * 1_000.0) as i32;
                 for on_ended_closure in self.on_ended_closures.iter() {
                     window
                         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -342,7 +357,7 @@ impl StreamTrait for Stream {
                             offset_ms,
                         )
                         .unwrap();
-                    offset_ms += 333 / 2;
+                    offset_ms += time_step_ms;
                 }
                 Ok(())
             }
@@ -394,7 +409,8 @@ impl Iterator for Devices {
 
 #[inline]
 fn default_input_device() -> Option<Device> {
-    unimplemented!();
+    // TODO
+    None
 }
 
 #[inline]
@@ -413,4 +429,17 @@ fn is_webaudio_available() -> bool {
     } else {
         false
     }
+}
+
+// Whether or not the given stream configuration is valid for building a stream.
+fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
+    conf.channels <= MAX_CHANNELS
+        && conf.channels >= MIN_CHANNELS
+        && conf.sample_rate <= MAX_SAMPLE_RATE
+        && conf.sample_rate >= MIN_SAMPLE_RATE
+        && sample_format == SUPPORTED_SAMPLE_FORMAT
+}
+
+fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {
+    buffer_size_frames as f64 / sample_rate.0 as f64
 }
