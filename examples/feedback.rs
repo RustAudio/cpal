@@ -16,9 +16,8 @@ use ringbuf::RingBuffer;
 const LATENCY_MS: f32 = 150.0;
 
 fn main() -> Result<(), anyhow::Error> {
-    //let host = cpal::default_host();
-    let host =
-        cpal::host_from_id(cpal::platform::HostId::Asio).expect("failed to initialise ASIO host");
+    let host = cpal::default_host();
+
     // Default devices.
     let input_device = host
         .default_input_device()
@@ -30,8 +29,7 @@ fn main() -> Result<(), anyhow::Error> {
     println!("Using default output device: \"{}\"", output_device.name()?);
 
     // We'll try and use the same configuration between streams to keep it simple.
-    let mut config: cpal::StreamConfig = input_device.default_input_config()?.into();
-    //config.buffer_size = cpal::BufferSize::Fixed(1024);
+    let config: cpal::StreamConfig = input_device.default_input_config()?.into();
 
     // Create a delay in case the input and output devices aren't synced.
     let latency_frames = (LATENCY_MS / 1_000.0) * config.sample_rate.0 as f32;
@@ -45,11 +43,10 @@ fn main() -> Result<(), anyhow::Error> {
     for _ in 0..latency_samples {
         // The ring buffer has twice as much space as necessary to add latency here,
         // so this should never fail
-        producer.push(0).unwrap();
+        producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &[i16], _: &cpal::InputCallbackInfo| {
-        println!("data len = {}", data.len());
+    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
             if producer.push(sample).is_err() {
@@ -61,14 +58,14 @@ fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let output_data_fn = move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = None;
         for sample in data {
             *sample = match consumer.pop() {
                 Ok(s) => s,
                 Err(err) => {
                     input_fell_behind = Some(err);
-                    0
+                    0.0
                 }
             };
         }
