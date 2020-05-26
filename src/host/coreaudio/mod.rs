@@ -24,7 +24,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
     PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSizeRange, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
@@ -915,14 +915,14 @@ fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
 
 fn get_io_buffer_frame_size_range(
     audio_unit: &AudioUnit,
-) -> Result<SupportedBufferSizeRange, coreaudio::Error> {
+) -> Result<SupportedBufferSize, coreaudio::Error> {
     let buffer_size_range: AudioValueRange = audio_unit.get_property(
         kAudioDevicePropertyBufferFrameSizeRange,
         Scope::Global,
         Element::Output,
     )?;
 
-    Ok(SupportedBufferSizeRange {
+    Ok(SupportedBufferSize::Range {
         min: buffer_size_range.mMinimum as u32,
         max: buffer_size_range.mMaximum as u32,
         requires_power_of_two: false,

@@ -1,8 +1,8 @@
 use crate::{
-    BackendSpecificError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
-    COMMON_SAMPLE_RATES,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError, 
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, 
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, 
+    SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std;
 use std::ffi::OsString;
@@ -27,6 +27,7 @@ use super::winapi::shared::mmreg;
 use super::winapi::shared::winerror;
 use super::winapi::shared::wtypes;
 use super::winapi::Interface;
+
 // https://msdn.microsoft.com/en-us/library/cc230355.aspx
 use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
@@ -318,10 +319,11 @@ unsafe fn format_from_waveformatex_ptr(
         // Unknown data format returned by GetMixFormat.
         _ => return None,
     };
+
     let format = SupportedStreamConfig {
-        buffer_size: unimplemented!(),
         channels: (*waveformatex_ptr).nChannels as _,
         sample_rate: SampleRate((*waveformatex_ptr).nSamplesPerSec),
+        buffer_size: SupportedBufferSize::Unknown,
         sample_format,
     };
     Some(format)
@@ -514,7 +516,7 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let mut format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
+            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
                 Some(fmt) => fmt,
                 None => {
                     let description =
@@ -526,9 +528,13 @@ impl Device {
             };
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
-                format.sample_rate = SampleRate(rate as _);
-                unimplemented!();
-                //supported_formats.push(SupportedStreamConfigRange::from(format.clone()));
+                supported_formats.push(SupportedStreamConfigRange {
+                    channels: format.channels.clone(),
+                    min_sample_rate: SampleRate(rate as _),
+                    max_sample_rate: SampleRate(rate as _),
+                    buffer_size: format.buffer_size.clone(),
+                    sample_format: format.sample_format.clone(),
+                })
             }
             Ok(supported_formats.into_iter())
         }
@@ -639,6 +645,16 @@ impl Device {
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
+            };
+
+            match config.buffer_size {
+                BufferSize::Fixed(_) => {
+                    // TO DO: We need IAudioClient3 to get buffersize ranges first
+                    // Otherwise the supported ranges are unknown. In the mean time
+                    // the smallest buffersize is selected and used.
+                    return Err(BuildStreamError::StreamConfigNotSupported)
+                },
+                BufferSize::Default => (),
             };
 
             // Computing the format and initializing the device.
@@ -793,6 +809,16 @@ impl Device {
                 }
             };
 
+            match config.buffer_size {
+                BufferSize::Fixed(_) => {
+                    // TO DO: We need IAudioClient3 to get buffersize ranges first
+                    // Otherwise the supported ranges are unknown. In the mean time
+                    // the smallest buffersize is selected and used.
+                    return Err(BuildStreamError::StreamConfigNotSupported)
+                },
+                BufferSize::Default => (),
+            };
+
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
@@ -815,6 +841,7 @@ impl Device {
                     &format_attempt.Format,
                     ptr::null(),
                 );
+
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();

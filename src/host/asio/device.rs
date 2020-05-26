@@ -12,7 +12,7 @@ use DeviceNameError;
 use DevicesError;
 use SampleFormat;
 use SampleRate;
-use SupportedBufferSizeRange;
+use SupportedBufferSize;
 use SupportedStreamConfig;
 use SupportedStreamConfigRange;
 use SupportedStreamConfigsError;
@@ -132,7 +132,7 @@ impl Device {
         let channels = self.driver.channels().map_err(default_config_err)?.ins as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
         let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
-        let buffer_size = SupportedBufferSizeRange {
+        let buffer_size = SupportedBufferSize::Range {
             min: min as u32,
             max: max as u32,
             requires_power_of_two: false,
@@ -154,7 +154,7 @@ impl Device {
         let channels = self.driver.channels().map_err(default_config_err)?.outs as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
         let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
-        let buffer_size = SupportedBufferSizeRange {
+        let buffer_size = SupportedBufferSize::Range {
             min: min as u32,
             max: max as u32,
             requires_power_of_two: false,

@@ -6,7 +6,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
     PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSizeRange, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::convert::TryInto;
@@ -343,7 +343,7 @@ impl Device {
         let min_buffer_size = hw_params.get_buffer_size_min()?;
         let max_buffer_size = hw_params.get_buffer_size_max()?;
 
-        let buffer_size_range = SupportedBufferSizeRange {
+        let buffer_size_range = SupportedBufferSize::Range {
             min: min_buffer_size as u32,
             max: max_buffer_size as u32,
             requires_power_of_two: false,

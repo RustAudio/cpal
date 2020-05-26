@@ -202,10 +202,15 @@ pub struct StreamConfig {
 /// Describes the minimum and maximum supported buffer size for the device
 /// and if requested buffersize must be a power of 2 value.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SupportedBufferSizeRange {
-    pub min: FrameCount,
-    pub max: FrameCount,
-    pub requires_power_of_two: bool,
+pub enum SupportedBufferSize {
+    Range {
+        min: FrameCount,
+        max: FrameCount,
+        requires_power_of_two: bool,
+    },
+    /// In the case that the platform provides no way of getting the default
+    /// buffersize before starting a stream.
+    Unknown,
 }
 
 /// Describes a range of supported stream configurations, retrieved via the
@@ -218,7 +223,7 @@ pub struct SupportedStreamConfigRange {
     /// Maximum value for the samples rate of the supported formats.
     pub(crate) max_sample_rate: SampleRate,
     /// Buffersize ranges supported by the device
-    pub(crate) buffer_size: SupportedBufferSizeRange,
+    pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
     pub(crate) sample_format: SampleFormat,
 }
@@ -229,7 +234,7 @@ pub struct SupportedStreamConfigRange {
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
     sample_rate: SampleRate,
-    buffer_size: SupportedBufferSizeRange,
+    buffer_size: SupportedBufferSize,
     sample_format: SampleFormat,
 }
 
@@ -311,7 +316,7 @@ impl SupportedStreamConfig {
         self.sample_rate
     }
 
-    pub fn buffer_size(&self) -> &SupportedBufferSizeRange {
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
         &self.buffer_size
     }
 
@@ -519,7 +524,7 @@ impl SupportedStreamConfigRange {
         self.max_sample_rate
     }
 
-    pub fn buffer_size(&self) -> &SupportedBufferSizeRange {
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
         &self.buffer_size
     }
 
