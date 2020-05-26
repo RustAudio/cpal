@@ -181,7 +181,7 @@ impl Device {
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
-                let name: &CStr = unsafe { CStr::from_ptr(buf.as_ptr()) };
+                let name: &CStr = CStr::from_ptr(buf.as_ptr());
                 return Ok(name.to_str().unwrap().to_owned());
             }
             CStr::from_ptr(c_string as *mut _)
@@ -327,7 +327,7 @@ impl Device {
                     Err(DefaultStreamConfigError::DeviceNotAvailable)
                 }
                 err => {
-                    let description = format!("{}", std::error::Error::description(&err));
+                    let description = format!("{}", err);
                     let err = BackendSpecificError { description };
                     Err(err.into())
                 }
@@ -408,6 +408,7 @@ struct StreamInner {
     //
     // We must do this so that we can avoid changing the device sample rate if there is already
     // a stream associated with the device.
+    #[allow(dead_code)]
     device_id: AudioDeviceID,
 }
 
@@ -813,7 +814,7 @@ impl StreamTrait for Stream {
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", std::error::Error::description(&e));
+                let description = format!("{}", e);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -827,7 +828,7 @@ impl StreamTrait for Stream {
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", std::error::Error::description(&e));
+                let description = format!("{}", e);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -842,7 +843,7 @@ fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
     match coreaudio::Error::from_os_status(os_status) {
         Ok(()) => Ok(()),
         Err(err) => {
-            let description = std::error::Error::description(&err).to_string();
+            let description = err.to_string();
             Err(BackendSpecificError { description })
         }
     }
