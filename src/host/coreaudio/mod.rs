@@ -380,7 +380,7 @@ impl Device {
                 }
             };
 
-            let mut audio_unit = audio_unit_from_device(self, true)?;
+            let audio_unit = audio_unit_from_device(self, true)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
@@ -688,15 +688,20 @@ impl Device {
         match config.buffer_size {
             BufferSize::Fixed(v) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                if v >= buffer_size_range.min && v <= buffer_size_range.max {
-                    audio_unit.set_property(
-                        kAudioDevicePropertyBufferFrameSize,
-                        scope,
-                        element,
-                        Some(&v),
-                    )?
-                } else {
-                    return Err(BuildStreamError::StreamConfigNotSupported);
+                match buffer_size_range {
+                    SupportedBufferSize::Range{min, max} => {
+                        if v >= min && v <= max {
+                            audio_unit.set_property(
+                                kAudioDevicePropertyBufferFrameSize,
+                                scope,
+                                element,
+                                Some(&v),
+                            )?
+                        } else {
+                            return Err(BuildStreamError::StreamConfigNotSupported);
+                        }
+                    },
+                    SupportedBufferSize::Unknown => (),
                 }
             }
             BufferSize::Default => (),
@@ -777,15 +782,20 @@ impl Device {
         match config.buffer_size {
             BufferSize::Fixed(v) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                if v >= buffer_size_range.min && v <= buffer_size_range.max {
-                    audio_unit.set_property(
-                        kAudioDevicePropertyBufferFrameSize,
-                        scope,
-                        element,
-                        Some(&v),
-                    )?
-                } else {
-                    return Err(BuildStreamError::StreamConfigNotSupported);
+                match buffer_size_range {
+                    SupportedBufferSize::Range{min, max} => {
+                        if v >= min && v <= max {
+                            audio_unit.set_property(
+                                kAudioDevicePropertyBufferFrameSize,
+                                scope,
+                                element,
+                                Some(&v),
+                            )?
+                        } else {
+                            return Err(BuildStreamError::StreamConfigNotSupported);
+                        }
+                    },
+                    SupportedBufferSize::Unknown => (),
                 }
             }
             BufferSize::Default => (),
