@@ -386,11 +386,11 @@ impl Driver {
     }
 
     /// Get the min and max supported buffersize of the driver.
-    pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> { 
-        let buffer_sizes = asio_get_buffer_sizes()?; 
-        let min = buffer_sizes.min; 
-        let max = buffer_sizes.max; 
-        Ok((min, max)) 
+    pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> {
+        let buffer_sizes = asio_get_buffer_sizes()?;
+        let min = buffer_sizes.min;
+        let max = buffer_sizes.max;
+        Ok((min, max))
     }
 
     /// Get current sample rate of the driver.
@@ -442,7 +442,11 @@ impl Driver {
     /// If buffersize is None then the preferred buffer size from ASIO is used,
     /// otherwise the desired buffersize is used if the requeted size is within
     /// the range of accepted buffersizes for the device.
-    fn create_buffers(&self, buffer_infos: &mut [AsioBufferInfo], buffer_size: Option<i32>) -> Result<c_long, AsioError> {
+    fn create_buffers(
+        &self,
+        buffer_infos: &mut [AsioBufferInfo],
+        buffer_size: Option<i32>,
+    ) -> Result<c_long, AsioError> {
         let num_channels = buffer_infos.len();
 
         // To pass as ai::ASIOCallbacks
@@ -464,9 +468,9 @@ impl Driver {
                 if v <= buffer_sizes.max {
                     v
                 } else {
-                    return Err(AsioError::InvalidBufferSize)
+                    return Err(AsioError::InvalidBufferSize);
                 }
-            },
+            }
             None => buffer_sizes.pref,
         };
 
@@ -492,9 +496,9 @@ impl Driver {
 
     /// Creates the streams.
     ///
-    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the 
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
     /// default buffersize for the device is used.
-    /// 
+    ///
     /// Both input and output streams need to be created together as a single slice of
     /// `ASIOBufferInfo`.
     fn create_streams(
@@ -561,8 +565,8 @@ impl Driver {
     /// For this reason we take the output stream if it exists.
     ///
     /// `num_channels` is the desired number of input channels.
-    /// 
-    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the 
+    ///
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
     /// default buffersize for the device is used.
     ///
     /// This returns a full AsioStreams with both input and output if output was active.
@@ -588,9 +592,9 @@ impl Driver {
     ///
     /// `num_channels` is the desired number of output channels.
     ///
-    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the 
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
     /// default buffersize for the device is used.
-    /// 
+    ///
     /// This returns a full AsioStreams with both input and output if input was active.
     pub fn prepare_output_stream(
         &self,
