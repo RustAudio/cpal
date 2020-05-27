@@ -62,6 +62,7 @@ unsafe impl Sample for u16 {
         }
     }
 
+    #[inline]
     fn to_i32(&self) -> i32 {
         self.to_i16() as i32
     }
