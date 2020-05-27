@@ -36,6 +36,7 @@ pub fn beep() -> Handle {
 
     Handle(match config.sample_format() {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
     })

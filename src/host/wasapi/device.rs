@@ -300,7 +300,7 @@ unsafe fn format_from_waveformatex_ptr(
         a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 && a.Data4 == b.Data4
     }
     let sample_format = match (
-        (*waveformatex_ptr).wBitsPerSample,
+        (*waveformatex_ptr).wBitsPerSample, // 8 or 16 for integers, 32 for floats
         (*waveformatex_ptr).wFormatTag,
     ) {
         (16, mmreg::WAVE_FORMAT_PCM) => SampleFormat::I16,

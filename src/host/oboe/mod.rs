@@ -397,6 +397,10 @@ impl DeviceTrait for Device {
                 description: "U16 format is not supported on Android.".to_owned(),
             }
             .into()),
+            SampleFormat::I32 => Err(BackendSpecificError {
+                description: "I32 format is not supported on Android.".to_owned(),
+            }
+            .into()),
         }
     }
 

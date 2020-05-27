@@ -321,18 +321,18 @@ impl Device {
         let hw_params = alsa::pcm::HwParams::any(&handle)?;
 
         // TODO: check endianess
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 3] = [
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 4] = [
             //SND_PCM_FORMAT_S8,
             //SND_PCM_FORMAT_U8,
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
             //SND_PCM_FORMAT_S16_BE,
             (SampleFormat::U16, alsa::pcm::Format::U16LE),
             //SND_PCM_FORMAT_U16_BE,
-            //SND_PCM_FORMAT_S24_LE,
+            // (SampleFormat::I24, alsa::pcm::Format::S24LE),
             //SND_PCM_FORMAT_S24_BE,
             //SND_PCM_FORMAT_U24_LE,
             //SND_PCM_FORMAT_U24_BE,
-            //SND_PCM_FORMAT_S32_LE,
+            (SampleFormat::I32, alsa::pcm::Format::S32LE),
             //SND_PCM_FORMAT_S32_BE,
             //SND_PCM_FORMAT_U32_LE,
             //SND_PCM_FORMAT_U32_BE,
@@ -348,7 +348,7 @@ impl Device {
             //SND_PCM_FORMAT_MPEG,
             //SND_PCM_FORMAT_GSM,
             //SND_PCM_FORMAT_SPECIAL,
-            //SND_PCM_FORMAT_S24_3LE,
+            //(SampleFormat::I24, alsa::pcm::Format::S243LE),
             //SND_PCM_FORMAT_S24_3BE,
             //SND_PCM_FORMAT_U24_3LE,
             //SND_PCM_FORMAT_U24_3BE,
@@ -975,12 +975,14 @@ fn set_hw_params_from_format<'a>(
         match sample_format {
             SampleFormat::I16 => alsa::pcm::Format::S16BE,
             SampleFormat::U16 => alsa::pcm::Format::U16BE,
+            SampleFormat::I32 => alsa::pcm::Format::S32BE,
             SampleFormat::F32 => alsa::pcm::Format::FloatBE,
         }
     } else {
         match sample_format {
             SampleFormat::I16 => alsa::pcm::Format::S16LE,
             SampleFormat::U16 => alsa::pcm::Format::U16LE,
+            SampleFormat::I32 => alsa::pcm::Format::S32LE,
             SampleFormat::F32 => alsa::pcm::Format::FloatLE,
         }
     };
