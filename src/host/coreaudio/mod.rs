@@ -689,7 +689,7 @@ impl Device {
             BufferSize::Fixed(v) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
                 match buffer_size_range {
-                    SupportedBufferSize::Range{min, max} => {
+                    SupportedBufferSize::Range { min, max } => {
                         if v >= min && v <= max {
                             audio_unit.set_property(
                                 kAudioDevicePropertyBufferFrameSize,
@@ -700,7 +700,7 @@ impl Device {
                         } else {
                             return Err(BuildStreamError::StreamConfigNotSupported);
                         }
-                    },
+                    }
                     SupportedBufferSize::Unknown => (),
                 }
             }
@@ -783,7 +783,7 @@ impl Device {
             BufferSize::Fixed(v) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
                 match buffer_size_range {
-                    SupportedBufferSize::Range{min, max} => {
+                    SupportedBufferSize::Range { min, max } => {
                         if v >= min && v <= max {
                             audio_unit.set_property(
                                 kAudioDevicePropertyBufferFrameSize,
@@ -794,7 +794,7 @@ impl Device {
                         } else {
                             return Err(BuildStreamError::StreamConfigNotSupported);
                         }
-                    },
+                    }
                     SupportedBufferSize::Unknown => (),
                 }
             }
