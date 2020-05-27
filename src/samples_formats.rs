@@ -139,10 +139,14 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn to_i32(&self) -> i32 {
-        if *self >= 0.0 {
-            (*self * ::std::i32::MAX as f32) as i32
+        let res = match self.is_sign_negative() {
+            false => (self * std::i32::MAX as f32),
+            true => (self * -(std::i32::MIN as f32)),
+        };
+        if *self == 1.0f32 && res as i32 == std::i32::MIN {
+            std::i32::MAX
         } else {
-            (-*self * ::std::i32::MIN as f32) as i32
+            res as i32
         }
     }
 
@@ -218,6 +222,14 @@ mod test {
     }
 
     #[test]
+    fn i32_to_i32() {
+        assert_eq!(std::i32::MAX.to_i32(), std::i32::MAX);
+        assert_eq!((std::i32::MIN / 2).to_i32(), std::i32::MIN / 2);
+        assert_eq!(std::i32::MIN.to_i32(), std::i32::MIN);
+        assert_eq!(0i32.to_i32(), 0);
+    }
+
+    #[test]
     fn i32_to_u16() {
         assert_eq!(std::i32::MAX.to_u16(), std::u16::MAX);
         assert_eq!(
@@ -246,6 +258,15 @@ mod test {
     }
 
     #[test]
+    fn i16_to_i32() {
+        // TODO
+        // assert_eq!(0i16.to_i16(), 0);
+        // assert_eq!((-467i16).to_i16(), -467);
+        // assert_eq!(32767i16.to_i16(), 32767);
+        // assert_eq!((-32768i16).to_i16(), -32768);
+    }
+
+    #[test]
     fn i16_to_u16() {
         assert_eq!(0i16.to_u16(), 32768);
         assert_eq!((-16384i16).to_u16(), 16384);
@@ -270,6 +291,14 @@ mod test {
         assert_eq!(0u16.to_i16(), -32768);
     }
 
+    fn u16_to_i32() {
+        // TODO
+        // assert_eq!(32768u16.to_i16(), 0);
+        // assert_eq!(16384u16.to_i16(), -16384);
+        // assert_eq!(65535u16.to_i16(), 32767);
+        // assert_eq!(0u16.to_i16(), -32768);
+    }
+
     #[test]
     fn u16_to_u16() {
         assert_eq!(0u16.to_u16(), 0);
@@ -291,6 +320,16 @@ mod test {
         assert_eq!((-0.5f32).to_i16(), ::std::i16::MIN / 2);
         assert_eq!(1.0f32.to_i16(), ::std::i16::MAX);
         assert_eq!((-1.0f32).to_i16(), ::std::i16::MIN);
+    }
+
+    #[test]
+    fn f32_to_i32() {
+        assert_eq!(1.0f32.to_i32(), std::i32::MAX);
+        assert_eq!(0.5f32.to_i32(), 1073741824);
+        assert_eq!(0.25f32.to_i32(), 536870912);
+        assert_eq!(0.to_i32(), 0);
+        assert_eq!((-0.5f32).to_i32(), std::i32::MIN / 2);
+        assert_eq!((-1.0f32).to_i32(), std::i32::MIN);
     }
 
     #[test]
