@@ -63,7 +63,7 @@ unsafe impl Sample for u16 {
     }
 
     fn to_i32(&self) -> i32 {
-        (*self).into()
+        self.to_i16() as i32
     }
 
     #[inline]
@@ -259,11 +259,10 @@ mod test {
 
     #[test]
     fn i16_to_i32() {
-        // TODO
-        // assert_eq!(0i16.to_i16(), 0);
-        // assert_eq!((-467i16).to_i16(), -467);
-        // assert_eq!(32767i16.to_i16(), 32767);
-        // assert_eq!((-32768i16).to_i16(), -32768);
+        assert_eq!(0i16.to_i32(), 0);
+        assert_eq!((-467i16).to_i32(), -467);
+        assert_eq!(std::i16::MAX.to_i32(), std::i16::MAX as i32);
+        assert_eq!(std::i16::MIN.to_i32(), std::i16::MIN as i32);
     }
 
     #[test]
@@ -291,12 +290,12 @@ mod test {
         assert_eq!(0u16.to_i16(), -32768);
     }
 
+    #[test]
     fn u16_to_i32() {
-        // TODO
-        // assert_eq!(32768u16.to_i16(), 0);
-        // assert_eq!(16384u16.to_i16(), -16384);
-        // assert_eq!(65535u16.to_i16(), 32767);
-        // assert_eq!(0u16.to_i16(), -32768);
+        assert_eq!(32768u16.to_i32(), 0);
+        assert_eq!(16384u16.to_i32(), -16384);
+        assert_eq!(65535u16.to_i32(), std::i16::MAX as i32);
+        assert_eq!(0u16.to_i32(), std::i16::MIN as i32);
     }
 
     #[test]
