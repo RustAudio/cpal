@@ -99,6 +99,7 @@
 //! let stream = match sample_format {
 //!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
 //!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
+//!     SampleFormat::I32 => device.build_output_stream(&config, write_silence::<i32>, err_fn),
 //!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
 //! }.unwrap();
 //!
@@ -610,7 +611,7 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
+        use SampleFormat::{F32, I16, I32, U16};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
