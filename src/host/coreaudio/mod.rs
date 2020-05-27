@@ -925,6 +925,5 @@ fn get_io_buffer_frame_size_range(
     Ok(SupportedBufferSize::Range {
         min: buffer_size_range.mMinimum as u32,
         max: buffer_size_range.mMaximum as u32,
-        requires_power_of_two: false,
     })
 }

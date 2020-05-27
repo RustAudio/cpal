@@ -1,7 +1,7 @@
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError, 
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, 
-    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, 
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std;
@@ -652,8 +652,8 @@ impl Device {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
                     // Otherwise the supported ranges are unknown. In the mean time
                     // the smallest buffersize is selected and used.
-                    return Err(BuildStreamError::StreamConfigNotSupported)
-                },
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
                 BufferSize::Default => (),
             };
 
@@ -814,8 +814,8 @@ impl Device {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
                     // Otherwise the supported ranges are unknown. In the mean time
                     // the smallest buffersize is selected and used.
-                    return Err(BuildStreamError::StreamConfigNotSupported)
-                },
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
                 BufferSize::Default => (),
             };
 

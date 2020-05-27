@@ -135,7 +135,6 @@ impl Device {
         let buffer_size = SupportedBufferSize::Range {
             min: min as u32,
             max: max as u32,
-            requires_power_of_two: false,
         };
         // Map th ASIO sample type to a CPAL sample type
         let data_type = self.driver.input_data_type().map_err(default_config_err)?;
@@ -157,7 +156,6 @@ impl Device {
         let buffer_size = SupportedBufferSize::Range {
             min: min as u32,
             max: max as u32,
-            requires_power_of_two: false,
         };
         let data_type = self.driver.output_data_type().map_err(default_config_err)?;
         let sample_format = convert_data_type(&data_type)

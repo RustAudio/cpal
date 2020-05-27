@@ -346,7 +346,6 @@ impl Device {
         let buffer_size_range = SupportedBufferSize::Range {
             min: min_buffer_size as u32,
             max: max_buffer_size as u32,
-            requires_power_of_two: false,
         };
 
         let mut output = Vec::with_capacity(

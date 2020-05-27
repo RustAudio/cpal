@@ -200,13 +200,11 @@ pub struct StreamConfig {
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
-/// and if requested buffersize must be a power of 2 value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
     Range {
         min: FrameCount,
         max: FrameCount,
-        requires_power_of_two: bool,
     },
     /// In the case that the platform provides no way of getting the default
     /// buffersize before starting a stream.
