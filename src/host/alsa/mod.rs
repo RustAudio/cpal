@@ -869,7 +869,7 @@ fn set_hw_params_from_format<'a>(
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
-    let mut hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
