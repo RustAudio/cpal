@@ -189,7 +189,7 @@ impl Device {
             let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
             hw_params.can_pause()
         };
-        let (_buffer_len, period_len) = set_sw_params_from_format(&handle, conf)?;
+        let (_buffer_len, period_len) = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
 
@@ -905,9 +905,9 @@ fn set_hw_params_from_format<'a>(
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
+    stream_type: alsa::Direction,
 ) -> Result<(usize, usize), BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;
-    sw_params.set_start_threshold(0)?;
 
     let (buffer_len, period_len) = {
         let (buffer, period) = pcm_handle.get_params()?;
@@ -915,6 +915,12 @@ fn set_sw_params_from_format(
             return Err(BackendSpecificError {
                 description: "initialization resulted in a null buffer".to_string(),
             });
+        }
+        match stream_type {
+            alsa::Direction::Playback => {
+                sw_params.set_start_threshold((buffer - period) as alsa::pcm::Frames)?
+            }
+            alsa::Direction::Capture => sw_params.set_start_threshold(1)?,
         }
         sw_params.set_avail_min(period as alsa::pcm::Frames)?;
         let buffer = buffer as usize * config.channels as usize;
