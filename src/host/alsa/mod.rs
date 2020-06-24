@@ -211,7 +211,12 @@ impl Device {
             _ => None,
         };
 
-        handle.start()?;
+        // For capture streams, starts can't be delayed until the
+        // read calls since the input_stream_worker won't call those
+        // if the pcm is not started
+        if stream_type == alsa::Direction::Capture {
+            handle.start()?
+        }
 
         let stream_inner = StreamInner {
             channel: handle,
@@ -918,9 +923,11 @@ fn set_sw_params_from_format(
         }
         match stream_type {
             alsa::Direction::Playback => {
+                // Don't start playback until the buffer is filled
                 sw_params.set_start_threshold((buffer - period) as alsa::pcm::Frames)?
             }
-            alsa::Direction::Capture => sw_params.set_start_threshold(1)?,
+            // For capture streams rely on an explicit start
+            alsa::Direction::Capture => sw_params.set_start_threshold(i32::MAX.into())?,
         }
         sw_params.set_avail_min(period as alsa::pcm::Frames)?;
         let buffer = buffer as usize * config.channels as usize;
