@@ -76,6 +76,17 @@ macro_rules! impl_platform_host {
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
+        /// 
+        /// This enum is generated at compile time, and all the possible variants are:
+        /// - Alsa
+        /// - CoreAudio
+        /// - Emscripten
+        /// - WebAudio
+        /// - Asio
+        /// - Wasapi
+        /// - Null
+        /// 
+        /// Only the variants supported by the current platfom will be included.
         #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
         pub enum HostId {
             $(
