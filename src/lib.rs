@@ -633,6 +633,75 @@ impl SupportedStreamConfigRange {
     }
 }
 
+#[test]
+fn test_cmp_default_heuristics() {
+    let mut formats = vec![
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::F32,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 1,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::F32,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::I16,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::U16,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(22050),
+            sample_format: SampleFormat::F32,
+        },
+    ];
+
+    formats.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+    // lowest-priority first:
+    assert_eq!(formats[0].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[0].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[0].channels(), 1);
+
+    assert_eq!(formats[1].sample_format(), SampleFormat::U16);
+    assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[1].channels(), 2);
+
+    assert_eq!(formats[2].sample_format(), SampleFormat::I16);
+    assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[2].channels(), 2);
+
+    assert_eq!(formats[3].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
+    assert_eq!(formats[3].channels(), 2);
+
+    assert_eq!(formats[4].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[4].channels(), 2);
+}
+
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
         conf.config()
