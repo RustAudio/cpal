@@ -75,7 +75,7 @@
 //! While the stream is running, the selected audio device will periodically call the data callback
 //! that was passed to the function. The callback is passed an instance of either `&Data` or
 //! `&mut Data` depending on whether the stream is an input stream or output stream respectively.
-//! The length of the buffer can vary from call to call. 
+//! The length of the buffer can vary from call to call.
 //!
 //! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
