@@ -1,7 +1,7 @@
 /* This example aims to produce the same behaviour
  * as the enumerate example in cpal
  * by Tom Gowan
- * However it does not report all supported sample rates and number of channels, 
+ * However it does not report all supported sample rates and number of channels,
  * only the active values reported by the driver.
  * Note that the format will always be reported as F32
  * without querying the driver if this format is actually supported.
@@ -60,8 +60,7 @@ fn main() {
             };
             println!("  Input {:?}", in_fmt);
             println!("  Output {:?}", out_fmt);
-        }
-        else {
+        } else {
             println!("Failed to load driver: {:?}", name);
         }
     }
