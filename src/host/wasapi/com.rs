@@ -10,7 +10,11 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
         // this call can fail if another library initialized COM in single-threaded mode
         // handling this situation properly would make the API more annoying, so we just don't care
-        check_result(CoInitializeEx(ptr::null_mut(), COINIT_MULTITHREADED)).unwrap();
+        if check_result(CoInitializeEx(ptr::null_mut(), COINIT_MULTITHREADED)).is_err() {
+            // Uninitialize and try again
+            CoUninitialize();
+            check_result(CoInitializeEx(ptr::null_mut(), COINIT_MULTITHREADED)).unwrap();
+        }
         ComInitialized(ptr::null_mut())
     }
 });
