@@ -13,14 +13,12 @@ fn main() -> Result<(), anyhow::Error> {
         let host = cpal::host_from_id(host_id)?;
         if let Some(default_in) = host.default_input_device() {
             println!("  Default Input Device:\n    {:?}", default_in.name());
-        }
-        else {
+        } else {
             println!("  Failed getting Default Input Device");
         }
         if let Some(default_out) = host.default_output_device() {
             println!("  Default Output Device:\n    {:?}", default_out.name());
-        }
-        else {
+        } else {
             println!("  Failed getting Default Output Device");
         }
 
