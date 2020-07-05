@@ -100,16 +100,17 @@ impl HostTrait for Host {
     type Device = Device;
     type Devices = Devices;
 
+    /// JACK is available if
+    /// - the jack feature flag is set
+    /// - libjack is installed (wouldn't compile without it)
+    /// - the JACK server can be started
+    /// 
+    /// If the code compiles the necessary jack libraries are installed.
+    /// There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl.
+    /// Users can choose to automatically start the server if it isn't already started when creating a client
+    /// so checking if the server is running could give a false negative in some use cases.
+    /// For these reasons this function should always return true.
     fn is_available() -> bool {
-        // JACK is available if
-        // - the jack feature flag is set
-        // - libjack is installed (wouldn't compile without it)
-        // - the JACK server can be started
-        // 
-        // If the code compiles the necessary jack libraries are installed.
-        // There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl.
-        // Users can choose to automatically start the server if it isn't already started when creating a client
-        // so this should always return true.
         true
     }
 
