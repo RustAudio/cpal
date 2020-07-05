@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
@@ -37,8 +37,8 @@ impl Stream {
         // Create ports
         for i in 0..channels {
             let mut port_try = client
-                .register_port(&format!("out_{}", i), jack::AudioOut::default());
-            match(port_try) {
+                .register_port(&format!("in_{}", i), jack::AudioIn::default());
+            match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
                     if let Ok(port_name) = port.name() {
@@ -49,7 +49,7 @@ impl Stream {
                 },
                 Err(e) => {
                     // If port creation failed, send the error back via the error_callback
-                    error_callback(BackendSpecificError { e }.into());
+                    error_callback(BackendSpecificError { description: e.to_string() }.into());
                 }
             }
         }
@@ -93,7 +93,7 @@ impl Stream {
         for i in 0..channels {
             let mut port_try = client
                 .register_port(&format!("out_{}", i), jack::AudioOut::default());
-            match(port_try) {
+            match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
                     if let Ok(port_name) = port.name() {
@@ -104,7 +104,7 @@ impl Stream {
                 },
                 Err(e) => {
                     // If port creation failed, send the error back via the error_callback
-                    error_callback(BackendSpecificError { e }.into());
+                    error_callback(BackendSpecificError { description: e.to_string() }.into());
                 }
             }
         }
@@ -336,6 +336,57 @@ impl jack::ProcessHandler for LocalProcessHandler {
         }
 
         // Continue as normal
+        jack::Control::Continue
+    }
+}
+
+/// Receives notifications from the JACK server. It is unclear if this may be run concurrent with itself under JACK2 specs
+/// so it needs to be Sync.
+struct JackNotificationHandler {
+    error_callback_ptr: Arc<Mutex<Box<dyn FnMut(StreamError) + Send + 'static>>>,
+}
+
+impl JackNotificationHandler {
+    pub fn new<E>(mut error_callback: E) -> Self
+    where 
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        JackNotificationHandler {
+            error_callback_ptr: Arc::new(Mutex::new(Box::new(error_callback)))
+        }
+    }
+
+    fn send_error(&mut self, description: String) {
+        // This thread isn't the audio thread, it's fine to block
+        if let Ok(mut mutex_guard) = self.error_callback_ptr.lock() {
+            let err = &mut *mutex_guard;
+            err(BackendSpecificError { description }.into());
+        }
+    }
+}
+
+impl jack::NotificationHandler for JackNotificationHandler {
+    fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
+        self.send_error(format!("JACK was shut down for reason: {}", reason));
+    }
+
+    fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
+        self.send_error(format!("sample rate changed to: {}", srate));
+        // Since CPAL currently has no way of signaling a sample rate change in order to make
+        // all necessary changes that would bring we choose to quit.
+        jack::Control::Quit
+    }
+
+    fn buffer_size(&mut self, _: &jack::Client, size: jack::Frames) -> jack::Control  {
+        self.send_error(format!("buffer size changed to: {}", size));
+        // The current implementation should work even if the buffer size changes, although 
+        // potentially with poorer performance. However, reallocating the temporary processing 
+        // buffers would be expensive so we choose to just continue in this case.
+        jack::Control::Continue
+    }
+
+    fn xrun(&mut self, _: &jack::Client) -> jack::Control {
+        self.send_error(String::from("xrun (buffer over or under run)"));
         jack::Control::Continue
     }
 }
