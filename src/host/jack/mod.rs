@@ -151,11 +151,6 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
     match c_res {
         Ok((client, status)) => {
             // The ClientStatus can tell us many things
-            println!(
-                "Succeeded to open client {}, with status {:?}!",
-                client.name(),
-                status
-            );
             if status.intersects(jack::ClientStatus::SERVER_ERROR) {
                 return Err(String::from(
                     "There was an error communicating with the JACK server!",

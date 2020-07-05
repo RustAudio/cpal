@@ -47,7 +47,8 @@ impl Device {
         // This is a hack due to the fact that the Client must be moved to create the AsyncClient.
         match super::get_client(&name, client_options) {
             Ok(client) => Ok(Device {
-                name: client.name().to_string(),
+                // The name given to the client by JACK, could potentially be different from the name supplied e.g.if there is a name collision
+                name: client.name().to_string(), 
                 sample_rate: SampleRate(client.sample_rate() as u32),
                 device_type,
                 start_server_automatically,
