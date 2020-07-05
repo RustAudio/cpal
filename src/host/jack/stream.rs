@@ -36,13 +36,22 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port = client
-                .register_port(&format!("in_{}", i), jack::AudioIn::default())
-                .expect("Failed to create JACK port.");
-            if let Ok(port_name) = port.name() {
-                port_names.push(port_name);
+            let mut port_try = client
+                .register_port(&format!("out_{}", i), jack::AudioOut::default());
+            match(port_try) {
+                Ok(port) => {
+                    // Get the port name in order to later connect it automatically
+                    if let Ok(port_name) = port.name() {
+                        port_names.push(port_name);
+                    }
+                    // Store the port into a Vec to move to the ProcessHandler
+                    ports.push(port);
+                },
+                Err(e) => {
+                    // If port creation failed, send the error back via the error_callback
+                    error_callback(BackendSpecificError { e }.into());
+                }
             }
-            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
@@ -82,13 +91,22 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port = client
-                .register_port(&format!("out_{}", i), jack::AudioOut::default())
-                .expect("Failed to create JACK port.");
-            if let Ok(port_name) = port.name() {
-                port_names.push(port_name);
+            let mut port_try = client
+                .register_port(&format!("out_{}", i), jack::AudioOut::default());
+            match(port_try) {
+                Ok(port) => {
+                    // Get the port name in order to later connect it automatically
+                    if let Ok(port_name) = port.name() {
+                        port_names.push(port_name);
+                    }
+                    // Store the port into a Vec to move to the ProcessHandler
+                    ports.push(port);
+                },
+                Err(e) => {
+                    // If port creation failed, send the error back via the error_callback
+                    error_callback(BackendSpecificError { e }.into());
+                }
             }
-            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
