@@ -106,7 +106,8 @@ impl HostTrait for Host {
         // - libjack is installed (wouldn't compile without it)
         // - the JACK server can be started
         // 
-        // There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl
+        // If the code compiles the necessary jack libraries are installed.
+        // There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl.
         // Users can choose to automatically start the server if it isn't already started when creating a client
         // so this should always return true.
         true
