@@ -14,7 +14,7 @@ use super::JACK_SAMPLE_FORMAT;
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
     playing: Arc<AtomicBool>,
-    async_client: jack::AsyncClient<(), LocalProcessHandler>,
+    async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
     input_port_names: Vec<String>,
     output_port_names: Vec<String>,
@@ -66,8 +66,9 @@ impl Stream {
             client.buffer_size() as usize,
         );
 
-        // TODO: Add notification handler, using the error callback?
-        let async_client = client.activate_async((), input_process_handler).unwrap();
+        let notification_handler = JackNotificationHandler::new(error_callback);
+
+        let async_client = client.activate_async(notification_handler, input_process_handler).unwrap();
 
         Stream {
             playing,
@@ -121,8 +122,9 @@ impl Stream {
             client.buffer_size() as usize,
         );
 
-        // TODO: Add notification handler, using the error callback?
-        let async_client = client.activate_async((), output_process_handler).unwrap();
+        let notification_handler = JackNotificationHandler::new(error_callback);
+
+        let async_client = client.activate_async(notification_handler, output_process_handler).unwrap();
 
         Stream {
             playing,
@@ -344,15 +346,19 @@ impl jack::ProcessHandler for LocalProcessHandler {
 /// so it needs to be Sync.
 struct JackNotificationHandler {
     error_callback_ptr: Arc<Mutex<Box<dyn FnMut(StreamError) + Send + 'static>>>,
+    init_block_size_flag: Arc<AtomicBool>,
+    init_sample_rate_flag: Arc<AtomicBool>,
 }
 
 impl JackNotificationHandler {
     pub fn new<E>(mut error_callback: E) -> Self
     where 
         E: FnMut(StreamError) + Send + 'static,
-    {
+    { 
         JackNotificationHandler {
-            error_callback_ptr: Arc::new(Mutex::new(Box::new(error_callback)))
+            error_callback_ptr: Arc::new(Mutex::new(Box::new(error_callback))),
+            init_block_size_flag: Arc::new(AtomicBool::new(false)),
+            init_sample_rate_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -371,14 +377,34 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        self.send_error(format!("sample rate changed to: {}", srate));
-        // Since CPAL currently has no way of signaling a sample rate change in order to make
-        // all necessary changes that would bring we choose to quit.
-        jack::Control::Quit
+
+        match self.init_sample_rate_flag.load(Ordering::SeqCst) {
+            false => {
+                // One of these notifications is sent every time a client is started.
+                self.init_sample_rate_flag.store(true, Ordering::SeqCst);
+                jack::Control::Continue
+            },
+            true => {
+                self.send_error(format!("sample rate changed to: {}", srate));
+                // Since CPAL currently has no way of signaling a sample rate change in order to make
+                // all necessary changes that would bring we choose to quit.
+                jack::Control::Quit
+            }
+        }
     }
 
     fn buffer_size(&mut self, _: &jack::Client, size: jack::Frames) -> jack::Control  {
-        self.send_error(format!("buffer size changed to: {}", size));
+        
+        match self.init_block_size_flag.load(Ordering::SeqCst) {
+            false => {
+                // One of these notifications is sent every time a client is started.
+                self.init_block_size_flag.store(true, Ordering::SeqCst)
+            },
+            true => {
+                self.send_error(format!("buffer size changed to: {}", size));
+            }
+        }
+        
         // The current implementation should work even if the buffer size changes, although 
         // potentially with poorer performance. However, reallocating the temporary processing 
         // buffers would be expensive so we choose to just continue in this case.

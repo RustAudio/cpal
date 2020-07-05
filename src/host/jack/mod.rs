@@ -152,7 +152,7 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
         Ok((client, status)) => {
             // The ClientStatus can tell us many things
             println!(
-                "Managed to open client {}, with status {:?}!",
+                "Succeeded to open client {}, with status {:?}!",
                 client.name(),
                 status
             );
