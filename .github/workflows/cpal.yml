@@ -57,7 +57,7 @@ jobs:
       run: |
         CPAL_TMP=$(mktemp /tmp/cpalXXX.txt) || echo "::error::mktemp error"
         echo "::set-env name=CPAL_TMP::$CPAL_TMP"
-        cargo publish --token $CRATESIO_TOKEN 2> $CPAL_TMP
+        #cargo publish --token $CRATESIO_TOKEN 2> $CPAL_TMP
     - name: Check if cpal is already published
       run: |
         empty=0
