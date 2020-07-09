@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.12.0 (2020-07-09)
 
 - Large refactor removing the blocking EventLoop API.
 - Rename many `Format` types to `StreamConfig`:
