@@ -907,7 +907,7 @@ fn set_hw_params_from_format<'a>(
             // Without them we are at the mercy of the device
             hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
             hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
-        },
+        }
     }
 
     pcm_handle.hw_params(&hw_params)?;
