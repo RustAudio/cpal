@@ -3,10 +3,11 @@ extern crate libc;
 
 use self::alsa::poll::Descriptors;
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -339,6 +340,14 @@ impl Device {
             })
             .collect::<Vec<_>>();
 
+        let min_buffer_size = hw_params.get_buffer_size_min()?;
+        let max_buffer_size = hw_params.get_buffer_size_max()?;
+
+        let buffer_size_range = SupportedBufferSize::Range {
+            min: min_buffer_size as u32,
+            max: max_buffer_size as u32,
+        };
+
         let mut output = Vec::with_capacity(
             supported_formats.len() * supported_channels.len() * sample_rates.len(),
         );
@@ -349,6 +358,7 @@ impl Device {
                         channels: channels.clone(),
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
+                        buffer_size: buffer_size_range.clone(),
                         sample_format: sample_format,
                     });
                 }
@@ -869,7 +879,7 @@ fn set_hw_params_from_format<'a>(
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
-    let mut hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
@@ -890,11 +900,14 @@ fn set_hw_params_from_format<'a>(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // If this isn't set manually a overlarge buffer may be used causing audio delay
-    let mut hw_params_copy = hw_params.clone();
-    if let Err(_) = hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest) {
-        // Swap out the params with errors for a snapshot taken before the error was introduced.
-        mem::swap(&mut hw_params_copy, &mut hw_params);
+    match config.buffer_size {
+        BufferSize::Fixed(v) => hw_params.set_buffer_size(v as i64)?,
+        BufferSize::Default => {
+            // These values together represent a moderate latency and wakeup interval.
+            // Without them we are at the mercy of the device
+            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+        }
     }
 
     pcm_handle.hw_params(&hw_params)?;

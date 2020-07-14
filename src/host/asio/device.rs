@@ -12,6 +12,7 @@ use DeviceNameError;
 use DevicesError;
 use SampleFormat;
 use SampleRate;
+use SupportedBufferSize;
 use SupportedStreamConfig;
 use SupportedStreamConfigRange;
 use SupportedStreamConfigsError;
@@ -77,9 +78,13 @@ impl Device {
                 continue;
             }
             for channels in 1..f.channels + 1 {
-                f.channels = channels;
-                f.sample_rate = rate;
-                supported_configs.push(SupportedStreamConfigRange::from(f.clone()));
+                supported_configs.push(SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rate,
+                    max_sample_rate: rate,
+                    buffer_size: f.buffer_size.clone(),
+                    sample_format: f.sample_format.clone(),
+                })
             }
         }
         Ok(supported_configs.into_iter())
@@ -110,9 +115,13 @@ impl Device {
                 continue;
             }
             for channels in 1..f.channels + 1 {
-                f.channels = channels;
-                f.sample_rate = rate;
-                supported_configs.push(SupportedStreamConfigRange::from(f.clone()));
+                supported_configs.push(SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rate,
+                    max_sample_rate: rate,
+                    buffer_size: f.buffer_size.clone(),
+                    sample_format: f.sample_format.clone(),
+                })
             }
         }
         Ok(supported_configs.into_iter())
@@ -122,6 +131,11 @@ impl Device {
     pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = self.driver.channels().map_err(default_config_err)?.ins as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
+        let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
+        let buffer_size = SupportedBufferSize::Range {
+            min: min as u32,
+            max: max as u32,
+        };
         // Map th ASIO sample type to a CPAL sample type
         let data_type = self.driver.input_data_type().map_err(default_config_err)?;
         let sample_format = convert_data_type(&data_type)
@@ -129,6 +143,7 @@ impl Device {
         Ok(SupportedStreamConfig {
             channels,
             sample_rate,
+            buffer_size,
             sample_format,
         })
     }
@@ -137,12 +152,18 @@ impl Device {
     pub fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = self.driver.channels().map_err(default_config_err)?.outs as u16;
         let sample_rate = SampleRate(self.driver.sample_rate().map_err(default_config_err)? as _);
+        let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
+        let buffer_size = SupportedBufferSize::Range {
+            min: min as u32,
+            max: max as u32,
+        };
         let data_type = self.driver.output_data_type().map_err(default_config_err)?;
         let sample_format = convert_data_type(&data_type)
             .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
         Ok(SupportedStreamConfig {
             channels,
             sample_rate,
+            buffer_size,
             sample_format,
         })
     }

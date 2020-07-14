@@ -7,10 +7,10 @@ use self::wasm_bindgen::prelude::*;
 use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
@@ -39,6 +39,9 @@ const MAX_CHANNELS: u16 = 32;
 const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
 const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
 const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const MIN_BUFFER_SIZE: u32 = 1;
+const MAX_BUFFER_SIZE: u32 = std::u32::MAX;
+const DEFAULT_BUFFER_SIZE: usize = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
@@ -93,11 +96,16 @@ impl Device {
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+        let buffer_size = SupportedBufferSize::Range {
+            min: MIN_BUFFER_SIZE,
+            max: MAX_BUFFER_SIZE,
+        };
         let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
             .map(|channels| SupportedStreamConfigRange {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
+                buffer_size: buffer_size.clone(),
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -190,11 +198,20 @@ impl DeviceTrait for Device {
         }
 
         let n_channels = config.channels as usize;
-        // Use a buffer period of 1/3s for this early proof of concept.
-        // TODO: Change this to the requested buffer size when updating for the buffer size API.
-        let buffer_size_frames = (config.sample_rate.0 as f64 / 3.0).round() as usize;
+
+        let buffer_size_frames = match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                if v == 0 {
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                } else {
+                    v as usize
+                }
+            }
+            BufferSize::Default => DEFAULT_BUFFER_SIZE,
+        };
         let buffer_size_samples = buffer_size_frames * n_channels;
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
+
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 
         // Create the WebAudio stream.

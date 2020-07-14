@@ -385,6 +385,14 @@ impl Driver {
         Ok(channel)
     }
 
+    /// Get the min and max supported buffersize of the driver.
+    pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> {
+        let buffer_sizes = asio_get_buffer_sizes()?;
+        let min = buffer_sizes.min;
+        let max = buffer_sizes.max;
+        Ok((min, max))
+    }
+
     /// Get current sample rate of the driver.
     pub fn sample_rate(&self) -> Result<c_double, AsioError> {
         let mut rate: c_double = 0.0;
@@ -431,8 +439,14 @@ impl Driver {
     ///
     /// This will destroy any already allocated buffers.
     ///
-    /// The preferred buffer size from ASIO is used.
-    fn create_buffers(&self, buffer_infos: &mut [AsioBufferInfo]) -> Result<c_long, AsioError> {
+    /// If buffersize is None then the preferred buffer size from ASIO is used,
+    /// otherwise the desired buffersize is used if the requeted size is within
+    /// the range of accepted buffersizes for the device.
+    fn create_buffers(
+        &self,
+        buffer_infos: &mut [AsioBufferInfo],
+        buffer_size: Option<i32>,
+    ) -> Result<c_long, AsioError> {
         let num_channels = buffer_infos.len();
 
         // To pass as ai::ASIOCallbacks
@@ -449,6 +463,17 @@ impl Driver {
             );
         }
 
+        let buffer_size = match buffer_size {
+            Some(v) => {
+                if v <= buffer_sizes.max {
+                    v
+                } else {
+                    return Err(AsioError::InvalidBufferSize);
+                }
+            }
+            None => buffer_sizes.pref,
+        };
+
         // Ensure the driver is in the `Initialized` state.
         if let DriverState::Running = *state {
             state.stop()?;
@@ -460,16 +485,19 @@ impl Driver {
             asio_result!(ai::ASIOCreateBuffers(
                 buffer_infos.as_mut_ptr() as *mut _,
                 num_channels as i32,
-                buffer_sizes.pref,
+                buffer_size,
                 &mut callbacks as *mut _ as *mut _,
             ))?;
         }
         *state = DriverState::Prepared;
 
-        Ok(buffer_sizes.pref)
+        Ok(buffer_size)
     }
 
     /// Creates the streams.
+    ///
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
+    /// default buffersize for the device is used.
     ///
     /// Both input and output streams need to be created together as a single slice of
     /// `ASIOBufferInfo`.
@@ -477,6 +505,7 @@ impl Driver {
         &self,
         mut input_buffer_infos: Vec<AsioBufferInfo>,
         mut output_buffer_infos: Vec<AsioBufferInfo>,
+        buffer_size: Option<i32>,
     ) -> Result<AsioStreams, AsioError> {
         let (input, output) = match (
             input_buffer_infos.is_empty(),
@@ -489,7 +518,7 @@ impl Driver {
                 let mut all_buffer_infos = input_buffer_infos;
                 all_buffer_infos.append(&mut output_buffer_infos);
                 // Create the buffers. On success, split the output and input again.
-                let buffer_size = self.create_buffers(&mut all_buffer_infos)?;
+                let buffer_size = self.create_buffers(&mut all_buffer_infos, buffer_size)?;
                 let output_buffer_infos = all_buffer_infos.split_off(split_point);
                 let input_buffer_infos = all_buffer_infos;
                 let input = Some(AsioStream {
@@ -504,7 +533,7 @@ impl Driver {
             }
             // Just input
             (false, true) => {
-                let buffer_size = self.create_buffers(&mut input_buffer_infos)?;
+                let buffer_size = self.create_buffers(&mut input_buffer_infos, buffer_size)?;
                 let input = Some(AsioStream {
                     buffer_infos: input_buffer_infos,
                     buffer_size,
@@ -514,7 +543,7 @@ impl Driver {
             }
             // Just output
             (true, false) => {
-                let buffer_size = self.create_buffers(&mut output_buffer_infos)?;
+                let buffer_size = self.create_buffers(&mut output_buffer_infos, buffer_size)?;
                 let input = None;
                 let output = Some(AsioStream {
                     buffer_infos: output_buffer_infos,
@@ -537,17 +566,21 @@ impl Driver {
     ///
     /// `num_channels` is the desired number of input channels.
     ///
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
+    /// default buffersize for the device is used.
+    ///
     /// This returns a full AsioStreams with both input and output if output was active.
     pub fn prepare_input_stream(
         &self,
         output: Option<AsioStream>,
         num_channels: usize,
+        buffer_size: Option<i32>,
     ) -> Result<AsioStreams, AsioError> {
         let input_buffer_infos = prepare_buffer_infos(true, num_channels);
         let output_buffer_infos = output
             .map(|output| output.buffer_infos)
             .unwrap_or_else(Vec::new);
-        self.create_streams(input_buffer_infos, output_buffer_infos)
+        self.create_streams(input_buffer_infos, output_buffer_infos, buffer_size)
     }
 
     /// Prepare the output stream.
@@ -559,17 +592,21 @@ impl Driver {
     ///
     /// `num_channels` is the desired number of output channels.
     ///
+    /// `buffer_size` sets the desired buffer_size. If None is passed in, then the
+    /// default buffersize for the device is used.
+    ///
     /// This returns a full AsioStreams with both input and output if input was active.
     pub fn prepare_output_stream(
         &self,
         input: Option<AsioStream>,
         num_channels: usize,
+        buffer_size: Option<i32>,
     ) -> Result<AsioStreams, AsioError> {
         let input_buffer_infos = input
             .map(|input| input.buffer_infos)
             .unwrap_or_else(Vec::new);
         let output_buffer_infos = prepare_buffer_infos(false, num_channels);
-        self.create_streams(input_buffer_infos, output_buffer_infos)
+        self.create_streams(input_buffer_infos, output_buffer_infos, buffer_size)
     }
 
     /// Releases buffers allocations.

@@ -180,6 +180,22 @@ pub type ChannelCount = u16;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleRate(pub u32);
 
+/// The desired number of frames for the hardware buffer.
+pub type FrameCount = u32;
+
+/// The buffer size used by the device.
+///
+/// Default is used when no specific buffer size is set and uses the default
+/// behavior of the given host. Note, the default buffer size may be surprisingly
+/// large, leading to latency issues. If low latency is desired, Fixed(BufferSize)
+/// should be used in accordance with the SupportedBufferSize range produced by
+/// the SupportedStreamConfig API.  
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BufferSize {
+    Default,
+    Fixed(FrameCount),
+}
+
 /// The set of parameters used to describe how to open a stream.
 ///
 /// The sample format is omitted in favour of using a sample type.
@@ -187,6 +203,19 @@ pub struct SampleRate(pub u32);
 pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
+    pub buffer_size: BufferSize,
+}
+
+/// Describes the minimum and maximum supported buffer size for the device
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SupportedBufferSize {
+    Range {
+        min: FrameCount,
+        max: FrameCount,
+    },
+    /// In the case that the platform provides no way of getting the default
+    /// buffersize before starting a stream.
+    Unknown,
 }
 
 /// Describes a range of supported stream configurations, retrieved via the
@@ -198,6 +227,8 @@ pub struct SupportedStreamConfigRange {
     pub(crate) min_sample_rate: SampleRate,
     /// Maximum value for the samples rate of the supported formats.
     pub(crate) max_sample_rate: SampleRate,
+    /// Buffersize ranges supported by the device
+    pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
     pub(crate) sample_format: SampleFormat,
 }
@@ -208,6 +239,7 @@ pub struct SupportedStreamConfigRange {
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
     sample_rate: SampleRate,
+    buffer_size: SupportedBufferSize,
     sample_format: SampleFormat,
 }
 
@@ -289,6 +321,10 @@ impl SupportedStreamConfig {
         self.sample_rate
     }
 
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
     pub fn sample_format(&self) -> SampleFormat {
         self.sample_format
     }
@@ -297,6 +333,7 @@ impl SupportedStreamConfig {
         StreamConfig {
             channels: self.channels,
             sample_rate: self.sample_rate,
+            buffer_size: BufferSize::Default,
         }
     }
 }
@@ -492,11 +529,15 @@ impl SupportedStreamConfigRange {
         self.max_sample_rate
     }
 
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
     pub fn sample_format(&self) -> SampleFormat {
         self.sample_format
     }
 
-    /// Retrieve a `SupportedStreamConfig` with the given sample rate.
+    /// Retrieve a `SupportedStreamConfig` with the given sample rate and buffer size.
     ///
     /// **panic!**s if the given `sample_rate` is outside the range specified within this
     /// `SupportedStreamConfigRange` instance.
@@ -504,8 +545,9 @@ impl SupportedStreamConfigRange {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         SupportedStreamConfig {
             channels: self.channels,
+            sample_rate: self.max_sample_rate,
             sample_format: self.sample_format,
-            sample_rate,
+            buffer_size: self.buffer_size,
         }
     }
 
@@ -516,6 +558,7 @@ impl SupportedStreamConfigRange {
             channels: self.channels,
             sample_rate: self.max_sample_rate,
             sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
         }
     }
 
@@ -593,18 +636,6 @@ impl SupportedStreamConfigRange {
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
         conf.config()
-    }
-}
-
-impl From<SupportedStreamConfig> for SupportedStreamConfigRange {
-    #[inline]
-    fn from(format: SupportedStreamConfig) -> SupportedStreamConfigRange {
-        SupportedStreamConfigRange {
-            channels: format.channels,
-            min_sample_rate: format.sample_rate,
-            max_sample_rate: format.sample_rate,
-            sample_format: format.sample_format,
-        }
     }
 }
 
