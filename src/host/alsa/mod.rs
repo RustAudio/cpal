@@ -879,7 +879,7 @@ fn set_hw_params_from_format<'a>(
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
-    let mut hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
@@ -902,7 +902,12 @@ fn set_hw_params_from_format<'a>(
 
     match config.buffer_size {
         BufferSize::Fixed(v) => hw_params.set_buffer_size(v as i64)?,
-        BufferSize::Default => (),
+        BufferSize::Default => {
+            // These values together represent a moderate latency and wakeup interval.
+            // Without them we are at the mercy of the device
+            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+        },
     }
 
     pcm_handle.hw_params(&hw_params)?;
