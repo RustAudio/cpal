@@ -183,6 +183,13 @@ pub struct SampleRate(pub u32);
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
 
+/// The buffer size used by the device.
+///
+/// Default is used when no specific buffer size is set and uses the default
+/// behavior of the given host. Note, the default buffer size may be surprisingly
+/// large, leading to latency issues. If low latency is desired, Fixed(BufferSize)
+/// should be used in accordance with the SupportedBufferSize range produced by
+/// the SupportedStreamConfig API.  
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BufferSize {
     Default,

@@ -334,7 +334,7 @@ fn audio_callback_fn<D, E>(
         // and there may be underflows
         set_timeout(
             || audio_callback_fn::<D, E>(user_data_ptr, config, sample_format, buffer_size_frames),
-            330,
+            buffer_size_frames * 1000 / sample_rate,
         );
     }
 }
