@@ -9,11 +9,11 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
+use std::cmp;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
-use std::{cmp, mem};
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
@@ -446,7 +446,9 @@ struct StreamInner {
     // Minimum number of samples to put in the buffer.
     period_len: usize,
 
+    #[allow(dead_code)]
     // Whether or not the hardware supports pausing the stream.
+    // TODO: We need an API to expose this. See #197, #284.
     can_pause: bool,
 
     // In the case that the device does not return valid timestamps via `get_htstamp`, this field
