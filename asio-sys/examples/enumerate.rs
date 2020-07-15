@@ -61,6 +61,7 @@ fn main() {
                 };
                 println!("  Input {:?}", in_fmt);
                 println!("  Output {:?}", out_fmt);
+            }
             Err(err) => {
                 println!("Failed to load driver: {:?}, error: {}", name, err);
             }
