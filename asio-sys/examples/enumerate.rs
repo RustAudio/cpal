@@ -41,27 +41,29 @@ fn main() {
     let asio = sys::Asio::new();
     for name in asio.driver_names() {
         println!("Driver: {:?}", name);
-        if let Ok(driver) = asio.load_driver(&name) {
-            let channels = driver
-                .channels()
-                .expect("failed to retrieve channel counts");
-            let sample_rate = driver
-                .sample_rate()
-                .expect("failed to retrieve sample rate");
-            let in_fmt = Format {
-                channels: channels.ins as _,
-                sample_rate: SampleRate(sample_rate as _),
-                data_type: SampleFormat::F32,
-            };
-            let out_fmt = Format {
-                channels: channels.outs as _,
-                sample_rate: SampleRate(sample_rate as _),
-                data_type: SampleFormat::F32,
-            };
-            println!("  Input {:?}", in_fmt);
-            println!("  Output {:?}", out_fmt);
-        } else {
-            println!("Failed to load driver: {:?}", name);
+        match asio.load_driver(&name) {
+            Ok(driver) => {
+                let channels = driver
+                    .channels()
+                    .expect("failed to retrieve channel counts");
+                let sample_rate = driver
+                    .sample_rate()
+                    .expect("failed to retrieve sample rate");
+                let in_fmt = Format {
+                    channels: channels.ins as _,
+                    sample_rate: SampleRate(sample_rate as _),
+                    data_type: SampleFormat::F32,
+                };
+                let out_fmt = Format {
+                    channels: channels.outs as _,
+                    sample_rate: SampleRate(sample_rate as _),
+                    data_type: SampleFormat::F32,
+                };
+                println!("  Input {:?}", in_fmt);
+                println!("  Output {:?}", out_fmt);
+            Err(err) => {
+                println!("Failed to load driver: {:?}, error: {}", name, err);
+            }
         }
     }
 }
