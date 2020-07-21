@@ -109,7 +109,7 @@ pub fn default_input_device() -> Option<Device> {
     }
 
     let device = Device {
-        audio_device_id: audio_device_id,
+        audio_device_id,
     };
     Some(device)
 }
@@ -138,7 +138,7 @@ pub fn default_output_device() -> Option<Device> {
     }
 
     let device = Device {
-        audio_device_id: audio_device_id,
+        audio_device_id,
     };
     Some(device)
 }

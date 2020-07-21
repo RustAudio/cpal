@@ -423,6 +423,7 @@ impl OutputCallbackInfo {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Data {
     // Internal constructor for host implementations to use.
     //
@@ -457,7 +458,7 @@ impl Data {
     pub fn len(&self) -> usize {
         self.len
     }
-
+    
     /// The raw slice of memory representing the underlying audio data as a slice of bytes.
     ///
     /// It is up to the user to interpret the slice of memory based on `Data::sample_format`.

@@ -160,7 +160,7 @@ impl Device {
             check_os_status(status)?;
 
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
-            if c_string == null() {
+            if c_string.is_null() {
                 let status = AudioObjectGetPropertyData(
                     self.audio_device_id,
                     &property_address as *const _,
@@ -192,6 +192,7 @@ impl Device {
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
+    #[allow(clippy::cast_ptr_alignment)]
     fn supported_configs(
         &self,
         scope: AudioObjectPropertyScope,
@@ -289,7 +290,7 @@ impl Device {
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
                     buffer_size: buffer_size.clone(),
-                    sample_format: sample_format,
+                    sample_format,
                 };
                 fmts.push(fmt);
             }
@@ -386,8 +387,8 @@ impl Device {
             let config = SupportedStreamConfig {
                 sample_rate: SampleRate(asbd.mSampleRate as _),
                 channels: asbd.mChannelsPerFrame as _,
-                buffer_size: buffer_size,
-                sample_format: sample_format,
+                buffer_size,
+                sample_format,
             };
             Ok(config)
         }
@@ -470,7 +471,7 @@ fn asbd_from_config(
         SampleFormat::F32 => (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
         _ => kAudioFormatFlagIsPacked as u32,
     };
-    let asbd = AudioStreamBasicDescription {
+    AudioStreamBasicDescription {
         mBitsPerChannel: bits_per_channel as _,
         mBytesPerFrame: bytes_per_frame as _,
         mChannelsPerFrame: n_channels as _,
@@ -480,8 +481,7 @@ fn asbd_from_config(
         mFormatID: kAudioFormatLinearPCM,
         mSampleRate: sample_rate as _,
         ..Default::default()
-    };
-    asbd
+    }
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
@@ -528,6 +528,9 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 }
 
 impl Device {
+    #[allow(clippy::cast_ptr_alignment)]
+    #[allow(clippy::while_immutable_condition)]
+    #[allow(clippy::float_cmp)]
     fn build_input_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
@@ -656,6 +659,10 @@ impl Device {
                 // Wait for the reported_rate to change.
                 //
                 // This should not take longer than a few ms, but we timeout after 1 sec just in case.
+                //
+                // WARNING: a reference to reported_rate is unsafely captured above,
+                // and the loop below assumes it can change - but compiler does not know that!
+                //
                 let timer = ::std::time::Instant::now();
                 while sample_rate != reported_rate {
                     if timer.elapsed() > Duration::from_secs(1) {
