@@ -1,3 +1,7 @@
+# Version 0.12.1 (2020-07-23)
+
+- Bugfix release to get the asio feature working again.
+
 # Version 0.12.0 (2020-07-09)
 
 - Large refactor removing the blocking EventLoop API.
