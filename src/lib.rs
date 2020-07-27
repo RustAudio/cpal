@@ -545,7 +545,7 @@ impl SupportedStreamConfigRange {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         SupportedStreamConfig {
             channels: self.channels,
-            sample_rate: self.max_sample_rate,
+            sample_rate: sample_rate,
             sample_format: self.sample_format,
             buffer_size: self.buffer_size,
         }
