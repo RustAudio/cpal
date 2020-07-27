@@ -903,7 +903,7 @@ fn set_hw_params_from_format<'a>(
     hw_params.set_channels(config.channels as u32)?;
 
     match config.buffer_size {
-        BufferSize::Fixed(v) => hw_params.set_buffer_size(v as i64)?,
+        BufferSize::Fixed(v) => hw_params.set_buffer_size(v as alsa::pcm::Frames)?,
         BufferSize::Default => {
             // These values together represent a moderate latency and wakeup interval.
             // Without them we are at the mercy of the device
