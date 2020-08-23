@@ -7,6 +7,8 @@ pub(crate) mod coreaudio;
 #[cfg(target_os = "emscripten")]
 pub(crate) mod emscripten;
 pub(crate) mod null;
+#[cfg(target_os = "android")]
+pub(crate) mod oboe;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
