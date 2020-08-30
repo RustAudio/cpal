@@ -1,7 +1,7 @@
 //! Platform-specific items.
 //!
 //! This module also contains the implementation of the platform's dynamically dispatched `Host`
-//! type and its associated `EventLoop`, `Device`, `StreamId` and other associated types. These
+//! type and its associated `Device`, `StreamId` and other associated types. These
 //! types are useful in the case that users require switching between audio host APIs at runtime.
 
 #[doc(inline)]
@@ -27,7 +27,7 @@ pub use self::platform_impl::*;
 // }
 // ```
 //
-// And so on for Device, Devices, EventLoop, Host, StreamId, SupportedInputConfigs,
+// And so on for Device, Devices, Host, StreamId, SupportedInputConfigs,
 // SupportedOutputConfigs and all their necessary trait implementations.
 // ```
 macro_rules! impl_platform_host {
@@ -558,8 +558,8 @@ mod platform_impl {
 )))]
 mod platform_impl {
     pub use crate::host::null::{
-        Device as NullDevice, Devices as NullDevices, EventLoop as NullEventLoop, Host as NullHost,
-        StreamId as NullStreamId, SupportedInputConfigs as NullSupportedInputConfigs,
+        Device as NullDevice, Devices as NullDevices, Host as NullHost,
+        SupportedInputConfigs as NullSupportedInputConfigs,
         SupportedOutputConfigs as NullSupportedOutputConfigs,
     };
 
