@@ -505,6 +505,10 @@ fn input_stream_worker(
 
         match flow {
             PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::XRun => {
+                stream.channel.prepare().unwrap();
+                continue;
+            }
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
@@ -546,6 +550,10 @@ fn output_stream_worker(
 
         match flow {
             PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::XRun => {
+                stream.channel.prepare().unwrap();
+                continue;
+            }
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
@@ -598,6 +606,7 @@ enum PollDescriptorsFlow {
         avail_frames: usize,
         delay_frames: usize,
     },
+    XRun,
 }
 
 // This block is shared between both input and output stream worker functions.
@@ -666,7 +675,11 @@ fn poll_descriptors_and_prepare_buffer(
 
     // Only go on if there is at least `stream.period_len` samples.
     if available_samples < stream.period_len {
-        return Ok(PollDescriptorsFlow::Continue);
+        return if status.get_state() == alsa::pcm::State::XRun {
+            Ok(PollDescriptorsFlow::XRun)
+        } else {
+            Ok(PollDescriptorsFlow::Continue)
+        };
     }
 
     // Prepare the data buffer.
