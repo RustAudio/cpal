@@ -107,7 +107,7 @@ impl Device {
         configs.sort_by(|a, b| a.cmp_default_heuristics(b));
         let config = configs
             .into_iter()
-            .next()
+            .last()
             .expect(EXPECT)
             .with_sample_rate(DEFAULT_SAMPLE_RATE);
         Ok(config)
