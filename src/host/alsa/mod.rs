@@ -504,7 +504,13 @@ fn input_stream_worker(
         .unwrap_or(PollDescriptorsFlow::Continue);
 
         match flow {
-            PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::Continue => {
+                continue;
+            }
+            PollDescriptorsFlow::XRun => {
+                report_error(stream.channel.prepare(), error_callback);
+                continue;
+            }
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
@@ -545,7 +551,14 @@ fn output_stream_worker(
         .unwrap_or(PollDescriptorsFlow::Continue);
 
         match flow {
-            PollDescriptorsFlow::Continue => continue,
+            PollDescriptorsFlow::Continue => {
+                report_error(stream.channel.prepare(), error_callback);
+                continue;
+            }
+            PollDescriptorsFlow::XRun => {
+                report_error(stream.channel.prepare(), error_callback);
+                continue;
+            }
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
@@ -598,6 +611,7 @@ enum PollDescriptorsFlow {
         avail_frames: usize,
         delay_frames: usize,
     },
+    XRun,
 }
 
 // This block is shared between both input and output stream worker functions.
@@ -656,7 +670,12 @@ fn poll_descriptors_and_prepare_buffer(
     };
 
     let status = stream.channel.status()?;
-    let avail_frames = status.get_avail() as usize;
+    let avail_frames = match stream.channel.avail() {
+        Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
+            return Ok(PollDescriptorsFlow::XRun)
+        }
+        res => res,
+    }? as usize;
     let delay_frames = match status.get_delay() {
         // Buffer underrun. TODO: Notify the user.
         d if d < 0 => 0,

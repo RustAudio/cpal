@@ -121,13 +121,13 @@ impl Device {
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
-        let mut configs: Vec<_> = self.supported_output_configs().expect(EXPECT).collect();
-        configs.sort_by(|a, b| a.cmp_default_heuristics(b));
-        let config = configs
-            .into_iter()
-            .next()
+        let config = self
+            .supported_output_configs()
             .expect(EXPECT)
+            .max_by(|a, b| a.cmp_default_heuristics(b))
+            .unwrap()
             .with_sample_rate(DEFAULT_SAMPLE_RATE);
+
         Ok(config)
     }
 }
