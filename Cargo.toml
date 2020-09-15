@@ -30,7 +30,7 @@ parking_lot = "0.9"
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))'.dependencies]
 alsa-sys = { version = "0.1", path = "alsa-sys" }
 libc = "0.2"
-jack = { version = "0.6.2", optional = true }
+jack = { version = "0.6.5", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio_unit", "core_audio"] }
