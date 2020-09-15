@@ -22,7 +22,10 @@ fn main() -> Result<(), anyhow::Error> {
         feature = "jack"
     ))]
     let host = cpal::host_from_id(cpal::HostId::Jack).unwrap();
-    #[cfg(not(feature = "jack"))]
+    #[cfg(any(
+        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
 
     // Default devices.

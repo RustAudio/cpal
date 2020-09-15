@@ -17,7 +17,10 @@ fn main() -> Result<(), anyhow::Error> {
         .expect(
             "make sure --features jack is specified. only works on OSes where jack is available",
         )).expect("jack host unavailable");
-    #[cfg(not(feature = "jack"))]
+    #[cfg(any(
+        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
 
     let device = host
