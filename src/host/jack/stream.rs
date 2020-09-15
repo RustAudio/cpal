@@ -60,7 +60,7 @@ impl Stream {
             vec![],
             ports,
             SampleRate(client.sample_rate() as u32),
-            Some(Arc::new(Mutex::new(Box::new(data_callback)))),
+            Some(Box::new(data_callback)),
             None,
             playing.clone(),
             client.buffer_size() as usize,
@@ -117,7 +117,7 @@ impl Stream {
             vec![],
             SampleRate(client.sample_rate() as u32),
             None,
-            Some(Arc::new(Mutex::new(Box::new(data_callback)))),
+            Some(Box::new(data_callback)),
             playing.clone(),
             client.buffer_size() as usize,
         );
@@ -206,8 +206,8 @@ struct LocalProcessHandler {
     // out_port_buffers: Vec<&mut [f32]>,
     // in_port_buffers: Vec<&[f32]>,
     sample_rate: SampleRate,
-    input_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&Data) + Send + 'static>>>>,
-    output_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&mut Data) + Send + 'static>>>>,
+    input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
+    output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
 
     temp_input_buffer: Vec<f32>,
     /// The number of frames in the temp_input_buffer i.e. temp_input_buffer.len() / in_ports.len()
@@ -227,8 +227,8 @@ impl LocalProcessHandler {
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
         sample_rate: SampleRate,
-        input_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&Data) + Send + 'static>>>>,
-        output_data_callback: Option<Arc<Mutex<Box<dyn FnMut(&mut Data) + Send + 'static>>>>,
+        input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
+        output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
         playing: Arc<AtomicBool>,
         buffer_size: usize,
     ) -> Self {
@@ -283,9 +283,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
 
         let current_buffer_size = process_scope.n_frames() as usize;
 
-        if let Some(input_callback_mutex) = &mut self.input_data_callback {
-            // There is an input callback
-            let input_callback = &mut *input_callback_mutex.lock().unwrap();
+        if let Some(input_callback) = &mut self.input_data_callback {
             // Let's get the data from the input ports and run the callback
 
             let num_in_channels = self.in_ports.len();
@@ -303,9 +301,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
             input_callback(&data);
         }
 
-        if let Some(output_callback_mutex) = &mut self.output_data_callback {
-            // Nothing else should ever lock this Mutex
-            let output_callback = &mut *output_callback_mutex.lock().unwrap();
+        if let Some(output_callback) = &mut self.output_data_callback {
 
             // Get the mutable slices for each output port buffer
             // for i in 0..self.out_ports.len() {
