@@ -1,12 +1,11 @@
 use crate::ChannelCount;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use traits::{DeviceTrait, HostTrait, StreamTrait};
+use traits::StreamTrait;
 
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleRate, StreamError,
 };
 
 const TEMP_BUFFER_SIZE: usize = 16;
@@ -29,15 +28,14 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port_try = client
-                .register_port(&format!("in_{}", i), jack::AudioIn::default());
+            let mut port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -46,10 +44,15 @@ impl Stream {
                     }
                     // Store the port into a Vec to move to the ProcessHandler
                     ports.push(port);
-                },
+                }
                 Err(e) => {
                     // If port creation failed, send the error back via the error_callback
-                    error_callback(BackendSpecificError { description: e.to_string() }.into());
+                    error_callback(
+                        BackendSpecificError {
+                            description: e.to_string(),
+                        }
+                        .into(),
+                    );
                 }
             }
         }
@@ -68,7 +71,9 @@ impl Stream {
 
         let notification_handler = JackNotificationHandler::new(error_callback);
 
-        let async_client = client.activate_async(notification_handler, input_process_handler).unwrap();
+        let async_client = client
+            .activate_async(notification_handler, input_process_handler)
+            .unwrap();
 
         Stream {
             playing,
@@ -85,15 +90,15 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port_try = client
-                .register_port(&format!("out_{}", i), jack::AudioOut::default());
+            let mut port_try =
+                client.register_port(&format!("out_{}", i), jack::AudioOut::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -102,10 +107,15 @@ impl Stream {
                     }
                     // Store the port into a Vec to move to the ProcessHandler
                     ports.push(port);
-                },
+                }
                 Err(e) => {
                     // If port creation failed, send the error back via the error_callback
-                    error_callback(BackendSpecificError { description: e.to_string() }.into());
+                    error_callback(
+                        BackendSpecificError {
+                            description: e.to_string(),
+                        }
+                        .into(),
+                    );
                 }
             }
         }
@@ -124,7 +134,9 @@ impl Stream {
 
         let notification_handler = JackNotificationHandler::new(error_callback);
 
-        let async_client = client.activate_async(notification_handler, output_process_handler).unwrap();
+        let async_client = client
+            .activate_async(notification_handler, output_process_handler)
+            .unwrap();
 
         Stream {
             playing,
@@ -206,8 +218,8 @@ struct LocalProcessHandler {
     // out_port_buffers: Vec<&mut [f32]>,
     // in_port_buffers: Vec<&[f32]>,
     sample_rate: SampleRate,
-    input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
-    output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
+    input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
+    output_data_callback: Option<Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>>,
 
     temp_input_buffer: Vec<f32>,
     /// The number of frames in the temp_input_buffer i.e. temp_input_buffer.len() / in_ports.len()
@@ -220,6 +232,7 @@ struct LocalProcessHandler {
     temp_output_buffer_size: usize,
     temp_output_buffer_index: usize,
     playing: Arc<AtomicBool>,
+    creation_timestamp: std::time::Instant,
 }
 
 impl LocalProcessHandler {
@@ -227,8 +240,10 @@ impl LocalProcessHandler {
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
         sample_rate: SampleRate,
-        input_data_callback: Option<Box<dyn FnMut(&Data) + Send + 'static>>,
-        output_data_callback: Option<Box<dyn FnMut(&mut Data) + Send + 'static>>,
+        input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
+        output_data_callback: Option<
+            Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>,
+        >,
         playing: Arc<AtomicBool>,
         buffer_size: usize,
     ) -> Self {
@@ -256,6 +271,7 @@ impl LocalProcessHandler {
             temp_output_buffer_size: buffer_size,
             temp_output_buffer_index: 0,
             playing,
+            creation_timestamp: std::time::Instant::now(),
         }
     }
 }
@@ -281,7 +297,27 @@ impl jack::ProcessHandler for LocalProcessHandler {
             return jack::Control::Continue;
         }
 
-        let current_buffer_size = process_scope.n_frames() as usize;
+        let current_frame_count = process_scope.n_frames() as usize;
+
+        // Get timestamp data
+        let cycle_times = process_scope.cycle_times();
+        let current_start_usecs = match cycle_times {
+            Ok(times) => times.current_usecs,
+            Err(_) => {
+                // jack was unable to get the current time information
+                // Fall back to using Instants
+                let now = std::time::Instant::now();
+                let duration = now.duration_since(self.creation_timestamp);
+                duration.as_micros() as u64
+            }
+        };
+        let start_cycle_instant = micros_to_stream_instant(current_start_usecs);
+        let start_callback_instant = start_cycle_instant
+            .add(frames_to_duration(
+                process_scope.frames_since_cycle_start() as usize,
+                self.sample_rate,
+            ))
+            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
 
         if let Some(input_callback) = &mut self.input_data_callback {
             // Let's get the data from the input ports and run the callback
@@ -292,17 +328,29 @@ impl jack::ProcessHandler for LocalProcessHandler {
             // Go through every channel and store its data in the temporary input buffer
             for ch_ix in 0..num_in_channels {
                 let input_channel = &self.in_ports[ch_ix].as_slice(process_scope);
-                for i in 0..current_buffer_size {
+                for i in 0..current_frame_count {
                     self.temp_input_buffer[ch_ix + i * num_in_channels] = input_channel[i];
                 }
             }
-            // Create a slice of exactly current_buffer_size frames
-            let data = temp_input_buffer_to_data(&mut self.temp_input_buffer, current_buffer_size*num_in_channels);
-            input_callback(&data);
+            // Create a slice of exactly current_frame_count frames
+            let data = temp_input_buffer_to_data(
+                &mut self.temp_input_buffer,
+                current_frame_count * num_in_channels,
+            );
+            // Create timestamp
+            let frames_since_cycle_start = process_scope.frames_since_cycle_start() as usize;
+            let duration_since_cycle_start =
+                frames_to_duration(frames_since_cycle_start, self.sample_rate);
+            let callback = start_callback_instant
+                .add(duration_since_cycle_start)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let capture = start_callback_instant;
+            let timestamp = crate::InputStreamTimestamp { callback, capture };
+            let info = crate::InputCallbackInfo { timestamp };
+            input_callback(&data, &info);
         }
 
         if let Some(output_callback) = &mut self.output_data_callback {
-
             // Get the mutable slices for each output port buffer
             // for i in 0..self.out_ports.len() {
             //     self.out_port_buffers[i] = self.out_ports[i].as_mut_slice(process_scope);
@@ -311,18 +359,36 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let num_out_channels = self.out_ports.len();
 
             // Run the output callback on the temporary output buffer until we have filled the output ports
-            // JACK ports each provide a mutable slice to be filled with samples whereas CPAL uses interleaved 
+            // JACK ports each provide a mutable slice to be filled with samples whereas CPAL uses interleaved
             // channels. The formats therefore have to be bridged.
-            for i in 0..current_buffer_size {
+            for i in 0..current_frame_count {
                 if self.temp_output_buffer_index == self.temp_output_buffer_size {
-                    // Get new samples if the temporary buffer is depleted
+                    // Get new samples if the temporary buffer is depleted. This can theoretically happen
+                    // several times per cycle or once every few cycles if the buffer size changes, but in practice
+                    // it should generally happen once per cycle if the buffer size is not changed.
                     let mut data = temp_output_buffer_to_data(&mut self.temp_output_buffer);
-                    output_callback(&mut data);
+                    // Create timestamp
+                    let frames_since_cycle_start =
+                        process_scope.frames_since_cycle_start() as usize;
+                    let duration_since_cycle_start =
+                        frames_to_duration(frames_since_cycle_start, self.sample_rate);
+                    let callback = start_callback_instant
+                        .add(duration_since_cycle_start)
+                        .expect(
+                            "`playback` occurs beyond representation supported by `StreamInstant`",
+                        );
+                    let buffer_duration = frames_to_duration(current_frame_count, self.sample_rate);
+                    let playback = start_cycle_instant.add(buffer_duration).expect(
+                        "`playback` occurs beyond representation supported by `StreamInstant`",
+                    );
+                    let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                    let info = crate::OutputCallbackInfo { timestamp };
+                    output_callback(&mut data, &info);
                     self.temp_output_buffer_index = 0;
                 }
                 // Write the interleaved samples e.g. [l0, r0, l1, r1, ..] to each output buffer
                 for ch_ix in 0..num_out_channels {
-                    // TODO: This could be very slow, it would be faster to store pointers to these slices, but I don't know how
+                    // TODO: It should be marginally faster to store pointers to these slices, but I don't know how
                     // to avoid lifetime issues and allocation
                     let output_channel = &mut self.out_ports[ch_ix].as_mut_slice(process_scope);
                     output_channel[i] = self.temp_output_buffer
@@ -338,6 +404,21 @@ impl jack::ProcessHandler for LocalProcessHandler {
     }
 }
 
+fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
+    let nanos = micros * 1000;
+    let secs = nanos / 1_000_000;
+    let subsec_nanos = nanos - secs * 1_000_000_000;
+    crate::StreamInstant::new(secs as i64, subsec_nanos as u32)
+}
+
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate.0 as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
+}
+
 /// Receives notifications from the JACK server. It is unclear if this may be run concurrent with itself under JACK2 specs
 /// so it needs to be Sync.
 struct JackNotificationHandler {
@@ -348,9 +429,9 @@ struct JackNotificationHandler {
 
 impl JackNotificationHandler {
     pub fn new<E>(mut error_callback: E) -> Self
-    where 
+    where
         E: FnMut(StreamError) + Send + 'static,
-    { 
+    {
         JackNotificationHandler {
             error_callback_ptr: Arc::new(Mutex::new(Box::new(error_callback))),
             init_block_size_flag: Arc::new(AtomicBool::new(false)),
@@ -373,13 +454,12 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-
         match self.init_sample_rate_flag.load(Ordering::SeqCst) {
             false => {
                 // One of these notifications is sent every time a client is started.
                 self.init_sample_rate_flag.store(true, Ordering::SeqCst);
                 jack::Control::Continue
-            },
+            }
             true => {
                 self.send_error(format!("sample rate changed to: {}", srate));
                 // Since CPAL currently has no way of signaling a sample rate change in order to make
@@ -389,20 +469,19 @@ impl jack::NotificationHandler for JackNotificationHandler {
         }
     }
 
-    fn buffer_size(&mut self, _: &jack::Client, size: jack::Frames) -> jack::Control  {
-        
+    fn buffer_size(&mut self, _: &jack::Client, size: jack::Frames) -> jack::Control {
         match self.init_block_size_flag.load(Ordering::SeqCst) {
             false => {
                 // One of these notifications is sent every time a client is started.
                 self.init_block_size_flag.store(true, Ordering::SeqCst)
-            },
+            }
             true => {
                 self.send_error(format!("buffer size changed to: {}", size));
             }
         }
-        
-        // The current implementation should work even if the buffer size changes, although 
-        // potentially with poorer performance. However, reallocating the temporary processing 
+
+        // The current implementation should work even if the buffer size changes, although
+        // potentially with poorer performance. However, reallocating the temporary processing
         // buffers would be expensive so we choose to just continue in this case.
         jack::Control::Continue
     }

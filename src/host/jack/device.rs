@@ -1,11 +1,11 @@
 use crate::{
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
-    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
-use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
-use traits::{DeviceTrait, HostTrait, StreamTrait};
+use traits::DeviceTrait;
 
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
@@ -27,6 +27,7 @@ pub enum DeviceType {
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
+    buffer_size: SupportedBufferSize,
     device_type: DeviceType,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
@@ -48,8 +49,12 @@ impl Device {
         match super::get_client(&name, client_options) {
             Ok(client) => Ok(Device {
                 // The name given to the client by JACK, could potentially be different from the name supplied e.g.if there is a name collision
-                name: client.name().to_string(), 
+                name: client.name().to_string(),
                 sample_rate: SampleRate(client.sample_rate() as u32),
+                buffer_size: SupportedBufferSize::Range {
+                    min: client.buffer_size(),
+                    max: client.buffer_size(),
+                },
                 device_type,
                 start_server_automatically,
                 connect_ports_automatically,
@@ -89,6 +94,7 @@ impl Device {
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
+        let buffer_size = self.buffer_size.clone();
         // The sample format for JACK audio ports is always "32 bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
@@ -96,6 +102,7 @@ impl Device {
         Ok(SupportedStreamConfig {
             channels,
             sample_rate,
+            buffer_size,
             sample_format,
         })
     }
@@ -109,8 +116,13 @@ impl Device {
         let mut supported_configs = vec![];
 
         for &channels in DEFAULT_SUPPORTED_CHANNELS.iter() {
-            f.channels = channels;
-            supported_configs.push(SupportedStreamConfigRange::from(f.clone()));
+            supported_configs.push(SupportedStreamConfigRange {
+                channels,
+                min_sample_rate: f.sample_rate,
+                max_sample_rate: f.sample_rate,
+                buffer_size: f.buffer_size.clone(),
+                sample_format: f.sample_format.clone(),
+            });
         }
         supported_configs
     }
@@ -118,14 +130,14 @@ impl Device {
     pub fn is_input(&self) -> bool {
         match self.device_type {
             DeviceType::InputDevice => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_output(&self) -> bool {
         match self.device_type {
             DeviceType::OutputDevice => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -173,7 +185,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         if let DeviceType::OutputDevice = &self.device_type {
@@ -213,7 +225,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         if let DeviceType::InputDevice = &self.device_type {

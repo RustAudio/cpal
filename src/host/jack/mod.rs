@@ -1,13 +1,7 @@
 extern crate jack;
 
-use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
-};
-use traits::{DeviceTrait, HostTrait, StreamTrait};
-
-use std::cell::RefCell;
+use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
+use traits::HostTrait;
 
 mod device;
 pub use self::device::Device;
@@ -104,7 +98,7 @@ impl HostTrait for Host {
     /// - the jack feature flag is set
     /// - libjack is installed (wouldn't compile without it)
     /// - the JACK server can be started
-    /// 
+    ///
     /// If the code compiles the necessary jack libraries are installed.
     /// There is no way to know if the user has set up a correct JACK configuration e.g. with qjackctl.
     /// Users can choose to automatically start the server if it isn't already started when creating a client
