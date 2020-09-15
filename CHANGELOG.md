@@ -1,4 +1,8 @@
-# Unreleased
+# Version 0.12.1 (2020-07-23)
+
+- Bugfix release to get the asio feature working again.
+
+# Version 0.12.0 (2020-07-09)
 
 - Large refactor removing the blocking EventLoop API.
 - Rename many `Format` types to `StreamConfig`:
@@ -17,6 +21,8 @@
 - Added `build_input/output_stream_raw` methods allowing for dynamically
   handling sample format type.
 - Added support for DragonFly platform.
+- Add `InputCallbackInfo` and `OutputCallbackInfo` types and update expected
+  user data callback function signature to provide these.
 
 # Version 0.11.0 (2019-12-11)
 
@@ -48,7 +54,7 @@
 
 - Better buffer handling
 - Fix logic error in frame/sample size
-- Added error handling for unknown ALSA device errors 
+- Added error handling for unknown ALSA device errors
 - Fix resuming a paused stream on Windows (wasapi).
 - Implement `default_output_format` for emscripten backend.
 

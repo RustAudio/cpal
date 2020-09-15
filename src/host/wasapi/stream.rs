@@ -1,5 +1,5 @@
 use super::check_result;
-use super::winapi::shared::basetsd::UINT32;
+use super::winapi::shared::basetsd::{UINT32, UINT64};
 use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
 use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
 use super::winapi::um::handleapi;
@@ -8,7 +8,8 @@ use super::winapi::um::winbase;
 use super::winapi::um::winnt;
 use crate::traits::StreamTrait;
 use crate::{
-    BackendSpecificError, Data, PauseStreamError, PlayStreamError, SampleFormat, StreamError,
+    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, StreamError,
 };
 use std::mem;
 use std::ptr;
@@ -63,6 +64,7 @@ pub enum AudioClientFlow {
 
 pub struct StreamInner {
     pub audio_client: *mut audioclient::IAudioClient,
+    pub audio_clock: *mut audioclient::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: winnt::HANDLE,
@@ -72,6 +74,8 @@ pub struct StreamInner {
     pub max_frames_in_buffer: UINT32,
     // Number of bytes that each frame occupies.
     pub bytes_per_frame: WORD,
+    // The configuration with which the stream was created.
+    pub config: crate::StreamConfig,
     // The sample format with which the stream was created.
     pub sample_format: SampleFormat,
 }
@@ -83,7 +87,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -112,7 +116,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Stream
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
@@ -184,6 +188,7 @@ impl Drop for StreamInner {
     fn drop(&mut self) {
         unsafe {
             (*self.audio_client).Release();
+            (*self.audio_clock).Release();
             handleapi::CloseHandle(self.event);
         }
     }
@@ -277,7 +282,7 @@ fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError>
 
 fn run_input(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&Data),
+    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
     loop {
@@ -304,7 +309,7 @@ fn run_input(
 
 fn run_output(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&mut Data),
+    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
     loop {
@@ -370,7 +375,7 @@ fn process_commands_and_await_signal(
 fn process_input(
     stream: &StreamInner,
     capture_client: *mut audioclient::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(&Data),
+    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
     let mut frames_available = 0;
@@ -387,12 +392,13 @@ fn process_input(
             if frames_available == 0 {
                 return ControlFlow::Continue;
             }
+            let mut qpc_position: UINT64 = 0;
             let hresult = (*capture_client).GetBuffer(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
                 ptr::null_mut(),
-                ptr::null_mut(),
+                &mut qpc_position,
             );
 
             // TODO: Can this happen?
@@ -409,7 +415,17 @@ fn process_input(
             let len = frames_available as usize * stream.bytes_per_frame as usize
                 / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
-            data_callback(&data);
+
+            // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+            let timestamp = match input_timestamp(stream, qpc_position) {
+                Ok(ts) => ts,
+                Err(err) => {
+                    error_callback(err);
+                    return ControlFlow::Break;
+                }
+            };
+            let info = InputCallbackInfo { timestamp };
+            data_callback(&data, &info);
 
             // Release the buffer.
             let hresult = (*capture_client).ReleaseBuffer(frames_available);
@@ -425,7 +441,7 @@ fn process_input(
 fn process_output(
     stream: &StreamInner,
     render_client: *mut audioclient::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(&mut Data),
+    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
     // The number of frames available for writing.
@@ -453,7 +469,16 @@ fn process_output(
         let len = frames_available as usize * stream.bytes_per_frame as usize
             / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        data_callback(&mut data);
+        let sample_rate = stream.config.sample_rate;
+        let timestamp = match output_timestamp(stream, frames_available, sample_rate) {
+            Ok(ts) => ts,
+            Err(err) => {
+                error_callback(err);
+                return ControlFlow::Break;
+            }
+        };
+        let info = OutputCallbackInfo { timestamp };
+        data_callback(&mut data, &info);
 
         let hresult = (*render_client).ReleaseBuffer(frames_available as u32, 0);
         if let Err(err) = stream_error_from_hresult(hresult) {
@@ -463,4 +488,67 @@ fn process_output(
     }
 
     ControlFlow::Continue
+}
+
+/// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate.0 as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
+}
+
+/// Use the stream's `IAudioClock` to produce the current stream instant.
+///
+/// Uses the QPC position produced via the `GetPosition` method.
+fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamError> {
+    let mut position: UINT64 = 0;
+    let mut qpc_position: UINT64 = 0;
+    let res = unsafe { (*stream.audio_clock).GetPosition(&mut position, &mut qpc_position) };
+    stream_error_from_hresult(res)?;
+    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+    let qpc_nanos = qpc_position as i128 * 100;
+    let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
+        .expect("performance counter out of range of `StreamInstant` representation");
+    Ok(instant)
+}
+
+/// Produce the input stream timestamp.
+///
+/// `buffer_qpc_position` is the `qpc_position` returned via the `GetBuffer` call on the capture
+/// client. It represents the instant at which the first sample of the retrieved buffer was
+/// captured.
+fn input_timestamp(
+    stream: &StreamInner,
+    buffer_qpc_position: UINT64,
+) -> Result<crate::InputStreamTimestamp, StreamError> {
+    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+    let qpc_nanos = buffer_qpc_position as i128 * 100;
+    let capture = crate::StreamInstant::from_nanos_i128(qpc_nanos)
+        .expect("performance counter out of range of `StreamInstant` representation");
+    let callback = stream_instant(stream)?;
+    Ok(crate::InputStreamTimestamp { capture, callback })
+}
+
+/// Produce the output stream timestamp.
+///
+/// `frames_available` is the number of frames available for writing as reported by subtracting the
+/// result of `GetCurrentPadding` from the maximum buffer size.
+///
+/// `sample_rate` is the rate at which audio frames are processed by the device.
+///
+/// TODO: The returned `playback` is an estimate that assumes audio is delivered immediately after
+/// `frames_available` are consumed. The reality is that there is likely a tiny amount of latency
+/// after this, but not sure how to determine this.
+fn output_timestamp(
+    stream: &StreamInner,
+    frames_available: u32,
+    sample_rate: crate::SampleRate,
+) -> Result<crate::OutputStreamTimestamp, StreamError> {
+    let callback = stream_instant(stream)?;
+    let buffer_duration = frames_to_duration(frames_available, sample_rate);
+    let playback = callback
+        .add(buffer_duration)
+        .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+    Ok(crate::OutputStreamTimestamp { callback, playback })
 }

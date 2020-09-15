@@ -1,7 +1,8 @@
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -74,7 +75,7 @@ impl DeviceTrait for Device {
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
@@ -89,7 +90,7 @@ impl DeviceTrait for Device {
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()

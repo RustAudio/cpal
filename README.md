@@ -26,6 +26,10 @@ Note that on Linux, the ALSA development files are required. These are provided
 as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
 `alsa-lib-devel` on Fedora.
 
+## Compiling for Web Assembly
+
+If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. 
+
 ## ASIO on Windows
 
 [ASIO](https://en.wikipedia.org/wiki/Audio_Stream_Input/Output) is an audio

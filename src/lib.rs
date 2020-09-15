@@ -63,7 +63,7 @@
 //! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
 //!     &config,
-//!     move |data: &mut [f32]| {
+//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -102,7 +102,7 @@
 //!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T]) {
+//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::from(&0.0);
 //!     }
@@ -119,7 +119,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.play().unwrap();
@@ -135,7 +135,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
 //! stream.pause().unwrap();
@@ -158,6 +158,8 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 pub use samples_formats::{Sample, SampleFormat};
+use std::convert::TryInto;
+use std::time::Duration;
 
 mod error;
 mod host;
@@ -178,6 +180,22 @@ pub type ChannelCount = u16;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleRate(pub u32);
 
+/// The desired number of frames for the hardware buffer.
+pub type FrameCount = u32;
+
+/// The buffer size used by the device.
+///
+/// Default is used when no specific buffer size is set and uses the default
+/// behavior of the given host. Note, the default buffer size may be surprisingly
+/// large, leading to latency issues. If low latency is desired, Fixed(BufferSize)
+/// should be used in accordance with the SupportedBufferSize range produced by
+/// the SupportedStreamConfig API.  
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BufferSize {
+    Default,
+    Fixed(FrameCount),
+}
+
 /// The set of parameters used to describe how to open a stream.
 ///
 /// The sample format is omitted in favour of using a sample type.
@@ -185,6 +203,19 @@ pub struct SampleRate(pub u32);
 pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
+    pub buffer_size: BufferSize,
+}
+
+/// Describes the minimum and maximum supported buffer size for the device
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SupportedBufferSize {
+    Range {
+        min: FrameCount,
+        max: FrameCount,
+    },
+    /// In the case that the platform provides no way of getting the default
+    /// buffersize before starting a stream.
+    Unknown,
 }
 
 /// Describes a range of supported stream configurations, retrieved via the
@@ -196,6 +227,8 @@ pub struct SupportedStreamConfigRange {
     pub(crate) min_sample_rate: SampleRate,
     /// Maximum value for the samples rate of the supported formats.
     pub(crate) max_sample_rate: SampleRate,
+    /// Buffersize ranges supported by the device
+    pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
     pub(crate) sample_format: SampleFormat,
 }
@@ -206,6 +239,7 @@ pub struct SupportedStreamConfigRange {
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
     sample_rate: SampleRate,
+    buffer_size: SupportedBufferSize,
     sample_format: SampleFormat,
 }
 
@@ -220,6 +254,64 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
+/// A monotonic time instance associated with a stream, retrieved from either:
+///
+/// 1. A timestamp provided to the stream's underlying audio data callback or
+/// 2. The same time source used to generate timestamps for a stream's underlying audio data
+///    callback.
+///
+/// **StreamInstant** represents a duration since some unspecified origin occurring either before
+/// or equal to the moment the stream from which it was created begins.
+///
+/// ## Host `StreamInstant` Sources
+///
+/// | Host | Source |
+/// | ---- | ------ |
+/// | alsa | `snd_pcm_status_get_htstamp` |
+/// | coreaudio | `mach_absolute_time` |
+/// | wasapi | `QueryPerformanceCounter` |
+/// | asio | `timeGetTime` |
+/// | emscripten | `AudioContext.getOutputTimestamp` |
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct StreamInstant {
+    secs: i64,
+    nanos: u32,
+}
+
+/// A timestamp associated with a call to an input stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct InputStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The instant that data was captured from the device.
+    ///
+    /// E.g. The instant data was read from an ADC.
+    pub capture: StreamInstant,
+}
+
+/// A timestamp associated with a call to an output stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct OutputStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The predicted instant that data written will be delivered to the device for playback.
+    ///
+    /// E.g. The instant data will be played by a DAC.
+    pub playback: StreamInstant,
+}
+
+/// Information relevant to a single call to the user's input stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputCallbackInfo {
+    timestamp: InputStreamTimestamp,
+}
+
+/// Information relevant to a single call to the user's output stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputCallbackInfo {
+    timestamp: OutputStreamTimestamp,
+}
+
 impl SupportedStreamConfig {
     pub fn channels(&self) -> ChannelCount {
         self.channels
@@ -227,6 +319,10 @@ impl SupportedStreamConfig {
 
     pub fn sample_rate(&self) -> SampleRate {
         self.sample_rate
+    }
+
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
     }
 
     pub fn sample_format(&self) -> SampleFormat {
@@ -237,7 +333,93 @@ impl SupportedStreamConfig {
         StreamConfig {
             channels: self.channels,
             sample_rate: self.sample_rate,
+            buffer_size: BufferSize::Default,
         }
+    }
+}
+
+impl StreamInstant {
+    /// The amount of time elapsed from another instant to this one.
+    ///
+    /// Returns `None` if `earlier` is later than self.
+    pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
+        if self < earlier {
+            None
+        } else {
+            (self.as_nanos() - earlier.as_nanos())
+                .try_into()
+                .ok()
+                .map(Duration::from_nanos)
+        }
+    }
+
+    /// Returns the instant in time after the given duration has passed.
+    ///
+    /// Returns `None` if the resulting instant would exceed the bounds of the underlying data
+    /// structure.
+    pub fn add(&self, duration: Duration) -> Option<Self> {
+        self.as_nanos()
+            .checked_add(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
+    }
+
+    /// Returns the instant in time one `duration` ago.
+    ///
+    /// Returns `None` if the resulting instant would underflow. As a result, it is important to
+    /// consider that on some platforms the `StreamInstant` may begin at `0` from the moment the
+    /// source stream is created.
+    pub fn sub(&self, duration: Duration) -> Option<Self> {
+        self.as_nanos()
+            .checked_sub(duration.as_nanos() as i128)
+            .and_then(Self::from_nanos_i128)
+    }
+
+    fn as_nanos(&self) -> i128 {
+        (self.secs as i128 * 1_000_000_000) + self.nanos as i128
+    }
+
+    #[allow(dead_code)]
+    fn from_nanos(nanos: i64) -> Self {
+        let secs = nanos / 1_000_000_000;
+        let subsec_nanos = nanos - secs * 1_000_000_000;
+        Self::new(secs as i64, subsec_nanos as u32)
+    }
+
+    #[allow(dead_code)]
+    fn from_nanos_i128(nanos: i128) -> Option<Self> {
+        let secs = nanos / 1_000_000_000;
+        if secs > std::i64::MAX as i128 || secs < std::i64::MIN as i128 {
+            None
+        } else {
+            let subsec_nanos = nanos - secs * 1_000_000_000;
+            debug_assert!(subsec_nanos < std::u32::MAX as i128);
+            Some(Self::new(secs as i64, subsec_nanos as u32))
+        }
+    }
+
+    #[allow(dead_code)]
+    fn from_secs_f64(secs: f64) -> crate::StreamInstant {
+        let s = secs.floor() as i64;
+        let ns = ((secs - s as f64) * 1_000_000_000.0) as u32;
+        Self::new(s, ns)
+    }
+
+    fn new(secs: i64, nanos: u32) -> Self {
+        StreamInstant { secs, nanos }
+    }
+}
+
+impl InputCallbackInfo {
+    /// The timestamp associated with the call to an input stream's data callback.
+    pub fn timestamp(&self) -> InputStreamTimestamp {
+        self.timestamp
+    }
+}
+
+impl OutputCallbackInfo {
+    /// The timestamp associated with the call to an output stream's data callback.
+    pub fn timestamp(&self) -> OutputStreamTimestamp {
+        self.timestamp
     }
 }
 
@@ -347,11 +529,15 @@ impl SupportedStreamConfigRange {
         self.max_sample_rate
     }
 
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
     pub fn sample_format(&self) -> SampleFormat {
         self.sample_format
     }
 
-    /// Retrieve a `SupportedStreamConfig` with the given sample rate.
+    /// Retrieve a `SupportedStreamConfig` with the given sample rate and buffer size.
     ///
     /// **panic!**s if the given `sample_rate` is outside the range specified within this
     /// `SupportedStreamConfigRange` instance.
@@ -359,8 +545,9 @@ impl SupportedStreamConfigRange {
         assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
         SupportedStreamConfig {
             channels: self.channels,
-            sample_format: self.sample_format,
             sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
         }
     }
 
@@ -371,6 +558,7 @@ impl SupportedStreamConfigRange {
             channels: self.channels,
             sample_rate: self.max_sample_rate,
             sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
         }
     }
 
@@ -445,21 +633,78 @@ impl SupportedStreamConfigRange {
     }
 }
 
+#[test]
+fn test_cmp_default_heuristics() {
+    let mut formats = vec![
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::F32,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 1,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::F32,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::I16,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::U16,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(22050),
+            sample_format: SampleFormat::F32,
+        },
+    ];
+
+    formats.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+    // lowest-priority first:
+    assert_eq!(formats[0].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[0].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[0].channels(), 1);
+
+    assert_eq!(formats[1].sample_format(), SampleFormat::U16);
+    assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[1].channels(), 2);
+
+    assert_eq!(formats[2].sample_format(), SampleFormat::I16);
+    assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[2].channels(), 2);
+
+    assert_eq!(formats[3].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
+    assert_eq!(formats[3].channels(), 2);
+
+    assert_eq!(formats[4].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[4].channels(), 2);
+}
+
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
         conf.config()
-    }
-}
-
-impl From<SupportedStreamConfig> for SupportedStreamConfigRange {
-    #[inline]
-    fn from(format: SupportedStreamConfig) -> SupportedStreamConfigRange {
-        SupportedStreamConfigRange {
-            channels: format.channels,
-            min_sample_rate: format.sample_rate,
-            max_sample_rate: format.sample_rate,
-            sample_format: format.sample_format,
-        }
     }
 }
 
@@ -483,3 +728,37 @@ const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
     SampleRate(176400),
     SampleRate(192000),
 ];
+
+#[test]
+fn test_stream_instant() {
+    let a = StreamInstant::new(2, 0);
+    let b = StreamInstant::new(-2, 0);
+    let min = StreamInstant::new(std::i64::MIN, 0);
+    let max = StreamInstant::new(std::i64::MAX, 0);
+    assert_eq!(
+        a.sub(Duration::from_secs(1)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        a.sub(Duration::from_secs(3)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(min.sub(Duration::from_secs(1)), None);
+    assert_eq!(
+        b.add(Duration::from_secs(1)),
+        Some(StreamInstant::new(-1, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(2)),
+        Some(StreamInstant::new(0, 0))
+    );
+    assert_eq!(
+        b.add(Duration::from_secs(3)),
+        Some(StreamInstant::new(1, 0))
+    );
+    assert_eq!(max.add(Duration::from_secs(1)), None);
+}

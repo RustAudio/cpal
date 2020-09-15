@@ -1,11 +1,12 @@
 extern crate core_foundation_sys;
 extern crate coreaudio;
 
-use self::core_foundation_sys::string::{CFStringGetCStringPtr, CFStringRef};
+use self::core_foundation_sys::string::{CFStringGetCString, CFStringGetCStringPtr, CFStringRef};
 use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
-    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyDeviceNameCFString,
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceNameCFString,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
@@ -20,9 +21,10 @@ use self::coreaudio::sys::{
 };
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
@@ -111,7 +113,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         Device::build_input_stream_raw(self, config, sample_format, data_callback, error_callback)
@@ -125,7 +127,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
@@ -159,9 +161,30 @@ impl Device {
 
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
             if c_string == null() {
-                let description = "core foundation unexpectedly returned null string".to_string();
-                let err = BackendSpecificError { description };
-                return Err(err.into());
+                let status = AudioObjectGetPropertyData(
+                    self.audio_device_id,
+                    &property_address as *const _,
+                    0,
+                    null(),
+                    &data_size as *const _ as *mut _,
+                    &device_name as *const _ as *mut _,
+                );
+                check_os_status(status)?;
+                let mut buf: [i8; 255] = [0; 255];
+                let result = CFStringGetCString(
+                    device_name,
+                    buf.as_mut_ptr(),
+                    buf.len() as _,
+                    kCFStringEncodingUTF8,
+                );
+                if result == 0 {
+                    let description =
+                        "core foundation failed to return device name string".to_string();
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+                let name: &CStr = CStr::from_ptr(buf.as_ptr());
+                return Ok(name.to_str().unwrap().to_owned());
             }
             CStr::from_ptr(c_string as *mut _)
         };
@@ -255,6 +278,9 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
+            let audio_unit = audio_unit_from_device(self, true)?;
+            let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
+
             // Collect the supported formats for the device.
             let mut fmts = vec![];
             for range in ranges {
@@ -262,6 +288,7 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
+                    buffer_size: buffer_size.clone(),
                     sample_format: sample_format,
                 };
                 fmts.push(fmt);
@@ -306,7 +333,7 @@ impl Device {
                     Err(DefaultStreamConfigError::DeviceNotAvailable)
                 }
                 err => {
-                    let description = format!("{}", std::error::Error::description(&err));
+                    let description = format!("{}", err);
                     let err = BackendSpecificError { description };
                     Err(err.into())
                 }
@@ -353,9 +380,13 @@ impl Device {
                 }
             };
 
+            let audio_unit = audio_unit_from_device(self, true)?;
+            let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
+
             let config = SupportedStreamConfig {
                 sample_rate: SampleRate(asbd.mSampleRate as _),
                 channels: asbd.mChannelsPerFrame as _,
+                buffer_size: buffer_size,
                 sample_format: sample_format,
             };
             Ok(config)
@@ -387,6 +418,7 @@ struct StreamInner {
     //
     // We must do this so that we can avoid changing the device sample rate if there is already
     // a stream associated with the device.
+    #[allow(dead_code)]
     device_id: AudioDeviceID,
 }
 
@@ -401,6 +433,24 @@ impl From<coreaudio::Error> for BuildStreamError {
             | coreaudio::Error::AudioFormat(_) => BuildStreamError::StreamConfigNotSupported,
             _ => BuildStreamError::DeviceNotAvailable,
         }
+    }
+}
+
+impl From<coreaudio::Error> for SupportedStreamConfigsError {
+    fn from(err: coreaudio::Error) -> SupportedStreamConfigsError {
+        let description = format!("{}", err);
+        let err = BackendSpecificError { description };
+        // Check for possible DeviceNotAvailable variant
+        SupportedStreamConfigsError::BackendSpecific { err }
+    }
+}
+
+impl From<coreaudio::Error> for DefaultStreamConfigError {
+    fn from(err: coreaudio::Error) -> DefaultStreamConfigError {
+        let description = format!("{}", err);
+        let err = BackendSpecificError { description };
+        // Check for possible DeviceNotAvailable variant
+        DefaultStreamConfigError::BackendSpecific { err }
     }
 }
 
@@ -483,10 +533,10 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        mut error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         // The scope and element for working with a device's input stream.
@@ -634,9 +684,33 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
+        // Set the buffersize
+        match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
+                match buffer_size_range {
+                    SupportedBufferSize::Range { min, max } => {
+                        if v >= min && v <= max {
+                            audio_unit.set_property(
+                                kAudioDevicePropertyBufferFrameSize,
+                                scope,
+                                element,
+                                Some(&v),
+                            )?
+                        } else {
+                            return Err(BuildStreamError::StreamConfigNotSupported);
+                        }
+                    }
+                    SupportedBufferSize::Unknown => (),
+                }
+            }
+            BufferSize::Default => (),
+        }
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
+        let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
             let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
@@ -645,7 +719,7 @@ impl Device {
 
             // TODO: Perhaps loop over all buffers instead?
             let AudioBuffer {
-                mNumberChannels: _num_channels,
+                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
             } = buffers[0];
@@ -653,7 +727,24 @@ impl Device {
             let data = data as *mut ();
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let data = Data::from_parts(data, len, sample_format);
-            data_callback(&data);
+
+            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
+            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                Err(err) => {
+                    error_callback(err.into());
+                    return Err(());
+                }
+                Ok(cb) => cb,
+            };
+            let buffer_frames = len / channels as usize;
+            let delay = frames_to_duration(buffer_frames, sample_rate);
+            let capture = callback
+                .sub(delay)
+                .expect("`capture` occurs before origin of alsa `StreamInstant`");
+            let timestamp = crate::InputStreamTimestamp { callback, capture };
+
+            let info = InputCallbackInfo { timestamp };
+            data_callback(&data, &info);
             Ok(())
         })?;
 
@@ -671,10 +762,10 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        mut error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut audio_unit = audio_unit_from_device(self, false)?;
@@ -687,16 +778,40 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
+        // Set the buffersize
+        match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
+                match buffer_size_range {
+                    SupportedBufferSize::Range { min, max } => {
+                        if v >= min && v <= max {
+                            audio_unit.set_property(
+                                kAudioDevicePropertyBufferFrameSize,
+                                scope,
+                                element,
+                                Some(&v),
+                            )?
+                        } else {
+                            return Err(BuildStreamError::StreamConfigNotSupported);
+                        }
+                    }
+                    SupportedBufferSize::Unknown => (),
+                }
+            }
+            BufferSize::Default => (),
+        }
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
+        let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
             // If `run()` is currently running, then a callback will be available from this list.
             // Otherwise, we just fill the buffer with zeroes and return.
 
             let AudioBuffer {
-                mNumberChannels: _num_channels,
+                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
             } = (*args.data.data).mBuffers[0];
@@ -704,7 +819,24 @@ impl Device {
             let data = data as *mut ();
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let mut data = Data::from_parts(data, len, sample_format);
-            data_callback(&mut data);
+
+            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                Err(err) => {
+                    error_callback(err.into());
+                    return Err(());
+                }
+                Ok(cb) => cb,
+            };
+            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
+            let buffer_frames = len / channels as usize;
+            let delay = frames_to_duration(buffer_frames, sample_rate);
+            let playback = callback
+                .add(delay)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+
+            let info = OutputCallbackInfo { timestamp };
+            data_callback(&mut data, &info);
             Ok(())
         })?;
 
@@ -716,6 +848,26 @@ impl Device {
             device_id: self.audio_device_id,
         }))
     }
+}
+
+fn host_time_to_stream_instant(
+    m_host_time: u64,
+) -> Result<crate::StreamInstant, BackendSpecificError> {
+    let mut info: mach::mach_time::mach_timebase_info = Default::default();
+    let res = unsafe { mach::mach_time::mach_timebase_info(&mut info) };
+    check_os_status(res)?;
+    let nanos = m_host_time * info.numer as u64 / info.denom as u64;
+    let secs = nanos / 1_000_000_000;
+    let subsec_nanos = nanos - secs * 1_000_000_000;
+    Ok(crate::StreamInstant::new(secs as i64, subsec_nanos as u32))
+}
+
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate.0 as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }
 
 pub struct Stream {
@@ -736,7 +888,7 @@ impl StreamTrait for Stream {
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", std::error::Error::description(&e));
+                let description = format!("{}", e);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -750,7 +902,7 @@ impl StreamTrait for Stream {
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", std::error::Error::description(&e));
+                let description = format!("{}", e);
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -765,8 +917,23 @@ fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
     match coreaudio::Error::from_os_status(os_status) {
         Ok(()) => Ok(()),
         Err(err) => {
-            let description = std::error::Error::description(&err).to_string();
+            let description = err.to_string();
             Err(BackendSpecificError { description })
         }
     }
+}
+
+fn get_io_buffer_frame_size_range(
+    audio_unit: &AudioUnit,
+) -> Result<SupportedBufferSize, coreaudio::Error> {
+    let buffer_size_range: AudioValueRange = audio_unit.get_property(
+        kAudioDevicePropertyBufferFrameSizeRange,
+        Scope::Global,
+        Element::Output,
+    )?;
+
+    Ok(SupportedBufferSize::Range {
+        min: buffer_size_range.mMinimum as u32,
+        max: buffer_size_range.mMaximum as u32,
+    })
 }

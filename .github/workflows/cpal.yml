@@ -4,11 +4,11 @@ on: [push, pull_request]
 
 jobs:
   clippy-test:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Install stable
@@ -27,7 +27,7 @@ jobs:
   rustfmt-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -42,33 +42,16 @@ jobs:
         args: --all -- --check
 
   cargo-publish:
-
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-
     env:
       CRATESIO_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
-    - name: Run cargo publish for alsa-sys
-      continue-on-error: true
-      env:
-        MANIFEST: alsa-sys/Cargo.toml
-      run: |
-        ALSA_TMP=$(mktemp /tmp/alsa-sysXXX.txt) || echo "::error::mktemp error"
-        echo "::set-env name=ALSA_TMP::$ALSA_TMP"
-        cargo publish --token $CRATESIO_TOKEN \
-                      --manifest-path $MANIFEST 2> $ALSA_TMP
-    - name: Check if alsa-sys is already published
-      run: |
-        empty=0
-        grep -q '[^[:space:]]' < $ALSA_TMP || empty=1
-        [ $empty -eq 0 ] && cat $ALSA_TMP
-        [ $empty -eq 1 ] || grep -q "is already uploaded" < $ALSA_TMP
     - name: Run cargo publish for cpal
       continue-on-error: true
       run: |
@@ -83,11 +66,11 @@ jobs:
         [ $empty -eq 1 ] || grep -q "is already uploaded" < $CPAL_TMP
 
   ubuntu-test:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - name: Update apt
+      run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Install stable
@@ -108,15 +91,12 @@ jobs:
         args: --all --all-features --verbose
 
   asmjs-wasm32-test:
-
     strategy:
       matrix:
         target: [asmjs-unknown-emscripten, wasm32-unknown-emscripten]
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install emscripten
       run: sudo apt-get install emscripten
     - name: Install stable
@@ -128,16 +108,51 @@ jobs:
     - name: Build beep example
       run: cargo build --example beep --target ${{ matrix.target }}
 
-  windows-test:
+  wasm32-bindgen-test:
 
     strategy:
       matrix:
-        version: [x86_64, i686]
+        target: [wasm32-unknown-unknown]
 
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v1
+      - uses: actions/checkout@v1
+      - name: Install stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+      - name: Build beep example
+        run: cargo build --example beep --target ${{ matrix.target }} --features=wasm-bindgen
+
+  wasm32-wasi-test:
+
+    strategy:
+      matrix:
+        target: [wasm32-wasi]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+      - name: Build beep example
+        run: cargo build --example beep --target ${{ matrix.target }}
+
+  windows-test:
+    strategy:
+      matrix:
+        version: [x86_64, i686]
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
     - name: Install ASIO SDK
       env:
         LINK: https://www.steinberg.net/asiosdk
@@ -165,9 +180,8 @@ jobs:
 
   macos-test:
     runs-on: macOS-latest
-
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable

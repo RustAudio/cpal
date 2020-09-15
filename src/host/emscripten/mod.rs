@@ -8,9 +8,10 @@ use stdweb::web::TypedArray;
 use stdweb::Reference;
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -39,6 +40,16 @@ pub struct StreamId(usize);
 
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+
+const MIN_CHANNELS: u16 = 1;
+const MAX_CHANNELS: u16 = 32;
+const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
+const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
+const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const MIN_BUFFER_SIZE: u32 = 1;
+const MAX_BUFFER_SIZE: u32 = std::u32::MAX;
+const DEFAULT_BUFFER_SIZE: usize = 2048;
+const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -70,21 +81,20 @@ impl Device {
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
-        // TODO: right now cpal's API doesn't allow flexibility here
-        //       "44100" and "2" (channels) have also been hard-coded in the rest of the code ; if
-        //       this ever becomes more flexible, don't forget to change that
-        //       According to https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createBuffer
-        //       browsers must support 1 to 32 channels at leats and 8,000 Hz to 96,000 Hz.
-        //
-        //       UPDATE: We can do this now. Might be best to use `crate::COMMON_SAMPLE_RATES` and
-        //       filter out those that lay outside the range specified above.
-        Ok(vec![SupportedStreamConfigRange {
-            channels: 2,
-            min_sample_rate: ::SampleRate(44100),
-            max_sample_rate: ::SampleRate(44100),
-            sample_format: ::SampleFormat::F32,
-        }]
-        .into_iter())
+        let buffer_size = SupportedBufferSize::Range {
+            min: MIN_BUFFER_SIZE,
+            max: MAX_BUFFER_SIZE,
+        };
+        let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
+            .map(|channels| SupportedStreamConfigRange {
+                channels,
+                min_sample_rate: MIN_SAMPLE_RATE,
+                max_sample_rate: MAX_SAMPLE_RATE,
+                buffer_size: buffer_size.clone(),
+                sample_format: SUPPORTED_SAMPLE_FORMAT,
+            })
+            .collect();
+        Ok(configs.into_iter())
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
@@ -92,12 +102,15 @@ impl Device {
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO: because it is hard coded, see supported_output_configs.
-        Ok(SupportedStreamConfig {
-            channels: 2,
-            sample_rate: ::SampleRate(44100),
-            sample_format: ::SampleFormat::F32,
-        })
+        const EXPECT: &str = "expected at least one valid webaudio stream config";
+        let config = self
+            .supported_output_configs()
+            .expect(EXPECT)
+            .max_by(|a, b| a.cmp_default_heuristics(b))
+            .unwrap()
+            .with_sample_rate(DEFAULT_SAMPLE_RATE);
+
+        Ok(config)
     }
 }
 
@@ -160,7 +173,7 @@ impl DeviceTrait for Device {
         _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         unimplemented!()
@@ -168,20 +181,29 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        config: &StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        assert_eq!(
-            sample_format,
-            SampleFormat::F32,
-            "emscripten backend currently only supports `f32` data",
-        );
+        if !valid_config(config, sample_format) {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+
+        let buffer_size_frames = match config.buffer_size {
+            BufferSize::Fixed(v) => {
+                if v == 0 {
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                } else {
+                    v as usize
+                }
+            }
+            BufferSize::Default => DEFAULT_BUFFER_SIZE,
+        };
 
         // Create the stream.
         let audio_ctxt_ref = js!(return new AudioContext()).into_reference().unwrap();
@@ -198,7 +220,14 @@ impl DeviceTrait for Device {
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
         set_timeout(
-            || audio_callback_fn::<D, E>(user_data_ptr as *mut c_void),
+            || {
+                audio_callback_fn::<D, E>(
+                    user_data_ptr as *mut c_void,
+                    config,
+                    sample_format,
+                    buffer_size_frames,
+                )
+            },
             10,
         );
 
@@ -222,11 +251,19 @@ impl StreamTrait for Stream {
 
 // The first argument of the callback function (a `void*`) is a casted pointer to `self`
 // and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<D, E>(user_data_ptr: *mut c_void)
-where
-    D: FnMut(&mut Data) + Send + 'static,
+fn audio_callback_fn<D, E>(
+    user_data_ptr: *mut c_void,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    buffer_size_frames: usize,
+) where
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
+    let num_channels = config.channels as usize;
+    let sample_rate = config.sample_rate.0;
+    let buffer_size_samples = buffer_size_frames * num_channels;
+
     unsafe {
         let user_data_ptr2 = user_data_ptr as *mut (&Stream, D, E);
         let user_data = &mut *user_data_ptr2;
@@ -234,14 +271,28 @@ where
         let audio_ctxt = &stream.audio_ctxt_ref;
 
         // TODO: We should be re-using a buffer.
-        let mut temporary_buffer = vec![0.0; 44100 * 2 / 3];
+        let mut temporary_buffer = vec![0f32; buffer_size_samples];
 
         {
             let len = temporary_buffer.len();
             let data = temporary_buffer.as_mut_ptr() as *mut ();
-            let sample_format = SampleFormat::F32;
             let mut data = Data::from_parts(data, len, sample_format);
-            data_cb(&mut data);
+
+            let now_secs: f64 = js!(@{audio_ctxt}.getOutputTimestamp().currentTime)
+                .try_into()
+                .expect("failed to retrieve Value as f64");
+            let callback = crate::StreamInstant::from_secs_f64(now_secs);
+            // TODO: Use proper latency instead. Currently unsupported on most browsers though so
+            // we estimate based on buffer size instead. Probably should use this, but it's only
+            // supported by firefox (2020-04-28).
+            // let latency_secs: f64 = js!(@{audio_ctxt}.outputLatency).try_into().unwrap();
+            let buffer_duration = frames_to_duration(len, sample_rate as usize);
+            let playback = callback
+                .add(buffer_duration)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+            let info = OutputCallbackInfo { timestamp };
+            data_cb(&mut data, &info);
         }
 
         // TODO: directly use a TypedArray<f32> once this is supported by stdweb
@@ -255,19 +306,19 @@ where
             typed_array
         };
 
-        let num_channels = 2u32; // TODO: correct value
         debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
 
         js!(
             var src_buffer = new Float32Array(@{typed_array}.buffer);
             var context = @{audio_ctxt};
-            var buf_len = @{temporary_buffer.len() as u32};
-            var num_channels = @{num_channels};
+            var buffer_size_frames = @{buffer_size_frames as u32};
+            var num_channels = @{num_channels as u32};
+            var sample_rate = sample_rate;
 
-            var buffer = context.createBuffer(num_channels, buf_len / num_channels, 44100);
+            var buffer = context.createBuffer(num_channels, buffer_size_frames, sample_rate);
             for (var channel = 0; channel < num_channels; ++channel) {
                 var buffer_content = buffer.getChannelData(channel);
-                for (var i = 0; i < buf_len / num_channels; ++i) {
+                for (var i = 0; i < buffer_size_frames; ++i) {
                     buffer_content[i] = src_buffer[i * num_channels + channel];
                 }
             }
@@ -281,7 +332,10 @@ where
         // TODO: handle latency better ; right now we just use setInterval with the amount of sound
         // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
         // and there may be underflows
-        set_timeout(|| audio_callback_fn::<D, E>(user_data_ptr), 330);
+        set_timeout(
+            || audio_callback_fn::<D, E>(user_data_ptr, config, sample_format, buffer_size_frames),
+            buffer_size_frames as u32 * 1000 / sample_rate,
+        );
     }
 }
 
@@ -328,4 +382,21 @@ fn is_webaudio_available() -> bool {
     })
     .try_into()
     .unwrap()
+}
+
+// Whether or not the given stream configuration is valid for building a stream.
+fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
+    conf.channels <= MAX_CHANNELS
+        && conf.channels >= MIN_CHANNELS
+        && conf.sample_rate <= MAX_SAMPLE_RATE
+        && conf.sample_rate >= MIN_SAMPLE_RATE
+        && sample_format == SUPPORTED_SAMPLE_FORMAT
+}
+
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+fn frames_to_duration(frames: usize, rate: usize) -> std::time::Duration {
+    let secsf = frames as f64 / rate as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }

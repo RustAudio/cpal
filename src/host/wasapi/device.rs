@@ -1,6 +1,7 @@
 use crate::{
-    BackendSpecificError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    SampleFormat, SampleRate, StreamConfig, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std;
@@ -26,6 +27,7 @@ use super::winapi::shared::mmreg;
 use super::winapi::shared::winerror;
 use super::winapi::shared::wtypes;
 use super::winapi::Interface;
+
 // https://msdn.microsoft.com/en-us/library/cc230355.aspx
 use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
@@ -41,8 +43,7 @@ use super::winapi::um::mmdeviceapi::{
     eAll, eCapture, eConsole, eRender, CLSID_MMDeviceEnumerator, EDataFlow, IMMDevice,
     IMMDeviceCollection, IMMDeviceEnumerator, IMMEndpoint, DEVICE_STATE_ACTIVE,
 };
-use super::winapi::um::winnt::LPWSTR;
-use super::winapi::um::winnt::WCHAR;
+use super::winapi::um::winnt::{LPWSTR, WCHAR};
 
 use super::{
     stream::{AudioClientFlow, Stream, StreamInner},
@@ -104,7 +105,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&Data) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format)?;
@@ -123,7 +124,7 @@ impl DeviceTrait for Device {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        D: FnMut(&mut Data) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format)?;
@@ -318,9 +319,11 @@ unsafe fn format_from_waveformatex_ptr(
         // Unknown data format returned by GetMixFormat.
         _ => return None,
     };
+
     let format = SupportedStreamConfig {
         channels: (*waveformatex_ptr).nChannels as _,
         sample_rate: SampleRate((*waveformatex_ptr).nSamplesPerSec),
+        buffer_size: SupportedBufferSize::Unknown,
         sample_format,
     };
     Some(format)
@@ -513,7 +516,7 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let mut format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
+            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
                 Some(fmt) => fmt,
                 None => {
                     let description =
@@ -525,8 +528,13 @@ impl Device {
             };
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
-                format.sample_rate = SampleRate(rate as _);
-                supported_formats.push(SupportedStreamConfigRange::from(format.clone()));
+                supported_formats.push(SupportedStreamConfigRange {
+                    channels: format.channels.clone(),
+                    min_sample_rate: SampleRate(rate as _),
+                    max_sample_rate: SampleRate(rate as _),
+                    buffer_size: format.buffer_size.clone(),
+                    sample_format: format.sample_format.clone(),
+                })
             }
             Ok(supported_formats.into_iter())
         }
@@ -639,6 +647,16 @@ impl Device {
                 }
             };
 
+            match config.buffer_size {
+                BufferSize::Fixed(_) => {
+                    // TO DO: We need IAudioClient3 to get buffersize ranges first
+                    // Otherwise the supported ranges are unknown. In the mean time
+                    // the smallest buffersize is selected and used.
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+                BufferSize::Default => (),
+            };
+
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
@@ -749,13 +767,20 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Capture { capture_client };
 
+            let audio_clock = get_audio_clock(audio_client).map_err(|err| {
+                (*audio_client).Release();
+                err
+            })?;
+
             Ok(StreamInner {
                 audio_client,
+                audio_clock,
                 client_flow,
                 event,
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
+                config: config.clone(),
                 sample_format,
             })
         }
@@ -784,6 +809,16 @@ impl Device {
                 }
             };
 
+            match config.buffer_size {
+                BufferSize::Fixed(_) => {
+                    // TO DO: We need IAudioClient3 to get buffersize ranges first
+                    // Otherwise the supported ranges are unknown. In the mean time
+                    // the smallest buffersize is selected and used.
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+                BufferSize::Default => (),
+            };
+
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
@@ -806,6 +841,7 @@ impl Device {
                     &format_attempt.Format,
                     ptr::null(),
                 );
+
                 match check_result(hresult) {
                     Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                         (*audio_client).Release();
@@ -894,13 +930,20 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Render { render_client };
 
+            let audio_clock = get_audio_clock(audio_client).map_err(|err| {
+                (*audio_client).Release();
+                err
+            })?;
+
             Ok(StreamInner {
                 audio_client,
+                audio_clock,
                 client_flow,
                 event,
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
+                config: config.clone(),
                 sample_format,
             })
         }
@@ -1144,6 +1187,29 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     default_device(eRender)
+}
+
+/// Get the audio clock used to produce `StreamInstant`s.
+unsafe fn get_audio_clock(
+    audio_client: *mut audioclient::IAudioClient,
+) -> Result<*mut audioclient::IAudioClock, BuildStreamError> {
+    let mut audio_clock: *mut audioclient::IAudioClock = ptr::null_mut();
+    let hresult = (*audio_client).GetService(
+        &audioclient::IID_IAudioClock,
+        &mut audio_clock as *mut *mut audioclient::IAudioClock as *mut _,
+    );
+    match check_result(hresult) {
+        Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+            return Err(BuildStreamError::DeviceNotAvailable);
+        }
+        Err(e) => {
+            let description = format!("failed to build audio clock: {}", e);
+            let err = BackendSpecificError { description };
+            return Err(err.into());
+        }
+        Ok(()) => (),
+    };
+    Ok(audio_clock)
 }
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.

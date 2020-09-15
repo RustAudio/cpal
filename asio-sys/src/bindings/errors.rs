@@ -19,6 +19,7 @@ pub enum AsioError {
     HardwareStuck,
     NoRate,
     ASE_NoMemory,
+    InvalidBufferSize,
     UnknownError,
 }
 
@@ -63,6 +64,7 @@ impl fmt::Display for AsioError {
                 "sample clock or rate cannot be determined or is not present"
             ),
             AsioError::ASE_NoMemory => write!(f, "not enough memory for completing the request"),
+            AsioError::InvalidBufferSize => write!(f, "buffersize out of range for device"),
             AsioError::UnknownError => write!(f, "Error not in SDK"),
         }
     }
@@ -94,6 +96,7 @@ impl Error for AsioError {
             AsioError::HardwareStuck => "hardware is not running when sample position is inquired",
             AsioError::NoRate => "sample clock or rate cannot be determined or is not present",
             AsioError::ASE_NoMemory => "not enough memory for completing the request",
+            AsioError::InvalidBufferSize => "buffersize out of range for device",
             AsioError::UnknownError => "Error not in SDK",
         }
     }
