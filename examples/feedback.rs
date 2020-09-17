@@ -10,12 +10,45 @@ extern crate anyhow;
 extern crate cpal;
 extern crate ringbuf;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    HostId,
+};
 use ringbuf::RingBuffer;
+use std::env;
 
 const LATENCY_MS: f32 = 150.0;
 
 fn main() -> Result<(), anyhow::Error> {
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
+    let args: Vec<String> = env::args().collect();
+    let mut jack_flag = false;
+    for arg in args {
+        if arg == "--jack" {
+            jack_flag = true;
+        }
+    }
+
+    // Condintionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+        feature = "jack"
+    ))]
+    let host = if jack_flag {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+    #[cfg(any(
+        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
 
     // Default devices.
