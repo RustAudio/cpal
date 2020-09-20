@@ -33,7 +33,7 @@ use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
 };
 use super::winapi::um::audiosessiontypes::{
-    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK
+    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
 };
 use super::winapi::um::combaseapi::{
     CoCreateInstance, CoTaskMemFree, PropVariantClear, CLSCTX_ALL,
