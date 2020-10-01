@@ -8,7 +8,6 @@ use crate::{
     PlayStreamError, SampleRate, StreamError,
 };
 
-const TEMP_BUFFER_SIZE: usize = 16;
 use super::JACK_SAMPLE_FORMAT;
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
@@ -24,7 +23,7 @@ impl Stream {
     pub fn new_input<D, E>(
         client: jack::Client,
         channels: ChannelCount,
-        mut data_callback: D,
+        data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
@@ -35,7 +34,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
+            let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -86,7 +85,7 @@ impl Stream {
     pub fn new_output<D, E>(
         client: jack::Client,
         channels: ChannelCount,
-        mut data_callback: D,
+        data_callback: D,
         mut error_callback: E,
     ) -> Stream
     where
@@ -97,8 +96,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let mut port_try =
-                client.register_port(&format!("out_{}", i), jack::AudioOut::default());
+            let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -222,9 +220,6 @@ struct LocalProcessHandler {
     output_data_callback: Option<Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>>,
 
     temp_input_buffer: Vec<f32>,
-    /// The number of frames in the temp_input_buffer i.e. temp_input_buffer.len() / in_ports.len()
-    temp_input_buffer_size: usize,
-    temp_input_buffer_index: usize,
 
     // JACK audio samples are 32 bit float (unless you do some custom dark magic)
     temp_output_buffer: Vec<f32>,
@@ -249,9 +244,9 @@ impl LocalProcessHandler {
     ) -> Self {
         // buffer_size is the maximum number of samples per port JACK can request/provide in a single call
         // If it can be fewer than that per call the temp_input_buffer needs to be the smallest multiple of that.
-        let mut temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
+        let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
 
-        let mut temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
+        let temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
 
         // let out_port_buffers = Vec::with_capacity(out_ports.len());
         // let in_port_buffers = Vec::with_capacity(in_ports.len());
@@ -265,8 +260,6 @@ impl LocalProcessHandler {
             input_data_callback,
             output_data_callback,
             temp_input_buffer,
-            temp_input_buffer_size: buffer_size,
-            temp_input_buffer_index: 0,
             temp_output_buffer,
             temp_output_buffer_size: buffer_size,
             temp_output_buffer_index: 0,
@@ -428,7 +421,7 @@ struct JackNotificationHandler {
 }
 
 impl JackNotificationHandler {
-    pub fn new<E>(mut error_callback: E) -> Self
+    pub fn new<E>(error_callback: E) -> Self
     where
         E: FnMut(StreamError) + Send + 'static,
     {
