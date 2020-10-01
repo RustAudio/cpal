@@ -108,7 +108,7 @@ impl Device {
     }
 
     pub fn supported_configs(&self) -> Vec<SupportedStreamConfigRange> {
-        let mut f = match self.default_config() {
+        let f = match self.default_config() {
             Err(_) => return vec![],
             Ok(f) => f,
         };
