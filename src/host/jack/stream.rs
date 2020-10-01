@@ -223,8 +223,8 @@ struct LocalProcessHandler {
     // JACK audio samples are 32 bit float (unless you do some custom dark magic)
     temp_output_buffer: Vec<f32>,
     /// The number of frames in the temp_output_buffer
-    temp_output_buffer_size: usize,
-    temp_output_buffer_index: usize,
+    temp_output_buffer_size_in_frames: usize,
+    temp_output_buffer_frames_index: usize,
     playing: Arc<AtomicBool>,
     creation_timestamp: std::time::Instant,
 }
@@ -261,7 +261,7 @@ impl LocalProcessHandler {
             temp_input_buffer,
             temp_output_buffer,
             temp_output_buffer_size_in_frames: buffer_size,
-            temp_output_buffer_index: 0,
+            temp_output_buffer_frames_index: 0,
             playing,
             creation_timestamp: std::time::Instant::now(),
         }
