@@ -213,8 +213,7 @@ struct LocalProcessHandler {
     /// No new ports are allowed to be created after the creation of the LocalProcessHandler as that would invalidate the buffer sizes
     out_ports: Vec<jack::Port<jack::AudioOut>>,
     in_ports: Vec<jack::Port<jack::AudioIn>>,
-    // out_port_buffers: Vec<&mut [f32]>,
-    // in_port_buffers: Vec<&[f32]>,
+
     sample_rate: SampleRate,
     input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
     output_data_callback: Option<Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>>,
@@ -261,7 +260,7 @@ impl LocalProcessHandler {
             output_data_callback,
             temp_input_buffer,
             temp_output_buffer,
-            temp_output_buffer_size: buffer_size,
+            temp_output_buffer_size_in_frames: buffer_size,
             temp_output_buffer_index: 0,
             playing,
             creation_timestamp: std::time::Instant::now(),
@@ -344,18 +343,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
         }
 
         if let Some(output_callback) = &mut self.output_data_callback {
-            // Get the mutable slices for each output port buffer
-            // for i in 0..self.out_ports.len() {
-            //     self.out_port_buffers[i] = self.out_ports[i].as_mut_slice(process_scope);
-            // }
-
             let num_out_channels = self.out_ports.len();
 
             // Run the output callback on the temporary output buffer until we have filled the output ports
             // JACK ports each provide a mutable slice to be filled with samples whereas CPAL uses interleaved
             // channels. The formats therefore have to be bridged.
             for i in 0..current_frame_count {
-                if self.temp_output_buffer_index == self.temp_output_buffer_size {
+                // Check if we have gotten all of the frames from the temp_output_buffer
+                if self.temp_output_buffer_frames_index == self.temp_output_buffer_size_in_frames {
                     // Get new samples if the temporary buffer is depleted. This can theoretically happen
                     // several times per cycle or once every few cycles if the buffer size changes, but in practice
                     // it should generally happen once per cycle if the buffer size is not changed.
@@ -377,7 +372,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
                     let timestamp = crate::OutputStreamTimestamp { callback, playback };
                     let info = crate::OutputCallbackInfo { timestamp };
                     output_callback(&mut data, &info);
-                    self.temp_output_buffer_index = 0;
+                    self.temp_output_buffer_frames_index = 0;
                 }
                 // Write the interleaved samples e.g. [l0, r0, l1, r1, ..] to each output buffer
                 for ch_ix in 0..num_out_channels {
@@ -385,10 +380,10 @@ impl jack::ProcessHandler for LocalProcessHandler {
                     // to avoid lifetime issues and allocation
                     let output_channel = &mut self.out_ports[ch_ix].as_mut_slice(process_scope);
                     output_channel[i] = self.temp_output_buffer
-                        [ch_ix + self.temp_output_buffer_index * num_out_channels];
+                        [ch_ix + self.temp_output_buffer_frames_index * num_out_channels];
                 }
-                // Increase the index into the temporary buffer
-                self.temp_output_buffer_index += 1;
+                // Count the number of frames that have been read from the temp buffer
+                self.temp_output_buffer_frames_index += 1;
             }
         }
 
