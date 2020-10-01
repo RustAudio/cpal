@@ -453,7 +453,17 @@ mod platform_impl {
         SupportedInputConfigs as AlsaSupportedInputConfigs,
         SupportedOutputConfigs as AlsaSupportedOutputConfigs,
     };
+    #[cfg(feature = "jack")]
+    pub use crate::host::jack::{
+        Device as JackDevice, Devices as JackDevices, Host as JackHost, Stream as JackStream,
+        SupportedInputConfigs as JackSupportedInputConfigs,
+        SupportedOutputConfigs as JackSupportedOutputConfigs,
+    };
 
+    #[cfg(feature = "jack")]
+    impl_platform_host!(Jack jack "JACK", Alsa alsa "ALSA");
+
+    #[cfg(not(feature = "jack"))]
     impl_platform_host!(Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.

@@ -4,7 +4,33 @@ extern crate cpal;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 fn main() -> Result<(), anyhow::Error> {
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+        feature = "jack"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
+    let host = if std::env::args()
+        .collect::<String>()
+        .contains(&String::from("--jack"))
+    {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
+    #[cfg(any(
+        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
+
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
