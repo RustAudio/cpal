@@ -159,6 +159,7 @@ pub use platform::{
 };
 pub use samples_formats::{Sample, SampleFormat};
 use std::convert::TryInto;
+use std::ops::{Div, Mul};
 use std::time::Duration;
 
 mod error;
@@ -179,6 +180,26 @@ pub type ChannelCount = u16;
 /// The number of samples processed per second for a single channel of audio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleRate(pub u32);
+
+impl<T> Mul<T> for SampleRate
+where
+    u32: Mul<T, Output = u32>,
+{
+    type Output = Self;
+    fn mul(self, rhs: T) -> Self {
+        SampleRate(self.0 * rhs)
+    }
+}
+
+impl<T> Div<T> for SampleRate
+where
+    u32: Div<T, Output = u32>,
+{
+    type Output = Self;
+    fn div(self, rhs: T) -> Self {
+        SampleRate(self.0 / rhs)
+    }
+}
 
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
