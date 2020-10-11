@@ -1,4 +1,6 @@
-use super::coreaudio::sys::{
+extern crate coreaudio;
+
+use self::coreaudio::sys::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
