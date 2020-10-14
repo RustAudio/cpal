@@ -5,6 +5,7 @@ use std::mem;
 pub enum SampleFormat {
     /// The value 0 corresponds to 0.
     I16,
+    I24,
     I32,
     /// The value 0 corresponds to 32768.
     U16,
@@ -20,6 +21,7 @@ impl SampleFormat {
             SampleFormat::I16 => mem::size_of::<i16>(),
             SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
+            SampleFormat::I24 => mem::size_of::<i32>(),
             SampleFormat::I32 => mem::size_of::<i32>(),
         }
     }
@@ -32,15 +34,17 @@ pub unsafe trait Sample: Copy + Clone {
 
     /// Turns the sample into its equivalent as a floating-point.
     fn to_f32(&self) -> f32;
-    /// Converts this sample into a standard i16 sample.
-    fn to_i16(&self) -> i16;
-    /// Converts this sample into a standard i32 sample.
-    fn to_i32(&self) -> i32;
     /// Converts this sample into a standard u16 sample.
     fn to_u16(&self) -> u16;
+    /// Converts this sample into a standard i16 sample.
+    fn to_i16(&self) -> i16;
+    /// Converts this sample into a 24 bit integer stored in an i32.
+    fn to_i24(&self) -> Padded24;
+    /// Converts this sample into a standard i32 sample.
+    fn to_i32(&self) -> i32;
 
     /// Converts any sample type to this one by calling `to_i16`, `to_i32`, `to_u16`,  or `to_f32`.
-    fn from<S>(&S) -> Self
+    fn from<S>(sample: &S) -> Self
     where
         S: Sample;
 }
@@ -50,7 +54,12 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        self.to_i16().to_f32()
+        *self as f32 / ::std::u16::MAX as f32
+    }
+
+    #[inline]
+    fn to_u16(&self) -> u16 {
+        *self
     }
 
     #[inline]
@@ -62,14 +71,13 @@ unsafe impl Sample for u16 {
         }
     }
 
-    #[inline]
-    fn to_i32(&self) -> i32 {
-        self.to_i16() as i32
+    fn to_i24(&self) -> Padded24 {
+        self.to_f32().to_i24()
     }
 
     #[inline]
-    fn to_u16(&self) -> u16 {
-        *self
+    fn to_i32(&self) -> i32 {
+        self.to_f32().to_i32()
     }
 
     #[inline]
@@ -94,22 +102,27 @@ unsafe impl Sample for i16 {
     }
 
     #[inline]
-    fn to_i16(&self) -> i16 {
-        *self
-    }
-
-    #[inline]
-    fn to_i32(&self) -> i32 {
-        *self as i32
-    }
-
-    #[inline]
     fn to_u16(&self) -> u16 {
         if *self < 0 {
             (*self - ::std::i16::MIN) as u16
         } else {
             (*self as u16) + 32768
         }
+    }
+
+    #[inline]
+    fn to_i16(&self) -> i16 {
+        *self
+    }
+
+    #[inline]
+    fn to_i24(&self) -> Padded24 {
+        self.to_f32().to_i24()
+    }
+
+    #[inline]
+    fn to_i32(&self) -> i32 {
+        self.to_f32().to_i32()
     }
 
     #[inline]
@@ -130,6 +143,11 @@ unsafe impl Sample for f32 {
     }
 
     #[inline]
+    fn to_u16(&self) -> u16 {
+        (((*self + 1.0) * 0.5) * ::std::u16::MAX as f32).round() as u16
+    }
+
+    #[inline]
     fn to_i16(&self) -> i16 {
         if *self >= 0.0 {
             (*self * ::std::i16::MAX as f32) as i16
@@ -139,21 +157,19 @@ unsafe impl Sample for f32 {
     }
 
     #[inline]
-    fn to_i32(&self) -> i32 {
-        let res = match self.is_sign_negative() {
-            false => (self * std::i32::MAX as f32),
-            true => (self * -(std::i32::MIN as f32)),
-        };
-        if *self == 1.0f32 && res as i32 == std::i32::MIN {
-            std::i32::MAX
+    fn to_i24(&self) -> Padded24 {
+        let result: f32;
+        if self.is_sign_positive() {
+            result = self * Padded24::MAX as f32;
         } else {
-            res as i32
+            result = self.abs() * Padded24::MIN as f32;
         }
+        Padded24(result.round() as i32)
     }
 
     #[inline]
-    fn to_u16(&self) -> u16 {
-        (((*self + 1.0) * 0.5) * ::std::u16::MAX as f32).round() as u16
+    fn to_i32(&self) -> i32 {
+        (*self as f64 * std::i32::MAX as f64).round() as i32
     }
 
     #[inline]
@@ -165,35 +181,129 @@ unsafe impl Sample for f32 {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct Padded24(i32);
+
+impl Padded24 {
+    const MAX: i32 = 8_388_607;
+    const MIN: i32 = -8_388_608;
+
+    // assumes i24 has been correctly parsed already
+    pub fn new(val: i32) -> Self {
+        Padded24(val)
+    }
+
+    pub fn from_be_bytes(b: [u8; 3]) -> Self {
+        let is_pos = b[0] & 0b1000_0000 == 0;
+        let extra_byte;
+        if is_pos {
+            extra_byte = u8::MIN;
+        } else {
+            extra_byte = u8::MAX;
+        }
+
+        Padded24(i32::from_be_bytes([extra_byte, b[0], b[1], b[2]]))
+    }
+
+    pub fn to_be_bytes(&self) -> [u8; 3] {
+        let [_, mut byte1, byte2, byte3] = self.0.to_be_bytes();
+
+        if self.0.is_negative() {
+            byte1 |= 0b1000_0000;
+        }
+
+        [byte1, byte2, byte3]
+    }
+
+    pub fn from_le_bytes(b: [u8; 3]) -> Self {
+        let is_pos = b[2] & 0b1000_0000 == 0;
+        let extra_byte;
+        if is_pos {
+            extra_byte = u8::MIN;
+        } else {
+            extra_byte = u8::MAX;
+        }
+
+        Padded24(i32::from_le_bytes([b[0], b[1], b[2], extra_byte]))
+    }
+
+    pub fn to_le_bytes(&self) -> [u8; 3] {
+        let [byte1, byte2, mut byte3, _] = self.0.to_be_bytes();
+
+        if self.0.is_negative() {
+            byte3 |= 0b1000_0000;
+        }
+
+        [byte1, byte2, byte3]
+    }
+}
+
+unsafe impl Sample for Padded24 {
+    const FORMAT: SampleFormat = SampleFormat::I24;
+
+    #[inline]
+    fn to_f32(&self) -> f32 {
+        if self.0 < 0 {
+            (self.0 as f64 * (-1.0 / (Self::MIN as f64))) as f32
+        } else {
+            (self.0 as f64 * (1.0 / Self::MAX as f64)) as f32
+        }
+    }
+
+    #[inline]
+    fn to_i16(&self) -> i16 {
+        self.to_f32().to_i16()
+    }
+
+    #[inline]
+    fn to_u16(&self) -> u16 {
+        self.to_f32().to_u16()
+    }
+
+    #[inline]
+    fn to_i24(&self) -> Padded24 {
+        *self
+    }
+
+    #[inline]
+    fn to_i32(&self) -> i32 {
+        self.to_f32().to_i32()
+    }
+
+    #[inline]
+    fn from<S>(sample: &S) -> Self
+    where
+        S: Sample,
+    {
+        sample.to_i24()
+    }
+}
+
 unsafe impl Sample for i32 {
     const FORMAT: SampleFormat = SampleFormat::I32;
 
     #[inline]
     fn to_f32(&self) -> f32 {
         if *self < 0 {
-            *self as f32 / -(::std::i32::MIN as f32)
+            (*self as f64 * (1.0 / -(::std::i32::MIN as f64))) as f32
         } else {
-            *self as f32 / ::std::i32::MAX as f32
+            (*self as f64 * (1.0 / ::std::i32::MAX as f64)) as f32
         }
     }
 
     #[inline]
     fn to_i16(&self) -> i16 {
-        let ratio = self.to_f32();
-        let scale = match ratio.is_sign_negative() {
-            true => -(std::i16::MIN as f32),
-            false => std::i16::MAX as f32,
-        };
-
-        (ratio * scale) as i16
+        self.to_f32().to_i16()
     }
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        let ratio = (self.to_f32() + 1f32) / 2f32;
-        let scale = std::u16::MAX as f32;
+        self.to_f32().to_u16()
+    }
 
-        (ratio * scale) as u16
+    #[inline]
+    fn to_i24(&self) -> Padded24 {
+        self.to_f32().to_i24()
     }
 
     #[inline]
