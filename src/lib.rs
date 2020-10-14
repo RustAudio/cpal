@@ -101,6 +101,7 @@
 //!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
 //!     SampleFormat::I32 => device.build_output_stream(&config, write_silence::<i32>, err_fn),
 //!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
+//!     SampleFormat::I24 => unimplemented!(),
 //! }.unwrap();
 //!
 //! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
@@ -604,6 +605,8 @@ impl SupportedStreamConfigRange {
     /// - f32
     /// - i16
     /// - u16
+    /// - i32
+    /// - i24
     ///
     /// **Sample rate**:
     ///
@@ -611,7 +614,7 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, I32, U16};
+        use SampleFormat::{F32, I16, I32, U16, I24};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -641,6 +644,16 @@ impl SupportedStreamConfigRange {
         let cmp_u16 = (self.sample_format == U16).cmp(&(other.sample_format == U16));
         if cmp_u16 != Equal {
             return cmp_u16;
+        }
+
+        let cmp_i32 = (self.sample_format == I32).cmp(&(other.sample_format == I32));
+        if cmp_i32 != Equal {
+            return cmp_i32;
+        }
+
+        let cmp_i24 = (self.sample_format == I24).cmp(&(other.sample_format == I24));
+        if cmp_i24 != Equal {
+            return cmp_i24;
         }
 
         const HZ_44100: SampleRate = SampleRate(44_100);
@@ -694,6 +707,20 @@ fn test_cmp_default_heuristics() {
             max_sample_rate: SampleRate(22050),
             sample_format: SampleFormat::F32,
         },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::I24,
+        },
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels: 2,
+            min_sample_rate: SampleRate(1),
+            max_sample_rate: SampleRate(96000),
+            sample_format: SampleFormat::I32,
+        },
     ];
 
     formats.sort_by(|a, b| a.cmp_default_heuristics(b));
@@ -704,25 +731,35 @@ fn test_cmp_default_heuristics() {
     assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[0].channels(), 1);
 
-    assert_eq!(formats[1].sample_format(), SampleFormat::U16);
+    assert_eq!(formats[1].sample_format(), SampleFormat::I24);
     assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[1].channels(), 2);
 
-    assert_eq!(formats[2].sample_format(), SampleFormat::I16);
+    assert_eq!(formats[2].sample_format(), SampleFormat::I32);
     assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[2].channels(), 2);
 
-    assert_eq!(formats[3].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[3].sample_format(), SampleFormat::U16);
     assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
+    assert_eq!(formats[3].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[3].channels(), 2);
 
-    assert_eq!(formats[4].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[4].sample_format(), SampleFormat::I16);
     assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[4].channels(), 2);
+
+    assert_eq!(formats[5].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[5].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[5].max_sample_rate(), SampleRate(22050));
+    assert_eq!(formats[5].channels(), 2);
+
+    assert_eq!(formats[6].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[6].min_sample_rate(), SampleRate(1));
+    assert_eq!(formats[6].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[6].channels(), 2);
 }
 
 impl From<SupportedStreamConfig> for StreamConfig {

@@ -42,6 +42,7 @@ fn main() {
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
         cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()).unwrap(),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I24 => unimplemented!(),
     }
 }
 

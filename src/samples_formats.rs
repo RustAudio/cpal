@@ -54,7 +54,7 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        *self as f32 / ::std::u16::MAX as f32
+        self.to_i16().to_f32()
     }
 
     #[inline]
@@ -142,11 +142,13 @@ unsafe impl Sample for f32 {
         *self
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_u16(&self) -> u16 {
         (((*self + 1.0) * 0.5) * ::std::u16::MAX as f32).round() as u16
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i16(&self) -> i16 {
         if *self >= 0.0 {
@@ -156,6 +158,7 @@ unsafe impl Sample for f32 {
         }
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i24(&self) -> Padded24 {
         let result: f32;
@@ -169,7 +172,11 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn to_i32(&self) -> i32 {
-        (*self as f64 * std::i32::MAX as f64).round() as i32
+        if self.is_sign_positive() {
+            (*self as f64 * std::i32::MAX as f64).round() as i32
+        } else {
+            (*self as f64 * -(std::i32::MIN as f64)).round() as i32
+        }
     }
 
     #[inline]
@@ -250,11 +257,13 @@ unsafe impl Sample for Padded24 {
         }
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i16(&self) -> i16 {
         self.to_f32().to_i16()
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_u16(&self) -> u16 {
         self.to_f32().to_u16()
@@ -282,6 +291,7 @@ unsafe impl Sample for Padded24 {
 unsafe impl Sample for i32 {
     const FORMAT: SampleFormat = SampleFormat::I32;
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_f32(&self) -> f32 {
         if *self < 0 {
@@ -291,16 +301,19 @@ unsafe impl Sample for i32 {
         }
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i16(&self) -> i16 {
         self.to_f32().to_i16()
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_u16(&self) -> u16 {
         self.to_f32().to_u16()
     }
 
+    /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i24(&self) -> Padded24 {
         self.to_f32().to_i24()
@@ -320,9 +333,61 @@ unsafe impl Sample for i32 {
     }
 }
 
+// TODO add _to_i24 tests
 #[cfg(test)]
 mod test {
-    use super::Sample;
+    use super::{Padded24, Sample};
+
+    #[test]
+    fn i24_to_i16() {
+        assert_eq!(Padded24::new(Padded24::MAX).to_i16(), std::i16::MAX);
+        assert_eq!(Padded24::new(Padded24::MIN / 2).to_i16(), std::i16::MIN / 2);
+        assert_eq!(Padded24::new(Padded24::MIN).to_i16(), std::i16::MIN);
+        assert_eq!(Padded24::new(0).to_i16(), 0);
+    }
+
+    #[test]
+    fn i24_to_i24() {
+        // let max = Padded24::new(Padded24::MAX);
+        // let min = Padded24::new(Padded24::MIN);
+
+        // assert_eq!(max.to_i16(), std::i16::MAX);
+        // assert_eq!((std::i32::MIN / 2).to_i16(), std::i16::MIN / 2);
+        // assert_eq!(std::i32::MIN.to_i16(), std::i16::MIN);
+        // assert_eq!(0i32.to_i16(), 0);
+    }
+
+    #[test]
+    fn i24_to_i32() {
+        assert_eq!(Padded24::new(Padded24::MAX).to_i32(), std::i32::MAX);
+        assert_eq!(Padded24::new(Padded24::MIN / 2).to_i32(), std::i32::MIN / 2);
+        assert_eq!(Padded24::new(Padded24::MIN).to_i32(), std::i32::MIN);
+        assert_eq!(Padded24::new(0).to_i32(), 0);
+    }
+
+    #[test]
+    fn i24_to_u16() {
+        assert_eq!(Padded24::new(Padded24::MAX).to_u16(), std::u16::MAX);
+        // half of the int max will be 3/4 of the uint max
+        assert_eq!(
+            Padded24::new(Padded24::MAX / 2).to_u16(),
+            (std::u16::MAX as f32 / 4.0 * 3.0).round() as u16
+        );
+        assert_eq!(Padded24::new(Padded24::MIN).to_u16(), std::u16::MIN);
+    }
+
+    #[test]
+    fn i24_to_f32() {
+        let max = Padded24::new(Padded24::MAX);
+        let min = Padded24::new(Padded24::MIN);
+
+        assert_eq!(max.to_f32(), 1.0f32);
+        assert_eq!(max.to_f32() / 8.0, 0.125f32);
+        assert_eq!(max.to_f32() / -16.0, -0.0625f32);
+        assert_eq!(max.to_f32() / -4.0, -0.25f32);
+        assert_eq!(min.to_f32(), -1.0f32);
+        assert_eq!(Padded24::new(0).to_f32(), 0f32);
+    }
 
     #[test]
     fn i32_to_i16() {
@@ -343,10 +408,7 @@ mod test {
     #[test]
     fn i32_to_u16() {
         assert_eq!(std::i32::MAX.to_u16(), std::u16::MAX);
-        assert_eq!(
-            (std::i32::MIN / 2).to_u16(),
-            (std::u16::MAX as f32 / 4f32) as u16
-        );
+        assert_eq!(0i32.to_u16(), (std::u16::MAX as f32 / 2.0).round() as u16);
         assert_eq!(std::i32::MIN.to_u16(), std::u16::MIN);
     }
 
@@ -371,9 +433,8 @@ mod test {
     #[test]
     fn i16_to_i32() {
         assert_eq!(0i16.to_i32(), 0);
-        assert_eq!((-467i16).to_i32(), -467);
-        assert_eq!(std::i16::MAX.to_i32(), std::i16::MAX as i32);
-        assert_eq!(std::i16::MIN.to_i32(), std::i16::MIN as i32);
+        assert_eq!(std::i16::MAX.to_i32(), std::i32::MAX);
+        assert_eq!(std::i16::MIN.to_i32(), std::i32::MIN);
     }
 
     #[test]
@@ -403,10 +464,9 @@ mod test {
 
     #[test]
     fn u16_to_i32() {
-        assert_eq!(32768u16.to_i32(), 0);
-        assert_eq!(16384u16.to_i32(), -16384);
-        assert_eq!(65535u16.to_i32(), std::i16::MAX as i32);
-        assert_eq!(0u16.to_i32(), std::i16::MIN as i32);
+        assert_eq!(((std::u16::MAX as f32 / 2.0).round() as u16).to_i32(), 0);
+        assert_eq!(std::u16::MAX.to_i32(), std::i32::MAX);
+        assert_eq!(std::u16::MIN.to_i32(), std::i32::MIN);
     }
 
     #[test]
