@@ -1,4 +1,4 @@
-use std::mem;
+use std::{mem, ops::Deref};
 
 /// Format that each sample has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +39,7 @@ pub unsafe trait Sample: Copy + Clone {
     /// Converts this sample into a standard i16 sample.
     fn to_i16(&self) -> i16;
     /// Converts this sample into a 24 bit integer stored in an i32.
-    fn to_i24(&self) -> Padded24;
+    fn to_i24(&self) -> Unpacked24;
     /// Converts this sample into a standard i32 sample.
     fn to_i32(&self) -> i32;
 
@@ -71,7 +71,7 @@ unsafe impl Sample for u16 {
         }
     }
 
-    fn to_i24(&self) -> Padded24 {
+    fn to_i24(&self) -> Unpacked24 {
         self.to_f32().to_i24()
     }
 
@@ -116,7 +116,7 @@ unsafe impl Sample for i16 {
     }
 
     #[inline]
-    fn to_i24(&self) -> Padded24 {
+    fn to_i24(&self) -> Unpacked24 {
         self.to_f32().to_i24()
     }
 
@@ -160,14 +160,14 @@ unsafe impl Sample for f32 {
 
     /// This function inherently returns a lossy value due to scaling.
     #[inline]
-    fn to_i24(&self) -> Padded24 {
+    fn to_i24(&self) -> Unpacked24 {
         let result: f32;
         if self.is_sign_positive() {
-            result = self * Padded24::MAX as f32;
+            result = self * Unpacked24::MAX as f32;
         } else {
-            result = self.abs() * Padded24::MIN as f32;
+            result = self.abs() * Unpacked24::MIN as f32;
         }
-        Padded24(result.round() as i32)
+        Unpacked24(result.round() as i32)
     }
 
     #[inline]
@@ -188,16 +188,16 @@ unsafe impl Sample for f32 {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct Padded24(i32);
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Unpacked24(i32);
 
-impl Padded24 {
+impl Unpacked24 {
     const MAX: i32 = 8_388_607;
     const MIN: i32 = -8_388_608;
 
     // assumes i24 has been correctly parsed already
     pub fn new(val: i32) -> Self {
-        Padded24(val)
+        Unpacked24(val)
     }
 
     pub fn from_be_bytes(b: [u8; 3]) -> Self {
@@ -209,7 +209,7 @@ impl Padded24 {
             extra_byte = u8::MAX;
         }
 
-        Padded24(i32::from_be_bytes([extra_byte, b[0], b[1], b[2]]))
+        Unpacked24(i32::from_be_bytes([extra_byte, b[0], b[1], b[2]]))
     }
 
     pub fn to_be_bytes(&self) -> [u8; 3] {
@@ -231,7 +231,7 @@ impl Padded24 {
             extra_byte = u8::MAX;
         }
 
-        Padded24(i32::from_le_bytes([b[0], b[1], b[2], extra_byte]))
+        Unpacked24(i32::from_le_bytes([b[0], b[1], b[2], extra_byte]))
     }
 
     pub fn to_le_bytes(&self) -> [u8; 3] {
@@ -245,7 +245,37 @@ impl Padded24 {
     }
 }
 
-unsafe impl Sample for Padded24 {
+impl PartialEq<i8> for Unpacked24 {
+    fn eq(&self, other: &i8) -> bool {
+        *other as i32 == self.0
+    }
+}
+
+impl PartialEq<i16> for Unpacked24 {
+    fn eq(&self, other: &i16) -> bool {
+        *other as i32 == self.0
+    }
+}
+
+impl PartialEq<i32> for Unpacked24 {
+    fn eq(&self, other: &i32) -> bool {
+        *other == self.0
+    }
+}
+
+impl PartialEq<u8> for Unpacked24 {
+    fn eq(&self, other: &u8) -> bool {
+        *other as i32 == self.0
+    }
+}
+
+impl PartialEq<u16> for Unpacked24 {
+    fn eq(&self, other: &u16) -> bool {
+        *other as i32 == self.0
+    }
+}
+
+unsafe impl Sample for Unpacked24 {
     const FORMAT: SampleFormat = SampleFormat::I24;
 
     #[inline]
@@ -270,7 +300,7 @@ unsafe impl Sample for Padded24 {
     }
 
     #[inline]
-    fn to_i24(&self) -> Padded24 {
+    fn to_i24(&self) -> Unpacked24 {
         *self
     }
 
@@ -315,7 +345,7 @@ unsafe impl Sample for i32 {
 
     /// This function inherently returns a lossy value due to scaling.
     #[inline]
-    fn to_i24(&self) -> Padded24 {
+    fn to_i24(&self) -> Unpacked24 {
         self.to_f32().to_i24()
     }
 
@@ -333,60 +363,65 @@ unsafe impl Sample for i32 {
     }
 }
 
-// TODO add _to_i24 tests
 #[cfg(test)]
 mod test {
-    use super::{Padded24, Sample};
+    use super::{Sample, Unpacked24};
 
     #[test]
     fn i24_to_i16() {
-        assert_eq!(Padded24::new(Padded24::MAX).to_i16(), std::i16::MAX);
-        assert_eq!(Padded24::new(Padded24::MIN / 2).to_i16(), std::i16::MIN / 2);
-        assert_eq!(Padded24::new(Padded24::MIN).to_i16(), std::i16::MIN);
-        assert_eq!(Padded24::new(0).to_i16(), 0);
+        assert_eq!(Unpacked24::new(Unpacked24::MAX).to_i16(), std::i16::MAX);
+        assert_eq!(
+            Unpacked24::new(Unpacked24::MIN / 2).to_i16(),
+            std::i16::MIN / 2
+        );
+        assert_eq!(Unpacked24::new(Unpacked24::MIN).to_i16(), std::i16::MIN);
+        assert_eq!(Unpacked24::new(0).to_i16(), 0);
     }
 
     #[test]
     fn i24_to_i24() {
-        // let max = Padded24::new(Padded24::MAX);
-        // let min = Padded24::new(Padded24::MIN);
-
-        // assert_eq!(max.to_i16(), std::i16::MAX);
-        // assert_eq!((std::i32::MIN / 2).to_i16(), std::i16::MIN / 2);
-        // assert_eq!(std::i32::MIN.to_i16(), std::i16::MIN);
-        // assert_eq!(0i32.to_i16(), 0);
+        assert_eq!(Unpacked24::new(Unpacked24::MAX).to_i24(), Unpacked24::MAX);
+        assert_eq!(
+            Unpacked24::new(Unpacked24::MIN / 2).to_i24(),
+            Unpacked24::MIN / 2
+        );
+        assert_eq!(Unpacked24::new(Unpacked24::MIN).to_i24(), Unpacked24::MIN);
+        assert_eq!(Unpacked24::new(0).to_i24(), 0i32);
     }
 
     #[test]
     fn i24_to_i32() {
-        assert_eq!(Padded24::new(Padded24::MAX).to_i32(), std::i32::MAX);
-        assert_eq!(Padded24::new(Padded24::MIN / 2).to_i32(), std::i32::MIN / 2);
-        assert_eq!(Padded24::new(Padded24::MIN).to_i32(), std::i32::MIN);
-        assert_eq!(Padded24::new(0).to_i32(), 0);
+        assert_eq!(Unpacked24::new(Unpacked24::MAX).to_i32(), std::i32::MAX);
+        assert_eq!(
+            Unpacked24::new(Unpacked24::MIN / 2).to_i32(),
+            std::i32::MIN / 2
+        );
+        assert_eq!(Unpacked24::new(Unpacked24::MIN).to_i32(), std::i32::MIN);
+        assert_eq!(Unpacked24::new(0).to_i32(), 0);
     }
 
     #[test]
     fn i24_to_u16() {
-        assert_eq!(Padded24::new(Padded24::MAX).to_u16(), std::u16::MAX);
+        assert_eq!(Unpacked24::new(Unpacked24::MAX).to_u16(), std::u16::MAX);
         // half of the int max will be 3/4 of the uint max
         assert_eq!(
-            Padded24::new(Padded24::MAX / 2).to_u16(),
+            Unpacked24::new(Unpacked24::MAX / 2).to_u16(),
             (std::u16::MAX as f32 / 4.0 * 3.0).round() as u16
         );
-        assert_eq!(Padded24::new(Padded24::MIN).to_u16(), std::u16::MIN);
+        assert_eq!(Unpacked24::new(Unpacked24::MIN).to_u16(), std::u16::MIN);
     }
 
     #[test]
     fn i24_to_f32() {
-        let max = Padded24::new(Padded24::MAX);
-        let min = Padded24::new(Padded24::MIN);
+        let max = Unpacked24::new(Unpacked24::MAX);
+        let min = Unpacked24::new(Unpacked24::MIN);
 
         assert_eq!(max.to_f32(), 1.0f32);
         assert_eq!(max.to_f32() / 8.0, 0.125f32);
         assert_eq!(max.to_f32() / -16.0, -0.0625f32);
         assert_eq!(max.to_f32() / -4.0, -0.25f32);
         assert_eq!(min.to_f32(), -1.0f32);
-        assert_eq!(Padded24::new(0).to_f32(), 0f32);
+        assert_eq!(Unpacked24::new(0).to_f32(), 0f32);
     }
 
     #[test]
@@ -395,6 +430,14 @@ mod test {
         assert_eq!((std::i32::MIN / 2).to_i16(), std::i16::MIN / 2);
         assert_eq!(std::i32::MIN.to_i16(), std::i16::MIN);
         assert_eq!(0i32.to_i16(), 0);
+    }
+
+    #[test]
+    fn i32_to_i24() {
+        assert_eq!(std::i32::MAX.to_i24(), Unpacked24::MAX);
+        assert_eq!((std::i32::MIN / 2).to_i24(), Unpacked24::MIN / 2);
+        assert_eq!(std::i32::MIN.to_i24(), Unpacked24::MIN);
+        assert_eq!(0i32.to_i24(), Unpacked24::new(0));
     }
 
     #[test]
@@ -428,6 +471,12 @@ mod test {
         assert_eq!((-467i16).to_i16(), -467);
         assert_eq!(32767i16.to_i16(), 32767);
         assert_eq!((-32768i16).to_i16(), -32768);
+    }
+    #[test]
+    fn i16_to_i24() {
+        assert_eq!(0i16.to_i24(), 0i32);
+        assert_eq!(i16::MIN.to_i24(), Unpacked24::MIN);
+        assert_eq!(i16::MAX.to_i24(), Unpacked24::MAX);
     }
 
     #[test]
@@ -463,6 +512,14 @@ mod test {
     }
 
     #[test]
+    fn u16_to_i24() {
+        assert_eq!(u16::MAX.to_i24(), Unpacked24::MAX);
+        assert_eq!(u16::MIN.to_i24(), Unpacked24::MIN);
+        assert_eq!(32768u16.to_i24(), 0i32);
+        assert_eq!(16384u16.to_i24(), Unpacked24::MIN / 2);
+    }
+
+    #[test]
     fn u16_to_i32() {
         assert_eq!(((std::u16::MAX as f32 / 2.0).round() as u16).to_i32(), 0);
         assert_eq!(std::u16::MAX.to_i32(), std::i32::MAX);
@@ -490,6 +547,18 @@ mod test {
         assert_eq!((-0.5f32).to_i16(), ::std::i16::MIN / 2);
         assert_eq!(1.0f32.to_i16(), ::std::i16::MAX);
         assert_eq!((-1.0f32).to_i16(), ::std::i16::MIN);
+    }
+
+    #[test]
+    fn f32_to_i24() {
+        assert_eq!(1.0f32.to_i24(), Unpacked24::MAX);
+        assert_eq!(
+            (0.5f32).to_i24(),
+            (Unpacked24::MAX as f32 / 2.0).round() as i32
+        );
+        assert_eq!(0.0f32.to_i24(), 0i32);
+        assert_eq!((-0.5f32).to_i24(), Unpacked24::MIN / 2);
+        assert_eq!((-1.0f32).to_i24(), Unpacked24::MIN);
     }
 
     #[test]

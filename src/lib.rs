@@ -159,7 +159,7 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{Sample, SampleFormat, Padded24};
+pub use samples_formats::{Sample, SampleFormat, Unpacked24};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
