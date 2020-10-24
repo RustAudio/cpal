@@ -82,9 +82,9 @@ pub fn run_example() -> Result<(), anyhow::Error> {
         "Attempting to build both streams with f32 samples and `{:?}`.",
         config
     );
-    println!("setup is");
+    println!("Setup input stream");
     let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn)?;
-    println!("setup os");
+    println!("Setup output stream");
     let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn)?;
     println!("Successfully built streams.");
 

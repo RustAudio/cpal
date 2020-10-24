@@ -3,7 +3,8 @@
 //! the AVAudioSession objc API which doesn't exist on macOS.
 //!
 //! TODO:
-//! - Use AVAudioSession to enumerate (and set) buffer size / sample rate / number of channels
+//! - Use AVAudioSession to enumerate buffer size / sample rate / number of channels and set
+//!   buffer size.
 //!
 
 extern crate core_foundation_sys;
@@ -35,8 +36,6 @@ use self::enumerate::{
 use std::slice;
 
 pub mod enumerate;
-
-const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
 
 // These days the default of iOS is now F32 and no longer I16
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
@@ -84,26 +83,15 @@ impl Device {
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         // TODO: query AVAudioSession for parameters, some values like sample rate and buffer size
-        // probably need to be tested but channels can be enumerated.
+        // probably need to actually be set to see if it works, but channels can be enumerated.
 
-        // setup an audio unit for recording, and then pull some default parameters off it
-
-        let mut audio_unit = create_audio_unit()?;
-        audio_unit.uninitialize()?;
-        configure_for_recording(&mut audio_unit)?;
-        audio_unit.initialize()?;
-
-        let id = kAudioUnitProperty_StreamFormat;
-        let asbd: AudioStreamBasicDescription =
-            audio_unit.get_property(id, Scope::Input, Element::Input)?;
-
-        let buffer_size = SupportedBufferSize::Range { min: 0, max: 0 };
-
+        let asbd: AudioStreamBasicDescription = default_input_asbd()?;
+        let stream_config = stream_config_from_asbd(asbd);
         Ok(vec![SupportedStreamConfigRange {
-            channels: asbd.mChannelsPerFrame as u16,
-            min_sample_rate: SampleRate(asbd.mSampleRate as u32),
-            max_sample_rate: SampleRate(asbd.mSampleRate as u32),
-            buffer_size: buffer_size.clone(),
+            channels: stream_config.channels,
+            min_sample_rate: stream_config.sample_rate,
+            max_sample_rate: stream_config.sample_rate,
+            buffer_size: stream_config.buffer_size.clone(),
             sample_format: SUPPORTED_SAMPLE_FORMAT,
         }]
         .into_iter())
@@ -114,22 +102,17 @@ impl Device {
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         // TODO: query AVAudioSession for parameters, some values like sample rate and buffer size
-        // probably need to be tested but channels can be enumerated.
+        // probably need to actually be set to see if it works, but channels can be enumerated.
 
-        // setup an audio unit, and then pull some default parameters off it
+        let asbd: AudioStreamBasicDescription = default_output_asbd()?;
+        let stream_config = stream_config_from_asbd(asbd);
 
-        let audio_unit = create_audio_unit()?;
-        let id = kAudioUnitProperty_StreamFormat;
-        let asbd: AudioStreamBasicDescription =
-            audio_unit.get_property(id, Scope::Output, Element::Output)?;
-
-        let buffer_size = SupportedBufferSize::Range { min: 0, max: 0 };
         let configs: Vec<_> = (1..=asbd.mChannelsPerFrame as u16)
             .map(|channels| SupportedStreamConfigRange {
                 channels,
-                min_sample_rate: SampleRate(asbd.mSampleRate as u32),
-                max_sample_rate: SampleRate(asbd.mSampleRate as u32),
-                buffer_size: buffer_size.clone(),
+                min_sample_rate: stream_config.sample_rate,
+                max_sample_rate: stream_config.sample_rate,
+                buffer_size: stream_config.buffer_size.clone(),
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -138,28 +121,16 @@ impl Device {
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        const EXPECT: &str = "expected at least one valid coreaudio stream config";
-        let config = self
-            .supported_input_configs()
-            .expect(EXPECT)
-            .max_by(|a, b| a.cmp_default_heuristics(b))
-            .unwrap()
-            .with_sample_rate(DEFAULT_SAMPLE_RATE);
-
-        Ok(config)
+        let asbd: AudioStreamBasicDescription = default_input_asbd()?;
+        let stream_config = stream_config_from_asbd(asbd);
+        Ok(stream_config)
     }
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        const EXPECT: &str = "expected at least one valid coreaudio stream config";
-        let config = self
-            .supported_output_configs()
-            .expect(EXPECT)
-            .max_by(|a, b| a.cmp_default_heuristics(b))
-            .unwrap()
-            .with_sample_rate(DEFAULT_SAMPLE_RATE);
-
-        Ok(config)
+        let asbd: AudioStreamBasicDescription = default_output_asbd()?;
+        let stream_config = stream_config_from_asbd(asbd);
+        Ok(stream_config)
     }
 }
 
@@ -427,4 +398,34 @@ fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::
     )?;
 
     Ok(())
+}
+
+fn default_output_asbd() -> Result<AudioStreamBasicDescription, coreaudio::Error> {
+    let audio_unit = create_audio_unit()?;
+    let id = kAudioUnitProperty_StreamFormat;
+    let asbd: AudioStreamBasicDescription =
+        audio_unit.get_property(id, Scope::Output, Element::Output)?;
+    Ok(asbd)
+}
+
+fn default_input_asbd() -> Result<AudioStreamBasicDescription, coreaudio::Error> {
+    let mut audio_unit = create_audio_unit()?;
+    audio_unit.uninitialize()?;
+    configure_for_recording(&mut audio_unit)?;
+    audio_unit.initialize()?;
+
+    let id = kAudioUnitProperty_StreamFormat;
+    let asbd: AudioStreamBasicDescription =
+        audio_unit.get_property(id, Scope::Input, Element::Input)?;
+    Ok(asbd)
+}
+
+fn stream_config_from_asbd(asbd: AudioStreamBasicDescription) -> SupportedStreamConfig {
+    let buffer_size = SupportedBufferSize::Range { min: 0, max: 0 };
+    SupportedStreamConfig {
+        channels: asbd.mChannelsPerFrame as u16,
+        sample_rate: SampleRate(asbd.mSampleRate as u32),
+        buffer_size: buffer_size.clone(),
+        sample_format: SUPPORTED_SAMPLE_FORMAT,
+    }
 }
