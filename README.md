@@ -20,6 +20,7 @@ Currently supported hosts include:
 - Windows (via WASAPI by default, see ASIO instructions below)
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
+- Android (via Oboe)
 - Emscripten
 
 Note that on Linux, the ALSA development files are required. These are provided
