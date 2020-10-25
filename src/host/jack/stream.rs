@@ -394,7 +394,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
 
 fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
     let nanos = micros * 1000;
-    let secs = nanos / 1_000_000;
+    let secs = micros / 1_000_000;
     let subsec_nanos = nanos - secs * 1_000_000_000;
     crate::StreamInstant::new(secs as i64, subsec_nanos as u32)
 }
