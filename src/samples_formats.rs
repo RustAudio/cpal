@@ -15,10 +15,10 @@ impl SampleFormat {
     /// Returns the size in bytes of a sample of this format.
     #[inline]
     pub fn sample_size(&self) -> usize {
-        match self {
-            &SampleFormat::I16 => mem::size_of::<i16>(),
-            &SampleFormat::U16 => mem::size_of::<u16>(),
-            &SampleFormat::F32 => mem::size_of::<f32>(),
+        match *self {
+            SampleFormat::I16 => mem::size_of::<i16>(),
+            SampleFormat::U16 => mem::size_of::<u16>(),
+            SampleFormat::F32 => mem::size_of::<f32>(),
         }
     }
 }

@@ -444,6 +444,7 @@ impl OutputCallbackInfo {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Data {
     // Internal constructor for host implementations to use.
     //

@@ -6,7 +6,7 @@ fn main() {
     // If ASIO directory isn't set silently return early
     // otherwise set the asio config flag
     match env::var(CPAL_ASIO_DIR) {
-        Err(_) => return,
+        Err(_) => {}
         Ok(_) => println!("cargo:rustc-cfg=asio"),
     };
 }
