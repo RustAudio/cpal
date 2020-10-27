@@ -3,7 +3,8 @@ extern crate cpal;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-fn main() -> Result<(), anyhow::Error> {
+#[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
+fn main() {
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
         any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
@@ -34,15 +35,13 @@ fn main() -> Result<(), anyhow::Error> {
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
-    let config = device.default_output_config()?;
+    let config = device.default_output_config().unwrap();
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into())?,
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into())?,
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into())?,
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()).unwrap(),
     }
-
-    Ok(())
 }
 
 fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>

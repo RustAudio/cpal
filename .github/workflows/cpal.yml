@@ -3,6 +3,7 @@ name: cpal
 on: [push, pull_request]
 
 jobs:
+
   clippy-test:
     runs-on: ubuntu-latest
     steps:
@@ -224,3 +225,18 @@ jobs:
       run: cargo check --example feedback --target armv7-linux-androideabi --verbose
     - name: Check record_wav
       run: cargo check --example record_wav --target armv7-linux-androideabi --verbose
+
+  android-apk-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Android targets
+      run: |
+        rustup target add armv7-linux-androideabi
+        rustup target add aarch64-linux-android
+        rustup target add i686-linux-android
+        rustup target add x86_64-linux-android
+    - name: Install Cargo APK
+      run: cargo install cargo-apk
+    - name: Build APK
+      run: cargo apk build --example beep
