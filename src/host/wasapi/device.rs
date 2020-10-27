@@ -33,7 +33,7 @@ use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
 };
 use super::winapi::um::audiosessiontypes::{
-    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
 };
 use super::winapi::um::combaseapi::{
     CoCreateInstance, CoTaskMemFree, PropVariantClear, CLSCTX_ALL,
@@ -657,6 +657,12 @@ impl Device {
                 BufferSize::Default => (),
             };
 
+            let mut stream_flags: DWORD = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+
+            if self.data_flow() == eRender {
+                stream_flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
+            }
+
             // Computing the format and initializing the device.
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
@@ -673,7 +679,7 @@ impl Device {
                 // finally initializing the audio client
                 let hresult = (*audio_client).Initialize(
                     share_mode,
-                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                    stream_flags,
                     0,
                     0,
                     &format_attempt.Format,
