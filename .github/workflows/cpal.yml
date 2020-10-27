@@ -18,11 +18,17 @@ jobs:
         toolchain: stable
         override: true
         components: clippy
+        target: armv7-linux-androideabi
     - name: Run clippy
       uses: actions-rs/clippy-check@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all --all-features
+    - name: Run clippy for Android target
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all --all-features --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
@@ -198,3 +204,23 @@ jobs:
       run: cargo test --all --no-default-features --verbose
     - name: Run all features
       run: cargo test --all --all-features --verbose
+
+  android-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        target: armv7-linux-androideabi
+    - name: Check beep
+      run: cargo check --example beep --target armv7-linux-androideabi --verbose
+    - name: Check enumerate
+      run: cargo check --example enumerate --target armv7-linux-androideabi --verbose
+    - name: Check feedback
+      run: cargo check --example feedback --target armv7-linux-androideabi --verbose
+    - name: Check record_wav
+      run: cargo check --example record_wav --target armv7-linux-androideabi --verbose
