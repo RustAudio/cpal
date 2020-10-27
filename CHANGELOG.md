@@ -1,3 +1,8 @@
+# Version 0.13.0 (2020-10-28)
+
+- Add Android support via `oboe-rs`.
+- Add Android APK build an CI job.
+
 # Version 0.12.1 (2020-07-23)
 
 - Bugfix release to get the asio feature working again.
