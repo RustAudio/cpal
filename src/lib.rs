@@ -7,7 +7,7 @@
 //!   least one [**DefaultHost**](./struct.Host.html) that is guaranteed to be available.
 //! - A [**Device**](./struct.Device.html) is an audio device that may have any number of input and
 //!   output streams.
-//! - A [**Stream**](./trait.Stream.html) is an open flow of audio data. Input streams allow you to
+//! - A [**Stream**](./struct.Stream.html) is an open flow of audio data. Input streams allow you to
 //!   receive audio data, output streams allow you to play audio data. You must choose which
 //!   **Device** will run your stream before you can create one. Often, a default device can be
 //!   retrieved via the **Host**.
