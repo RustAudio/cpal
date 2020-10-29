@@ -46,7 +46,8 @@ js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-oboe = { version = "0.2.1", features = [ "java-interface" ] }
+oboe = { git = "https://github.com/katyo/oboe-rs", rev = "ae2f4d863ea4fde7a30628e032f4011c60f75ea5", features = [ "java-interface" ] }
+# oboe = { version = "0.2.1", features = [ "java-interface" ] }
 ndk = "0.2"
 ndk-glue = "0.2"
 jni = "0.17"
