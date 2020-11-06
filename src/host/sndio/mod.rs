@@ -2,7 +2,6 @@ extern crate libc;
 extern crate sndio_sys;
 
 mod adapters;
-mod endian;
 mod runner;
 use self::adapters::{input_adapter_callback, output_adapter_callback};
 use self::runner::runner;
@@ -43,6 +42,12 @@ pub enum SndioError {
     #[error("{0}")]
     BackendSpecific(BackendSpecificError),
 }
+
+#[cfg(target_endian = "big")]
+const IS_LITTLE_ENDIAN: u32 = 0;
+
+#[cfg(target_endian = "little")]
+const IS_LITTLE_ENDIAN: u32 = 1;
 
 impl From<SndioError> for BuildStreamError {
     fn from(e: SndioError) -> BuildStreamError {
@@ -216,10 +221,7 @@ impl InnerState {
             // Use I16 at 48KHz; mono playback & record
             par.bits = 16;
             par.sig = 1;
-            par.le = match endian::get_endianness() {
-                endian::Endian::BE => 0,
-                endian::Endian::LE => 1,
-            }; // Native byte order
+            par.le = IS_LITTLE_ENDIAN; // Native byte order
             par.rchan = 1; // mono record
             par.pchan = 1; // mono playback
             par.rate = rate.0;
