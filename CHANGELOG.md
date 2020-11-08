@@ -1,3 +1,8 @@
+# Version 0.13.1 (2020-11-08)
+
+- Don't panic when device is plugged out on Windows
+- Update `parking_lot` dependency
+
 # Version 0.13.0 (2020-10-28)
 
 - Add Android support via `oboe-rs`.
