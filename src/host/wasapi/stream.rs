@@ -141,8 +141,8 @@ impl Stream {
 
     #[inline]
     fn push_command(&self, command: Command) {
-        // Safe to unwrap: sender outlives receiver.
-        self.commands.send(command).unwrap();
+        // Sender generally outlives receiver, unless the device gets unplugged.
+        let _ = self.commands.send(command);
         unsafe {
             let result = synchapi::SetEvent(self.pending_scheduled_event);
             assert_ne!(result, 0);
