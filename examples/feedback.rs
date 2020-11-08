@@ -84,21 +84,18 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-        let mut input_fell_behind = None;
+        let mut input_fell_behind = false;
         for sample in data {
             *sample = match consumer.pop() {
-                Ok(s) => s,
-                Err(err) => {
-                    input_fell_behind = Some(err);
+                Some(s) => s,
+                None => {
+                    input_fell_behind = true;
                     0.0
                 }
             };
         }
-        if let Some(err) = input_fell_behind {
-            eprintln!(
-                "input stream fell behind: {:?}: try increasing latency",
-                err
-            );
+        if input_fell_behind {
+            eprintln!("input stream fell behind: try increasing latency");
         }
     };
 

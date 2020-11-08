@@ -17,7 +17,7 @@ thiserror = "1.0.2"
 [dev-dependencies]
 anyhow = "1.0.12"
 hound = "3.4"
-ringbuf = "0.1.6"
+ringbuf = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "profileapi", "std", "synchapi", "winbase", "winuser"] }
