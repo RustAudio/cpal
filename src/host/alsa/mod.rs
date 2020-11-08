@@ -708,7 +708,7 @@ fn process_input(
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), BackendSpecificError> {
-    stream.channel.io().readi(buffer)?;
+    stream.channel.io_bytes().readi(buffer)?;
     let sample_format = stream.sample_format;
     let data = buffer.as_mut_ptr() as *mut ();
     let len = buffer.len() / sample_format.sample_size();
@@ -753,7 +753,7 @@ fn process_output(
         data_callback(&mut data, &info);
     }
     loop {
-        match stream.channel.io().writei(buffer) {
+        match stream.channel.io_bytes().writei(buffer) {
             Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
                 // buffer underrun
                 // TODO: Notify the user of this.
