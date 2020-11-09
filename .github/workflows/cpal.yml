@@ -99,6 +99,51 @@ jobs:
         command: test
         args: --all --all-features --verbose
 
+  linux-check-and-test-armv7:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: armv7-unknown-linux-gnueabihf
+          override: true
+
+      - name: Build image
+        run: docker build -t cross/cpal_armv7:v1 ./
+
+      - name: Check without features for armv7
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          use-cross: true
+          args: --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+
+      - name: Test without features for armv7
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          use-cross: true
+          args: --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+
+      - name: Check all features for armv7
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          use-cross: true
+          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose  
+
+      - name: Test all features for armv7
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          use-cross: true
+          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose      
+
   asmjs-wasm32-test:
     strategy:
       matrix:
