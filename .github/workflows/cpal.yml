@@ -99,7 +99,7 @@ jobs:
         command: test
         args: --all --all-features --verbose
 
-  arm32bit-check-and-test:
+  linux-check-and-test-armv7:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
