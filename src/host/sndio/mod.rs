@@ -98,27 +98,21 @@ impl From<SndioError> for SupportedStreamConfigsError {
     }
 }
 
-pub struct Devices {
-    returned: bool,
+pub struct Devices(Option<Device>);
+
+impl Devices {
+    fn new() -> Self {
+        Devices(Some(Device::new()))
+    }
 }
 
 impl Iterator for Devices {
     type Item = Device;
-    fn next(&mut self) -> Option<Device> {
-        if self.returned {
-            None
-        } else {
-            self.returned = true;
-            Some(Device::new())
-        }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.take()
     }
 }
 
-impl Devices {
-    fn new() -> Devices {
-        Devices { returned: false }
-    }
-}
 
 /// The shared state between Device and Stream. Responsible for closing handle when dropped.
 struct InnerState {
