@@ -113,7 +113,6 @@ impl Iterator for Devices {
     }
 }
 
-
 /// The shared state between Device and Stream. Responsible for closing handle when dropped.
 struct InnerState {
     /// If device has been open with sio_open, contains a handle. Note that even though this is a
