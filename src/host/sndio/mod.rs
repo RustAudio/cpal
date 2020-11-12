@@ -113,12 +113,16 @@ impl Iterator for Devices {
     }
 }
 
+struct SioHdl(*mut sndio_sys::sio_hdl);
+
+unsafe impl Send for SioHdl {}
+
 /// The shared state between Device and Stream. Responsible for closing handle when dropped.
 struct InnerState {
     /// If device has been open with sio_open, contains a handle. Note that even though this is a
     /// pointer type and so doesn't follow Rust's borrowing rules, we should be careful not to copy
     /// it out because that may render Mutex<InnerState> ineffective in enforcing exclusive access.
-    hdl: Option<*mut sndio_sys::sio_hdl>,
+    hdl: Option<SioHdl>,
 
     /// Buffer overrun/underrun behavior -- ignore/sync/error?
     behavior: BufferXrunBehavior,
@@ -158,8 +162,6 @@ struct OutputCallbacks {
     data_callback: Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>,
     error_callback: Box<dyn FnMut(StreamError) + Send + 'static>,
 }
-
-unsafe impl Send for InnerState {}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum Status {
@@ -205,7 +207,7 @@ impl InnerState {
         if hdl.is_null() {
             return Err(SndioError::DeviceNotAvailable);
         }
-        self.hdl = Some(hdl);
+        self.hdl = Some(SioHdl(hdl));
 
         let mut sample_rate_to_par = HashMap::new();
         for rate in SUPPORTED_SAMPLE_RATES {
@@ -267,7 +269,7 @@ impl InnerState {
             // will wait for playback data to be provided (using the sio_write()
             // function).  Once enough data is queued to ensure that play buffers will
             // not underrun, actual playback is started automatically."
-            sndio_sys::sio_start(self.hdl.unwrap()) // Unwrap OK because of check above
+            sndio_sys::sio_start(self.hdl.as_ref().unwrap().0) // Unwrap OK because of check above
         };
         if status != 1 {
             return Err(backend_specific_error("failed to start stream"));
@@ -286,7 +288,7 @@ impl InnerState {
             // playback.  If samples to play are queued but playback hasn't started yet then
             // playback is forced immediately; playback will actually stop once the buffer is
             // drained.  In no case are samples in the play buffer discarded.
-            sndio_sys::sio_stop(self.hdl.unwrap()) // Unwrap OK because of check above
+            sndio_sys::sio_stop(self.hdl.as_ref().unwrap().0) // Unwrap OK because of check above
         };
         if status != 1 {
             return Err(backend_specific_error("error calling sio_stop"));
@@ -385,7 +387,7 @@ impl InnerState {
 
         let status = unsafe {
             // Retrieve the actual parameters of the device.
-            sndio_sys::sio_getpar(self.hdl.unwrap(), par as *mut _)
+            sndio_sys::sio_getpar(self.hdl.as_ref().unwrap().0, par as *mut _)
         };
         if status != 1 {
             return Err(backend_specific_error(
@@ -439,7 +441,7 @@ impl InnerState {
         let status = unsafe {
             // Request the device using our parameters
             // unwrap OK because of the check at the top of this function.
-            sndio_sys::sio_setpar(self.hdl.unwrap(), &mut newpar as *mut _)
+            sndio_sys::sio_setpar(self.hdl.as_ref().unwrap().0, &mut newpar as *mut _)
         };
         if status != 1 {
             return Err(backend_specific_error("failed to set parameters with sio_setpar").into());
@@ -452,7 +454,7 @@ impl Drop for InnerState {
     fn drop(&mut self) {
         if let Some(hdl) = self.hdl.take() {
             unsafe {
-                sndio_sys::sio_close(hdl);
+                sndio_sys::sio_close(hdl.0);
             }
         }
     }

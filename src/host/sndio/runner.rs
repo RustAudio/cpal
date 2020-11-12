@@ -114,7 +114,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                 paused = false;
             }
             nfds = unsafe {
-                sndio_sys::sio_nfds(inner_state.hdl.unwrap()) // Unwrap OK because of open call above
+                sndio_sys::sio_nfds(inner_state.hdl.as_ref().unwrap().0) // Unwrap OK because of open call above
             };
             if nfds <= 0 {
                 inner_state.error(backend_specific_error(format!(
@@ -133,7 +133,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
             // Populate pollfd structs with sndio_sys::sio_pollfd
             nfds = unsafe {
                 sndio_sys::sio_pollfd(
-                    inner_state.hdl.unwrap(), // Unwrap OK because of open call above
+                    inner_state.hdl.as_ref().unwrap().0, // Unwrap OK because of open call above
                     pollfds.as_mut_ptr(),
                     (libc::POLLOUT | libc::POLLIN) as i32,
                 )
@@ -162,9 +162,9 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
         {
             let mut inner_state = inner_state_arc.lock().unwrap();
             // Unwrap OK because of open call above
-            revents =
-                unsafe { sndio_sys::sio_revents(inner_state.hdl.unwrap(), pollfds.as_mut_ptr()) }
-                    as i16;
+            revents = unsafe {
+                sndio_sys::sio_revents(inner_state.hdl.as_ref().unwrap().0, pollfds.as_mut_ptr())
+            } as i16;
             if revents & libc::POLLHUP != 0 {
                 inner_state.error(backend_specific_error("device disappeared"));
                 break;
@@ -222,7 +222,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                 // unwrap OK because .open was called
                 let bytes_written = unsafe {
                     sndio_sys::sio_write(
-                        inner_state.hdl.unwrap(),
+                        inner_state.hdl.as_ref().unwrap().0,
                         (output_data.data as *const u8).add(output_offset_bytes_into_buf as usize)
                             as *const _,
                         data_byte_size as u64 - output_offset_bytes_into_buf,
@@ -271,7 +271,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                 // unwrap OK because .open was called
                 let bytes_read = unsafe {
                     sndio_sys::sio_read(
-                        inner_state.hdl.unwrap(),
+                        inner_state.hdl.as_ref().unwrap().0,
                         (input_data.data as *const u8).add(input_offset_bytes_into_buf as usize)
                             as *mut _,
                         data_byte_size as u64 - input_offset_bytes_into_buf,
