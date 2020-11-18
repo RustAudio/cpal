@@ -1,7 +1,9 @@
 extern crate alsa;
 extern crate libc;
+extern crate parking_lot;
 
 use self::alsa::poll::Descriptors;
+use self::parking_lot::Mutex;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
@@ -163,8 +165,15 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Device(String);
+struct DeviceHandles {
+    playback: Option<alsa::PCM>,
+    capture: Option<alsa::PCM>,
+}
+
+pub struct Device {
+    name: String,
+    handles: Mutex<DeviceHandles>,
+}
 
 impl Device {
     fn build_stream_inner(
@@ -173,10 +182,21 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
-        let name = &self.0;
+        let name = &self.name;
 
-        let handle = match alsa::pcm::PCM::new(name, stream_type, true).map_err(|e| (e, e.errno()))
-        {
+        let device_handle = {
+            let mut guard = self.handles.lock();
+            match stream_type {
+                alsa::Direction::Playback => guard.playback.take(),
+                alsa::Direction::Capture => guard.capture.take(),
+            }
+        };
+
+        let handle_result = Ok(device_handle).transpose().unwrap_or_else(|| {
+            alsa::pcm::PCM::new(name, stream_type, true).map_err(|e| (e, e.errno()))
+        });
+
+        let handle = match handle_result {
             Err((_, Some(nix::errno::Errno::EBUSY))) => {
                 return Err(BuildStreamError::DeviceNotAvailable)
             }
@@ -229,16 +249,33 @@ impl Device {
 
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.0.clone())
+        Ok(self.name.clone())
     }
 
     fn supported_configs(
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        let name = &self.0;
+        let name = &self.name;
 
-        let handle = match alsa::pcm::PCM::new(name, stream_t, true).map_err(|e| (e, e.errno())) {
+        let mut guard = self.handles.lock();
+
+        let device_handle = match stream_t {
+            alsa::Direction::Playback => &mut guard.playback,
+            alsa::Direction::Capture => &mut guard.capture,
+        };
+
+        let handle_result = match device_handle {
+            Some(handle) => Ok(handle),
+            None => alsa::pcm::PCM::new(name, stream_t, true)
+                .map(|handle| {
+                    *device_handle = Some(handle);
+                    device_handle.as_mut().unwrap()
+                })
+                .map_err(|e| (e, e.errno())),
+        };
+
+        let handle = match handle_result {
             Err((_, Some(nix::errno::Errno::ENOENT)))
             | Err((_, Some(nix::errno::Errno::EBUSY))) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
