@@ -115,100 +115,13 @@ impl Iterator for Devices {
 
 struct SioHdl(*mut sndio_sys::sio_hdl);
 
-unsafe impl Send for SioHdl {}
-
-/// The shared state between Device and Stream. Responsible for closing handle when dropped.
-struct InnerState {
-    /// If device has been open with sio_open, contains a handle. Note that even though this is a
-    /// pointer type and so doesn't follow Rust's borrowing rules, we should be careful not to copy
-    /// it out because that may render Mutex<InnerState> ineffective in enforcing exclusive access.
-    hdl: Option<SioHdl>,
-
-    /// Buffer overrun/underrun behavior -- ignore/sync/error?
-    behavior: BufferXrunBehavior,
-
-    /// If a buffer size was chosen, contains that value.
-    buffer_size: Option<usize>,
-
-    /// If the device was configured, stores the sndio-configured parameters.
-    par: Option<sndio_sys::sio_par>,
-
-    /// Map of sample rate to parameters.
-    /// Guaranteed to not be None if hdl is not None.
-    sample_rate_to_par: Option<HashMap<u32, sndio_sys::sio_par>>,
-
-    /// Indicates if the read/write thread is started, shutting down, or stopped.
-    status: Status,
-
-    /// Each input Stream that has not been dropped has its callbacks in an element of this Vec.
-    /// The last element is guaranteed to not be None.
-    input_callbacks: Vec<Option<InputCallbacks>>,
-
-    /// Each output Stream that has not been dropped has its callbacks in an element of this Vec.
-    /// The last element is guaranteed to not be None.
-    output_callbacks: Vec<Option<OutputCallbacks>>,
-
-    /// Channel used for signalling that the runner thread should wakeup because there is now a
-    /// Stream. This will only be None if there is no runner thread.
-    wakeup_sender: Option<mpsc::Sender<()>>,
-}
-
-struct InputCallbacks {
-    data_callback: Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>,
-    error_callback: Box<dyn FnMut(StreamError) + Send + 'static>,
-}
-
-struct OutputCallbacks {
-    data_callback: Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>,
-    error_callback: Box<dyn FnMut(StreamError) + Send + 'static>,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum Status {
-    /// Initial state. No thread running. Device/Stream methods will start thread and change this
-    /// to Running.
-    Stopped,
-
-    /// Thread is running (unless it encountered an error).
-    Running,
-}
-
-impl InnerState {
-    fn new() -> Self {
-        InnerState {
-            hdl: None,
-            behavior: BufferXrunBehavior::Sync,
-            par: None,
-            sample_rate_to_par: None,
-            buffer_size: None,
-            status: Status::Stopped,
-            input_callbacks: vec![],
-            output_callbacks: vec![],
-            wakeup_sender: None,
-        }
-    }
-
-    fn open(&mut self) -> Result<(), SndioError> {
-        if self.hdl.is_some() {
-            // Already open
-            return Ok(());
-        }
-
-        let hdl = unsafe {
-            // The transmute is needed because this C string is *const u8 in one place but *const i8 in another place.
-            let devany_ptr = mem::transmute::<_, *const i8>(sndio_sys::SIO_DEVANY as *const _);
-            let nonblocking = true as i32;
-            sndio_sys::sio_open(
-                devany_ptr,
-                sndio_sys::SIO_PLAY | sndio_sys::SIO_REC,
-                nonblocking,
-            )
-        };
-        if hdl.is_null() {
-            return Err(SndioError::DeviceNotAvailable);
-        }
-        self.hdl = Some(SioHdl(hdl));
-
+impl SioHdl {
+    /// Returns a map of sample rates to sio_par by re-configuring the device. This should not be
+    /// performed while recording or playing, or even after configuring the device for this state!
+    fn get_par_map(
+        &mut self,
+        behavior: BufferXrunBehavior,
+    ) -> Result<HashMap<u32, sndio_sys::sio_par>, SndioError> {
         let mut sample_rate_to_par = HashMap::new();
         for rate in SUPPORTED_SAMPLE_RATES {
             let mut par = new_sio_par();
@@ -220,7 +133,7 @@ impl InnerState {
             par.rchan = 1; // mono record
             par.pchan = 1; // mono playback
             par.rate = rate.0;
-            par.xrun = match self.behavior {
+            par.xrun = match behavior {
                 BufferXrunBehavior::Ignore => 0,
                 BufferXrunBehavior::Sync => 1,
                 BufferXrunBehavior::Error => 2,
@@ -254,124 +167,7 @@ impl InnerState {
 
             sample_rate_to_par.insert(rate.0, par);
         }
-        self.sample_rate_to_par = Some(sample_rate_to_par);
-        Ok(())
-    }
-
-    fn start(&mut self) -> Result<(), SndioError> {
-        if self.hdl.is_none() {
-            return Err(backend_specific_error(
-                "cannot start a device that hasn't been opened yet",
-            ));
-        }
-        let status = unsafe {
-            // "The sio_start() function puts the device in a waiting state: the device
-            // will wait for playback data to be provided (using the sio_write()
-            // function).  Once enough data is queued to ensure that play buffers will
-            // not underrun, actual playback is started automatically."
-            sndio_sys::sio_start(self.hdl.as_ref().unwrap().0) // Unwrap OK because of check above
-        };
-        if status != 1 {
-            return Err(backend_specific_error("failed to start stream"));
-        }
-        Ok(())
-    }
-
-    fn stop(&mut self) -> Result<(), SndioError> {
-        if self.hdl.is_none() {
-            // Nothing to do -- device is not open.
-            return Ok(());
-        }
-        let status = unsafe {
-            // The sio_stop() function puts the audio subsystem in the same state as before
-            // sio_start() is called.  It stops recording, drains the play buffer and then stops
-            // playback.  If samples to play are queued but playback hasn't started yet then
-            // playback is forced immediately; playback will actually stop once the buffer is
-            // drained.  In no case are samples in the play buffer discarded.
-            sndio_sys::sio_stop(self.hdl.as_ref().unwrap().0) // Unwrap OK because of check above
-        };
-        if status != 1 {
-            return Err(backend_specific_error("error calling sio_stop"));
-        }
-        Ok(())
-    }
-
-    // TODO: make these 4 methods generic (new CallbackSet<T> where T is either InputCallbacks or OutputCallbacks)
-    /// Puts the supplied callbacks into the vector in the first free position, or at the end. The
-    /// index of insertion is returned.
-    fn add_output_callbacks(&mut self, callbacks: OutputCallbacks) -> usize {
-        for (i, cbs) in self.output_callbacks.iter_mut().enumerate() {
-            if cbs.is_none() {
-                *cbs = Some(callbacks);
-                return i;
-            }
-        }
-        // If there were previously no callbacks, wakeup the runner thread.
-        if self.input_callbacks.len() == 0 && self.output_callbacks.len() == 0 {
-            if let Some(ref sender) = self.wakeup_sender {
-                let _ = sender.send(());
-            }
-        }
-        self.output_callbacks.push(Some(callbacks));
-        self.output_callbacks.len() - 1
-    }
-
-    /// Removes the callbacks at specified index, returning them. Panics if the index is invalid
-    /// (out of range or there is a None element at that position).
-    fn remove_output_callbacks(&mut self, index: usize) -> OutputCallbacks {
-        let cbs = self.output_callbacks[index].take().unwrap();
-        while self.output_callbacks.len() > 0
-            && self.output_callbacks[self.output_callbacks.len() - 1].is_none()
-        {
-            self.output_callbacks.pop();
-        }
-        cbs
-    }
-
-    /// Puts the supplied callbacks into the vector in the first free position, or at the end. The
-    /// index of insertion is returned.
-    fn add_input_callbacks(&mut self, callbacks: InputCallbacks) -> usize {
-        for (i, cbs) in self.input_callbacks.iter_mut().enumerate() {
-            if cbs.is_none() {
-                *cbs = Some(callbacks);
-                return i;
-            }
-        }
-        // If there were previously no callbacks, wakeup the runner thread.
-        if self.input_callbacks.len() == 0 && self.output_callbacks.len() == 0 {
-            if let Some(ref sender) = self.wakeup_sender {
-                let _ = sender.send(());
-            }
-        }
-        self.input_callbacks.push(Some(callbacks));
-        self.input_callbacks.len() - 1
-    }
-
-    /// Removes the callbacks at specified index, returning them. Panics if the index is invalid
-    /// (out of range or there is a None element at that position).
-    fn remove_input_callbacks(&mut self, index: usize) -> InputCallbacks {
-        let cbs = self.input_callbacks[index].take().unwrap();
-        while self.input_callbacks.len() > 0
-            && self.input_callbacks[self.input_callbacks.len() - 1].is_none()
-        {
-            self.input_callbacks.pop();
-        }
-        cbs
-    }
-
-    /// Send an error to all input and output error callbacks.
-    fn error(&mut self, e: impl Into<StreamError>) {
-        let e = e.into();
-        for cbs in &mut self.input_callbacks {
-            if let Some(cbs) = cbs {
-                (cbs.error_callback)(e.clone());
-            }
-        }
-        for cbs in &mut self.output_callbacks {
-            if let Some(cbs) = cbs {
-                (cbs.error_callback)(e.clone());
-            }
-        }
+        Ok(sample_rate_to_par)
     }
 
     /// Calls sio_setpar and sio_getpar on the passed in sio_par struct. Before calling this, the
@@ -387,7 +183,7 @@ impl InnerState {
 
         let status = unsafe {
             // Retrieve the actual parameters of the device.
-            sndio_sys::sio_getpar(self.hdl.as_ref().unwrap().0, par as *mut _)
+            sndio_sys::sio_getpar(self.0, par as *mut _)
         };
         if status != 1 {
             return Err(backend_specific_error(
@@ -417,11 +213,6 @@ impl InnerState {
 
     /// Calls sio_setpar on the passed in sio_par struct. This sets the device parameters.
     fn set_params(&mut self, par: &sndio_sys::sio_par) -> Result<(), SndioError> {
-        if self.hdl.is_none() {
-            return Err(backend_specific_error(
-                "cannot set params if device is not open",
-            ));
-        }
         let mut newpar = new_sio_par();
         // This is a little hacky -- testing indicates the __magic from sio_initpar needs to be
         // preserved when calling sio_setpar. Unfortunately __magic is the wrong value after
@@ -441,7 +232,7 @@ impl InnerState {
         let status = unsafe {
             // Request the device using our parameters
             // unwrap OK because of the check at the top of this function.
-            sndio_sys::sio_setpar(self.hdl.as_ref().unwrap().0, &mut newpar as *mut _)
+            sndio_sys::sio_setpar(self.0, &mut newpar as *mut _)
         };
         if status != 1 {
             return Err(backend_specific_error("failed to set parameters with sio_setpar").into());
@@ -450,17 +241,353 @@ impl InnerState {
     }
 }
 
-impl Drop for InnerState {
-    fn drop(&mut self) {
-        if let Some(hdl) = self.hdl.take() {
-            unsafe {
-                sndio_sys::sio_close(hdl.0);
+unsafe impl Send for SioHdl {}
+
+/// The shared state between Device and Stream. Responsible for closing handle when dropped.
+enum InnerState {
+    Init {
+        /// Buffer overrun/underrun behavior -- ignore/sync/error?
+        behavior: BufferXrunBehavior,
+    },
+    Opened {
+        /// Contains a handle returned from sio_open. Note that even though this is a pointer type
+        /// and so doesn't follow Rust's borrowing rules, we should be careful not to copy it out
+        /// because that may render Mutex<InnerState> ineffective in enforcing exclusive access.
+        hdl: SioHdl,
+
+        /// Map of sample rate to parameters.
+        sample_rate_to_par: HashMap<u32, sndio_sys::sio_par>,
+    },
+    Running {
+        /// Contains a handle returned from sio_open. Note that even though this is a pointer type
+        /// and so doesn't follow Rust's borrowing rules, we should be careful not to copy it out
+        /// because that may render Mutex<InnerState> ineffective in enforcing exclusive access.
+        hdl: SioHdl,
+
+        /// Contains the chosen buffer size, in elements not bytes.
+        buffer_size: usize,
+
+        /// Stores the sndio-configured parameters.
+        par: sndio_sys::sio_par,
+
+        /// Map of sample rate to parameters.
+        sample_rate_to_par: HashMap<u32, sndio_sys::sio_par>,
+
+        /// Each input Stream that has not been dropped has its callbacks in an element of this Vec.
+        /// The last element is guaranteed to not be None.
+        input_callbacks: Vec<Option<InputCallbacks>>,
+
+        /// Each output Stream that has not been dropped has its callbacks in an element of this Vec.
+        /// The last element is guaranteed to not be None.
+        output_callbacks: Vec<Option<OutputCallbacks>>,
+
+        /// Whether the runner thread was spawned yet.
+        thread_spawned: bool,
+
+        /// Channel used for signalling that the runner thread should wakeup because there is now a
+        /// Stream. This will only be None if either 1) the runner thread has not yet started and
+        /// set this value, or 2) the runner thread has exited.
+        wakeup_sender: Option<mpsc::Sender<()>>,
+    },
+}
+
+struct InputCallbacks {
+    data_callback: Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>,
+    error_callback: Box<dyn FnMut(StreamError) + Send + 'static>,
+}
+
+struct OutputCallbacks {
+    data_callback: Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>,
+    error_callback: Box<dyn FnMut(StreamError) + Send + 'static>,
+}
+
+impl InnerState {
+    fn new() -> Self {
+        InnerState::Init {
+            behavior: BufferXrunBehavior::Sync,
+        }
+    }
+
+    fn open(&mut self) -> Result<(), SndioError> {
+        match self {
+            InnerState::Opened { .. } | InnerState::Running { .. } => Ok(()), // Already opened
+            InnerState::Init { ref behavior } => {
+                let hdl = unsafe {
+                    // The transmute is needed because this C string is *const u8 in one place but *const i8 in another place.
+                    let devany_ptr =
+                        mem::transmute::<_, *const i8>(sndio_sys::SIO_DEVANY as *const _);
+                    let nonblocking = true as i32;
+                    sndio_sys::sio_open(
+                        devany_ptr,
+                        sndio_sys::SIO_PLAY | sndio_sys::SIO_REC,
+                        nonblocking,
+                    )
+                };
+                if hdl.is_null() {
+                    return Err(SndioError::DeviceNotAvailable);
+                }
+
+                let mut hdl = SioHdl(hdl);
+                let sample_rate_to_par = hdl.get_par_map(*behavior)?;
+                *self = InnerState::Opened {
+                    hdl,
+                    sample_rate_to_par,
+                };
+                Ok(())
+            }
+        }
+    }
+
+    fn start(&mut self) -> Result<(), SndioError> {
+        match self {
+            InnerState::Running { hdl, .. } => {
+                let status = unsafe {
+                    // "The sio_start() function puts the device in a waiting state: the device
+                    // will wait for playback data to be provided (using the sio_write()
+                    // function).  Once enough data is queued to ensure that play buffers will
+                    // not underrun, actual playback is started automatically."
+                    sndio_sys::sio_start(hdl.0) // Unwrap OK because of check above
+                };
+                if status != 1 {
+                    Err(backend_specific_error("failed to start stream"))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(backend_specific_error(
+                "cannot start a device that hasn't been opened yet",
+            )),
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), SndioError> {
+        match self {
+            InnerState::Running { hdl, .. } => {
+                let status = unsafe {
+                    // The sio_stop() function puts the audio subsystem in the same state as before
+                    // sio_start() is called.  It stops recording, drains the play buffer and then stops
+                    // playback.  If samples to play are queued but playback hasn't started yet then
+                    // playback is forced immediately; playback will actually stop once the buffer is
+                    // drained.  In no case are samples in the play buffer discarded.
+                    sndio_sys::sio_stop(hdl.0) // Unwrap OK because of check above
+                };
+                if status != 1 {
+                    Err(backend_specific_error("error calling sio_stop"))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => {
+                // Nothing to do -- device is not open.
+                Ok(())
+            }
+        }
+    }
+
+    // TODO: make these 4 methods generic (new CallbackSet<T> where T is either InputCallbacks or OutputCallbacks)
+    /// Puts the supplied callbacks into the vector in the first free position, or at the end. The
+    /// index of insertion is returned.
+    fn add_output_callbacks(&mut self, callbacks: OutputCallbacks) -> Result<usize, SndioError> {
+        match self {
+            InnerState::Running {
+                ref input_callbacks,
+                ref mut output_callbacks,
+                ref mut wakeup_sender,
+                ..
+            } => {
+                for (i, cbs) in output_callbacks.iter_mut().enumerate() {
+                    if cbs.is_none() {
+                        *cbs = Some(callbacks);
+                        return Ok(i);
+                    }
+                }
+                // If there were previously no callbacks, wakeup the runner thread.
+                if input_callbacks.len() == 0 && output_callbacks.len() == 0 {
+                    if let Some(ref sender) = wakeup_sender {
+                        let _ = sender.send(());
+                    }
+                }
+                output_callbacks.push(Some(callbacks));
+                Ok(output_callbacks.len() - 1)
+            }
+            _ => Err(backend_specific_error("device is not in a running state")),
+        }
+    }
+
+    /// Removes the callbacks at specified index, returning them. Panics if the index is invalid
+    /// (out of range or there is a None element at that position).
+    fn remove_output_callbacks(&mut self, index: usize) -> Result<OutputCallbacks, SndioError> {
+        match *self {
+            InnerState::Running {
+                ref mut output_callbacks,
+                ..
+            } => {
+                let cbs = output_callbacks[index].take().unwrap();
+                while output_callbacks.len() > 0
+                    && output_callbacks[output_callbacks.len() - 1].is_none()
+                {
+                    output_callbacks.pop();
+                }
+                Ok(cbs)
+            }
+            _ => Err(backend_specific_error("device is not in a running state")),
+        }
+    }
+
+    /// Puts the supplied callbacks into the vector in the first free position, or at the end. The
+    /// index of insertion is returned.
+    fn add_input_callbacks(&mut self, callbacks: InputCallbacks) -> Result<usize, SndioError> {
+        match self {
+            InnerState::Running {
+                ref mut input_callbacks,
+                ref output_callbacks,
+                ref mut wakeup_sender,
+                ..
+            } => {
+                for (i, cbs) in input_callbacks.iter_mut().enumerate() {
+                    if cbs.is_none() {
+                        *cbs = Some(callbacks);
+                        return Ok(i);
+                    }
+                }
+                // If there were previously no callbacks, wakeup the runner thread.
+                if input_callbacks.len() == 0 && output_callbacks.len() == 0 {
+                    if let Some(ref sender) = wakeup_sender {
+                        let _ = sender.send(());
+                    }
+                }
+                input_callbacks.push(Some(callbacks));
+                Ok(input_callbacks.len() - 1)
+            }
+            _ => Err(backend_specific_error("device is not in a running state")),
+        }
+    }
+
+    /// Removes the callbacks at specified index, returning them. Panics if the index is invalid
+    /// (out of range or there is a None element at that position).
+    fn remove_input_callbacks(&mut self, index: usize) -> Result<InputCallbacks, SndioError> {
+        match *self {
+            InnerState::Running {
+                ref mut input_callbacks,
+                ..
+            } => {
+                let cbs = input_callbacks[index].take().unwrap();
+                while input_callbacks.len() > 0
+                    && input_callbacks[input_callbacks.len() - 1].is_none()
+                {
+                    input_callbacks.pop();
+                }
+                Ok(cbs)
+            }
+            _ => Err(backend_specific_error("device is not in a running state")),
+        }
+    }
+
+    /// Send an error to all input and output error callbacks.
+    fn error(&mut self, e: impl Into<StreamError>) {
+        match *self {
+            InnerState::Running {
+                ref mut input_callbacks,
+                ref mut output_callbacks,
+                ..
+            } => {
+                let e = e.into();
+                for cbs in input_callbacks {
+                    if let Some(cbs) = cbs {
+                        (cbs.error_callback)(e.clone());
+                    }
+                }
+                for cbs in output_callbacks {
+                    if let Some(cbs) = cbs {
+                        (cbs.error_callback)(e.clone());
+                    }
+                }
+            }
+            _ => {} // Drop the error
+        }
+    }
+
+    /// Common code shared between build_input_stream_raw and build_output_stream_raw
+    fn setup_stream(&mut self, config: &StreamConfig) -> Result<(), BuildStreamError> {
+        // If not already open, make sure it's open
+        match self {
+            InnerState::Init { .. } => {
+                self.open()?;
+            }
+            _ => {}
+        }
+
+        match self {
+            InnerState::Init { .. } => {
+                // Probably unreachable
+                Err(backend_specific_error("device was expected to be opened").into())
+            }
+            InnerState::Opened {
+                hdl,
+                sample_rate_to_par,
+            } => {
+                // No running streams yet; we get to set the par.
+                // unwrap OK because this is setup on self.open() call above
+                let mut par;
+                if let Some(par_) = sample_rate_to_par.get(&config.sample_rate.0) {
+                    par = par_.clone();
+                } else {
+                    return Err(backend_specific_error(format!(
+                        "no configuration for sample rate {}",
+                        config.sample_rate.0
+                    ))
+                    .into());
+                }
+
+                let buffer_size = determine_buffer_size(&config.buffer_size, par.round, None)?;
+
+                // Transition to running
+                par.appbufsz = buffer_size as u32;
+                hdl.set_params(&par)?;
+                let mut tmp: HashMap<u32, sndio_sys::sio_par> = HashMap::new();
+                mem::swap(&mut tmp, sample_rate_to_par);
+
+                *self = InnerState::Running {
+                    hdl: SioHdl(hdl.0), // Just this once, it's ok to copy this
+                    buffer_size,
+                    par,
+                    sample_rate_to_par: tmp,
+                    input_callbacks: vec![],
+                    output_callbacks: vec![],
+                    thread_spawned: false,
+                    wakeup_sender: None,
+                };
+                Ok(())
+            }
+            InnerState::Running {
+                par, buffer_size, ..
+            } => {
+                // TODO: allow setting new par like above flow if input_callbacks and
+                // output_callbacks are both zero.
+
+                // Perform some checks
+                if par.rate != config.sample_rate.0 as u32 {
+                    return Err(backend_specific_error("sample rates don't match").into());
+                }
+                determine_buffer_size(&config.buffer_size, par.round, Some(*buffer_size))?;
+                Ok(())
             }
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl Drop for InnerState {
+    fn drop(&mut self) {
+        match self {
+            InnerState::Running { hdl, .. } => unsafe {
+                sndio_sys::sio_close(hdl.0);
+            },
+            _ => {}
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub enum BufferXrunBehavior {
     Ignore, // SIO_IGNORE
     Sync,   // SIO_SYNC
@@ -479,9 +606,19 @@ impl Device {
         }
     }
 
-    pub fn set_xrun_behavior(&mut self, behavior: BufferXrunBehavior) {
+    pub fn set_xrun_behavior(&mut self, b: BufferXrunBehavior) -> Result<(), SndioError> {
         let mut inner_state = self.inner_state.lock().unwrap();
-        inner_state.behavior = behavior;
+        match *inner_state {
+            InnerState::Init {
+                ref mut behavior, ..
+            } => {
+                *behavior = b;
+                Ok(())
+            }
+            _ => Err(backend_specific_error(
+                "the xrun behavior can only be specified at initialization time",
+            )),
+        }
     }
 }
 
@@ -501,28 +638,38 @@ impl DeviceTrait for Device {
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        if inner_state.sample_rate_to_par.is_none() {
-            inner_state.open()?;
+        match *inner_state {
+            InnerState::Init { .. } => {
+                inner_state.open()?;
+            }
+            _ => {}
         }
 
-        if inner_state.sample_rate_to_par.is_none() {
-            return Err(backend_specific_error("no sample rate map!").into());
-        }
+        match *inner_state {
+            InnerState::Running {
+                ref sample_rate_to_par,
+                ..
+            }
+            | InnerState::Opened {
+                ref sample_rate_to_par,
+                ..
+            } => {
+                let mut config_ranges = vec![];
+                for (_, par) in sample_rate_to_par {
+                    let config = supported_config_from_par(par, par.rchan);
+                    config_ranges.push(SupportedStreamConfigRange {
+                        channels: config.channels,
+                        min_sample_rate: config.sample_rate,
+                        max_sample_rate: config.sample_rate,
+                        buffer_size: config.buffer_size,
+                        sample_format: config.sample_format,
+                    });
+                }
 
-        let mut config_ranges = vec![];
-        // unwrap OK because of the check at the top of this function.
-        for (_, par) in inner_state.sample_rate_to_par.as_ref().unwrap() {
-            let config = supported_config_from_par(par, par.rchan);
-            config_ranges.push(SupportedStreamConfigRange {
-                channels: config.channels,
-                min_sample_rate: config.sample_rate,
-                max_sample_rate: config.sample_rate,
-                buffer_size: config.buffer_size,
-                sample_format: config.sample_format,
-            });
+                Ok(config_ranges.into_iter())
+            }
+            _ => Err(backend_specific_error("device has not yet been opened").into()),
         }
-
-        Ok(config_ranges.into_iter())
     }
 
     #[inline]
@@ -531,78 +678,108 @@ impl DeviceTrait for Device {
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        if inner_state.sample_rate_to_par.is_none() {
-            inner_state.open()?;
+        match *inner_state {
+            InnerState::Init { .. } => {
+                inner_state.open()?;
+            }
+            _ => {}
         }
 
-        if inner_state.sample_rate_to_par.is_none() {
-            return Err(backend_specific_error("no sample rate map!").into());
-        }
+        match *inner_state {
+            InnerState::Running {
+                ref sample_rate_to_par,
+                ..
+            }
+            | InnerState::Opened {
+                ref sample_rate_to_par,
+                ..
+            } => {
+                let mut config_ranges = vec![];
+                for (_, par) in sample_rate_to_par {
+                    let config = supported_config_from_par(par, par.pchan);
+                    config_ranges.push(SupportedStreamConfigRange {
+                        channels: config.channels,
+                        min_sample_rate: config.sample_rate,
+                        max_sample_rate: config.sample_rate,
+                        buffer_size: config.buffer_size,
+                        sample_format: config.sample_format,
+                    });
+                }
 
-        let mut config_ranges = vec![];
-        // unwrap OK because of the check at the top of this function.
-        for (_, par) in inner_state.sample_rate_to_par.as_ref().unwrap() {
-            let config = supported_config_from_par(par, par.pchan);
-            config_ranges.push(SupportedStreamConfigRange {
-                channels: config.channels,
-                min_sample_rate: config.sample_rate,
-                max_sample_rate: config.sample_rate,
-                buffer_size: config.buffer_size,
-                sample_format: config.sample_format,
-            });
+                Ok(config_ranges.into_iter())
+            }
+            _ => Err(backend_specific_error("device has not yet been opened").into()),
         }
-
-        Ok(config_ranges.into_iter())
     }
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        if inner_state.sample_rate_to_par.is_none() {
-            inner_state.open()?;
+        match *inner_state {
+            InnerState::Init { .. } => {
+                inner_state.open()?;
+            }
+            _ => {}
         }
 
-        // unwrap OK because the open call above will ensure this is not None.
-        let config = if let Some(par) = inner_state
-            .sample_rate_to_par
-            .as_ref()
-            .unwrap()
-            .get(&DEFAULT_SAMPLE_RATE.0)
-        {
-            supported_config_from_par(par, par.rchan)
-        } else {
-            return Err(
-                backend_specific_error("missing map of sample rates to sio_par structs!").into(),
-            );
-        };
+        match *inner_state {
+            InnerState::Running {
+                ref sample_rate_to_par,
+                ..
+            }
+            | InnerState::Opened {
+                ref sample_rate_to_par,
+                ..
+            } => {
+                let config = if let Some(par) = sample_rate_to_par.get(&DEFAULT_SAMPLE_RATE.0) {
+                    supported_config_from_par(par, par.rchan)
+                } else {
+                    return Err(backend_specific_error(
+                        "missing map of sample rates to sio_par structs!",
+                    )
+                    .into());
+                };
 
-        Ok(config)
+                Ok(config)
+            }
+            _ => Err(backend_specific_error("device has not yet been opened").into()),
+        }
     }
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        if inner_state.sample_rate_to_par.is_none() {
-            inner_state.open()?;
+        match *inner_state {
+            InnerState::Init { .. } => {
+                inner_state.open()?;
+            }
+            _ => {}
         }
 
-        // unwrap OK because the open call above will ensure this is not None.
-        let config = if let Some(par) = inner_state
-            .sample_rate_to_par
-            .as_ref()
-            .unwrap()
-            .get(&DEFAULT_SAMPLE_RATE.0)
-        {
-            supported_config_from_par(par, par.pchan)
-        } else {
-            return Err(
-                backend_specific_error("missing map of sample rates to sio_par structs!").into(),
-            );
-        };
+        match *inner_state {
+            InnerState::Running {
+                ref sample_rate_to_par,
+                ..
+            }
+            | InnerState::Opened {
+                ref sample_rate_to_par,
+                ..
+            } => {
+                let config = if let Some(par) = sample_rate_to_par.get(&DEFAULT_SAMPLE_RATE.0) {
+                    supported_config_from_par(par, par.pchan)
+                } else {
+                    return Err(backend_specific_error(
+                        "missing map of sample rates to sio_par structs!",
+                    )
+                    .into());
+                };
 
-        Ok(config)
+                Ok(config)
+            }
+            _ => Err(backend_specific_error("device has not yet been opened").into()),
+        }
     }
 
     fn build_input_stream_raw<D, E>(
@@ -620,26 +797,41 @@ impl DeviceTrait for Device {
 
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        setup_stream(&mut inner_state, config)?;
+        inner_state.setup_stream(config)?;
 
-        let boxed_data_cb = if sample_format != SampleFormat::I16 {
-            input_adapter_callback(
-                data_callback,
-                inner_state.buffer_size.unwrap(), // unwrap OK because configured in setup_stream, above
-                sample_format,
-            )
-        } else {
-            Box::new(data_callback)
-        };
+        let idx;
+        let boxed_data_cb;
+        match *inner_state {
+            InnerState::Init { .. } | InnerState::Opened { .. } => {
+                return Err(backend_specific_error("stream was not properly setup").into());
+            }
+            InnerState::Running {
+                ref buffer_size, ..
+            } => {
+                boxed_data_cb = if sample_format != SampleFormat::I16 {
+                    input_adapter_callback(data_callback, *buffer_size, sample_format)
+                } else {
+                    Box::new(data_callback)
+                };
+            }
+        }
 
-        let idx = inner_state.add_input_callbacks(InputCallbacks {
+        idx = inner_state.add_input_callbacks(InputCallbacks {
             data_callback: boxed_data_cb,
             error_callback: Box::new(error_callback),
-        });
+        })?;
 
-        if inner_state.status != Status::Running {
-            thread::spawn(move || runner(inner_state_arc));
-            inner_state.status = Status::Running;
+        match *inner_state {
+            InnerState::Init { .. } | InnerState::Opened { .. } => {}
+            InnerState::Running {
+                ref mut thread_spawned,
+                ..
+            } => {
+                if !*thread_spawned {
+                    thread::spawn(move || runner(inner_state_arc));
+                    *thread_spawned = true;
+                }
+            }
         }
 
         drop(inner_state); // Unlock
@@ -666,26 +858,41 @@ impl DeviceTrait for Device {
 
         let mut inner_state = self.inner_state.lock().unwrap();
 
-        setup_stream(&mut inner_state, config)?;
+        inner_state.setup_stream(config)?;
 
-        let boxed_data_cb = if sample_format != SampleFormat::I16 {
-            output_adapter_callback(
-                data_callback,
-                inner_state.buffer_size.unwrap(), // unwrap OK because configured in setup_stream, above
-                sample_format,
-            )
-        } else {
-            Box::new(data_callback)
-        };
+        let idx;
+        let boxed_data_cb;
+        match *inner_state {
+            InnerState::Init { .. } | InnerState::Opened { .. } => {
+                return Err(backend_specific_error("stream was not properly setup").into());
+            }
+            InnerState::Running {
+                ref buffer_size, ..
+            } => {
+                boxed_data_cb = if sample_format != SampleFormat::I16 {
+                    output_adapter_callback(data_callback, *buffer_size, sample_format)
+                } else {
+                    Box::new(data_callback)
+                };
+            }
+        }
 
-        let idx = inner_state.add_output_callbacks(OutputCallbacks {
+        idx = inner_state.add_output_callbacks(OutputCallbacks {
             data_callback: boxed_data_cb,
             error_callback: Box::new(error_callback),
-        });
+        })?;
 
-        if inner_state.status != Status::Running {
-            thread::spawn(move || runner(inner_state_arc));
-            inner_state.status = Status::Running;
+        match *inner_state {
+            InnerState::Init { .. } | InnerState::Opened { .. } => {}
+            InnerState::Running {
+                ref mut thread_spawned,
+                ..
+            } => {
+                if !*thread_spawned {
+                    thread::spawn(move || runner(inner_state_arc));
+                    *thread_spawned = true;
+                }
+            }
         }
 
         drop(inner_state); // Unlock
@@ -695,84 +902,6 @@ impl DeviceTrait for Device {
             index: idx,
         })
     }
-}
-
-/// Common code shared between build_input_stream_raw and build_output_stream_raw
-fn setup_stream(
-    inner_state: &mut InnerState,
-    config: &StreamConfig,
-) -> Result<(), BuildStreamError> {
-    if inner_state.sample_rate_to_par.is_none() {
-        inner_state.open()?;
-    }
-
-    // TODO: one day we should be able to remove this
-    assert_eq!(
-        inner_state.input_callbacks.len() + inner_state.output_callbacks.len() > 0,
-        inner_state.par.is_some(),
-        "par can be None if and only if there are no input or output callbacks"
-    );
-
-    let par; // Either the currently configured par for existing streams or the one we will set
-    if let Some(configured_par) = inner_state.par {
-        par = configured_par;
-
-        // Perform some checks
-        if par.rate != config.sample_rate.0 as u32 {
-            return Err(backend_specific_error("sample rates don't match").into());
-        }
-    } else {
-        // No running streams yet; we get to set the par.
-        // unwrap OK because this is setup on inner_state.open() call above
-        if let Some(par_) = inner_state
-            .sample_rate_to_par
-            .as_ref()
-            .unwrap()
-            .get(&config.sample_rate.0)
-        {
-            par = par_.clone();
-        } else {
-            return Err(backend_specific_error(format!(
-                "no configuration for sample rate {}",
-                config.sample_rate.0
-            ))
-            .into());
-        }
-    }
-
-    // Round up the buffer size the user selected to the next multiple of par.round. If there
-    // was already a stream created with a different buffer size, return an error (sorry).
-    // Note: if we want stereo support, this will need to change.
-    let round = par.round as usize;
-    let desired_buffer_size = match config.buffer_size {
-        BufferSize::Fixed(requested) => {
-            if requested > 0 {
-                requested as usize + round - ((requested - 1) as usize % round) - 1
-            } else {
-                round
-            }
-        }
-        BufferSize::Default => {
-            if let Some(bufsize) = inner_state.buffer_size {
-                bufsize
-            } else {
-                DEFAULT_ROUND_MULTIPLE * round
-            }
-        }
-    };
-
-    if inner_state.buffer_size.is_some() && inner_state.buffer_size != Some(desired_buffer_size) {
-        return Err(backend_specific_error("buffer sizes don't match").into());
-    }
-
-    if inner_state.par.is_none() {
-        let mut par = par;
-        par.appbufsz = desired_buffer_size as u32;
-        inner_state.buffer_size = Some(desired_buffer_size);
-        inner_state.set_params(&par)?;
-        inner_state.par = Some(par.clone());
-    }
-    Ok(())
 }
 
 fn supported_config_from_par(par: &sndio_sys::sio_par, num_channels: u32) -> SupportedStreamConfig {
@@ -866,18 +995,27 @@ impl Drop for Stream {
     fn drop(&mut self) {
         let mut inner_state = self.inner_state.lock().unwrap();
         if self.is_output {
-            inner_state.remove_output_callbacks(self.index);
+            let _ = inner_state.remove_output_callbacks(self.index);
         } else {
-            inner_state.remove_input_callbacks(self.index);
+            let _ = inner_state.remove_input_callbacks(self.index);
         }
 
-        if inner_state.input_callbacks.len() == 0
-            && inner_state.output_callbacks.len() == 0
-            && inner_state.status == Status::Running
-        {
-            if let Some(ref sender) = inner_state.wakeup_sender {
-                let _ = sender.send(());
+        match *inner_state {
+            InnerState::Running {
+                ref input_callbacks,
+                ref output_callbacks,
+                ref thread_spawned,
+                ref wakeup_sender,
+                ..
+            } => {
+                if input_callbacks.len() == 0 && output_callbacks.len() == 0 && *thread_spawned {
+                    // Wake up runner thread so it can shut down
+                    if let Some(ref sender) = wakeup_sender {
+                        let _ = sender.send(());
+                    }
+                }
             }
+            _ => {}
         }
     }
 }
@@ -885,14 +1023,55 @@ impl Drop for Stream {
 impl Drop for Device {
     fn drop(&mut self) {
         let inner_state = self.inner_state.lock().unwrap();
-        if inner_state.input_callbacks.len() == 0
-            && inner_state.output_callbacks.len() == 0
-            && inner_state.status == Status::Running
-        {
-            // Attempt to wakeup runner thread
-            if let Some(ref sender) = inner_state.wakeup_sender {
-                let _ = sender.send(());
+        match *inner_state {
+            InnerState::Running {
+                ref input_callbacks,
+                ref output_callbacks,
+                ref thread_spawned,
+                ref wakeup_sender,
+                ..
+            } => {
+                if input_callbacks.len() == 0 && output_callbacks.len() == 0 && *thread_spawned {
+                    // Wake up runner thread so it can shut down
+                    if let Some(ref sender) = wakeup_sender {
+                        let _ = sender.send(());
+                    }
+                }
             }
+            _ => {}
         }
     }
+}
+
+fn determine_buffer_size(
+    requested: &BufferSize,
+    round: u32,
+    configured_size: Option<usize>,
+) -> Result<usize, SndioError> {
+    let round = round as usize;
+    // Round up the buffer size the user selected to the next multiple of par.round. If there
+    // was already a stream created with a different buffer size, return an error (sorry).
+    // Note: if we want stereo support, this will need to change.
+    let desired_buffer_size = match requested {
+        BufferSize::Fixed(requested) => {
+            let requested = *requested as usize;
+            if requested > 0 {
+                requested + round - ((requested - 1) % round) - 1
+            } else {
+                round
+            }
+        }
+        BufferSize::Default => {
+            if let Some(bufsize) = configured_size {
+                bufsize
+            } else {
+                DEFAULT_ROUND_MULTIPLE * round
+            }
+        }
+    };
+
+    if configured_size.is_some() && configured_size != Some(desired_buffer_size) {
+        return Err(backend_specific_error("buffer sizes don't match").into());
+    }
+    Ok(desired_buffer_size)
 }
