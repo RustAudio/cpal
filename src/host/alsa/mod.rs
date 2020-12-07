@@ -170,6 +170,41 @@ struct DeviceHandles {
     capture: Option<alsa::PCM>,
 }
 
+impl DeviceHandles {
+    fn handle_mut(&mut self, stream_type: alsa::Direction) -> &mut Option<alsa::PCM> {
+        match stream_type {
+            alsa::Direction::Playback => &mut self.playback,
+            alsa::Direction::Capture => &mut self.capture,
+        }
+    }
+
+    /// Get a mutable reference to the `alsa::PCM` handle for a specific `stream_type`.
+    /// If the handle is not yet opened, it will be opened and stored in `self`.
+    fn get_mut(
+        &mut self,
+        name: &str,
+        stream_type: alsa::Direction,
+    ) -> Result<&mut alsa::PCM, alsa::Error> {
+        let pcm = self.handle_mut(stream_type);
+        match pcm {
+            Some(pcm) => Ok(pcm),
+            None => {
+                *pcm = Some(alsa::pcm::PCM::new(name, stream_type, true)?);
+                Ok(pcm.as_mut().unwrap())
+            }
+        }
+    }
+
+    /// Take ownership of the `alsa::PCM` handle for a specific `stream_type`.
+    /// If the handle is not yet opened, it will be opened and returned.
+    fn take(&mut self, name: &str, stream_type: alsa::Direction) -> Result<alsa::PCM, alsa::Error> {
+        match self.handle_mut(stream_type).take() {
+            Some(pcm) => Ok(pcm),
+            None => Ok(alsa::pcm::PCM::new(name, stream_type, true)?),
+        }
+    }
+}
+
 pub struct Device {
     name: String,
     handles: Mutex<DeviceHandles>,
@@ -182,19 +217,11 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
-        let name = &self.name;
-
-        let device_handle = {
-            let mut guard = self.handles.lock();
-            match stream_type {
-                alsa::Direction::Playback => guard.playback.take(),
-                alsa::Direction::Capture => guard.capture.take(),
-            }
-        };
-
-        let handle_result = Ok(device_handle).transpose().unwrap_or_else(|| {
-            alsa::pcm::PCM::new(name, stream_type, true).map_err(|e| (e, e.errno()))
-        });
+        let handle_result = self
+            .handles
+            .lock()
+            .take(&self.name, stream_type)
+            .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
             Err((_, Some(nix::errno::Errno::EBUSY))) => {
@@ -256,24 +283,10 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        let name = &self.name;
-
         let mut guard = self.handles.lock();
-
-        let device_handle = match stream_t {
-            alsa::Direction::Playback => &mut guard.playback,
-            alsa::Direction::Capture => &mut guard.capture,
-        };
-
-        let handle_result = match device_handle {
-            Some(handle) => Ok(handle),
-            None => alsa::pcm::PCM::new(name, stream_t, true)
-                .map(|handle| {
-                    *device_handle = Some(handle);
-                    device_handle.as_mut().unwrap()
-                })
-                .map_err(|e| (e, e.errno())),
-        };
+        let handle_result = guard
+            .get_mut(&self.name, stream_t)
+            .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
             Err((_, Some(nix::errno::Errno::ENOENT)))
