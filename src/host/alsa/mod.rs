@@ -165,17 +165,45 @@ impl Drop for TriggerReceiver {
     }
 }
 
+#[derive(Default)]
 struct DeviceHandles {
     playback: Option<alsa::PCM>,
     capture: Option<alsa::PCM>,
 }
 
 impl DeviceHandles {
-    fn handle_mut(&mut self, stream_type: alsa::Direction) -> &mut Option<alsa::PCM> {
-        match stream_type {
+    /// Create `DeviceHandles` for `name` and try to open a handle for both
+    /// directions. Returns `Ok` if either direction is opened successfully.
+    fn open(name: &str) -> Result<Self, alsa::Error> {
+        let mut handles = Self::default();
+        let playback_err = handles.try_open(name, alsa::Direction::Playback).err();
+        let capture_err = handles.try_open(name, alsa::Direction::Capture).err();
+        if let Some(err) = capture_err.and(playback_err) {
+            Err(err)
+        } else {
+            Ok(handles)
+        }
+    }
+
+    /// Get a mutable reference to the `Option` for a specific `stream_type`.
+    /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
+    /// the `Option` before returning. If `handle_mut()` returns `Ok` the contained
+    /// `Option` is guaranteed to be `Some(..)`.
+    fn try_open(
+        &mut self,
+        name: &str,
+        stream_type: alsa::Direction,
+    ) -> Result<&mut Option<alsa::PCM>, alsa::Error> {
+        let handle = match stream_type {
             alsa::Direction::Playback => &mut self.playback,
             alsa::Direction::Capture => &mut self.capture,
+        };
+
+        if handle.is_none() {
+            *handle = Some(alsa::pcm::PCM::new(name, stream_type, true)?);
         }
+
+        Ok(handle)
     }
 
     /// Get a mutable reference to the `alsa::PCM` handle for a specific `stream_type`.
@@ -185,23 +213,13 @@ impl DeviceHandles {
         name: &str,
         stream_type: alsa::Direction,
     ) -> Result<&mut alsa::PCM, alsa::Error> {
-        let pcm = self.handle_mut(stream_type);
-        match pcm {
-            Some(pcm) => Ok(pcm),
-            None => {
-                *pcm = Some(alsa::pcm::PCM::new(name, stream_type, true)?);
-                Ok(pcm.as_mut().unwrap())
-            }
-        }
+        Ok(self.try_open(name, stream_type)?.as_mut().unwrap())
     }
 
     /// Take ownership of the `alsa::PCM` handle for a specific `stream_type`.
     /// If the handle is not yet opened, it will be opened and returned.
     fn take(&mut self, name: &str, stream_type: alsa::Direction) -> Result<alsa::PCM, alsa::Error> {
-        match self.handle_mut(stream_type).take() {
-            Some(pcm) => Ok(pcm),
-            None => Ok(alsa::pcm::PCM::new(name, stream_type, true)?),
-        }
+        Ok(self.try_open(name, stream_type)?.take().unwrap())
     }
 }
 
