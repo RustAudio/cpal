@@ -38,7 +38,8 @@ core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and hand
 mach = "0.3" # For access to mach_timebase type.
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
-stdweb = { version = "0.1.3", default-features = false }
+wasm-bindgen = "0.2.69"
+web-sys = { version = "0.3.46", features = ["AudioContext"]}
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }

@@ -149,7 +149,9 @@ extern crate lazy_static;
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
 #[macro_use]
-extern crate stdweb;
+extern crate wasm_bindgen;
+#[cfg(target_os = "emscripten")]
+extern crate web_sys;
 extern crate thiserror;
 
 pub use error::*;
