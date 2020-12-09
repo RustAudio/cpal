@@ -1,4 +1,4 @@
-use std::{mem, ops::Deref};
+use std::mem;
 
 /// Format that each sample has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,21 +195,22 @@ impl Unpacked24 {
     const MAX: i32 = 8_388_607;
     const MIN: i32 = -8_388_608;
 
-    // assumes i24 has been correctly parsed already
+    /// Assumes bytes has been parsed to a rust i32 previously. Values outside
+    /// the 24 bit range will be truncated when converting to bytes.
     pub fn new(val: i32) -> Self {
         Unpacked24(val)
     }
 
     pub fn from_be_bytes(b: [u8; 3]) -> Self {
         let is_pos = b[0] & 0b1000_0000 == 0;
-        let extra_byte;
+        let sign_byte;
         if is_pos {
-            extra_byte = u8::MIN;
+            sign_byte = u8::MIN;
         } else {
-            extra_byte = u8::MAX;
+            sign_byte = u8::MAX;
         }
 
-        Unpacked24(i32::from_be_bytes([extra_byte, b[0], b[1], b[2]]))
+        Unpacked24(i32::from_be_bytes([sign_byte, b[0], b[1], b[2]]))
     }
 
     pub fn to_be_bytes(&self) -> [u8; 3] {
@@ -224,14 +225,14 @@ impl Unpacked24 {
 
     pub fn from_le_bytes(b: [u8; 3]) -> Self {
         let is_pos = b[2] & 0b1000_0000 == 0;
-        let extra_byte;
+        let sign_byte;
         if is_pos {
-            extra_byte = u8::MIN;
+            sign_byte = u8::MIN;
         } else {
-            extra_byte = u8::MAX;
+            sign_byte = u8::MAX;
         }
 
-        Unpacked24(i32::from_le_bytes([b[0], b[1], b[2], extra_byte]))
+        Unpacked24(i32::from_le_bytes([b[0], b[1], b[2], sign_byte]))
     }
 
     pub fn to_le_bytes(&self) -> [u8; 3] {
@@ -242,6 +243,10 @@ impl Unpacked24 {
         }
 
         [byte1, byte2, byte3]
+    }
+
+    pub fn into_inner(&self) -> i32 {
+        self.0
     }
 }
 
