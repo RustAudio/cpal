@@ -1,6 +1,9 @@
 use std::mem;
+#[cfg(target_os = "emscripten")]
+use wasm_bindgen::prelude::*;
 
 /// Format that each sample has.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleFormat {
     /// The value 0 corresponds to 0.

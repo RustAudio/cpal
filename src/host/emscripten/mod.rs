@@ -1,5 +1,5 @@
 use js_sys::Float32Array;
-use std::os::raw::c_void;
+use js_sys::Function as JsFunction;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::AudioContext;
@@ -200,110 +200,75 @@ impl DeviceTrait for Device {
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
 
-        // Create the stream.
-        let audio_ctxt = *Closure::once_into_js(|| return AudioContext::new())
-            .dyn_ref::<AudioContext>()
-            .unwrap();
+        let audio_ctxt = AudioContext::new().unwrap();
         let stream = Stream { audio_ctxt };
-
-        // Specify the callback.
-        let mut user_data = (self, data_callback, error_callback);
-        let user_data_ptr = &mut user_data as *mut (_, _, _);
-
-        // Use `set_timeout_with_callback_and_timeout_and_arguments_0` to invoke a Rust callback repeatedly.
-        //
-        // The job of this callback is to fill the content of the audio buffers.
-        //
-        // See also: The call to `set_timeout_with_callback_and_timeout_and_arguments_0` at the end of the `audio_callback_fn` which creates
-        // the loop.
-        // TODO: find a good way to turn the callback function to a js_sys::Function
-        let window = web_sys::window().unwrap();
-        window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            &audio_callback_fn::<D, E>(
-                user_data_ptr as *mut c_void,
-                config,
-                sample_format,
-                buffer_size_frames,
-            ),
+        set_timeout(
             10,
+            stream,
+            data_callback,
+            *config,
+            sample_format,
+            buffer_size_frames,
         );
-
         Ok(stream)
     }
 }
 
 impl StreamTrait for Stream {
-    // TODO: Fix lifetime issues
     fn play(&self) -> Result<(), PlayStreamError> {
-        let audio_ctxt = &self.audio_ctxt.clone();
-        Closure::once(|| audio_ctxt.resume()).forget();
+        self.audio_ctxt.resume();
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let audio_ctxt = &self.audio_ctxt.clone();
-        Closure::once(|| audio_ctxt.suspend()).forget();
+        self.audio_ctxt.suspend();
         Ok(())
     }
 }
 
 // The first argument of the callback function (a `void*`) is a casted pointer to `self`
 // and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<D, E>(
-    user_data_ptr: *mut c_void,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    buffer_size_frames: usize,
-) -> js_sys::Function where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+fn audio_callback_fn<D>() -> &'static JsFunction
+where
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send,
 {
-    Closure::wrap(Box::new(|| {
-    let num_channels = config.channels as usize;
-    let sample_rate = config.sample_rate.0;
-    let buffer_size_samples = buffer_size_frames * num_channels;
+    Closure::once_into_js(
+        move |stream: Stream,
+              data_callback: D,
+              config: &StreamConfig,
+              sample_format: SampleFormat,
+              buffer_size_frames: &usize| {
+            let num_channels = config.channels as usize;
+            let sample_rate = config.sample_rate.0;
+            let buffer_size_samples = buffer_size_frames * num_channels;
+            let audio_ctxt = &stream.audio_ctxt;
 
-    unsafe {
-        let user_data_ptr2 = user_data_ptr as *mut (&Stream, D, E);
-        let user_data = &mut *user_data_ptr2;
-        let (ref stream, ref mut data_cb, ref mut _err_cb) = user_data;
-        let audio_ctxt = &stream.audio_ctxt;
+            // TODO: We should be re-using a buffer.
+            let mut temporary_buffer = vec![0f32; buffer_size_samples];
 
-        // TODO: We should be re-using a buffer.
-        let mut temporary_buffer = vec![0f32; buffer_size_samples];
+            {
+                let len = temporary_buffer.len();
+                let data = temporary_buffer.as_mut_ptr() as *mut ();
+                let mut data = Data::from_parts(data, len, sample_format);
+                let now_secs: f64 = audio_ctxt.current_time();
+                let callback = crate::StreamInstant::from_secs_f64(now_secs);
+                let buffer_duration = frames_to_duration(len, sample_rate as usize);
+                let playback = callback
+                    .add(buffer_duration)
+                    .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+                let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                let info = OutputCallbackInfo { timestamp };
+                data_callback(&mut data, &info);
+            }
 
-        {
-            let len = temporary_buffer.len();
-            let data = temporary_buffer.as_mut_ptr() as *mut ();
-            let mut data = Data::from_parts(data, len, sample_format);
+            let typed_array: Float32Array = temporary_buffer.as_slice().into();
 
-            let now_secs: f64 = Closure::once_into_js(|| audio_ctxt.current_time())
-                .as_f64()
-                .unwrap();
-            let callback = crate::StreamInstant::from_secs_f64(now_secs);
-            // TODO: Use proper latency instead. Currently unsupported on most browsers though so
-            // we estimate based on buffer size instead. Probably should use this, but it's only
-            // supported by firefox (2020-04-28).
-            // let latency_secs: f64 = Closure::once_into_js(audio_ctxt.outputLatency).as_f64().unwrap();
-            let buffer_duration = frames_to_duration(len, sample_rate as usize);
-            let playback = callback
-                .add(buffer_duration)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-            let timestamp = crate::OutputStreamTimestamp { callback, playback };
-            let info = OutputCallbackInfo { timestamp };
-            data_cb(&mut data, &info);
-        }
-
-        let typed_array: Float32Array = temporary_buffer.as_slice().into();
-
-        debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
-
-        Closure::once(|| {
+            debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
             let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
             let context = audio_ctxt;
-            let buffer_size_frames = buffer_size_frames as u32;
-            let sample_rate = sample_rate;
-            let buffer = context.create_buffer(num_channels as u32, buffer_size_frames, sample_rate as f32);
+            let buffer_size_frames = *buffer_size_frames as u32;
+            let buffer =
+                context.create_buffer(num_channels as u32, buffer_size_frames, sample_rate as f32);
             for channel in 0..num_channels {
                 let buffer_content = buffer.unwrap().get_channel_data(channel as u32).unwrap();
                 for i in 0..buffer_content.len() {
@@ -315,24 +280,58 @@ fn audio_callback_fn<D, E>(
             node.set_buffer(buffer.ok().as_ref());
             context.destination().connect_with_audio_node(&node);
             node.start();
-        })
-        .forget();
 
-        // TODO: handle latency better ; right now we just use setInterval with the amount of sound
-        // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
-        // and there may be underflows
-        // TODO: find a good way to turn the callback function to a js_sys::Function
-        let window = web_sys::window().unwrap();
-        window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                &audio_callback_fn::<D, E>(
-                    user_data_ptr,
-                    config,
-                    sample_format,
-                    buffer_size_frames,
-                ),
-            (buffer_size_frames as u32 * 1000 / sample_rate) as i32,
-        );
-    }})).into_js_value().dyn_ref::<js_sys::Function>()
+            // TODO: handle latency better ; right now we just use setInterval with the amount of sound
+            // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
+            // and there may be underflows
+            set_timeout(
+                1000 * buffer_size_frames as i32 / sample_rate as i32,
+                stream,
+                data_callback,
+                *config,
+                sample_format,
+                buffer_size_frames as usize,
+            );
+        },
+    )
+    .dyn_ref::<js_sys::Function>()
+    .unwrap()
+}
+
+fn set_timeout<D>(
+    time: i32,
+    stream: Stream,
+    data_callback: D,
+    config: StreamConfig,
+    sample_format: SampleFormat,
+    buffer_size_frames: usize,
+) where
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send,
+{
+    let window = web_sys::window().unwrap();
+    window.set_timeout_with_callback_and_timeout_and_arguments_5(
+        &audio_callback_fn::<D>(),
+        time,
+        value_to_js_value(stream),
+        value_to_js_value(data_callback),
+        value_to_js_value(config),
+        value_to_js_value(sample_format),
+        value_to_js_value(buffer_size_frames),
+    );
+}
+
+fn value_to_js_value<'a, F, T>(value: T) -> &'a F
+where
+    T: wasm_bindgen::convert::FromWasmAbi,
+    F: JsCast,
+{
+    &Closure::once_into_js(|| return value)
+        .dyn_ref::<JsFunction>()
+        .unwrap()
+        .call0(&JsValue::null())
+        .unwrap()
+        .dyn_ref::<F>()
+        .unwrap()
 }
 
 impl Default for Devices {
@@ -370,7 +369,7 @@ fn default_output_device() -> Option<Device> {
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
-    Closure::once_into_js(|| AudioContext::new()).dyn_ref::<AudioContext>().is_some()
+    AudioContext::new().is_ok()
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
