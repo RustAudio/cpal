@@ -235,22 +235,8 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
-        let handle_result = self
-            .handles
-            .lock()
-            .take(&self.name, stream_type)
-            .map_err(|e| (e, e.errno()));
+        let handle = self.handles.lock().take(&self.name, stream_type)?;
 
-        let handle = match handle_result {
-            Err((_, Some(nix::errno::Errno::EBUSY))) => {
-                return Err(BuildStreamError::DeviceNotAvailable)
-            }
-            Err((_, Some(nix::errno::Errno::EINVAL))) => {
-                return Err(BuildStreamError::InvalidArgument)
-            }
-            Err((e, _)) => return Err(e.into()),
-            Ok(handle) => handle,
-        };
         let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
         let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
 
@@ -301,21 +287,7 @@ impl Device {
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
         let mut guard = self.handles.lock();
-        let handle_result = guard
-            .get_mut(&self.name, stream_t)
-            .map_err(|e| (e, e.errno()));
-
-        let handle = match handle_result {
-            Err((_, Some(nix::errno::Errno::ENOENT)))
-            | Err((_, Some(nix::errno::Errno::EBUSY))) => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
-            Err((_, Some(nix::errno::Errno::EINVAL))) => {
-                return Err(SupportedStreamConfigsError::InvalidArgument)
-            }
-            Err((e, _)) => return Err(e.into()),
-            Ok(handle) => handle,
-        };
+        let handle = guard.get_mut(&self.name, stream_t)?;
 
         let hw_params = alsa::pcm::HwParams::any(&handle)?;
 
@@ -1051,15 +1023,23 @@ impl From<alsa::Error> for BackendSpecificError {
 
 impl From<alsa::Error> for BuildStreamError {
     fn from(err: alsa::Error) -> Self {
-        let err: BackendSpecificError = err.into();
-        err.into()
+        match err.errno() {
+            Some(nix::errno::Errno::EBUSY) => BuildStreamError::DeviceNotAvailable,
+            Some(nix::errno::Errno::EINVAL) => BuildStreamError::InvalidArgument,
+            _ => BackendSpecificError::from(err).into(),
+        }
     }
 }
 
 impl From<alsa::Error> for SupportedStreamConfigsError {
     fn from(err: alsa::Error) -> Self {
-        let err: BackendSpecificError = err.into();
-        err.into()
+        match err.errno() {
+            Some(nix::errno::Errno::ENOENT) | Some(nix::errno::Errno::EBUSY) => {
+                SupportedStreamConfigsError::DeviceNotAvailable
+            }
+            Some(nix::errno::Errno::EINVAL) => SupportedStreamConfigsError::InvalidArgument,
+            _ => BackendSpecificError::from(err).into(),
+        }
     }
 }
 
