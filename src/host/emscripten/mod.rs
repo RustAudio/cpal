@@ -1,5 +1,4 @@
 use js_sys::Float32Array;
-use js_sys::Function as JsFunction;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::AudioContext;
@@ -26,6 +25,8 @@ pub struct Devices(bool);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
+#[wasm_bindgen]
+#[derive(Clone)]
 pub struct Stream {
     audio_ctxt: AudioContext,
 }
@@ -179,7 +180,7 @@ impl DeviceTrait for Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
-        error_callback: E,
+        _error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -204,134 +205,119 @@ impl DeviceTrait for Device {
         let stream = Stream { audio_ctxt };
         set_timeout(
             10,
-            stream,
+            stream.clone(),
             data_callback,
-            *config,
+            config,
             sample_format,
-            buffer_size_frames,
+            buffer_size_frames as u32,
         );
         Ok(stream)
     }
 }
 
+// TODO: Do something useful with the values, maybe through wasm_bindgen_futures
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.audio_ctxt.resume();
+        self.audio_ctxt.resume().unwrap();
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.audio_ctxt.suspend();
+        self.audio_ctxt.suspend().unwrap();
         Ok(())
     }
 }
 
-// The first argument of the callback function (a `void*`) is a casted pointer to `self`
-// and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<D>() -> &'static JsFunction
+fn callback_fn<D>(
+    mut data_callback: D,
+) -> impl FnOnce(Stream, StreamConfig, SampleFormat, usize) + 'static
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send,
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
-    Closure::once_into_js(
-        move |stream: Stream,
-              data_callback: D,
-              config: &StreamConfig,
-              sample_format: SampleFormat,
-              buffer_size_frames: &usize| {
-            let num_channels = config.channels as usize;
-            let sample_rate = config.sample_rate.0;
-            let buffer_size_samples = buffer_size_frames * num_channels;
-            let audio_ctxt = &stream.audio_ctxt;
+    |stream: Stream,
+     config: StreamConfig,
+     sample_format: SampleFormat,
+     buffer_size_frames: usize| {
+        let num_channels = config.channels as usize;
+        let sample_rate = config.sample_rate.0;
+        let buffer_size_samples = buffer_size_frames * num_channels;
+        let audio_ctxt = &stream.audio_ctxt;
 
-            // TODO: We should be re-using a buffer.
-            let mut temporary_buffer = vec![0f32; buffer_size_samples];
+        // TODO: We should be re-using a buffer.
+        let mut temporary_buffer = vec![0f32; buffer_size_samples];
 
-            {
-                let len = temporary_buffer.len();
-                let data = temporary_buffer.as_mut_ptr() as *mut ();
-                let mut data = Data::from_parts(data, len, sample_format);
-                let now_secs: f64 = audio_ctxt.current_time();
-                let callback = crate::StreamInstant::from_secs_f64(now_secs);
-                let buffer_duration = frames_to_duration(len, sample_rate as usize);
-                let playback = callback
-                    .add(buffer_duration)
-                    .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-                let timestamp = crate::OutputStreamTimestamp { callback, playback };
-                let info = OutputCallbackInfo { timestamp };
-                data_callback(&mut data, &info);
+        {
+            let len = temporary_buffer.len();
+            let data = temporary_buffer.as_mut_ptr() as *mut ();
+            let mut data = unsafe { Data::from_parts(data, len, sample_format) };
+            let now_secs: f64 = audio_ctxt.current_time();
+            let callback = crate::StreamInstant::from_secs_f64(now_secs);
+            let buffer_duration = frames_to_duration(len, sample_rate as usize);
+            let playback = callback
+                .add(buffer_duration)
+                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+            let info = OutputCallbackInfo { timestamp };
+            data_callback(&mut data, &info);
+        }
+
+        let typed_array: Float32Array = temporary_buffer.as_slice().into();
+
+        debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
+        let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
+        let context = audio_ctxt;
+        let buffer = context.create_buffer(
+            num_channels as u32,
+            buffer_size_frames as u32,
+            sample_rate as f32,
+        ).unwrap();
+        for channel in 0..num_channels {
+            let mut buffer_content = buffer.get_channel_data(channel as u32).unwrap();
+            for (i, buffer_content_item) in buffer_content.iter_mut().enumerate() {
+                *buffer_content_item = src_buffer.get_index((i * num_channels + channel) as u32);
             }
+        }
 
-            let typed_array: Float32Array = temporary_buffer.as_slice().into();
+        let node = context.create_buffer_source().unwrap();
+        node.set_buffer(Some(&buffer));
+        context.destination().connect_with_audio_node(&node).unwrap();
+        node.start().unwrap();
 
-            debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
-            let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
-            let context = audio_ctxt;
-            let buffer_size_frames = *buffer_size_frames as u32;
-            let buffer =
-                context.create_buffer(num_channels as u32, buffer_size_frames, sample_rate as f32);
-            for channel in 0..num_channels {
-                let buffer_content = buffer.unwrap().get_channel_data(channel as u32).unwrap();
-                for i in 0..buffer_content.len() {
-                    buffer_content[i] = src_buffer.get_index((i * num_channels + channel) as u32);
-                }
-            }
-
-            let node = context.create_buffer_source().unwrap();
-            node.set_buffer(buffer.ok().as_ref());
-            context.destination().connect_with_audio_node(&node);
-            node.start();
-
-            // TODO: handle latency better ; right now we just use setInterval with the amount of sound
-            // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
-            // and there may be underflows
-            set_timeout(
-                1000 * buffer_size_frames as i32 / sample_rate as i32,
-                stream,
-                data_callback,
-                *config,
-                sample_format,
-                buffer_size_frames as usize,
-            );
-        },
-    )
-    .dyn_ref::<js_sys::Function>()
-    .unwrap()
+        // TODO: handle latency better ; right now we just use setInterval with the amount of sound
+        // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
+        // and there may be underflows
+        set_timeout(
+            1000 * buffer_size_frames as i32 / sample_rate as i32,
+            stream,
+            data_callback,
+            &config,
+            sample_format,
+            buffer_size_frames as u32,
+        );
+    }
 }
 
 fn set_timeout<D>(
     time: i32,
     stream: Stream,
     data_callback: D,
-    config: StreamConfig,
+    config: &StreamConfig,
     sample_format: SampleFormat,
-    buffer_size_frames: usize,
+    buffer_size_frames: u32,
 ) where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send,
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     let window = web_sys::window().unwrap();
-    window.set_timeout_with_callback_and_timeout_and_arguments_5(
-        &audio_callback_fn::<D>(),
+    window.set_timeout_with_callback_and_timeout_and_arguments_4(
+        &Closure::once_into_js(callback_fn(data_callback))
+            .dyn_ref::<js_sys::Function>()
+            .unwrap(),
         time,
-        value_to_js_value(stream),
-        value_to_js_value(data_callback),
-        value_to_js_value(config),
-        value_to_js_value(sample_format),
-        value_to_js_value(buffer_size_frames),
-    );
-}
-
-fn value_to_js_value<'a, F, T>(value: T) -> &'a F
-where
-    T: wasm_bindgen::convert::FromWasmAbi,
-    F: JsCast,
-{
-    &Closure::once_into_js(|| return value)
-        .dyn_ref::<JsFunction>()
-        .unwrap()
-        .call0(&JsValue::null())
-        .unwrap()
-        .dyn_ref::<F>()
-        .unwrap()
+        &stream.into(),
+        &((*config).clone()).into(),
+        &Closure::once_into_js(move || sample_format),
+        &buffer_size_frames.into(),
+    ).unwrap();
 }
 
 impl Default for Devices {

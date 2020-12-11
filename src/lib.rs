@@ -292,6 +292,7 @@ pub struct SupportedStreamConfig {
 ///
 /// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
 /// Data`.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug)]
 pub struct Data {
     data: *mut (),
@@ -352,6 +353,7 @@ pub struct InputCallbackInfo {
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
