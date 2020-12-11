@@ -251,11 +251,8 @@ impl Device {
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
-        let can_pause = {
-            let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
-            hw_params.can_pause()
-        };
-        let (_buffer_len, period_len) = set_sw_params_from_format(&handle, conf)?;
+        let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
+        let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
 
@@ -277,7 +274,9 @@ impl Device {
             _ => None,
         };
 
-        handle.start()?;
+        if let alsa::Direction::Capture = stream_type {
+            handle.start()?;
+        }
 
         let stream_inner = StreamInner {
             channel: handle,
@@ -420,10 +419,10 @@ impl Device {
             supported_formats.len() * supported_channels.len() * sample_rates.len(),
         );
         for &sample_format in supported_formats.iter() {
-            for channels in supported_channels.iter() {
+            for &channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
-                        channels: *channels,
+                        channels,
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
                         buffer_size: buffer_size_range.clone(),
@@ -856,14 +855,13 @@ fn stream_timestamp(
         None => {
             let trigger_ts = status.get_trigger_htstamp();
             let ts = status.get_htstamp();
-            let nanos = timespec_diff_nanos(ts, trigger_ts)
-                .try_into()
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
-                        ts, trigger_ts
-                    );
-                });
+            let nanos = timespec_diff_nanos(ts, trigger_ts);
+            if nanos < 0 {
+                panic!(
+                    "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
+                    ts, trigger_ts
+                );
+            }
             Ok(crate::StreamInstant::from_nanos(nanos))
         }
         Some(creation) => {
@@ -966,11 +964,11 @@ impl StreamTrait for Stream {
     }
 }
 
-fn set_hw_params_from_format<'a>(
-    pcm_handle: &'a alsa::pcm::PCM,
+fn set_hw_params_from_format(
+    pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
     sample_format: SampleFormat,
-) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
+) -> Result<bool, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
@@ -993,7 +991,10 @@ fn set_hw_params_from_format<'a>(
     hw_params.set_channels(config.channels as u32)?;
 
     match config.buffer_size {
-        BufferSize::Fixed(v) => hw_params.set_buffer_size(v as alsa::pcm::Frames)?,
+        BufferSize::Fixed(v) => {
+            hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
+        }
         BufferSize::Default => {
             // These values together represent a moderate latency and wakeup interval.
             // Without them we are at the mercy of the device
@@ -1004,17 +1005,17 @@ fn set_hw_params_from_format<'a>(
 
     pcm_handle.hw_params(&hw_params)?;
 
-    Ok(hw_params)
+    Ok(hw_params.can_pause())
 }
 
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
-) -> Result<(usize, usize), BackendSpecificError> {
+    stream_type: alsa::Direction,
+) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;
-    sw_params.set_start_threshold(0)?;
 
-    let (buffer_len, period_len) = {
+    let period_len = {
         let (buffer, period) = pcm_handle.get_params()?;
         if buffer == 0 {
             return Err(BackendSpecificError {
@@ -1022,19 +1023,22 @@ fn set_sw_params_from_format(
             });
         }
         sw_params.set_avail_min(period as alsa::pcm::Frames)?;
-        let buffer = buffer as usize * config.channels as usize;
-        let period = period as usize * config.channels as usize;
-        (buffer, period)
+
+        let start_threshold = match stream_type {
+            alsa::Direction::Playback => buffer - period,
+            alsa::Direction::Capture => 1,
+        };
+        sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
+
+        period as usize * config.channels as usize
     };
 
     sw_params.set_tstamp_mode(true)?;
-    // TODO:
-    // Pending new version of alsa-sys and alsa-rs getting published.
-    // sw_params.set_tstamp_type(alsa::pcm::TstampType::MonotonicRaw)?;
+    sw_params.set_tstamp_type(alsa::pcm::TstampType::MonotonicRaw)?;
 
     pcm_handle.sw_params(&sw_params)?;
 
-    Ok((buffer_len, period_len))
+    Ok(period_len)
 }
 
 impl From<alsa::Error> for BackendSpecificError {
