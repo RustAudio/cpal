@@ -201,7 +201,7 @@ impl DeviceTrait for Device {
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
 
-        let audio_ctxt = AudioContext::new().unwrap();
+        let audio_ctxt = AudioContext::new().expect("webaudio is not present on the system");
         let stream = Stream { audio_ctxt };
         set_timeout(
             10,
@@ -218,12 +218,12 @@ impl DeviceTrait for Device {
 // TODO: Do something useful with the values, maybe through wasm_bindgen_futures
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.audio_ctxt.resume().unwrap();
+        self.audio_ctxt.resume().expect("Could not resume the stream");
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.audio_ctxt.suspend().unwrap();
+        self.audio_ctxt.suspend().expect("Could not suspend the stream");
         Ok(())
     }
 }
@@ -266,22 +266,27 @@ where
         debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
         let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
         let context = audio_ctxt;
-        let buffer = context.create_buffer(
-            num_channels as u32,
-            buffer_size_frames as u32,
-            sample_rate as f32,
-        ).unwrap();
+        let buffer = context
+            .create_buffer(
+                num_channels as u32,
+                buffer_size_frames as u32,
+                sample_rate as f32,
+            )
+            .expect("Buffer could not be created");
         for channel in 0..num_channels {
-            let mut buffer_content = buffer.get_channel_data(channel as u32).unwrap();
+            let mut buffer_content = buffer.get_channel_data(channel as u32).expect("Should be impossible");
             for (i, buffer_content_item) in buffer_content.iter_mut().enumerate() {
                 *buffer_content_item = src_buffer.get_index((i * num_channels + channel) as u32);
             }
         }
 
-        let node = context.create_buffer_source().unwrap();
+        let node = context.create_buffer_source().expect("The buffer source node could not be created");
         node.set_buffer(Some(&buffer));
-        context.destination().connect_with_audio_node(&node).unwrap();
-        node.start().unwrap();
+        context
+            .destination()
+            .connect_with_audio_node(&node)
+            .expect("Could not connect the audio node to the destination");
+        node.start().expect("Could not start the audio node");
 
         // TODO: handle latency better ; right now we just use setInterval with the amount of sound
         // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
@@ -307,17 +312,19 @@ fn set_timeout<D>(
 ) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
-    let window = web_sys::window().unwrap();
-    window.set_timeout_with_callback_and_timeout_and_arguments_4(
-        &Closure::once_into_js(callback_fn(data_callback))
-            .dyn_ref::<js_sys::Function>()
-            .unwrap(),
-        time,
-        &stream.into(),
-        &((*config).clone()).into(),
-        &Closure::once_into_js(move || sample_format),
-        &buffer_size_frames.into(),
-    ).unwrap();
+    let window = web_sys::window().expect("Not in a window somehow?");
+    window
+        .set_timeout_with_callback_and_timeout_and_arguments_4(
+            &Closure::once_into_js(callback_fn(data_callback))
+                .dyn_ref::<js_sys::Function>()
+                .expect("The function was somehow not a function"),
+            time,
+            &stream.into(),
+            &((*config).clone()).into(),
+            &Closure::once_into_js(move || sample_format),
+            &buffer_size_frames.into(),
+        )
+        .expect("The timeout could not be set");
 }
 
 impl Default for Devices {
