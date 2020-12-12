@@ -2,7 +2,6 @@ extern crate alsa;
 extern crate libc;
 extern crate parking_lot;
 
-use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -13,7 +12,7 @@ use crate::{
 };
 use std::cmp;
 use std::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{atomic, Arc};
 use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -129,50 +128,6 @@ impl DeviceTrait for Device {
     }
 }
 
-struct TriggerSender(libc::c_int);
-
-struct TriggerReceiver(libc::c_int);
-
-impl TriggerSender {
-    fn wakeup(&self) {
-        let buf = 1u64;
-        let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
-        assert!(ret == 8);
-    }
-}
-
-impl TriggerReceiver {
-    fn clear_pipe(&self) {
-        let mut out = 0u64;
-        let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
-        assert_eq!(ret, 8);
-    }
-}
-
-fn trigger() -> (TriggerSender, TriggerReceiver) {
-    let mut fds = [0, 0];
-    match unsafe { libc::pipe(fds.as_mut_ptr()) } {
-        0 => (TriggerSender(fds[1]), TriggerReceiver(fds[0])),
-        _ => panic!("Could not create pipe"),
-    }
-}
-
-impl Drop for TriggerSender {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.0);
-        }
-    }
-}
-
-impl Drop for TriggerReceiver {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.0);
-        }
-    }
-}
-
 #[derive(Default)]
 struct DeviceHandles {
     playback: Option<alsa::PCM>,
@@ -248,36 +203,16 @@ impl Device {
 
         handle.prepare()?;
 
-        let num_descriptors = {
-            let num_descriptors = handle.count();
-            if num_descriptors == 0 {
-                let description = "poll descriptor count for stream was 0".to_string();
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            num_descriptors
-        };
-
-        // Check to see if we can retrieve valid timestamps from the device.
-        // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
-        let ts = handle.status()?.get_htstamp();
-        let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
-            (0, 0) => Some(std::time::Instant::now()),
-            _ => None,
-        };
-
-        if let alsa::Direction::Capture = stream_type {
-            handle.start()?;
-        }
+        let clock = StreamClock::new(&handle.status()?, conf.sample_rate);
 
         let stream_inner = StreamInner {
             channel: handle,
             sample_format,
-            num_descriptors,
             conf: conf.clone(),
             period_len,
             can_pause,
-            creation_instant,
+            clock,
+            dropping: atomic::AtomicBool::new(false),
         };
 
         Ok(stream_inner)
@@ -474,13 +409,111 @@ impl Device {
     }
 }
 
+struct StreamClock {
+    sample_rate: SampleRate,
+
+    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
+    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
+    //
+    // If this field is `Some`, then the stream will use the duration since this instant as a
+    // source for timestamps.
+    //
+    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
+    // `get_htstamp` is used.
+    creation_instant: Option<std::time::Instant>,
+}
+
+impl StreamClock {
+    fn new(status: &alsa::pcm::Status, sample_rate: SampleRate) -> Self {
+        // Check to see if we can retrieve valid timestamps from the device.
+        // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
+        let creation_instant = if let libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        } = status.get_htstamp()
+        {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        StreamClock {
+            sample_rate,
+            creation_instant,
+        }
+    }
+
+    fn delay_time(&self, status: &alsa::pcm::Status) -> i64 {
+        let delay_frames = status.get_delay() as i64;
+        1_000_000_000 * delay_frames / (self.sample_rate.0 as i64)
+    }
+
+    fn output_timestamp(&self, status: &alsa::pcm::Status) -> crate::OutputStreamTimestamp {
+        match self.creation_instant {
+            None => {
+                let now = timespec_to_nanos(status.get_htstamp());
+                let trigger = timespec_to_nanos(status.get_trigger_htstamp());
+                let callback =
+                    crate::StreamInstant::from_nanos(if now == 0 { trigger } else { now });
+
+                let audio = if trigger == 0 {
+                    now
+                } else {
+                    trigger + timespec_to_nanos(status.get_audio_htstamp())
+                };
+                let playback = crate::StreamInstant::from_nanos(audio + self.delay_time(status));
+
+                crate::OutputStreamTimestamp { callback, playback }
+            }
+            Some(created) => {
+                let now = std::time::Instant::now().duration_since(created).as_nanos() as i64;
+                let callback = crate::StreamInstant::from_nanos(now);
+                let playback = crate::StreamInstant::from_nanos(now + self.delay_time(status));
+
+                crate::OutputStreamTimestamp { callback, playback }
+            }
+        }
+    }
+
+    fn now(&self, status: &alsa::pcm::Status) -> crate::StreamInstant {
+        match self.creation_instant {
+            None => {
+                let now = timespec_to_nanos(status.get_htstamp());
+                crate::StreamInstant::from_nanos(if now == 0 {
+                    timespec_to_nanos(status.get_trigger_htstamp())
+                } else {
+                    now
+                })
+            }
+            Some(created) => {
+                let now = std::time::Instant::now().duration_since(created).as_nanos() as i64;
+                crate::StreamInstant::from_nanos(now)
+            }
+        }
+    }
+
+    fn capture_time(&self, status: &alsa::pcm::Status) -> crate::StreamInstant {
+        match self.creation_instant {
+            None => {
+                let trigger = timespec_to_nanos(status.get_trigger_htstamp());
+                let audio = if trigger == 0 {
+                    timespec_to_nanos(status.get_htstamp())
+                } else {
+                    trigger + timespec_to_nanos(status.get_audio_htstamp())
+                };
+                crate::StreamInstant::from_nanos(audio - self.delay_time(status))
+            }
+            Some(created) => {
+                let now = std::time::Instant::now().duration_since(created).as_nanos() as i64;
+                crate::StreamInstant::from_nanos(now - self.delay_time(status))
+            }
+        }
+    }
+}
+
 struct StreamInner {
     // The ALSA channel.
     channel: alsa::pcm::PCM,
-
-    // When converting between file descriptors and `snd_pcm_t`, this is the number of
-    // file descriptors that this `snd_pcm_t` uses.
-    num_descriptors: usize,
 
     // Format of the samples.
     sample_format: SampleFormat,
@@ -496,359 +529,211 @@ struct StreamInner {
     // TODO: We need an API to expose this. See #197, #284.
     can_pause: bool,
 
-    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
-    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
-    //
-    // If this field is `Some`, then the stream will use the duration since this instant as a
-    // source for timestamps.
-    //
-    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
-    // `get_htstamp` is used.
-    creation_instant: Option<std::time::Instant>,
+    clock: StreamClock,
+
+    dropping: atomic::AtomicBool,
 }
 
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
 
-#[derive(Debug, Eq, PartialEq)]
-enum StreamType {
-    Input,
-    Output,
-}
-
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
-    thread: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle<Result<(), ()>>>,
 
     /// Handle to the underlying stream for playback controls.
     inner: Arc<StreamInner>,
-
-    /// Used to signal to stop processing.
-    trigger: TriggerSender,
-}
-
-#[derive(Default)]
-struct StreamWorkerContext {
-    descriptors: Vec<libc::pollfd>,
-    buffer: Vec<u8>,
 }
 
 fn input_stream_worker(
-    rx: TriggerReceiver,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) {
-    let mut ctxt = StreamWorkerContext::default();
-    loop {
-        let flow = report_error(
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt),
-            error_callback,
-        )
-        .unwrap_or(PollDescriptorsFlow::Continue);
-
-        match flow {
-            PollDescriptorsFlow::Continue => {
-                continue;
-            }
-            PollDescriptorsFlow::XRun => {
-                report_error(stream.channel.prepare(), error_callback);
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
-                status,
-                avail_frames: _,
-                delay_frames,
-                stream_type,
-            } => {
-                assert_eq!(
-                    stream_type,
-                    StreamType::Input,
-                    "expected input stream, but polling descriptors indicated output",
-                );
-                let res = process_input(
-                    stream,
-                    &mut ctxt.buffer,
-                    status,
-                    delay_frames,
-                    data_callback,
-                );
-                report_error(res, error_callback);
-            }
+) -> Result<(), ()> {
+    match stream.sample_format {
+        SampleFormat::I16 => {
+            let io = stream
+                .channel
+                .io_i16()
+                .map_err(|err| error_callback(err.into()))?;
+            input_stream_worker_io(stream, io, data_callback, error_callback)
+        }
+        SampleFormat::U16 => {
+            let io = stream
+                .channel
+                .io_u16()
+                .map_err(|err| error_callback(err.into()))?;
+            input_stream_worker_io(stream, io, data_callback, error_callback)
+        }
+        SampleFormat::F32 => {
+            let io = stream
+                .channel
+                .io_f32()
+                .map_err(|err| error_callback(err.into()))?;
+            input_stream_worker_io(stream, io, data_callback, error_callback)
         }
     }
+}
+
+fn input_stream_worker_io<T: Default + Copy>(
+    stream: &StreamInner,
+    io: alsa::pcm::IO<'_, T>,
+    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+) -> Result<(), ()> {
+    let channels = stream.conf.channels as usize;
+    let mut buffer = vec![T::default(); stream.period_len];
+    let data = unsafe {
+        Data::from_parts(
+            buffer.as_mut_ptr() as *mut (),
+            buffer.len(),
+            stream.sample_format,
+        )
+    };
+
+    let mut status = stream
+        .channel
+        .status()
+        .map_err(|err| error_callback(err.into()))?;
+
+    while !stream.dropping.load(atomic::Ordering::Relaxed) {
+        // Calculate the capture timestamp
+        let capture = stream.clock.capture_time(&status);
+
+        // Fill buffer from the stream
+        let mut buf = buffer.as_mut_slice();
+        while !buf.is_empty() {
+            let frames = io
+                .readi(buf)
+                .or_else(|err| handle_stream_io_error(stream, err, error_callback))?;
+            buf = &mut buf[(frames * channels)..];
+        }
+
+        // Calculate the callback timestamp
+        status = stream
+            .channel
+            .status()
+            .map_err(|err| error_callback(err.into()))?;
+        let callback = stream.clock.now(&status);
+        let timestamp = crate::InputStreamTimestamp { callback, capture };
+        let info = crate::InputCallbackInfo { timestamp };
+
+        // Give data to the callback
+        data_callback(&data, &info);
+    }
+
+    Ok(())
 }
 
 fn output_stream_worker(
-    rx: TriggerReceiver,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) {
-    let mut ctxt = StreamWorkerContext::default();
-    loop {
-        let flow = report_error(
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt),
-            error_callback,
-        )
-        .unwrap_or(PollDescriptorsFlow::Continue);
-
-        match flow {
-            PollDescriptorsFlow::Continue => continue,
-            PollDescriptorsFlow::XRun => {
-                report_error(stream.channel.prepare(), error_callback);
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
-                status,
-                avail_frames,
-                delay_frames,
-                stream_type,
-            } => {
-                assert_eq!(
-                    stream_type,
-                    StreamType::Output,
-                    "expected output stream, but polling descriptors indicated input",
-                );
-                let res = process_output(
-                    stream,
-                    &mut ctxt.buffer,
-                    status,
-                    avail_frames,
-                    delay_frames,
-                    data_callback,
-                    error_callback,
-                );
-                report_error(res, error_callback);
-            }
+) -> Result<(), ()> {
+    match stream.sample_format {
+        SampleFormat::I16 => {
+            let io = stream
+                .channel
+                .io_i16()
+                .map_err(|err| error_callback(err.into()))?;
+            output_stream_worker_io(stream, io, data_callback, error_callback)
+        }
+        SampleFormat::U16 => {
+            let io = stream
+                .channel
+                .io_u16()
+                .map_err(|err| error_callback(err.into()))?;
+            output_stream_worker_io(stream, io, data_callback, error_callback)
+        }
+        SampleFormat::F32 => {
+            let io = stream
+                .channel
+                .io_f32()
+                .map_err(|err| error_callback(err.into()))?;
+            output_stream_worker_io(stream, io, data_callback, error_callback)
         }
     }
 }
 
-fn report_error<T, E>(
-    result: Result<T, E>,
+fn output_stream_worker_io<T: Default + Copy>(
+    stream: &StreamInner,
+    io: alsa::pcm::IO<'_, T>,
+    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) -> Option<T>
-where
-    E: Into<StreamError>,
-{
-    match result {
-        Ok(val) => Some(val),
-        Err(err) => {
-            error_callback(err.into());
-            None
-        }
-    }
-}
-
-enum PollDescriptorsFlow {
-    Continue,
-    Return,
-    Ready {
-        stream_type: StreamType,
-        status: alsa::pcm::Status,
-        avail_frames: usize,
-        delay_frames: usize,
-    },
-    XRun,
-}
-
-// This block is shared between both input and output stream worker functions.
-fn poll_descriptors_and_prepare_buffer(
-    rx: &TriggerReceiver,
-    stream: &StreamInner,
-    ctxt: &mut StreamWorkerContext,
-) -> Result<PollDescriptorsFlow, BackendSpecificError> {
-    let StreamWorkerContext {
-        ref mut descriptors,
-        ref mut buffer,
-    } = *ctxt;
-
-    descriptors.clear();
-
-    // Add the self-pipe for signaling termination.
-    descriptors.push(libc::pollfd {
-        fd: rx.0,
-        events: libc::POLLIN,
-        revents: 0,
-    });
-
-    // Add ALSA polling fds.
-    let len = descriptors.len();
-    descriptors.resize(
-        stream.num_descriptors + len,
-        libc::pollfd {
-            fd: 0,
-            events: 0,
-            revents: 0,
-        },
-    );
-    let filled = stream.channel.fill(&mut descriptors[len..])?;
-    debug_assert_eq!(filled, stream.num_descriptors);
-
-    // Don't timeout, wait forever.
-    let res = alsa::poll::poll(descriptors, -1)?;
-    if res == 0 {
-        let description = String::from("`alsa::poll()` spuriously returned");
-        return Err(BackendSpecificError { description });
-    }
-
-    if descriptors[0].revents != 0 {
-        // The stream has been requested to be destroyed.
-        rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
-    }
-
-    let stream_type = match stream.channel.revents(&descriptors[1..])? {
-        alsa::poll::Flags::OUT => StreamType::Output,
-        alsa::poll::Flags::IN => StreamType::Input,
-        _ => {
-            // Nothing to process, poll again
-            return Ok(PollDescriptorsFlow::Continue);
-        }
+) -> Result<(), ()> {
+    let channels = stream.conf.channels as usize;
+    let mut buffer = vec![T::default(); stream.period_len];
+    let mut data = unsafe {
+        Data::from_parts(
+            buffer.as_mut_ptr() as *mut (),
+            buffer.len(),
+            stream.sample_format,
+        )
     };
 
-    let status = stream.channel.status()?;
-    let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
-            return Ok(PollDescriptorsFlow::XRun)
+    while !stream.dropping.load(atomic::Ordering::Relaxed) {
+        // Calculate the timestamp
+        let status = stream
+            .channel
+            .status()
+            .map_err(|err| error_callback(err.into()))?;
+        let timestamp = stream.clock.output_timestamp(&status);
+        let info = crate::OutputCallbackInfo { timestamp };
+
+        // Get data from the callback
+        data_callback(&mut data, &info);
+
+        // Write the whole buffer to the stream
+        let mut buf = &*buffer;
+        while !buf.is_empty() {
+            let frames = io
+                .writei(buf)
+                .or_else(|err| handle_stream_io_error(stream, err, error_callback))?;
+            buf = &buf[(frames * channels)..];
         }
-        res => res,
-    }? as usize;
-    let delay_frames = match status.get_delay() {
-        // Buffer underrun. TODO: Notify the user.
-        d if d < 0 => 0,
-        d => d as usize,
-    };
-    let available_samples = avail_frames * stream.conf.channels as usize;
-
-    // Only go on if there is at least `stream.period_len` samples.
-    if available_samples < stream.period_len {
-        return Ok(PollDescriptorsFlow::Continue);
     }
-
-    // Prepare the data buffer.
-    let buffer_size = stream.sample_format.sample_size() * available_samples;
-    buffer.resize(buffer_size, 0u8);
-
-    Ok(PollDescriptorsFlow::Ready {
-        stream_type,
-        status,
-        avail_frames,
-        delay_frames,
-    })
-}
-
-// Read input data from ALSA and deliver it to the user.
-fn process_input(
-    stream: &StreamInner,
-    buffer: &mut [u8],
-    status: alsa::pcm::Status,
-    delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
-) -> Result<(), BackendSpecificError> {
-    stream.channel.io_bytes().readi(buffer)?;
-    let sample_format = stream.sample_format;
-    let data = buffer.as_mut_ptr() as *mut ();
-    let len = buffer.len() / sample_format.sample_size();
-    let data = unsafe { Data::from_parts(data, len, sample_format) };
-    let callback = stream_timestamp(&status, stream.creation_instant)?;
-    let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
-    let capture = callback
-        .sub(delay_duration)
-        .expect("`capture` is earlier than representation supported by `StreamInstant`");
-    let timestamp = crate::InputStreamTimestamp { callback, capture };
-    let info = crate::InputCallbackInfo { timestamp };
-    data_callback(&data, &info);
 
     Ok(())
 }
 
-// Request data from the user's function and write it via ALSA.
-//
-// Returns `true`
-fn process_output(
+fn handle_stream_io_error(
     stream: &StreamInner,
-    buffer: &mut [u8],
-    status: alsa::pcm::Status,
-    available_frames: usize,
-    delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> Result<(), BackendSpecificError> {
-    {
-        // We're now sure that we're ready to write data.
-        let sample_format = stream.sample_format;
-        let data = buffer.as_mut_ptr() as *mut ();
-        let len = buffer.len() / sample_format.sample_size();
-        let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-        let callback = stream_timestamp(&status, stream.creation_instant)?;
-        let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
-        let playback = callback
-            .add(delay_duration)
-            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-        let timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = crate::OutputCallbackInfo { timestamp };
-        data_callback(&mut data, &info);
-    }
-    loop {
-        match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
-                // buffer underrun
-                // TODO: Notify the user of this.
-                let _ = stream.channel.try_recover(err, false);
+    err: alsa::Error,
+    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+) -> Result<usize, ()> {
+    if let Some(errno) = err.errno() {
+        match errno {
+            nix::errno::Errno::EAGAIN => {
+                let _ = stream.channel.wait(Some(100));
+                Ok(0)
             }
-            Err(err) => {
-                error_callback(err.into());
-                continue;
-            }
-            Ok(result) if result != available_frames => {
-                let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                     result {} (this should never happen)",
-                    available_frames, result,
-                );
-                error_callback(BackendSpecificError { description }.into());
-                continue;
+            nix::errno::Errno::EBADFD => match stream.channel.prepare() {
+                Ok(()) => Ok(0),
+                Err(_) => {
+                    error_callback(err.into());
+                    Err(())
+                }
+            },
+            nix::errno::Errno::EPIPE | nix::errno::Errno::EINTR | nix::errno::Errno::ESTRPIPE => {
+                match stream.channel.try_recover(err, true) {
+                    Ok(()) => Ok(0),
+                    Err(err) => {
+                        error_callback(err.into());
+                        Err(())
+                    }
+                }
             }
             _ => {
-                break;
+                if !stream.dropping.load(atomic::Ordering::Relaxed) {
+                    error_callback(err.into());
+                }
+                Err(())
             }
         }
-    }
-    Ok(())
-}
-
-// Use the elapsed duration since the start of the stream.
-//
-// This ensures positive values that are compatible with our `StreamInstant` representation.
-fn stream_timestamp(
-    status: &alsa::pcm::Status,
-    creation_instant: Option<std::time::Instant>,
-) -> Result<crate::StreamInstant, BackendSpecificError> {
-    match creation_instant {
-        None => {
-            let trigger_ts = status.get_trigger_htstamp();
-            let ts = status.get_htstamp();
-            let nanos = timespec_diff_nanos(ts, trigger_ts);
-            if nanos < 0 {
-                panic!(
-                    "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
-                    ts, trigger_ts
-                );
-            }
-            Ok(crate::StreamInstant::from_nanos(nanos))
-        }
-        Some(creation) => {
-            let now = std::time::Instant::now();
-            let duration = now.duration_since(creation);
-            let instant = crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128)
-                .expect("stream duration has exceeded `StreamInstant` representation");
-            Ok(instant)
-        }
+    } else {
+        error_callback(err.into());
+        Err(())
     }
 }
 
@@ -856,20 +741,6 @@ fn stream_timestamp(
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
     ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
-}
-
-// Adapted from `timediff` here:
-// https://fossies.org/linux/alsa-lib/test/audio_time.c
-fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
-    timespec_to_nanos(a) - timespec_to_nanos(b)
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
 }
 
 impl Stream {
@@ -882,19 +753,15 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
-            .spawn(move || {
-                input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
-            })
+            .spawn(move || input_stream_worker(&*stream, &mut data_callback, &mut error_callback))
             .unwrap();
         Stream {
             thread: Some(thread),
             inner,
-            trigger: tx,
         }
     }
 
@@ -907,27 +774,28 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
-            .spawn(move || {
-                output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
-            })
+            .spawn(move || output_stream_worker(&*stream, &mut data_callback, &mut error_callback))
             .unwrap();
         Stream {
             thread: Some(thread),
             inner,
-            trigger: tx,
         }
     }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.trigger.wakeup();
-        self.thread.take().unwrap().join().unwrap();
+        self.inner.dropping.store(true, atomic::Ordering::Relaxed);
+        let _ = self.inner.channel.drop();
+        if let Some(thread) = self.thread.take() {
+            // Best effort to wait for thread to complete.
+            // Ignore errors to avoid panic in drop.
+            thread.join().ok();
+        }
     }
 }
 
