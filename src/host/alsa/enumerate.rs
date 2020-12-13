@@ -1,6 +1,5 @@
 use super::alsa;
-use super::parking_lot::Mutex;
-use super::{Device, DeviceHandles};
+use super::Device;
 use {BackendSpecificError, DevicesError};
 
 /// ALSA implementation for `Devices`.
@@ -34,12 +33,11 @@ impl Iterator for Devices {
                         Some(name) => name,
                     };
 
-                    if let Ok(handles) = DeviceHandles::open(&name) {
-                        return Some(Device {
-                            name,
-                            handles: Mutex::new(handles),
-                        });
-                    }
+                    return Some(Device {
+                        name,
+                        direction: hint.direction,
+                        handles: Default::default(),
+                    });
                 }
             }
         }
@@ -48,18 +46,12 @@ impl Iterator for Devices {
 
 #[inline]
 pub fn default_input_device() -> Option<Device> {
-    Some(Device {
-        name: "default".to_owned(),
-        handles: Mutex::new(Default::default()),
-    })
+    Some(Default::default())
 }
 
 #[inline]
 pub fn default_output_device() -> Option<Device> {
-    Some(Device {
-        name: "default".to_owned(),
-        handles: Mutex::new(Default::default()),
-    })
+    Some(Default::default())
 }
 
 impl From<alsa::Error> for DevicesError {

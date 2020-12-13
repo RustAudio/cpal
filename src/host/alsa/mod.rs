@@ -86,6 +86,14 @@ impl DeviceTrait for Device {
         Device::default_output_config(self)
     }
 
+    fn supports_input(&self) -> bool {
+        self.direction != Some(alsa::Direction::Playback)
+    }
+
+    fn supports_output(&self) -> bool {
+        self.direction != Some(alsa::Direction::Capture)
+    }
+
     fn build_input_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
@@ -172,19 +180,6 @@ struct DeviceHandles {
 }
 
 impl DeviceHandles {
-    /// Create `DeviceHandles` for `name` and try to open a handle for both
-    /// directions. Returns `Ok` if either direction is opened successfully.
-    fn open(name: &str) -> Result<Self, alsa::Error> {
-        let mut handles = Self::default();
-        let playback_err = handles.try_open(name, alsa::Direction::Playback).err();
-        let capture_err = handles.try_open(name, alsa::Direction::Capture).err();
-        if let Some(err) = capture_err.and(playback_err) {
-            Err(err)
-        } else {
-            Ok(handles)
-        }
-    }
-
     /// Get a mutable reference to the `Option` for a specific `stream_type`.
     /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
     /// the `Option` before returning. If `handle_mut()` returns `Ok` the contained
@@ -225,7 +220,18 @@ impl DeviceHandles {
 
 pub struct Device {
     name: String,
+    direction: Option<alsa::Direction>,
     handles: Mutex<DeviceHandles>,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Device {
+            name: "default".to_string(),
+            direction: None,
+            handles: Default::default(),
+        }
+    }
 }
 
 impl Device {

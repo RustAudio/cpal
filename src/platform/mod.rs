@@ -255,6 +255,22 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn supports_input(&self) -> bool {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => d.supports_input(),
+                    )*
+                }
+            }
+
+            fn supports_output(&self) -> bool {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => d.supports_output(),
+                    )*
+                }
+            }
+
             fn build_input_stream_raw<D, E>(
                 &self,
                 config: &crate::StreamConfig,

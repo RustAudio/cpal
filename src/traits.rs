@@ -55,13 +55,7 @@ pub trait HostTrait {
     ///
     /// Can be empty if the system does not support audio input.
     fn input_devices(&self) -> Result<InputDevices<Self::Devices>, DevicesError> {
-        fn supports_input<D: DeviceTrait>(device: &D) -> bool {
-            device
-                .supported_input_configs()
-                .map(|mut iter| iter.next().is_some())
-                .unwrap_or(false)
-        }
-        Ok(self.devices()?.filter(supports_input::<Self::Device>))
+        Ok(self.devices()?.filter(Self::Device::supports_input))
     }
 
     /// An iterator yielding all `Device`s currently available to the system that support one or more
@@ -69,13 +63,7 @@ pub trait HostTrait {
     ///
     /// Can be empty if the system does not support audio output.
     fn output_devices(&self) -> Result<OutputDevices<Self::Devices>, DevicesError> {
-        fn supports_output<D: DeviceTrait>(device: &D) -> bool {
-            device
-                .supported_output_configs()
-                .map(|mut iter| iter.next().is_some())
-                .unwrap_or(false)
-        }
-        Ok(self.devices()?.filter(supports_output::<Self::Device>))
+        Ok(self.devices()?.filter(Self::Device::supports_output))
     }
 }
 
@@ -113,6 +101,20 @@ pub trait DeviceTrait {
 
     /// The default output stream format for the device.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
+
+    /// Whether this device supports input streams
+    fn supports_input(&self) -> bool {
+        self.supported_input_configs()
+            .map(|mut iter| iter.next().is_some())
+            .unwrap_or(false)
+    }
+
+    /// Whether this device supports output streams
+    fn supports_output(&self) -> bool {
+        self.supported_output_configs()
+            .map(|mut iter| iter.next().is_some())
+            .unwrap_or(false)
+    }
 
     /// Create an input stream.
     fn build_input_stream<T, D, E>(
