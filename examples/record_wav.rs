@@ -5,25 +5,71 @@
 extern crate anyhow;
 extern crate cpal;
 extern crate hound;
+extern crate structopt;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
+use structopt::StructOpt;
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "beep", about = "Simple example of audio playback.")]
+struct Opt {
+    #[cfg(all(
+        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+        feature = "jack"
+    ))]
+    #[structopt(short, long)]
+    jack: bool,
+
+    #[structopt(default_value = "default")]
+    device: String,
+}
 
 fn main() -> Result<(), anyhow::Error> {
-    // Use the default host for working with audio devices.
+    let opt = Opt::from_args();
+
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+        feature = "jack"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
+    let host = if opt.jack {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
+    #[cfg(any(
+        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
 
-    // Setup the default input device and stream with the default input config.
-    let device = host
-        .default_input_device()
-        .expect("Failed to get default input device");
-    println!("Default input device: {}", device.name()?);
+    // Setup the input device and stream with the default input config.
+    let device = if opt.device == "default" {
+        host.default_input_device()
+    } else {
+        host.input_devices()?
+            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+    }
+    .expect("failed to find input device");
+
+    println!("Input device: {}", device.name()?);
+
     let config = device
         .default_input_config()
         .expect("Failed to get default input config");
     println!("Default input config: {:?}", config);
+
     // The WAV file we're recording to.
     const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
     let spec = wav_spec_from_config(&config);

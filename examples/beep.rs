@@ -1,10 +1,27 @@
 extern crate anyhow;
 extern crate cpal;
+extern crate structopt;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use structopt::StructOpt;
 
-#[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
-fn main() {
+#[derive(Debug, StructOpt)]
+#[structopt(name = "beep", about = "Simple example of audio playback.")]
+struct Opt {
+    #[cfg(all(
+        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+        feature = "jack"
+    ))]
+    #[structopt(short, long)]
+    jack: bool,
+
+    #[structopt(default_value = "default")]
+    device: String,
+}
+
+fn main() -> anyhow::Result<()> {
+    let opt = Opt::from_args();
+
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
         any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
@@ -12,10 +29,7 @@ fn main() {
     ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
     // cargo run --release --example beep --features jack -- --jack
-    let host = if std::env::args()
-        .collect::<String>()
-        .contains(&String::from("--jack"))
-    {
+    let host = if opt.jack {
         cpal::host_from_id(cpal::available_hosts()
             .into_iter()
             .find(|id| *id == cpal::HostId::Jack)
@@ -32,19 +46,26 @@ fn main() {
     ))]
     let host = cpal::default_host();
 
-    let device = host
-        .default_output_device()
-        .expect("failed to find a default output device");
+    let device = if opt.device == "default" {
+        host.default_output_device()
+    } else {
+        host.output_devices()?
+            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+    }
+    .expect("failed to find output device");
+    println!("Output device: {}", device.name()?);
+
     let config = device.default_output_config().unwrap();
+    println!("Default output config: {:?}", config);
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
+        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
     }
 }
 
-fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
+pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
     T: cpal::Sample,
 {
@@ -55,7 +76,7 @@ where
     let mut sample_clock = 0f32;
     let mut next_value = move || {
         sample_clock = (sample_clock + 1.0) % sample_rate;
-        (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
+        (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
