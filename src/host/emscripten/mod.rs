@@ -218,12 +218,16 @@ impl DeviceTrait for Device {
 // TODO: Do something useful with the values, maybe through wasm_bindgen_futures
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.audio_ctxt.resume().expect("Could not resume the stream");
+        self.audio_ctxt
+            .resume()
+            .expect("Could not resume the stream");
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.audio_ctxt.suspend().expect("Could not suspend the stream");
+        self.audio_ctxt
+            .suspend()
+            .expect("Could not suspend the stream");
         Ok(())
     }
 }
@@ -274,13 +278,17 @@ where
             )
             .expect("Buffer could not be created");
         for channel in 0..num_channels {
-            let mut buffer_content = buffer.get_channel_data(channel as u32).expect("Should be impossible");
+            let mut buffer_content = buffer
+                .get_channel_data(channel as u32)
+                .expect("Should be impossible");
             for (i, buffer_content_item) in buffer_content.iter_mut().enumerate() {
                 *buffer_content_item = src_buffer.get_index((i * num_channels + channel) as u32);
             }
         }
 
-        let node = context.create_buffer_source().expect("The buffer source node could not be created");
+        let node = context
+            .create_buffer_source()
+            .expect("The buffer source node could not be created");
         node.set_buffer(Some(&buffer));
         context
             .destination()
