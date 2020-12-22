@@ -7,36 +7,75 @@
 //! precisely synchronised.
 
 extern crate anyhow;
+extern crate clap;
 extern crate cpal;
 extern crate ringbuf;
-extern crate structopt;
 
+use anyhow::Context;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::RingBuffer;
-use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "beep", about = "Simple example of audio playback.")]
+#[derive(Debug)]
 struct Opt {
     #[cfg(all(
         any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
         feature = "jack"
     ))]
-    #[structopt(short, long)]
     jack: bool,
 
-    #[structopt(short, long, default_value = "150.0")]
     latency: f32,
-
-    #[structopt(default_value = "default")]
     input_device: String,
-
-    #[structopt(default_value = "default")]
     output_device: String,
 }
 
-fn main() -> Result<(), anyhow::Error> {
-    let opt = Opt::from_args();
+impl Opt {
+    fn from_args() -> anyhow::Result<Self> {
+        let app = clap::App::new("beep")
+        .arg_from_usage(
+            "-l, --latency [DELAY_MS] 'Specify the delay between input and output [default: 150]'",
+        )
+        .arg_from_usage("[IN] 'The input audio device to use'")
+        .arg_from_usage("[OUT] 'The output audio device to use'");
+
+        #[cfg(all(
+            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+            feature = "jack"
+        ))]
+        let app = app.arg_from_usage("-j, --jack 'Use the JACK host");
+        let matches = app.get_matches();
+        let latency: f32 = matches
+            .value_of("latency")
+            .unwrap_or("150")
+            .parse()
+            .context("parsing latency option")?;
+        let input_device = matches.value_of("IN").unwrap_or("default").to_string();
+        let output_device = matches.value_of("OUT").unwrap_or("default").to_string();
+
+        #[cfg(all(
+            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+            feature = "jack"
+        ))]
+        return Ok(Opt {
+            jack: matches.is_present("jack"),
+            latency,
+            input_device,
+            output_device,
+        });
+
+        #[cfg(any(
+            not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+            not(feature = "jack")
+        ))]
+        Ok(Opt {
+            latency,
+            input_device,
+            output_device,
+        })
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    let opt = Opt::from_args()?;
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(

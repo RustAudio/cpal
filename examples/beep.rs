@@ -1,22 +1,46 @@
 extern crate anyhow;
+extern crate clap;
 extern crate cpal;
-extern crate structopt;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "beep", about = "Simple example of audio playback.")]
+#[derive(Debug)]
 struct Opt {
     #[cfg(all(
         any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
         feature = "jack"
     ))]
-    #[structopt(short, long)]
     jack: bool,
 
-    #[structopt(default_value = "default")]
     device: String,
+}
+
+impl Opt {
+    fn from_args() -> Self {
+        let app = clap::App::new("beep").arg_from_usage("[DEVICE] 'The audio device to use'");
+        #[cfg(all(
+            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+            feature = "jack"
+        ))]
+        let app = app.arg_from_usage("-j, --jack 'Use the JACK host");
+        let matches = app.get_matches();
+        let device = matches.value_of("DEVICE").unwrap_or("default").to_string();
+
+        #[cfg(all(
+            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+            feature = "jack"
+        ))]
+        return Opt {
+            jack: matches.is_present("jack"),
+            device,
+        };
+
+        #[cfg(any(
+            not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd")),
+            not(feature = "jack")
+        ))]
+        Opt { device }
+    }
 }
 
 fn main() -> anyhow::Result<()> {

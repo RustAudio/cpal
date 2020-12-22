@@ -18,7 +18,7 @@ thiserror = "1.0.2"
 anyhow = "1.0.12"
 hound = "3.4"
 ringbuf = "0.2"
-structopt = "0.3.21"
+clap = { version = "2.33.3", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "profileapi", "std", "synchapi", "winbase", "winuser"] }
@@ -60,20 +60,12 @@ crate-type = ["cdylib"]
 
 [[example]]
 name = "beep"
-path = "examples/beep.rs"
-crate-type = ["bin"]
 
 [[example]]
 name = "enumerate"
-path = "examples/enumerate.rs"
-crate-type = ["bin"]
 
 [[example]]
 name = "feedback"
-path = "examples/feedback.rs"
-crate-type = ["bin"]
 
 [[example]]
 name = "record_wav"
-path = "examples/record_wav.rs"
-crate-type = ["bin"]
