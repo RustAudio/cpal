@@ -4,13 +4,13 @@ use std::time::{Duration, Instant};
 use super::{backend_specific_error, InnerState};
 
 use crate::{
-    Data, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    SampleFormat, StreamInstant,
+    Data, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
+    OutputStreamTimestamp, SampleFormat, StreamInstant,
 };
 
 /// The runner thread handles playing and/or recording
 pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
-    let buffer_size: usize;
+    let buffer_size: FrameCount;
     let start_time: Instant;
     let latency: Duration;
     let mut clear_output_buf_needed = false;
@@ -40,7 +40,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                     return;
                 }
 
-                latency = Duration::from_secs(1) * buffer_size as u32 / par.rate;
+                latency = Duration::from_secs(1) * buffer_size / par.rate;
             }
         }
 
@@ -52,8 +52,9 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
         start_time = Instant::now();
     }
 
-    let mut output_buf = [0i16].repeat(buffer_size); // Allocate buffer of correct size
-    let mut input_buf = [0i16].repeat(buffer_size); // Allocate buffer of correct size
+    // TODO: this is converting a FrameCount to a number of samples; invalid for stereo!
+    let mut output_buf = [0i16].repeat(buffer_size as usize); // Allocate buffer of correct size
+    let mut input_buf = [0i16].repeat(buffer_size as usize); // Allocate buffer of correct size
     let mut output_data = unsafe {
         Data::from_parts(
             output_buf.as_mut_ptr() as *mut (),

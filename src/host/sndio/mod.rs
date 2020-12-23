@@ -6,6 +6,7 @@ mod runner;
 use self::adapters::{input_adapter_callback, output_adapter_callback};
 use self::runner::runner;
 
+use std::collections::hash_map;
 use std::collections::HashMap;
 use std::convert::From;
 use std::mem::{self, MaybeUninit};
@@ -16,9 +17,9 @@ use thiserror::Error;
 
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, HostUnavailable, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DeviceNameError, DevicesError, FrameCount, HostUnavailable, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 
@@ -27,8 +28,8 @@ use traits::{DeviceTrait, HostTrait, StreamTrait};
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 
-/// Default multiple of the round field of a sio_par struct to use for the buffer size.
-const DEFAULT_ROUND_MULTIPLE: usize = 2;
+/// Default multiple of the round field of a sio_par struct to use for the buffer size (in frames).
+const DEFAULT_ROUND_MULTIPLE: u32 = 2;
 
 const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(48000);
 const SUPPORTED_SAMPLE_RATES: &[SampleRate] =
@@ -118,11 +119,11 @@ struct SioHdl(*mut sndio_sys::sio_hdl);
 impl SioHdl {
     /// Returns a map of sample rates to sio_par by re-configuring the device. This should not be
     /// performed while recording or playing, or even after configuring the device for this state!
-    fn get_par_map(
+    fn get_sample_rate_map(
         &mut self,
         behavior: BufferXrunBehavior,
-    ) -> Result<HashMap<u32, sndio_sys::sio_par>, SndioError> {
-        let mut sample_rate_to_par = HashMap::new();
+    ) -> Result<SampleRateMap, SndioError> {
+        let mut sample_rate_map = SampleRateMap::new();
         for rate in SUPPORTED_SAMPLE_RATES {
             let mut par = new_sio_par();
 
@@ -165,9 +166,9 @@ impl SioHdl {
 
             // TODO: more checks -- bits, bps, sig, le, msb
 
-            sample_rate_to_par.insert(rate.0, par);
+            sample_rate_map.insert(*rate, par);
         }
-        Ok(sample_rate_to_par)
+        Ok(sample_rate_map)
     }
 
     /// Calls sio_setpar and sio_getpar on the passed in sio_par struct. Before calling this, the
@@ -231,7 +232,6 @@ impl SioHdl {
         newpar.xrun = par.xrun;
         let status = unsafe {
             // Request the device using our parameters
-            // unwrap OK because of the check at the top of this function.
             sndio_sys::sio_setpar(self.0, &mut newpar as *mut _)
         };
         if status != 1 {
@@ -241,9 +241,52 @@ impl SioHdl {
     }
 }
 
+// It is necessary to add the Send marker trait to this struct because the Arc<Mutex<InnerState>>
+// which contains it needs to be passed to the runner thread. This is sound as long as the sio_hdl
+// pointer is not copied out of its SioHdl and used while the mutex is unlocked.
 unsafe impl Send for SioHdl {}
 
-/// The shared state between Device and Stream. Responsible for closing handle when dropped.
+struct SampleRateMap(pub HashMap<u32, sndio_sys::sio_par>);
+
+impl SampleRateMap {
+    fn new() -> Self {
+        SampleRateMap(HashMap::new())
+    }
+
+    fn get(&self, rate: SampleRate) -> Option<&sndio_sys::sio_par> {
+        self.0.get(&rate.0)
+    }
+
+    fn insert(&mut self, rate: SampleRate, par: sndio_sys::sio_par) -> Option<sndio_sys::sio_par> {
+        self.0.insert(rate.0, par)
+    }
+
+    fn iter(&self) -> SampleRateMapIter<'_> {
+        SampleRateMapIter {
+            iter: self.0.iter(),
+        }
+    }
+}
+
+struct SampleRateMapIter<'a> {
+    iter: hash_map::Iter<'a, u32, sndio_sys::sio_par>,
+}
+
+impl<'a> Iterator for SampleRateMapIter<'a> {
+    type Item = (SampleRate, &'a sndio_sys::sio_par);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|(sample_rate, par)| (SampleRate(*sample_rate), par))
+    }
+}
+
+/// The shared state between `Device` and `Stream`. Responsible for closing handle when dropped.
+/// Upon `Device` creation, this is in the `Init` state. Calling `.open` transitions
+/// this to the `Opened` state (this generally happens when getting input or output configs).
+/// From there, the state can transition to `Running` once at least one `Stream` has been created
+/// with the `build_input_stream_raw` or `build_output_stream_raw` functions.
 enum InnerState {
     Init {
         /// Buffer overrun/underrun behavior -- ignore/sync/error?
@@ -256,7 +299,7 @@ enum InnerState {
         hdl: SioHdl,
 
         /// Map of sample rate to parameters.
-        sample_rate_to_par: HashMap<u32, sndio_sys::sio_par>,
+        sample_rate_map: SampleRateMap,
     },
     Running {
         /// Contains a handle returned from sio_open. Note that even though this is a pointer type
@@ -265,13 +308,13 @@ enum InnerState {
         hdl: SioHdl,
 
         /// Contains the chosen buffer size, in elements not bytes.
-        buffer_size: usize,
+        buffer_size: FrameCount,
 
         /// Stores the sndio-configured parameters.
         par: sndio_sys::sio_par,
 
         /// Map of sample rate to parameters.
-        sample_rate_to_par: HashMap<u32, sndio_sys::sio_par>,
+        sample_rate_map: SampleRateMap,
 
         /// Each input Stream that has not been dropped has its callbacks in an element of this Vec.
         /// The last element is guaranteed to not be None.
@@ -310,7 +353,9 @@ impl InnerState {
 
     fn open(&mut self) -> Result<(), SndioError> {
         match self {
-            InnerState::Opened { .. } | InnerState::Running { .. } => Ok(()), // Already opened
+            InnerState::Opened { .. } | InnerState::Running { .. } => {
+                Err(backend_specific_error("device is already open"))
+            }
             InnerState::Init { ref behavior } => {
                 let hdl = unsafe {
                     // The transmute is needed because this C string is *const u8 in one place but *const i8 in another place.
@@ -328,10 +373,10 @@ impl InnerState {
                 }
 
                 let mut hdl = SioHdl(hdl);
-                let sample_rate_to_par = hdl.get_par_map(*behavior)?;
+                let sample_rate_map = hdl.get_sample_rate_map(*behavior)?;
                 *self = InnerState::Opened {
                     hdl,
-                    sample_rate_to_par,
+                    sample_rate_map,
                 };
                 Ok(())
             }
@@ -524,12 +569,11 @@ impl InnerState {
             }
             InnerState::Opened {
                 hdl,
-                sample_rate_to_par,
+                sample_rate_map,
             } => {
                 // No running streams yet; we get to set the par.
-                // unwrap OK because this is setup on self.open() call above
                 let mut par;
-                if let Some(par_) = sample_rate_to_par.get(&config.sample_rate.0) {
+                if let Some(par_) = sample_rate_map.get(config.sample_rate) {
                     par = par_.clone();
                 } else {
                     return Err(backend_specific_error(format!(
@@ -544,14 +588,14 @@ impl InnerState {
                 // Transition to running
                 par.appbufsz = buffer_size as u32;
                 hdl.set_params(&par)?;
-                let mut tmp: HashMap<u32, sndio_sys::sio_par> = HashMap::new();
-                mem::swap(&mut tmp, sample_rate_to_par);
+                let mut tmp = SampleRateMap::new();
+                mem::swap(&mut tmp, sample_rate_map);
 
                 *self = InnerState::Running {
                     hdl: SioHdl(hdl.0), // Just this once, it's ok to copy this
                     buffer_size,
                     par,
-                    sample_rate_to_par: tmp,
+                    sample_rate_map: tmp,
                     input_callbacks: vec![],
                     output_callbacks: vec![],
                     thread_spawned: false,
@@ -607,7 +651,9 @@ impl Device {
     }
 
     pub fn set_xrun_behavior(&mut self, b: BufferXrunBehavior) -> Result<(), SndioError> {
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state = self.inner_state.lock().map_err(|e| {
+            backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+        })?;
         match *inner_state {
             InnerState::Init {
                 ref mut behavior, ..
@@ -636,7 +682,12 @@ impl DeviceTrait for Device {
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state =
+            self.inner_state
+                .lock()
+                .map_err(|e| -> SupportedStreamConfigsError {
+                    backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+                })?;
 
         match *inner_state {
             InnerState::Init { .. } => {
@@ -647,15 +698,15 @@ impl DeviceTrait for Device {
 
         match *inner_state {
             InnerState::Running {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             }
             | InnerState::Opened {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             } => {
                 let mut config_ranges = vec![];
-                for (_, par) in sample_rate_to_par {
+                for (_, par) in sample_rate_map.iter() {
                     let config = supported_config_from_par(par, par.rchan);
                     config_ranges.push(SupportedStreamConfigRange {
                         channels: config.channels,
@@ -676,7 +727,12 @@ impl DeviceTrait for Device {
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state =
+            self.inner_state
+                .lock()
+                .map_err(|e| -> SupportedStreamConfigsError {
+                    backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+                })?;
 
         match *inner_state {
             InnerState::Init { .. } => {
@@ -687,15 +743,15 @@ impl DeviceTrait for Device {
 
         match *inner_state {
             InnerState::Running {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             }
             | InnerState::Opened {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             } => {
                 let mut config_ranges = vec![];
-                for (_, par) in sample_rate_to_par {
+                for (_, par) in sample_rate_map.iter() {
                     let config = supported_config_from_par(par, par.pchan);
                     config_ranges.push(SupportedStreamConfigRange {
                         channels: config.channels,
@@ -714,7 +770,12 @@ impl DeviceTrait for Device {
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state = self
+            .inner_state
+            .lock()
+            .map_err(|e| -> DefaultStreamConfigError {
+                backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+            })?;
 
         match *inner_state {
             InnerState::Init { .. } => {
@@ -725,14 +786,14 @@ impl DeviceTrait for Device {
 
         match *inner_state {
             InnerState::Running {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             }
             | InnerState::Opened {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             } => {
-                let config = if let Some(par) = sample_rate_to_par.get(&DEFAULT_SAMPLE_RATE.0) {
+                let config = if let Some(par) = sample_rate_map.get(DEFAULT_SAMPLE_RATE) {
                     supported_config_from_par(par, par.rchan)
                 } else {
                     return Err(backend_specific_error(
@@ -749,7 +810,12 @@ impl DeviceTrait for Device {
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state = self
+            .inner_state
+            .lock()
+            .map_err(|e| -> DefaultStreamConfigError {
+                backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+            })?;
 
         match *inner_state {
             InnerState::Init { .. } => {
@@ -760,14 +826,14 @@ impl DeviceTrait for Device {
 
         match *inner_state {
             InnerState::Running {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             }
             | InnerState::Opened {
-                ref sample_rate_to_par,
+                ref sample_rate_map,
                 ..
             } => {
-                let config = if let Some(par) = sample_rate_to_par.get(&DEFAULT_SAMPLE_RATE.0) {
+                let config = if let Some(par) = sample_rate_map.get(DEFAULT_SAMPLE_RATE) {
                     supported_config_from_par(par, par.pchan)
                 } else {
                     return Err(backend_specific_error(
@@ -856,7 +922,9 @@ impl DeviceTrait for Device {
     {
         let inner_state_arc = self.inner_state.clone();
 
-        let mut inner_state = self.inner_state.lock().unwrap();
+        let mut inner_state = self.inner_state.lock().map_err(|e| -> BuildStreamError {
+            backend_specific_error(format!("InnerState unlock error: {:?}", e)).into()
+        })?;
 
         inner_state.setup_stream(config)?;
 
@@ -906,7 +974,7 @@ impl DeviceTrait for Device {
 
 fn supported_config_from_par(par: &sndio_sys::sio_par, num_channels: u32) -> SupportedStreamConfig {
     SupportedStreamConfig {
-        channels: num_channels as u16,
+        channels: num_channels as u16, // Conversion is courtesy of type mismatch between sndio and RustAudio.
         sample_rate: SampleRate(par.rate), // TODO: actually frames per second, not samples per second. Important for adding multi-channel support
         buffer_size: SupportedBufferSize::Range {
             min: par.round,
@@ -1045,16 +1113,15 @@ impl Drop for Device {
 
 fn determine_buffer_size(
     requested: &BufferSize,
-    round: u32,
-    configured_size: Option<usize>,
-) -> Result<usize, SndioError> {
-    let round = round as usize;
+    round: FrameCount,
+    configured_size: Option<FrameCount>,
+) -> Result<FrameCount, SndioError> {
     // Round up the buffer size the user selected to the next multiple of par.round. If there
     // was already a stream created with a different buffer size, return an error (sorry).
     // Note: if we want stereo support, this will need to change.
     let desired_buffer_size = match requested {
         BufferSize::Fixed(requested) => {
-            let requested = *requested as usize;
+            let requested = *requested;
             if requested > 0 {
                 requested + round - ((requested - 1) % round) - 1
             } else {
