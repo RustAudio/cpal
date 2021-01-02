@@ -35,8 +35,8 @@ parking_lot = "0.11"
 jack = { version = "0.6.5", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-coreaudio-rs = { version = "0.9.1", default-features = false, features = ["audio_unit", "core_audio"] }
-core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
+coreaudio-rs = { version = "0.10.0", default-features = false, features = ["audio_unit", "core_audio"] }
+core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach = "0.3" # For access to mach_timebase type.
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
