@@ -135,14 +135,14 @@ jobs:
         with:
           command: check
           use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose  
+          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
       - name: Test all features for armv7
         uses: actions-rs/cargo@v1
         with:
           command: test
           use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose      
+          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
   asmjs-wasm32-test:
     strategy:
@@ -287,3 +287,23 @@ jobs:
       run: cargo install cargo-apk
     - name: Build APK
       run: cargo apk build --example android
+
+  ios-build:
+    runs-on: macOS-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install llvm and clang
+      run: brew install llvm
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - name: Add iOS targets
+      run: rustup target add aarch64-apple-ios x86_64-apple-ios
+    - name: Install cargo lipo
+      run: cargo install cargo-lipo
+    - name: Build iphonesimulator feedback example
+      run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
+
