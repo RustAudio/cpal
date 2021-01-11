@@ -1228,7 +1228,7 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::I16 => mmreg::WAVE_FORMAT_PCM,
         SampleFormat::F32 => mmreg::WAVE_FORMAT_EXTENSIBLE,
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let channels = config.channels as WORD;
     let sample_rate = config.sample_rate.0 as DWORD;
@@ -1243,7 +1243,7 @@ fn config_to_waveformatextensible(
             let ex_size = mem::size_of::<mmreg::WAVEFORMATEX>();
             (extensible_size - ex_size) as WORD
         }
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let waveformatex = mmreg::WAVEFORMATEX {
         wFormatTag: format_tag,
