@@ -1263,7 +1263,7 @@ fn config_to_waveformatextensible(
     let sub_format = match sample_format {
         SampleFormat::I16 => ksmedia::KSDATAFORMAT_SUBTYPE_PCM,
         SampleFormat::F32 => ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let waveformatextensible = mmreg::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,
