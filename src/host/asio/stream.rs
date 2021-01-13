@@ -675,7 +675,7 @@ fn check_config(
     }
     // unsigned formats are not supported by asio
     match sample_format {
-        SampleFormat::I16 | SampleFormat::F32 => (),
+        SampleFormat::I16 | SampleFormat::I32 | SampleFormat::F32 => (),
         SampleFormat::U16 => return Err(BuildStreamError::StreamConfigNotSupported),
     }
     if *channels > num_asio_channels {
