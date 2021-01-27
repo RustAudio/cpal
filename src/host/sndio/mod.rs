@@ -318,11 +318,11 @@ enum InnerState {
 
         /// Each input Stream that has not been dropped has its callbacks in an element of this Vec.
         /// The last element is guaranteed to not be None.
-        input_callbacks: Vec<Option<InputCallbacks>>,
+        input_callbacks: (usize, HashMap<usize, InputCallbacks>),
 
         /// Each output Stream that has not been dropped has its callbacks in an element of this Vec.
         /// The last element is guaranteed to not be None.
-        output_callbacks: Vec<Option<OutputCallbacks>>,
+        output_callbacks: (usize, HashMap<usize, OutputCallbacks>),
 
         /// Whether the runner thread was spawned yet.
         thread_spawned: bool,
@@ -440,20 +440,16 @@ impl InnerState {
                 ref mut wakeup_sender,
                 ..
             } => {
-                for (i, cbs) in output_callbacks.iter_mut().enumerate() {
-                    if cbs.is_none() {
-                        *cbs = Some(callbacks);
-                        return Ok(i);
-                    }
-                }
                 // If there were previously no callbacks, wakeup the runner thread.
-                if input_callbacks.len() == 0 && output_callbacks.len() == 0 {
+                if input_callbacks.1.len() == 0 && output_callbacks.1.len() == 0 {
                     if let Some(ref sender) = wakeup_sender {
                         let _ = sender.send(());
                     }
                 }
-                output_callbacks.push(Some(callbacks));
-                Ok(output_callbacks.len() - 1)
+                let index = output_callbacks.0;
+                output_callbacks.1.insert(index, callbacks);
+                output_callbacks.0 = index + 1;
+                Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
         }
@@ -466,15 +462,7 @@ impl InnerState {
             InnerState::Running {
                 ref mut output_callbacks,
                 ..
-            } => {
-                let cbs = output_callbacks[index].take().unwrap();
-                while output_callbacks.len() > 0
-                    && output_callbacks[output_callbacks.len() - 1].is_none()
-                {
-                    output_callbacks.pop();
-                }
-                Ok(cbs)
-            }
+            } => Ok(output_callbacks.1.remove(&index).unwrap()),
             _ => Err(backend_specific_error("device is not in a running state")),
         }
     }
@@ -489,20 +477,16 @@ impl InnerState {
                 ref mut wakeup_sender,
                 ..
             } => {
-                for (i, cbs) in input_callbacks.iter_mut().enumerate() {
-                    if cbs.is_none() {
-                        *cbs = Some(callbacks);
-                        return Ok(i);
-                    }
-                }
                 // If there were previously no callbacks, wakeup the runner thread.
-                if input_callbacks.len() == 0 && output_callbacks.len() == 0 {
+                if input_callbacks.1.len() == 0 && output_callbacks.1.len() == 0 {
                     if let Some(ref sender) = wakeup_sender {
                         let _ = sender.send(());
                     }
                 }
-                input_callbacks.push(Some(callbacks));
-                Ok(input_callbacks.len() - 1)
+                let index = input_callbacks.0;
+                input_callbacks.1.insert(index, callbacks);
+                input_callbacks.0 = index + 1;
+                Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
         }
@@ -515,15 +499,7 @@ impl InnerState {
             InnerState::Running {
                 ref mut input_callbacks,
                 ..
-            } => {
-                let cbs = input_callbacks[index].take().unwrap();
-                while input_callbacks.len() > 0
-                    && input_callbacks[input_callbacks.len() - 1].is_none()
-                {
-                    input_callbacks.pop();
-                }
-                Ok(cbs)
-            }
+            } => Ok(input_callbacks.1.remove(&index).unwrap()),
             _ => Err(backend_specific_error("device is not in a running state")),
         }
     }
@@ -537,15 +513,11 @@ impl InnerState {
                 ..
             } => {
                 let e = e.into();
-                for cbs in input_callbacks {
-                    if let Some(cbs) = cbs {
-                        (cbs.error_callback)(e.clone());
-                    }
+                for cbs in input_callbacks.1.values_mut() {
+                    (cbs.error_callback)(e.clone());
                 }
-                for cbs in output_callbacks {
-                    if let Some(cbs) = cbs {
-                        (cbs.error_callback)(e.clone());
-                    }
+                for cbs in output_callbacks.1.values_mut() {
+                    (cbs.error_callback)(e.clone());
                 }
             }
             _ => {} // Drop the error
@@ -596,8 +568,8 @@ impl InnerState {
                     buffer_size,
                     par,
                     sample_rate_map: tmp,
-                    input_callbacks: vec![],
-                    output_callbacks: vec![],
+                    input_callbacks: (0, HashMap::new()),
+                    output_callbacks: (0, HashMap::new()),
                     thread_spawned: false,
                     wakeup_sender: None,
                 };
@@ -616,6 +588,17 @@ impl InnerState {
                 determine_buffer_size(&config.buffer_size, par.round, Some(*buffer_size))?;
                 Ok(())
             }
+        }
+    }
+
+    fn has_streams(&self) -> bool {
+        match self {
+            InnerState::Running {
+                ref input_callbacks,
+                ref output_callbacks,
+                ..
+            } => input_callbacks.1.len() > 0 || output_callbacks.1.len() > 0,
+            _ => false,
         }
     }
 }
@@ -1070,13 +1053,11 @@ impl Drop for Stream {
 
         match *inner_state {
             InnerState::Running {
-                ref input_callbacks,
-                ref output_callbacks,
                 ref thread_spawned,
                 ref wakeup_sender,
                 ..
             } => {
-                if input_callbacks.len() == 0 && output_callbacks.len() == 0 && *thread_spawned {
+                if !inner_state.has_streams() && *thread_spawned {
                     // Wake up runner thread so it can shut down
                     if let Some(ref sender) = wakeup_sender {
                         let _ = sender.send(());
@@ -1093,13 +1074,11 @@ impl Drop for Device {
         let inner_state = self.inner_state.lock().unwrap();
         match *inner_state {
             InnerState::Running {
-                ref input_callbacks,
-                ref output_callbacks,
                 ref thread_spawned,
                 ref wakeup_sender,
                 ..
             } => {
-                if input_callbacks.len() == 0 && output_callbacks.len() == 0 && *thread_spawned {
+                if !inner_state.has_streams() && *thread_spawned {
                     // Wake up runner thread so it can shut down
                     if let Some(ref sender) = wakeup_sender {
                         let _ = sender.send(());

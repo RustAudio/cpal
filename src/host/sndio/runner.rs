@@ -81,8 +81,6 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
         {
             let mut inner_state = inner_state_arc.lock().unwrap();
             // If there's nothing to do, wait until that's no longer the case.
-            let input_cbs;
-            let output_cbs;
             match *inner_state {
                 InnerState::Init { .. } | InnerState::Opened { .. } => {
                     // Unlikely error state
@@ -91,17 +89,10 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                     ));
                     break;
                 }
-                InnerState::Running {
-                    ref input_callbacks,
-                    ref output_callbacks,
-                    ..
-                } => {
-                    input_cbs = input_callbacks;
-                    output_cbs = output_callbacks;
-                }
+                _ => {}
             }
 
-            if input_cbs.len() == 0 && output_cbs.len() == 0 {
+            if !inner_state.has_streams() {
                 if !paused {
                     if let Err(_) = inner_state.stop() {
                         // No callbacks to error with
@@ -137,12 +128,8 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                         ));
                         break;
                     }
-                    InnerState::Running {
-                        ref input_callbacks,
-                        ref output_callbacks,
-                        ..
-                    } => {
-                        if input_callbacks.len() == 0 && output_callbacks.len() == 0 {
+                    InnerState::Running { .. } => {
+                        if !inner_state.has_streams() {
                             // Spurious wakeup
                             continue;
                         }
@@ -274,7 +261,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                     } => {
                         if output_offset_bytes_into_buf == 0 {
                             // The whole output buffer has been written (or this is the first time). Fill it.
-                            if output_callbacks.len() == 0 {
+                            if output_callbacks.1.len() == 0 {
                                 if clear_output_buf_needed {
                                     // There is probably nonzero data in the buffer from previous output
                                     // Streams. Zero it out.
@@ -284,16 +271,11 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                                     clear_output_buf_needed = false;
                                 }
                             } else {
-                                for opt_cbs in output_callbacks {
-                                    if let Some(cbs) = opt_cbs {
-                                        // Really we shouldn't have more than one output callback as they are
-                                        // stepping on each others' data.
-                                        // TODO: perhaps we should not call these callbacks while holding the lock
-                                        (cbs.data_callback)(
-                                            &mut output_data,
-                                            &output_callback_info,
-                                        );
-                                    }
+                                for cbs in output_callbacks.1.values_mut() {
+                                    // Really we shouldn't have more than one output callback as they are
+                                    // stepping on each others' data.
+                                    // TODO: perhaps we should not call these callbacks while holding the lock
+                                    (cbs.data_callback)(&mut output_data, &output_callback_info);
                                 }
                                 clear_output_buf_needed = true;
                             }
@@ -403,11 +385,9 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                             ref mut input_callbacks,
                             ..
                         } => {
-                            for opt_cbs in input_callbacks {
-                                if let Some(cbs) = opt_cbs {
-                                    // TODO: perhaps we should not call these callbacks while holding the lock
-                                    (cbs.data_callback)(&input_data, &input_callback_info);
-                                }
+                            for cbs in input_callbacks.1.values_mut() {
+                                // TODO: perhaps we should not call these callbacks while holding the lock
+                                (cbs.data_callback)(&input_data, &input_callback_info);
                             }
                         }
                     }
