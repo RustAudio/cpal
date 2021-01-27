@@ -448,27 +448,47 @@ macro_rules! impl_platform_host {
 // TODO: Add pulseaudio and jack here eventually.
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))]
 mod platform_impl {
+    #[cfg(not(feature = "linux-sndio"))]
     pub use crate::host::alsa::{
         Device as AlsaDevice, Devices as AlsaDevices, Host as AlsaHost, Stream as AlsaStream,
         SupportedInputConfigs as AlsaSupportedInputConfigs,
         SupportedOutputConfigs as AlsaSupportedOutputConfigs,
     };
-    #[cfg(feature = "jack")]
+    #[cfg(all(feature = "jack", not(feature = "linux-sndio")))]
     pub use crate::host::jack::{
         Device as JackDevice, Devices as JackDevices, Host as JackHost, Stream as JackStream,
         SupportedInputConfigs as JackSupportedInputConfigs,
         SupportedOutputConfigs as JackSupportedOutputConfigs,
     };
 
-    #[cfg(feature = "jack")]
+    #[cfg(all(feature = "jack", not(feature = "linux-sndio")))]
     impl_platform_host!(Jack jack "JACK", Alsa alsa "ALSA");
 
-    #[cfg(not(feature = "jack"))]
+    #[cfg(all(not(feature = "jack"), not(feature = "linux-sndio")))]
     impl_platform_host!(Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.
+    #[cfg(not(feature = "linux-sndio"))]
     pub fn default_host() -> Host {
         AlsaHost::new()
+            .expect("the default host should always be available")
+            .into()
+    }
+
+    #[cfg(feature = "linux-sndio")]
+    pub use crate::host::sndio::{
+        Device as SndioDevice, Devices as SndioDevices, Host as SndioHost, Stream as SndioStream,
+        SupportedInputConfigs as SndioSupportedInputConfigs,
+        SupportedOutputConfigs as SndioSupportedOutputConfigs,
+    };
+
+    #[cfg(feature = "linux-sndio")]
+    impl_platform_host!(Sndio sndio "sndio");
+
+    /// The default host for the current compilation target platform.
+    #[cfg(feature = "linux-sndio")]
+    pub fn default_host() -> Host {
+        SndioHost::new()
             .expect("the default host should always be available")
             .into()
     }

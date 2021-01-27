@@ -14,7 +14,10 @@ pub(crate) mod jack;
 pub(crate) mod null;
 #[cfg(target_os = "android")]
 pub(crate) mod oboe;
-#[cfg(target_os = "openbsd")]
+#[cfg(any(
+    target_os = "openbsd",
+    all(target_os = "linux", feature = "linux-sndio")
+))]
 pub(crate) mod sndio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
