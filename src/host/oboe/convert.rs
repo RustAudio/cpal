@@ -15,7 +15,7 @@ pub fn to_stream_instant(duration: Duration) -> StreamInstant {
     )
 }
 
-pub fn stream_instant<T: oboe::AudioStream + ?Sized>(stream: &mut T) -> StreamInstant {
+pub fn stream_instant<T: oboe::AudioStreamSafe + ?Sized>(stream: &mut T) -> StreamInstant {
     const CLOCK_MONOTONIC: i32 = 1;
     let ts = stream
         .get_timestamp(CLOCK_MONOTONIC)

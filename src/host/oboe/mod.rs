@@ -21,6 +21,7 @@ mod output_callback;
 
 use self::android_media::{get_audio_record_min_buffer_size, get_audio_track_min_buffer_size};
 use self::input_callback::CpalInputCallback;
+use self::oboe::{AudioInputStream, AudioOutputStream};
 use self::output_callback::CpalOutputCallback;
 
 // Android Java API supports up to 8 channels, but oboe API
@@ -36,7 +37,10 @@ const SAMPLE_RATES: [i32; 13] = [
 
 pub struct Host;
 pub struct Device(Option<oboe::AudioDeviceInfo>);
-pub struct Stream(Box<RefCell<dyn oboe::AudioStream>>);
+pub enum Stream {
+    Input(Box<RefCell<dyn AudioInputStream>>),
+    Output(Box<RefCell<dyn AudioOutputStream>>),
+}
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type Devices = VecIntoIter<Device>;
@@ -242,7 +246,7 @@ where
             error_callback,
         ))
         .open_stream()?;
-    Ok(Stream(Box::new(RefCell::new(stream))))
+    Ok(Stream::Input(Box::new(RefCell::new(stream))))
 }
 
 fn build_output_stream<D, E, C, T>(
@@ -266,7 +270,7 @@ where
             error_callback,
         ))
         .open_stream()?;
-    Ok(Stream(Box::new(RefCell::new(stream))))
+    Ok(Stream::Output(Box::new(RefCell::new(stream))))
 }
 
 impl DeviceTrait for Device {
@@ -472,16 +476,28 @@ impl DeviceTrait for Device {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.0
-            .borrow_mut()
-            .request_start()
-            .map_err(PlayStreamError::from)
+        match self {
+            Self::Input(stream) => stream
+                .borrow_mut()
+                .request_start()
+                .map_err(PlayStreamError::from),
+            Self::Output(stream) => stream
+                .borrow_mut()
+                .request_start()
+                .map_err(PlayStreamError::from),
+        }
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.0
-            .borrow_mut()
-            .request_pause()
-            .map_err(PauseStreamError::from)
+        match self {
+            Self::Input(_) => Err(BackendSpecificError {
+                description: "Pause called on the input stream.".to_owned(),
+            }
+            .into()),
+            Self::Output(stream) => stream
+                .borrow_mut()
+                .request_pause()
+                .map_err(PauseStreamError::from),
+        }
     }
 }
