@@ -283,28 +283,31 @@ impl<'a> Iterator for SampleRateMapIter<'a> {
 }
 
 struct CallbackPile<T> {
-    index : usize,
-    store : HashMap<usize, T>,
+    index: usize,
+    store: HashMap<usize, T>,
 }
 
 impl<T> CallbackPile<T> {
     fn new() -> Self {
-	Self { index: 0, store: HashMap::new() }
+        Self {
+            index: 0,
+            store: HashMap::new(),
+        }
     }
 
-    fn remove_at(&mut self, index : usize) -> T {
-	self.store.remove(&index).unwrap()
+    fn remove_at(&mut self, index: usize) -> T {
+        self.store.remove(&index).unwrap()
     }
 
     fn empty(&self) -> bool {
-	self.store.len() == 0
+        self.store.len() == 0
     }
 
-    fn append(&mut self, t : T) -> usize {
-	let index = self.index;
+    fn append(&mut self, t: T) -> usize {
+        let index = self.index;
         self.store.insert(index, t);
         self.index = index + 1;
-	index
+        index
     }
 }
 
@@ -470,7 +473,7 @@ impl InnerState {
                 if input_callbacks.empty() && output_callbacks.empty() {
                     wakeup_sender.as_ref().map(|sender| sender.send(()));
                 }
-		let index = output_callbacks.append(callbacks);
+                let index = output_callbacks.append(callbacks);
                 Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
@@ -503,7 +506,7 @@ impl InnerState {
                 if input_callbacks.empty() && output_callbacks.empty() {
                     wakeup_sender.as_ref().map(|sender| sender.send(()));
                 }
-		let index = input_callbacks.append(callbacks);
+                let index = input_callbacks.append(callbacks);
                 Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
@@ -875,10 +878,14 @@ impl DeviceTrait for Device {
             InnerState::Running {
                 ref buffer_size, ..
             } => {
-                boxed_data_cb = if sample_format != SampleFormat::I16 {
-                    input_adapter_callback(data_callback, *buffer_size, sample_format)
-                } else {
-                    Box::new(data_callback)
+                boxed_data_cb = match sample_format {
+                    SampleFormat::F32 => {
+                        input_adapter_callback::<f32, _>(data_callback, *buffer_size, sample_format)
+                    }
+                    SampleFormat::U16 => {
+                        input_adapter_callback::<u16, _>(data_callback, *buffer_size, sample_format)
+                    }
+                    SampleFormat::I16 => Box::new(data_callback),
                 };
             }
         }
