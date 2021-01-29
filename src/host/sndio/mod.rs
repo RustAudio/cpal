@@ -282,6 +282,32 @@ impl<'a> Iterator for SampleRateMapIter<'a> {
     }
 }
 
+struct CallbackPile<T> {
+    index : usize,
+    store : HashMap<usize, T>,
+}
+
+impl<T> CallbackPile<T> {
+    fn new() -> Self {
+	Self { index: 0, store: HashMap::new() }
+    }
+
+    fn remove_at(&mut self, index : usize) -> T {
+	self.store.remove(&index).unwrap()
+    }
+
+    fn empty(&self) -> bool {
+	self.store.len() == 0
+    }
+
+    fn append(&mut self, t : T) -> usize {
+	let index = self.index;
+        self.store.insert(index, t);
+        self.index = index + 1;
+	index
+    }
+}
+
 /// The shared state between `Device` and `Stream`. Responsible for closing handle when dropped.
 /// Upon `Device` creation, this is in the `Init` state. Calling `.open` transitions
 /// this to the `Opened` state (this generally happens when getting input or output configs).
@@ -318,11 +344,11 @@ enum InnerState {
 
         /// Each input Stream that has not been dropped has its callbacks in an element of this Vec.
         /// The last element is guaranteed to not be None.
-        input_callbacks: (usize, HashMap<usize, InputCallbacks>),
+        input_callbacks: CallbackPile<InputCallbacks>,
 
         /// Each output Stream that has not been dropped has its callbacks in an element of this Vec.
         /// The last element is guaranteed to not be None.
-        output_callbacks: (usize, HashMap<usize, OutputCallbacks>),
+        output_callbacks: CallbackPile<OutputCallbacks>,
 
         /// Whether the runner thread was spawned yet.
         thread_spawned: bool,
@@ -441,14 +467,10 @@ impl InnerState {
                 ..
             } => {
                 // If there were previously no callbacks, wakeup the runner thread.
-                if input_callbacks.1.len() == 0 && output_callbacks.1.len() == 0 {
-                    if let Some(ref sender) = wakeup_sender {
-                        let _ = sender.send(());
-                    }
+                if input_callbacks.empty() && output_callbacks.empty() {
+                    wakeup_sender.as_ref().map(|sender| sender.send(()));
                 }
-                let index = output_callbacks.0;
-                output_callbacks.1.insert(index, callbacks);
-                output_callbacks.0 = index + 1;
+		let index = output_callbacks.append(callbacks);
                 Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
@@ -462,7 +484,7 @@ impl InnerState {
             InnerState::Running {
                 ref mut output_callbacks,
                 ..
-            } => Ok(output_callbacks.1.remove(&index).unwrap()),
+            } => Ok(output_callbacks.remove_at(index)),
             _ => Err(backend_specific_error("device is not in a running state")),
         }
     }
@@ -478,14 +500,10 @@ impl InnerState {
                 ..
             } => {
                 // If there were previously no callbacks, wakeup the runner thread.
-                if input_callbacks.1.len() == 0 && output_callbacks.1.len() == 0 {
-                    if let Some(ref sender) = wakeup_sender {
-                        let _ = sender.send(());
-                    }
+                if input_callbacks.empty() && output_callbacks.empty() {
+                    wakeup_sender.as_ref().map(|sender| sender.send(()));
                 }
-                let index = input_callbacks.0;
-                input_callbacks.1.insert(index, callbacks);
-                input_callbacks.0 = index + 1;
+		let index = input_callbacks.append(callbacks);
                 Ok(index)
             }
             _ => Err(backend_specific_error("device is not in a running state")),
@@ -499,7 +517,7 @@ impl InnerState {
             InnerState::Running {
                 ref mut input_callbacks,
                 ..
-            } => Ok(input_callbacks.1.remove(&index).unwrap()),
+            } => Ok(input_callbacks.remove_at(index)),
             _ => Err(backend_specific_error("device is not in a running state")),
         }
     }
@@ -513,10 +531,10 @@ impl InnerState {
                 ..
             } => {
                 let e = e.into();
-                for cbs in input_callbacks.1.values_mut() {
+                for cbs in input_callbacks.store.values_mut() {
                     (cbs.error_callback)(e.clone());
                 }
-                for cbs in output_callbacks.1.values_mut() {
+                for cbs in output_callbacks.store.values_mut() {
                     (cbs.error_callback)(e.clone());
                 }
             }
@@ -568,8 +586,8 @@ impl InnerState {
                     buffer_size,
                     par,
                     sample_rate_map: tmp,
-                    input_callbacks: (0, HashMap::new()),
-                    output_callbacks: (0, HashMap::new()),
+                    input_callbacks: CallbackPile::new(),
+                    output_callbacks: CallbackPile::new(),
                     thread_spawned: false,
                     wakeup_sender: None,
                 };
@@ -597,7 +615,7 @@ impl InnerState {
                 ref input_callbacks,
                 ref output_callbacks,
                 ..
-            } => input_callbacks.1.len() > 0 || output_callbacks.1.len() > 0,
+            } => !input_callbacks.empty() || !output_callbacks.empty(),
             _ => false,
         }
     }

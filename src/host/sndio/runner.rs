@@ -261,7 +261,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                     } => {
                         if output_offset_bytes_into_buf == 0 {
                             // The whole output buffer has been written (or this is the first time). Fill it.
-                            if output_callbacks.1.len() == 0 {
+                            if output_callbacks.empty() {
                                 if clear_output_buf_needed {
                                     // There is probably nonzero data in the buffer from previous output
                                     // Streams. Zero it out.
@@ -271,7 +271,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                                     clear_output_buf_needed = false;
                                 }
                             } else {
-                                for cbs in output_callbacks.1.values_mut() {
+                                for cbs in output_callbacks.store.values_mut() {
                                     // Really we shouldn't have more than one output callback as they are
                                     // stepping on each others' data.
                                     // TODO: perhaps we should not call these callbacks while holding the lock
@@ -385,7 +385,7 @@ pub(super) fn runner(inner_state_arc: Arc<Mutex<InnerState>>) {
                             ref mut input_callbacks,
                             ..
                         } => {
-                            for cbs in input_callbacks.1.values_mut() {
+                            for cbs in input_callbacks.store.values_mut() {
                                 // TODO: perhaps we should not call these callbacks while holding the lock
                                 (cbs.data_callback)(&input_data, &input_callback_info);
                             }
