@@ -6,7 +6,6 @@ mod runner;
 use self::adapters::{input_adapter_callback, output_adapter_callback};
 use self::runner::runner;
 
-use std::collections::hash_map;
 use std::collections::HashMap;
 use std::convert::From;
 use std::mem::{self, MaybeUninit};
@@ -261,24 +260,23 @@ impl SampleRateMap {
         self.0.insert(rate.0, par)
     }
 
-    fn iter(&self) -> SampleRateMapIter<'_> {
-        SampleRateMapIter {
-            iter: self.0.iter(),
-        }
-    }
-}
-
-struct SampleRateMapIter<'a> {
-    iter: hash_map::Iter<'a, u32, sndio_sys::sio_par>,
-}
-
-impl<'a> Iterator for SampleRateMapIter<'a> {
-    type Item = (SampleRate, &'a sndio_sys::sio_par);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter
-            .next()
-            .map(|(sample_rate, par)| (SampleRate(*sample_rate), par))
+    fn config_ranges<F>(&self, num_channels: F) -> Vec<SupportedStreamConfigRange>
+    where
+        F: Fn(&sndio_sys::sio_par) -> u32,
+    {
+        self.0
+            .values()
+            .map(|par| {
+                let config = supported_config_from_par(par, num_channels(par));
+                SupportedStreamConfigRange {
+                    channels: config.channels,
+                    min_sample_rate: config.sample_rate,
+                    max_sample_rate: config.sample_rate,
+                    buffer_size: config.buffer_size,
+                    sample_format: config.sample_format,
+                }
+            })
+            .collect()
     }
 }
 
@@ -709,18 +707,7 @@ impl DeviceTrait for Device {
                 ref sample_rate_map,
                 ..
             } => {
-                let mut config_ranges = vec![];
-                for (_, par) in sample_rate_map.iter() {
-                    let config = supported_config_from_par(par, par.rchan);
-                    config_ranges.push(SupportedStreamConfigRange {
-                        channels: config.channels,
-                        min_sample_rate: config.sample_rate,
-                        max_sample_rate: config.sample_rate,
-                        buffer_size: config.buffer_size,
-                        sample_format: config.sample_format,
-                    });
-                }
-
+                let config_ranges = sample_rate_map.config_ranges(|par| par.rchan);
                 Ok(config_ranges.into_iter())
             }
             _ => Err(backend_specific_error("device has not yet been opened").into()),
@@ -754,18 +741,7 @@ impl DeviceTrait for Device {
                 ref sample_rate_map,
                 ..
             } => {
-                let mut config_ranges = vec![];
-                for (_, par) in sample_rate_map.iter() {
-                    let config = supported_config_from_par(par, par.pchan);
-                    config_ranges.push(SupportedStreamConfigRange {
-                        channels: config.channels,
-                        min_sample_rate: config.sample_rate,
-                        max_sample_rate: config.sample_rate,
-                        buffer_size: config.buffer_size,
-                        sample_format: config.sample_format,
-                    });
-                }
-
+                let config_ranges = sample_rate_map.config_ranges(|par| par.pchan);
                 Ok(config_ranges.into_iter())
             }
             _ => Err(backend_specific_error("device has not yet been opened").into()),
