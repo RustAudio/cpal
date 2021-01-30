@@ -29,7 +29,7 @@ jobs:
       uses: actions-rs/clippy-check@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --all-features --target armv7-linux-androideabi
+        args: --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
