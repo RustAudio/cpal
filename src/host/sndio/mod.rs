@@ -880,10 +880,10 @@ impl DeviceTrait for Device {
             } => {
                 boxed_data_cb = match sample_format {
                     SampleFormat::F32 => {
-                        input_adapter_callback::<f32, _>(data_callback, *buffer_size, sample_format)
+                        input_adapter_callback::<f32, _>(data_callback, *buffer_size)
                     }
                     SampleFormat::U16 => {
-                        input_adapter_callback::<u16, _>(data_callback, *buffer_size, sample_format)
+                        input_adapter_callback::<u16, _>(data_callback, *buffer_size)
                     }
                     SampleFormat::I16 => Box::new(data_callback),
                 };
@@ -945,10 +945,14 @@ impl DeviceTrait for Device {
             InnerState::Running {
                 ref buffer_size, ..
             } => {
-                boxed_data_cb = if sample_format != SampleFormat::I16 {
-                    output_adapter_callback(data_callback, *buffer_size, sample_format)
-                } else {
-                    Box::new(data_callback)
+                boxed_data_cb = match sample_format {
+                    SampleFormat::F32 => {
+                        output_adapter_callback::<f32, _>(data_callback, *buffer_size)
+                    }
+                    SampleFormat::U16 => {
+                        output_adapter_callback::<u16, _>(data_callback, *buffer_size)
+                    }
+                    SampleFormat::I16 => Box::new(data_callback),
                 };
             }
         }
