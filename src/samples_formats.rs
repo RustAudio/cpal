@@ -29,15 +29,21 @@ pub trait TypeSampleFormat {
 }
 
 impl TypeSampleFormat for f32 {
-    fn sample_format() -> SampleFormat { SampleFormat::F32 }
+    fn sample_format() -> SampleFormat {
+        SampleFormat::F32
+    }
 }
 
 impl TypeSampleFormat for u16 {
-    fn sample_format() -> SampleFormat { SampleFormat::U16 }
+    fn sample_format() -> SampleFormat {
+        SampleFormat::U16
+    }
 }
 
 impl TypeSampleFormat for i16 {
-    fn sample_format() -> SampleFormat { SampleFormat::I16 }
+    fn sample_format() -> SampleFormat {
+        SampleFormat::I16
+    }
 }
 
 /// Trait for containers that contain PCM data.
