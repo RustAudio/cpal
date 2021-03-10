@@ -820,7 +820,7 @@ impl SupportedDuplexStreamConfigRange {
     /// - Max input channels
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         // TODO: Refactor out common parts with the half duplex implementation
-        unimplemented!()
+        todo!()
     }
 }
 
