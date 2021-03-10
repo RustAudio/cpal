@@ -174,6 +174,9 @@ pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bo
 /// A host's device iterator yielding only *output* devices.
 pub type OutputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
 
+/// A host's device iterator yielding only *duplex* devices.
+pub type DuplexDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+
 /// Number of channels.
 pub type ChannelCount = u16;
 
@@ -227,6 +230,17 @@ pub struct StreamConfig {
     pub buffer_size: BufferSize,
 }
 
+/// The set of parameters used to describe how to open a *duplex* stream.
+///
+/// The sample format is omitted in favour of using a sample type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DuplexStreamConfig {
+    pub input_channels: ChannelCount,
+    pub output_channels: ChannelCount,
+    pub sample_rate: SampleRate,
+    pub buffer_size: BufferSize,
+}
+
 /// Describes the minimum and maximum supported buffer size for the device
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
@@ -254,11 +268,38 @@ pub struct SupportedStreamConfigRange {
     pub(crate) sample_format: SampleFormat,
 }
 
+/// Describes a range of supported *duplex* stream configurations, retrieved via the
+/// `Device::supported_duplex_configs` method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedDuplexStreamConfigRange {
+    pub(crate) input_channels: ChannelCount,
+    pub(crate) output_channels: ChannelCount,
+    /// Minimum value for the samples rate of the supported formats.
+    pub(crate) min_sample_rate: SampleRate,
+    /// Maximum value for the samples rate of the supported formats.
+    pub(crate) max_sample_rate: SampleRate,
+    /// Buffersize ranges supported by the device
+    pub(crate) buffer_size: SupportedBufferSize,
+    /// Type of data expected by the device.
+    pub(crate) sample_format: SampleFormat,
+}
+
 /// Describes a single supported stream configuration, retrieved via either a
 /// `SupportedStreamConfigRange` instance or one of the `Device::default_input/output_config` methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
+    sample_rate: SampleRate,
+    buffer_size: SupportedBufferSize,
+    sample_format: SampleFormat,
+}
+
+/// Describes a single supported *duplex* stream configuration, retrieved via either a
+/// `SupportedDuplexStreamConfigRange` instance or the `Device::default_duplex_config` method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedDuplexStreamConfig {
+    input_channels: ChannelCount,
+    output_channels: ChannelCount,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
     sample_format: SampleFormat,
@@ -321,6 +362,21 @@ pub struct OutputStreamTimestamp {
     pub playback: StreamInstant,
 }
 
+/// A timestamp associated with a call to a duplex stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct DuplexStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The instant that data was captured from the device.
+    ///
+    /// E.g. The instant data was read from an ADC.
+    pub capture: StreamInstant,
+    /// The predicted instant that data written will be delivered to the device for playback.
+    ///
+    /// E.g. The instant data will be played by a DAC.
+    pub playback: StreamInstant,
+}
+
 /// Information relevant to a single call to the user's input stream data callback.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputCallbackInfo {
@@ -331,6 +387,12 @@ pub struct InputCallbackInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
+}
+
+/// Information relevant to a single call to the user's duplex stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DuplexCallbackInfo {
+    timestamp: DuplexStreamTimestamp,
 }
 
 impl SupportedStreamConfig {
@@ -353,6 +415,37 @@ impl SupportedStreamConfig {
     pub fn config(&self) -> StreamConfig {
         StreamConfig {
             channels: self.channels,
+            sample_rate: self.sample_rate,
+            buffer_size: BufferSize::Default,
+        }
+    }
+}
+
+impl SupportedDuplexStreamConfig {
+    pub fn input_channels(&self) -> ChannelCount {
+        self.input_channels
+    }
+
+    pub fn output_channels(&self) -> ChannelCount {
+        self.output_channels
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    pub fn config(&self) -> DuplexStreamConfig {
+        DuplexStreamConfig {
+            input_channels: self.input_channels,
+            output_channels: self.output_channels,
             sample_rate: self.sample_rate,
             buffer_size: BufferSize::Default,
         }
@@ -440,6 +533,13 @@ impl InputCallbackInfo {
 impl OutputCallbackInfo {
     /// The timestamp associated with the call to an output stream's data callback.
     pub fn timestamp(&self) -> OutputStreamTimestamp {
+        self.timestamp
+    }
+}
+
+impl DuplexCallbackInfo {
+    /// The timestamp associated with the call to a duplex stream's data callback.
+    pub fn timestamp(&self) -> DuplexStreamTimestamp {
         self.timestamp
     }
 }
@@ -652,6 +752,75 @@ impl SupportedStreamConfigRange {
         }
 
         self.max_sample_rate.cmp(&other.max_sample_rate)
+    }
+}
+
+impl SupportedDuplexStreamConfigRange {
+    pub fn input_channels(&self) -> ChannelCount {
+        self.input_channels
+    }
+
+    pub fn output_channels(&self) -> ChannelCount {
+        self.output_channels
+    }
+
+    pub fn min_sample_rate(&self) -> SampleRate {
+        self.min_sample_rate
+    }
+
+    pub fn max_sample_rate(&self) -> SampleRate {
+        self.max_sample_rate
+    }
+
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    /// Retrieve a `SupportedDuplexStreamConfig` with the given sample rate and buffer size.
+    ///
+    /// **panic!**s if the given `sample_rate` is outside the range specified within this
+    /// `SupportedDuplexStreamConfigRange` instance.
+    pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedDuplexStreamConfig {
+        assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
+        SupportedDuplexStreamConfig {
+            input_channels: self.input_channels,
+            output_channels: self.output_channels,
+            sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
+        }
+    }
+
+    /// Turns this `SupportedDuplexStreamConfigRange` into a `SupportedDuplexStreamConfig` corresponding to the maximum samples rate.
+    #[inline]
+    pub fn with_max_sample_rate(self) -> SupportedDuplexStreamConfig {
+        SupportedDuplexStreamConfig {
+            input_channels: self.input_channels,
+            output_channels: self.output_channels,
+            sample_rate: self.max_sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
+        }
+    }
+
+    /// A comparison function which compares two `SupportedDuplexStreamConfigRange`s in terms of their priority of
+    /// use as a default stream format.
+    ///
+    /// Refer to [`SupportStreamConfigRange::cmp_default_heuristics`] for more details. The duplex
+    /// version prioritizes channel configurations as follows:
+    ///
+    /// - Both input and output stereo
+    /// - Mono input and stereo output (does this make sense?)
+    /// - Mono input and mono output
+    /// - Max output channels
+    /// - Max input channels
+    pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
+        // TODO: Refactor out common parts with the half duplex implementation
+        unimplemented!()
     }
 }
 

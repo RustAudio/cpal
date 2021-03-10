@@ -2,9 +2,10 @@
 
 use {
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
-    PlayStreamError, Sample, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    DuplexCallbackInfo, DuplexDevices, DuplexStreamConfig, InputCallbackInfo, InputDevices,
+    OutputCallbackInfo, OutputDevices, PauseStreamError, PlayStreamError, Sample, SampleFormat,
+    StreamConfig, StreamError, SupportedDuplexStreamConfig, SupportedDuplexStreamConfigRange,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -50,6 +51,11 @@ pub trait HostTrait {
     /// Returns `None` if no output device is available.
     fn default_output_device(&self) -> Option<Self::Device>;
 
+    /// The default duplex audio device on the system.
+    ///
+    /// Returns `None` if no duplex device is available.
+    fn default_duplex_device(&self) -> Option<Self::Device>;
+
     /// An iterator yielding all `Device`s currently available to the system that support one or more
     /// input stream formats.
     ///
@@ -77,9 +83,23 @@ pub trait HostTrait {
         }
         Ok(self.devices()?.filter(supports_output::<Self::Device>))
     }
+
+    /// An iterator yielding all `Device`s currently available to the system that support one or more
+    /// duplex stream formats.
+    ///
+    /// Can be empty if the system does not support duplex audio.
+    fn duplex_devices(&self) -> Result<DuplexDevices<Self::Devices>, DevicesError> {
+        fn supports_duplex<D: DeviceTrait>(device: &D) -> bool {
+            device
+                .supported_duplex_configs()
+                .map(|mut iter| iter.next().is_some())
+                .unwrap_or(false)
+        }
+        Ok(self.devices()?.filter(supports_duplex::<Self::Device>))
+    }
 }
 
-/// A device that is capable of audio input and/or output.
+/// A device that is capable of audio input and/or output, or both synchronized as full duplex.
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
@@ -88,7 +108,10 @@ pub trait DeviceTrait {
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
-    /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
+    /// The iterator type yielding supported duplex stream formats.
+    type SupportedDuplexConfigs: Iterator<Item = SupportedDuplexStreamConfigRange>;
+    /// The stream type created by `build_input_stream_raw`, `build_output_stream_raw`
+    /// and `build_duplex_stream_raw`.
     type Stream: StreamTrait;
 
     /// The human-readable name of the device.
@@ -108,11 +131,23 @@ pub trait DeviceTrait {
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError>;
 
+    /// An iterator yielding duplex stream formats that are supported by the device.
+    ///
+    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError>;
+
     /// The default input stream format for the device.
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
 
     /// The default output stream format for the device.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
+
+    /// The default duplex stream format for the device.
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError>;
 
     /// Create an input stream.
     fn build_input_stream<T, D, E>(
@@ -166,6 +201,36 @@ pub trait DeviceTrait {
         )
     }
 
+    /// Create a duplex stream.
+    fn build_duplex_stream<T, D, E>(
+        &self,
+        config: &DuplexStreamConfig,
+        mut data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        T: Sample,
+        D: FnMut(&[T], &mut [T], &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        self.build_duplex_stream_raw(
+            config,
+            T::FORMAT,
+            move |input_data, output_data, info| {
+                data_callback(
+                    input_data
+                        .as_slice_mut()
+                        .expect("host supplied incorrect sample type"),
+                    output_data
+                        .as_slice_mut()
+                        .expect("host supplied incorrect sample type"),
+                    info,
+                )
+            },
+            error_callback,
+        )
+    }
+
     /// Create a dynamically typed input stream.
     fn build_input_stream_raw<D, E>(
         &self,
@@ -188,6 +253,18 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static;
+
+    /// Create a dynamically typed duplex stream.
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: &DuplexStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }
 
