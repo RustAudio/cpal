@@ -1,10 +1,9 @@
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
-    SupportedDuplexStreamConfig, DuplexStreamConfig, SupportedDuplexStreamConfigRange,
-    DuplexCallbackInfo,
+    DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedDuplexStreamConfig, SupportedDuplexStreamConfigRange, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -79,7 +78,9 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn default_duplex_config(&self) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
