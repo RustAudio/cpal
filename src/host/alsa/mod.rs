@@ -387,7 +387,7 @@ impl Device {
                 }
             }
 
-            if rates.len() == 0 {
+            if rates.is_empty() {
                 vec![(min_rate, max_rate)]
             } else {
                 rates
@@ -423,11 +423,11 @@ impl Device {
             for channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
-                        channels: channels.clone(),
+                        channels: *channels,
                         min_sample_rate: SampleRate(min_rate as u32),
                         max_sample_rate: SampleRate(max_rate as u32),
                         buffer_size: buffer_size_range.clone(),
-                        sample_format: sample_format,
+                        sample_format,
                     });
                 }
             }
