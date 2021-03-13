@@ -31,6 +31,7 @@ use super::winapi::Interface;
 // https://msdn.microsoft.com/en-us/library/cc230355.aspx
 use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
+    AUDCLNT_E_UNSUPPORTED_FORMAT,
 };
 use super::winapi::um::audiosessiontypes::{
     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
@@ -260,10 +261,12 @@ pub unsafe fn is_format_supported(
         );
         // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
         // has been found, but not an exact match) so we also treat this as unsupported.
+        // AUDCLNT_E_UNSUPPORTED_FORMAT: Succeeded but the specified format is not supported in exclusive mode.
         match (result, check_result(result)) {
             (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                 Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
+            (_, Err(ref e)) if e.raw_os_error() == Some(AUDCLNT_E_UNSUPPORTED_FORMAT) => Ok(true),
             (_, Err(_)) => Ok(false),
             (winerror::S_FALSE, _) => Ok(false),
             (_, Ok(())) => Ok(true),
