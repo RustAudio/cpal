@@ -6,10 +6,11 @@ use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, DuplexCallbackInfo,
+    DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedDuplexStreamConfig, SupportedDuplexStreamConfigRange, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::cmp;
 use std::convert::TryInto;
@@ -22,6 +23,7 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = VecIntoIter<SupportedDuplexStreamConfigRange>;
 
 mod enumerate;
 
@@ -55,11 +57,16 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        todo!()
+    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -78,12 +85,24 @@ impl DeviceTrait for Device {
         Device::supported_output_configs(self)
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        todo!()
+    }
+
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        todo!()
     }
 
     fn build_input_stream_raw<D, E>(
@@ -118,6 +137,20 @@ impl DeviceTrait for Device {
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
         let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
         Ok(stream)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _conf: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        todo!()
     }
 }
 

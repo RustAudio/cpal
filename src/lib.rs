@@ -277,7 +277,6 @@ pub struct SupportedDuplexChannels {
     pub default: Option<ChannelCount>,
 }
 
-
 /// Describes a range of supported *duplex* stream configurations, retrieved via the
 /// `Device::supported_duplex_configs` method.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -815,7 +814,7 @@ impl SupportedDuplexStreamConfigRange {
             buffer_size: self.buffer_size,
         }
     }
-    
+
     /// Turns this `SupportedDuplexStreamConfigRange` into a `SupportedDuplexStreamConfig`
     /// corresponding to the maximum sample rate and default channel counts.
     ///
@@ -840,11 +839,19 @@ impl SupportedDuplexStreamConfigRange {
     ///
     /// **panic!**s if the given `input_channels`, `output_channels` or `sample_rate` are outside
     /// the range specified within this `SupportedDuplexStreamConfigRange` instance.
-    pub fn with_channels_sample_rate(self, input_channels: ChannelCount, output_channels: ChannelCount, sample_rate: SampleRate) -> SupportedDuplexStreamConfig {
+    pub fn with_channels_sample_rate(
+        self,
+        input_channels: ChannelCount,
+        output_channels: ChannelCount,
+        sample_rate: SampleRate,
+    ) -> SupportedDuplexStreamConfig {
         assert!(
-            self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate
-            && self.input_channels.min <= input_channels && input_channels <= self.input_channels.max
-            && self.output_channels.min <= output_channels && output_channels <= self.output_channels.max
+            self.min_sample_rate <= sample_rate
+                && sample_rate <= self.max_sample_rate
+                && self.input_channels.min <= input_channels
+                && input_channels <= self.input_channels.max
+                && self.output_channels.min <= output_channels
+                && output_channels <= self.output_channels.max
         );
         SupportedDuplexStreamConfig {
             input_channels,
