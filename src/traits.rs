@@ -219,7 +219,7 @@ pub trait DeviceTrait {
             move |input_data, output_data, info| {
                 data_callback(
                     input_data
-                        .as_slice_mut()
+                        .as_slice()
                         .expect("host supplied incorrect sample type"),
                     output_data
                         .as_slice_mut()

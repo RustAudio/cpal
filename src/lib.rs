@@ -769,11 +769,11 @@ impl SupportedStreamConfigRange {
 
 impl SupportedDuplexStreamConfigRange {
     pub fn input_channels(&self) -> SupportedDuplexChannels {
-        self.input_channels
+        self.input_channels.clone()
     }
 
     pub fn output_channels(&self) -> SupportedDuplexChannels {
-        self.output_channels
+        self.output_channels.clone()
     }
 
     pub fn min_sample_rate(&self) -> SampleRate {
@@ -866,7 +866,7 @@ impl SupportedDuplexStreamConfigRange {
     /// - Mono input and mono output
     /// - Max output channels
     /// - Max input channels
-    pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
+    pub fn cmp_default_heuristics(&self, _other: &Self) -> std::cmp::Ordering {
         // TODO: Refactor out common parts with the half duplex implementation?
         todo!()
     }
