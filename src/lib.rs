@@ -295,8 +295,8 @@ pub struct Data {
 /// | emscripten | `AudioContext.getOutputTimestamp` |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
-    secs: i64,
-    nanos: u32,
+    pub secs: i64,
+    pub nanos: u32,
 }
 
 impl StreamInstant {
