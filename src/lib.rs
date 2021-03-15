@@ -302,12 +302,12 @@ pub struct StreamInstant {
 impl StreamInstant {
     /// An attempted conversion that consumes self
     ///
-    /// Fails with a StreamInstantUnderflow error when the seconds field is negative
+    /// Fails with a StreamInstantUnderflow error when the secs field is negative
     pub fn to_duration(self) -> Result<Duration, StreamInstantUnderflow> {
         TryInto::<Duration>::try_into(self)
     }
 }
-// This impl also gives us Into<Duration> for StreamInstant
+// This impl also gives us TryInto<Duration> for StreamInstant
 impl std::convert::TryFrom<StreamInstant> for Duration {
     type Error = StreamInstantUnderflow;
 
