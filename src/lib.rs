@@ -446,7 +446,7 @@ impl StreamInstant {
         Self::new(s, ns)
     }
 
-    fn new(secs: i64, nanos: u32) -> Self {
+    pub fn new(secs: i64, nanos: u32) -> Self {
         StreamInstant { secs, nanos }
     }
 }
