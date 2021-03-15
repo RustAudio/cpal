@@ -162,5 +162,5 @@ pub enum StreamError {
 }
 /// Underflow while converting a StreamInstant to a Duration.
 #[derive(Clone, Debug, Error)]
-#[error("the requested host is unavailable")]
+#[error("Underflow while converting a StreamInstant to a Duration.")]
 pub struct StreamInstantUnderflow;
