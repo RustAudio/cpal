@@ -301,9 +301,9 @@ pub struct StreamInstant {
 
 impl StreamInstant {
     /// An attempted conversion that consumes self
-    /// 
+    ///
     /// Fails with a StreamInstantUnderflow error when the seconds field is negative
-    pub fn to_duration(self) -> Result<Duration, StreamInstantUnderflow>{
+    pub fn to_duration(self) -> Result<Duration, StreamInstantUnderflow> {
         TryInto::<Duration>::try_into(self)
     }
 }
@@ -318,7 +318,6 @@ impl std::convert::TryFrom<StreamInstant> for Duration {
             Ok(Duration::new(value.secs as u64, value.nanos))
         }
     }
-
 }
 /// A timestamp associated with a call to an input stream's data callback.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -810,13 +809,7 @@ fn test_stream_instant() {
 fn test_stream_instant_into_duration() {
     let a = StreamInstant::new(2, 0);
     let b = StreamInstant::new(-2, 0);
-    let a_duration : Duration = a.try_into().unwrap();
-    assert_eq!(
-        a_duration,
-        Duration::new(2,0)
-    );
-    assert!(
-        TryInto::<Duration>::try_into(b).is_err()
-    )
-
+    let a_duration: Duration = a.try_into().unwrap();
+    assert_eq!(a_duration, Duration::new(2, 0));
+    assert!(TryInto::<Duration>::try_into(b).is_err())
 }

@@ -160,6 +160,7 @@ pub enum StreamError {
         err: BackendSpecificError,
     },
 }
+
 /// Underflow while converting a StreamInstant to a Duration.
 #[derive(Clone, Debug, Error)]
 #[error("Underflow while converting a StreamInstant to a Duration.")]
