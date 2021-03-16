@@ -954,6 +954,12 @@ impl From<SupportedStreamConfig> for StreamConfig {
     }
 }
 
+impl From<SupportedDuplexStreamConfig> for DuplexStreamConfig {
+    fn from(conf: SupportedDuplexStreamConfig) -> Self {
+        conf.config()
+    }
+}
+
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
 // of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
 //
