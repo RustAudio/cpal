@@ -865,7 +865,7 @@ impl SupportedDuplexStreamConfigRange {
     /// A comparison function which compares two `SupportedDuplexStreamConfigRange`s in terms of their priority of
     /// use as a default stream format.
     ///
-    /// Refer to [`SupportStreamConfigRange::cmp_default_heuristics`] for more details. The duplex
+    /// Refer to [`SupportedStreamConfigRange::cmp_default_heuristics`] for more details. The duplex
     /// version prioritizes channel configurations as follows:
     ///
     /// - Both input and output stereo
