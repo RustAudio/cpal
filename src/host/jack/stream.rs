@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use traits::StreamTrait;
 
+const FLOAT_MONO_AUDIO: &str = "32 bit float mono audio";
+
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
     PlayStreamError, SampleRate, StreamError,
@@ -149,9 +151,9 @@ impl Stream {
     pub fn connect_to_system_outputs(&mut self) {
         // Get the system ports
         let system_ports = self.async_client.as_client().ports(
-            Some("system:playback_.*"),
             None,
-            jack::PortFlags::empty(),
+            Some(FLOAT_MONO_AUDIO),
+            jack::PortFlags::IS_INPUT | jack::PortFlags::IS_PHYSICAL,
         );
 
         // Connect outputs from this client to the system playback inputs
@@ -175,9 +177,9 @@ impl Stream {
     pub fn connect_to_system_inputs(&mut self) {
         // Get the system ports
         let system_ports = self.async_client.as_client().ports(
-            Some("system:capture_.*"),
             None,
-            jack::PortFlags::empty(),
+            Some(FLOAT_MONO_AUDIO),
+            jack::PortFlags::IS_OUTPUT | jack::PortFlags::IS_PHYSICAL,
         );
 
         // Connect outputs from this client to the system playback inputs
