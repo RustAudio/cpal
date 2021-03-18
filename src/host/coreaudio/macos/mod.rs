@@ -162,15 +162,6 @@ impl Device {
 
             let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
             if c_string.is_null() {
-                let status = AudioObjectGetPropertyData(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    0,
-                    null(),
-                    &data_size as *const _ as *mut _,
-                    &device_name as *const _ as *mut _,
-                );
-                check_os_status(status)?;
                 let mut buf: [i8; 255] = [0; 255];
                 let result = CFStringGetCString(
                     device_name,
