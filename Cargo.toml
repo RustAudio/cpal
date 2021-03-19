@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.13.2"
+version = "0.13.3"
 authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Low-level cross-platform audio I/O library in pure Rust."
 repository = "https://github.com/rustaudio/cpal"
