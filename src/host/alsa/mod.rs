@@ -912,9 +912,12 @@ impl Stream {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
-        let thread = thread::spawn(move || {
-            input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
-        });
+        let thread = thread::Builder::new()
+            .name("cpal_alsa_in".to_owned())
+            .spawn(move || {
+                input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+            })
+            .unwrap();
         Stream {
             thread: Some(thread),
             inner,
@@ -934,9 +937,12 @@ impl Stream {
         let (tx, rx) = trigger();
         // Clone the handle for passing into worker thread.
         let stream = inner.clone();
-        let thread = thread::spawn(move || {
-            output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
-        });
+        let thread = thread::Builder::new()
+            .name("cpal_alsa_out".to_owned())
+            .spawn(move || {
+                output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+            })
+            .unwrap();
         Stream {
             thread: Some(thread),
             inner,
