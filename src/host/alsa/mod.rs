@@ -619,10 +619,7 @@ fn output_stream_worker(
         .unwrap_or(PollDescriptorsFlow::Continue);
 
         match flow {
-            PollDescriptorsFlow::Continue => {
-                report_error(stream.channel.prepare(), error_callback);
-                continue;
-            }
+            PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::XRun => {
                 report_error(stream.channel.prepare(), error_callback);
                 continue;
