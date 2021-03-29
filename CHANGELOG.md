@@ -1,3 +1,12 @@
+# Version 0.13.3 (2021-03-29)
+
+- Give each thread an unique name
+- Fix distortion regression on some alsa configs
+
+# Version 0.13.2 (2021-03-16)
+
+- Update dependencies (ndk, nix, oboe, jni, etc)
+
 # Version 0.13.1 (2020-11-08)
 
 - Don't panic when device is plugged out on Windows
