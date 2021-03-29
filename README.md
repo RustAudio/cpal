@@ -16,7 +16,7 @@ This library currently supports the following:
 
 Currently supported hosts include:
 
-- Linux (via ALSA)
+- Linux (via ALSA or JACK)
 - Windows (via WASAPI by default, see ASIO instructions below)
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
@@ -29,7 +29,14 @@ as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
 
 ## Compiling for Web Assembly
 
-If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. 
+If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch.
+
+## Feature flags for audio backends
+
+Some audio backends are optional and will only be compiled with a [feature flag](https://doc.rust-lang.org/cargo/reference/features.html).
+
+- JACK (on Linux): `jack`
+- ASIO (on Windows): `asio`
 
 ## ASIO on Windows
 
