@@ -31,6 +31,7 @@ use super::winapi::Interface;
 // https://msdn.microsoft.com/en-us/library/cc230355.aspx
 use super::winapi::um::audioclient::{
     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
+    AUDCLNT_E_UNSUPPORTED_FORMAT,
 };
 use super::winapi::um::audiosessiontypes::{
     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
@@ -652,6 +653,7 @@ impl Device {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
                     // Otherwise the supported ranges are unknown. In the mean time
                     // the smallest buffersize is selected and used.
+                    (*audio_client).Release();
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
                 BufferSize::Default => (),
@@ -669,13 +671,6 @@ impl Device {
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
 
-                // Ensure the format is supported.
-                match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::StreamConfigNotSupported),
-                    Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
-                    _ => (),
-                }
-
                 // finally initializing the audio client
                 let hresult = (*audio_client).Initialize(
                     share_mode,
@@ -686,15 +681,21 @@ impl Device {
                     ptr::null(),
                 );
                 match check_result(hresult) {
-                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    }
                     Err(e) => {
                         (*audio_client).Release();
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
+                        return Err(match e.raw_os_error() {
+                            Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                                BuildStreamError::DeviceNotAvailable
+                            }
+                            Some(AUDCLNT_E_UNSUPPORTED_FORMAT) => {
+                                BuildStreamError::StreamConfigNotSupported
+                            }
+                            _ => {
+                                let description = format!("{}", e);
+                                let err = BackendSpecificError { description };
+                                err.into()
+                            }
+                        });
                     }
                     Ok(()) => (),
                 };
@@ -820,6 +821,7 @@ impl Device {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
                     // Otherwise the supported ranges are unknown. In the mean time
                     // the smallest buffersize is selected and used.
+                    (*audio_client).Release();
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
                 BufferSize::Default => (),
@@ -830,13 +832,6 @@ impl Device {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
                 let share_mode = AUDCLNT_SHAREMODE_SHARED;
-
-                // Ensure the format is supported.
-                match super::device::is_format_supported(audio_client, &format_attempt.Format) {
-                    Ok(false) => return Err(BuildStreamError::StreamConfigNotSupported),
-                    Err(_) => return Err(BuildStreamError::DeviceNotAvailable),
-                    _ => (),
-                }
 
                 // finally initializing the audio client
                 let hresult = (*audio_client).Initialize(
@@ -849,15 +844,21 @@ impl Device {
                 );
 
                 match check_result(hresult) {
-                    Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-                        (*audio_client).Release();
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    }
                     Err(e) => {
                         (*audio_client).Release();
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
+                        return Err(match e.raw_os_error() {
+                            Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
+                                BuildStreamError::DeviceNotAvailable
+                            }
+                            Some(AUDCLNT_E_UNSUPPORTED_FORMAT) => {
+                                BuildStreamError::StreamConfigNotSupported
+                            }
+                            _ => {
+                                let description = format!("{}", e);
+                                let err = BackendSpecificError { description };
+                                err.into()
+                            }
+                        });
                     }
                     Ok(()) => (),
                 };
