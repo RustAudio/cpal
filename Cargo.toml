@@ -17,7 +17,6 @@ thiserror = "1.0.2"
 [dev-dependencies]
 anyhow = "1.0.12"
 hound = "3.4"
-ringbuf = "0.2"
 clap = { version = "2.33.3", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
