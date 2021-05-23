@@ -127,6 +127,8 @@ fn main() -> anyhow::Result<()> {
     let latency_frames = (opt.latency / 1_000.0) * config.sample_rate.0 as f32;
     let latency_samples = latency_frames as usize * config.channels as usize;
 
+    // The channel has twice as much space as necessary to add latency here,
+    // so this should never fail
     let (tx, rx) = mpsc::sync_channel(latency_samples * 2);
 
     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {

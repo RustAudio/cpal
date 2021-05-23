@@ -1,7 +1,7 @@
 # iOS Feedback Example
 
 This example is an Xcode project that exercises both input and output
-audio streams. Audio samples are read in from your micrphone and then
+audio streams. Audio samples are read in from your microphone and then
 routed to your audio output device with a small but noticeable delay
 so you can verify it is working correctly.
 
