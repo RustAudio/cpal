@@ -317,7 +317,7 @@ impl Device {
             Ok(handle) => handle,
         };
 
-        let hw_params = alsa::pcm::HwParams::any(&handle)?;
+        let hw_params = alsa::pcm::HwParams::any(handle)?;
 
         // TODO: check endianess
         const FORMATS: [(SampleFormat, alsa::pcm::Format); 3] = [
