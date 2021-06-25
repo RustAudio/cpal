@@ -36,7 +36,7 @@ pub unsafe trait Sample: Copy + Clone {
     fn to_u16(&self) -> u16;
 
     /// Converts any sample type to this one by calling `to_i16`, `to_u16` or `to_f32`.
-    fn from<S>(&S) -> Self
+    fn from<S>(s: &S) -> Self
     where
         S: Sample;
 }
