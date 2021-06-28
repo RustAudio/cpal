@@ -121,24 +121,18 @@ impl Device {
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
                 buffer_size: f.buffer_size.clone(),
-                sample_format: f.sample_format.clone(),
+                sample_format: f.sample_format,
             });
         }
         supported_configs
     }
 
     pub fn is_input(&self) -> bool {
-        match self.device_type {
-            DeviceType::InputDevice => true,
-            _ => false,
-        }
+        matches!(self.device_type, DeviceType::InputDevice)
     }
 
     pub fn is_output(&self) -> bool {
-        match self.device_type {
-            DeviceType::OutputDevice => true,
-            _ => false,
-        }
+        matches!(self.device_type, DeviceType::OutputDevice)
     }
 }
 
@@ -202,9 +196,7 @@ impl DeviceTrait for Device {
             Ok(c) => client = c,
             Err(e) => {
                 return Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: e.to_string(),
-                    },
+                    err: BackendSpecificError { description: e },
                 })
             }
         };
@@ -243,9 +235,7 @@ impl DeviceTrait for Device {
             Ok(c) => client = c,
             Err(e) => {
                 return Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: e.to_string(),
-                    },
+                    err: BackendSpecificError { description: e },
                 })
             }
         };
