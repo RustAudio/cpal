@@ -23,7 +23,7 @@ pub struct Device {
     pub driver: Arc<sys::Driver>,
 
     // Input and/or Output stream.
-    // An driver can only have one of each.
+    // A driver can only have one of each.
     // They need to be created at the same time.
     pub asio_streams: Arc<Mutex<sys::AsioStreams>>,
 }

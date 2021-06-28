@@ -232,7 +232,7 @@ pub unsafe fn is_format_supported(
     }
 
     // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
-    // has been found) but we also treat this as an error
+    // has been found), but we also treat this as an error
     match (hresult, check_result(hresult)) {
         (_, Err(ref e))
             if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
@@ -436,8 +436,8 @@ impl Device {
     // querying them via `IsFormatSupported`.
     //
     // When calling `IsFormatSupported` with the shared-mode audio engine, only the default
-    // number of channels seems to be supported. Any more or less returns an invalid
-    // parameter error. Thus we just assume that the default number of channels is the only
+    // number of channels seems to be supported. Any, more or less returns an invalid
+    // parameter error. Thus, we just assume that the default number of channels is the only
     // number supported.
     fn supported_formats(&self) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         // initializing COM because we call `CoTaskMemFree` to release the format.
@@ -482,7 +482,7 @@ impl Device {
             let mut test_format = {
                 match WaveFormat::copy_from_waveformatex_ptr(default_waveformatex_ptr.0) {
                     Some(f) => f,
-                    // If the format is neither EX or EXTENSIBLE we don't know how to work with it.
+                    // If the format is neither EX nor EXTENSIBLE we don't know how to work with it.
                     None => return Ok(vec![].into_iter()),
                 }
             };
@@ -650,7 +650,7 @@ impl Device {
             match config.buffer_size {
                 BufferSize::Fixed(_) => {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
-                    // Otherwise the supported ranges are unknown. In the mean time
+                    // Otherwise the supported ranges are unknown. In the meantime
                     // the smallest buffersize is selected and used.
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
@@ -676,7 +676,7 @@ impl Device {
                     _ => (),
                 }
 
-                // finally initializing the audio client
+                // Finally, initializing the audio client
                 let hresult = (*audio_client).Initialize(
                     share_mode,
                     stream_flags,
@@ -818,7 +818,7 @@ impl Device {
             match config.buffer_size {
                 BufferSize::Fixed(_) => {
                     // TO DO: We need IAudioClient3 to get buffersize ranges first
-                    // Otherwise the supported ranges are unknown. In the mean time
+                    // Otherwise the supported ranges are unknown. In the meantime
                     // the smallest buffersize is selected and used.
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
@@ -838,7 +838,7 @@ impl Device {
                     _ => (),
                 }
 
-                // finally initializing the audio client
+                // Finally, initializing the audio client
                 let hresult = (*audio_client).Initialize(
                     share_mode,
                     AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
@@ -1092,7 +1092,7 @@ lazy_static! {
     };
 }
 
-/// RAII object around `IMMDeviceEnumerator`.
+/// RAII objects around `IMMDeviceEnumerator`.
 struct Enumerator(*mut IMMDeviceEnumerator);
 
 unsafe impl Send for Enumerator {}

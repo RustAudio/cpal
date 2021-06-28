@@ -1,6 +1,6 @@
 # Version 0.13.3 (2021-03-29)
 
-- Give each thread an unique name
+- Give each thread a unique name
 - Fix distortion regression on some alsa configs
 
 # Version 0.13.2 (2021-03-16)
@@ -106,7 +106,7 @@
 - Rename the `samples_rate` field of `Format` to `sample_rate`
 - Changed the type of the `channels` field of the `SupportedFormat` struct from `Vec<ChannelPosition>` to `ChannelCount` (an alias to `u16`)
 - Remove unused ChannelPosition API.
-- Implement `Endpoint` and `Format` Enumeration for macos.
+- Implement `Endpoint` and `Format` Enumeration for macOS.
 - Implement format handling for macos `build_voice` method.
 
 # Version 0.6.0 (2017-12-11)
@@ -115,7 +115,7 @@
 - Added improvements to the crate documentation.
 - Implement `pause` and `play` for ALSA backend.
 - Reduced the number of allocations in the CoreAudio backend.
-- Fixes for macos build (#186, #189).
+- Fixes for macOS build (#186, #189).
 
 # Version 0.5.1 (2017-10-21)
 

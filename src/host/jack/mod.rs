@@ -91,8 +91,8 @@ impl Host {
 }
 
 impl HostTrait for Host {
-    type Device = Device;
     type Devices = Devices;
+    type Device = Device;
 
     /// JACK is available if
     /// - the jack feature flag is set

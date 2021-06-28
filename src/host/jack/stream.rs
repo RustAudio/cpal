@@ -228,7 +228,7 @@ struct LocalProcessHandler {
     input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
     output_data_callback: Option<Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>>,
 
-    // JACK audio samples are 32 bit float (unless you do some custom dark magic)
+    // JACK audio samples are 32-bit float (unless you do some custom dark magic)
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
     playing: Arc<AtomicBool>,

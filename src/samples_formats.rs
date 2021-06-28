@@ -78,9 +78,9 @@ unsafe impl Sample for i16 {
     #[inline]
     fn to_f32(&self) -> f32 {
         if *self < 0 {
-            *self as f32 / -(::std::i16::MIN as f32)
+            *self as f32 / -(i16::MIN as f32)
         } else {
-            *self as f32 / ::std::i16::MAX as f32
+            *self as f32 / i16::MAX as f32
         }
     }
 
@@ -92,7 +92,7 @@ unsafe impl Sample for i16 {
     #[inline]
     fn to_u16(&self) -> u16 {
         if *self < 0 {
-            (*self - ::std::i16::MIN) as u16
+            (*self - i16::MIN) as u16
         } else {
             (*self as u16) + 32768
         }
@@ -118,15 +118,15 @@ unsafe impl Sample for f32 {
     #[inline]
     fn to_i16(&self) -> i16 {
         if *self >= 0.0 {
-            (*self * ::std::i16::MAX as f32) as i16
+            (*self * i16::MAX as f32) as i16
         } else {
-            (-*self * ::std::i16::MIN as f32) as i16
+            (-*self * i16::MIN as f32) as i16
         }
     }
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        (((*self + 1.0) * 0.5) * ::std::u16::MAX as f32).round() as u16
+        (((*self + 1.0) * 0.5) * u16::MAX as f32).round() as u16
     }
 
     #[inline]
@@ -192,9 +192,9 @@ mod test {
     #[test]
     fn f32_to_i16() {
         assert_eq!(0.0f32.to_i16(), 0);
-        assert_eq!((-0.5f32).to_i16(), ::std::i16::MIN / 2);
-        assert_eq!(1.0f32.to_i16(), ::std::i16::MAX);
-        assert_eq!((-1.0f32).to_i16(), ::std::i16::MIN);
+        assert_eq!((-0.5f32).to_i16(), i16::MIN / 2);
+        assert_eq!(1.0f32.to_i16(), i16::MAX);
+        assert_eq!((-1.0f32).to_i16(), i16::MIN);
     }
 
     #[test]
