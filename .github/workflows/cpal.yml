@@ -152,8 +152,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Install emscripten
-      run: sudo apt-get install emscripten
+    - name: Setup Emscripten toolchain
+      uses: mymindstorm/setup-emsdk@v10
+      with:
+        version: 2.0.9 # https://github.com/rust-lang/rust/issues/85821
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -161,7 +163,7 @@ jobs:
         toolchain: stable
         target: ${{ matrix.target }}
     - name: Build beep example
-      run: cargo build --example beep --target ${{ matrix.target }}
+      run: cargo build --example beep --release --target ${{ matrix.target }}
 
   wasm32-bindgen-test:
 
