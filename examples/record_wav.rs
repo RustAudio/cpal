@@ -78,7 +78,7 @@ fn main() -> Result<(), anyhow::Error> {
     ))]
     let host = cpal::default_host();
 
-    // Setup the input device and stream with the default input config.
+    // Set up the input device and stream with the default input config.
     let device = if opt.device == "default" {
         host.default_input_device()
     } else {

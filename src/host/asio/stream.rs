@@ -24,7 +24,7 @@ trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {
     fn from_cpal_sample<T: Sample>(&T) -> Self;
 }
 
-// Used to keep track of whether or not the current current asio stream buffer requires
+// Used to keep track of whether or not the current asio stream buffer requires
 // being silencing before summing audio.
 #[derive(Default)]
 struct SilenceAsioBuffer {

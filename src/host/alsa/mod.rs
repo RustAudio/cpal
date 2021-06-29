@@ -129,7 +129,7 @@ impl TriggerSender {
     fn wakeup(&self) {
         let buf = 1u64;
         let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
-        assert!(ret == 8);
+        assert_eq!(ret, 8);
     }
 }
 
@@ -459,7 +459,7 @@ impl Device {
                     return Err(DefaultStreamConfigError::DeviceNotAvailable);
                 }
                 Err(SupportedStreamConfigsError::InvalidArgument) => {
-                    // this happens sometimes when querying for input and output capabilities but
+                    // this happens sometimes when querying for input and output capabilities, but
                     // the device supports only one
                     return Err(DefaultStreamConfigError::StreamTypeNotSupported);
                 }
@@ -997,7 +997,7 @@ fn set_hw_params_from_format(
         }
         BufferSize::Default => {
             // These values together represent a moderate latency and wakeup interval.
-            // Without them we are at the mercy of the device
+            // Without them, we are at the mercy of the device
             hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
             hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
         }

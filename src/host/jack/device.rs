@@ -44,7 +44,7 @@ impl Device {
         let client_options = super::get_client_options(start_server_automatically);
 
         // Create a dummy client to find out the sample rate of the server to be able to provide it as a possible config.
-        // This client will be dropped and a new one will be created when making the stream.
+        // This client will be dropped, and a new one will be created when making the stream.
         // This is a hack due to the fact that the Client must be moved to create the AsyncClient.
         match super::get_client(&name, client_options) {
             Ok(client) => Ok(Device {
@@ -95,7 +95,7 @@ impl Device {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
         let buffer_size = self.buffer_size.clone();
-        // The sample format for JACK audio ports is always "32 bit float mono audio" in the current implementation.
+        // The sample format for JACK audio ports is always "32-bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
         let sample_format = JACK_SAMPLE_FORMAT;
@@ -158,14 +158,14 @@ impl DeviceTrait for Device {
     }
 
     /// Returns the default input config
-    /// The sample format for JACK audio ports is always "32 bit float mono audio" unless using a custom type.
+    /// The sample format for JACK audio ports is always "32-bit float mono audio" unless using a custom type.
     /// The sample rate is set by the JACK server.
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         self.default_config()
     }
 
     /// Returns the default output config
-    /// The sample format for JACK audio ports is always "32 bit float mono audio" unless using a custom type.
+    /// The sample format for JACK audio ports is always "32-bit float mono audio" unless using a custom type.
     /// The sample rate is set by the JACK server.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         self.default_config()
