@@ -48,9 +48,9 @@ coreaudio-rs = { version = "0.10.0", default-features = false, features = ["audi
 stdweb = { version = "0.1.3", default-features = false }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-wasm-bindgen = { version = "0.2.58", optional = true }
-js-sys = { version = "0.3.35" }
-web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
+wasm-bindgen = { version = "^0.2.58", optional = true }
+js-sys = { version = "^0.3.35" }
+web-sys = { version = "^0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 oboe = { version = "0.4.0", features = [ "java-interface" ] }
