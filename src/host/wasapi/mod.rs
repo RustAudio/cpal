@@ -1,4 +1,4 @@
-extern crate winapi;
+use winapi;
 
 pub use self::device::{
     default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
@@ -6,10 +6,10 @@ pub use self::device::{
 };
 pub use self::stream::Stream;
 use self::winapi::um::winnt::HRESULT;
+use crate::traits::HostTrait;
+use crate::BackendSpecificError;
+use crate::DevicesError;
 use std::io::Error as IoError;
-use traits::HostTrait;
-use BackendSpecificError;
-use DevicesError;
 
 mod com;
 mod device;

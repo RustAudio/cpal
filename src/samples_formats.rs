@@ -160,9 +160,9 @@ mod test {
 
     #[test]
     fn i16_to_f32() {
-        assert_eq!(0i16.to_f32(), 0.0);
+        assert!(0i16.to_f32() - 0.0 <= f32::EPSILON);
         assert_eq!((-16384i16).to_f32(), -0.5);
-        assert_eq!(32767i16.to_f32(), 1.0);
+        assert!(32767i16.to_f32() - 1.0 <= f32::EPSILON);
         assert_eq!((-32768i16).to_f32(), -1.0);
     }
 
@@ -185,8 +185,8 @@ mod test {
     #[test]
     fn u16_to_f32() {
         assert_eq!(0u16.to_f32(), -1.0);
-        assert_eq!(32768u16.to_f32(), 0.0);
-        assert_eq!(65535u16.to_f32(), 1.0);
+        assert!(32768u16.to_f32() - 0.0 <= f32::EPSILON);
+        assert!(65535u16.to_f32() - 1.0 <= f32::EPSILON);
     }
 
     #[test]
@@ -206,8 +206,8 @@ mod test {
 
     #[test]
     fn f32_to_f32() {
-        assert_eq!(0.1f32.to_f32(), 0.1);
+        assert!(0.1f32.to_f32() - 0.1 <= f32::EPSILON);
         assert_eq!((-0.7f32).to_f32(), -0.7);
-        assert_eq!(1.0f32.to_f32(), 1.0);
+        assert!(1.0f32.to_f32() - 1.0 <= f32::EPSILON);
     }
 }

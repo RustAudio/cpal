@@ -393,7 +393,7 @@ impl Device {
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
     fn ensure_future_audio_client(
         &self,
-    ) -> Result<MutexGuard<Option<IAudioClientWrapper>>, IoError> {
+    ) -> Result<MutexGuard<'_, Option<IAudioClientWrapper>>, IoError> {
         let mut lock = self.future_audio_client.lock().unwrap();
         if lock.is_some() {
             return Ok(lock);
@@ -1022,7 +1022,7 @@ impl Clone for Device {
 }
 
 impl fmt::Debug for Device {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Device")
             .field("device", &self.device)
             .field("name", &self.name())

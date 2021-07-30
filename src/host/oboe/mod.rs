@@ -3,7 +3,7 @@ use std::cmp;
 use std::convert::TryInto;
 use std::vec::IntoIter as VecIntoIter;
 
-extern crate oboe;
+use oboe;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{

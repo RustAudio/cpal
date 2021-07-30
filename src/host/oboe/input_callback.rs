@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::time::Instant;
 
-extern crate oboe;
+use oboe;
 
 use super::convert::{stream_instant, to_stream_instant};
 use crate::{Data, InputCallbackInfo, InputStreamTimestamp, Sample, StreamError};

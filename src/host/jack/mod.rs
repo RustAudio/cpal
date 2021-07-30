@@ -1,7 +1,5 @@
-extern crate jack;
-
+use crate::traits::HostTrait;
 use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
-use traits::HostTrait;
 
 mod device;
 pub use self::device::Device;
@@ -171,7 +169,7 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
                 return Err(String::from("Error connecting to JACK server: The operation contained an invalid or unsupported option!"));
             }
 
-            return Ok(client);
+            Ok(client)
         }
         Err(e) => {
             return Err(format!("Failed to open client because of error: {:?}", e));

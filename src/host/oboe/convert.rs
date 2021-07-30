@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::time::Duration;
 
-extern crate oboe;
+use oboe;
 
 use crate::{
     BackendSpecificError, BuildStreamError, PauseStreamError, PlayStreamError, StreamError,

@@ -1,7 +1,7 @@
 use std::vec::IntoIter as VecIntoIter;
 
-use DevicesError;
-use SupportedStreamConfigRange;
+use crate::DevicesError;
+use crate::SupportedStreamConfigRange;
 
 use super::Device;
 

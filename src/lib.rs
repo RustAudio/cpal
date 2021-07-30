@@ -142,6 +142,7 @@
 //! ```
 
 #![recursion_limit = "512"]
+#![deny(rust_2018_compatibility, rust_2018_idioms)]
 
 #[cfg(target_os = "windows")]
 #[macro_use]
@@ -150,14 +151,13 @@ extern crate lazy_static;
 #[cfg(target_os = "emscripten")]
 #[macro_use]
 extern crate stdweb;
-extern crate thiserror;
 
-pub use error::*;
-pub use platform::{
+pub use crate::error::*;
+pub use crate::platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{Sample, SampleFormat};
+pub use crate::samples_formats::{Sample, SampleFormat};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
@@ -609,8 +609,8 @@ impl SupportedStreamConfigRange {
     /// - 44100 (cd quality)
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
+        use crate::SampleFormat::{F32, I16, U16};
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {

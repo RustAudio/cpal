@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-extern crate jni;
-extern crate ndk_glue;
+use jni;
+use ndk_glue;
 
 use self::jni::Executor;
 use self::jni::{errors::Result as JResult, objects::JObject, JNIEnv, JavaVM};
@@ -14,7 +14,7 @@ pub const CHANNEL_OUT_STEREO: i32 = 12;
 
 fn with_attached<F, R>(closure: F) -> JResult<R>
 where
-    F: FnOnce(&JNIEnv, JObject) -> JResult<R>,
+    F: FnOnce(&JNIEnv<'_>, JObject<'_>) -> JResult<R>,
 {
     let activity = ndk_glue::native_activity();
     let vm = Arc::new(unsafe { JavaVM::from_raw(activity.vm())? });
