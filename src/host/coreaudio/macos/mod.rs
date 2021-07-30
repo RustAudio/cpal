@@ -1,5 +1,5 @@
-extern crate core_foundation_sys;
-extern crate coreaudio;
+use core_foundation_sys;
+use coreaudio;
 
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
 
@@ -401,7 +401,7 @@ impl Device {
 }
 
 impl fmt::Debug for Device {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Device")
             .field("audio_device_id", &self.audio_device_id)
             .field("name", &self.name())

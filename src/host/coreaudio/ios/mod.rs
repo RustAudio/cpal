@@ -7,8 +7,8 @@
 //!   buffer size.
 //!
 
-extern crate core_foundation_sys;
-extern crate coreaudio;
+use core_foundation_sys;
+use coreaudio;
 
 use std::cell::RefCell;
 
@@ -20,7 +20,7 @@ use self::coreaudio::sys::{
 };
 
 use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
-use traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,

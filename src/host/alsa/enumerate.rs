@@ -1,7 +1,7 @@
 use super::alsa;
 use super::parking_lot::Mutex;
 use super::{Device, DeviceHandles};
-use {BackendSpecificError, DevicesError};
+use crate::{BackendSpecificError, DevicesError};
 
 /// ALSA's implementation for `Devices`.
 pub struct Devices {

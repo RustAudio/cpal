@@ -1,12 +1,12 @@
-extern crate coreaudio;
+use coreaudio;
 
 use self::coreaudio::sys::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
     AudioStreamBasicDescription, OSStatus,
 };
 
-use DefaultStreamConfigError;
-use {BuildStreamError, SupportedStreamConfigsError};
+use crate::DefaultStreamConfigError;
+use crate::{BuildStreamError, SupportedStreamConfigsError};
 
 use crate::{BackendSpecificError, SampleFormat, StreamConfig};
 

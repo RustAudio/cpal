@@ -1,4 +1,4 @@
-extern crate coreaudio;
+use coreaudio;
 
 use self::coreaudio::sys::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
@@ -8,10 +8,10 @@ use self::coreaudio::sys::{
     AudioObjectPropertyAddress, OSStatus,
 };
 use super::Device;
+use crate::{BackendSpecificError, DevicesError, SupportedStreamConfigRange};
 use std::mem;
 use std::ptr::null;
 use std::vec::IntoIter as VecIntoIter;
-use {BackendSpecificError, DevicesError, SupportedStreamConfigRange};
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
