@@ -35,7 +35,7 @@ parking_lot = "0.11"
 jack = { version = "0.7.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
+core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach = "0.3" # For access to mach_timebase type.
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -56,7 +56,7 @@ web-sys = { version = "^0.3.35", features = [ "AudioContext", "AudioContextOptio
 oboe = { version = "0.4.0", features = [ "java-interface" ] }
 ndk = "0.3"
 ndk-glue = "0.3"
-jni = "0.18"
+jni = "0.19"
 
 [[example]]
 name = "android"
