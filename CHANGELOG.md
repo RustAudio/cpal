@@ -1,3 +1,9 @@
+# Version 0.13.4 (2021-08-08)
+
+- wasapi: Allow both threading models and switch the default to STA
+- Update dependencies (core-foundation-sys, jni, rust-jack)
+- Alsa: improve stream setup parameters
+
 # Version 0.13.3 (2021-03-29)
 
 - Give each thread a unique name
