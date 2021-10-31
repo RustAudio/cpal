@@ -242,12 +242,8 @@ impl Device {
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, Some(nix::errno::Errno::EBUSY))) => {
-                return Err(BuildStreamError::DeviceNotAvailable)
-            }
-            Err((_, Some(nix::errno::Errno::EINVAL))) => {
-                return Err(BuildStreamError::InvalidArgument)
-            }
+            Err((_, nix::errno::Errno::EBUSY)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, nix::errno::Errno::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
@@ -306,11 +302,10 @@ impl Device {
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, Some(nix::errno::Errno::ENOENT)))
-            | Err((_, Some(nix::errno::Errno::EBUSY))) => {
+            Err((_, nix::errno::Errno::ENOENT)) | Err((_, nix::errno::Errno::EBUSY)) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
-            Err((_, Some(nix::errno::Errno::EINVAL))) => {
+            Err((_, nix::errno::Errno::EINVAL)) => {
                 return Err(SupportedStreamConfigsError::InvalidArgument)
             }
             Err((e, _)) => return Err(e.into()),
@@ -735,7 +730,7 @@ fn poll_descriptors_and_prepare_buffer(
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
+        Err(err) if err.errno() == nix::errno::Errno::EPIPE => {
             return Ok(PollDescriptorsFlow::XRun)
         }
         res => res,
@@ -818,7 +813,7 @@ fn process_output(
     }
     loop {
         match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == Some(nix::errno::Errno::EPIPE) => {
+            Err(err) if err.errno() == nix::errno::Errno::EPIPE => {
                 // buffer underrun
                 // TODO: Notify the user of this.
                 let _ = stream.channel.try_recover(err, false);
