@@ -74,3 +74,6 @@ name = "feedback"
 
 [[example]]
 name = "record_wav"
+
+[[example]]
+name = "synth_tones"
