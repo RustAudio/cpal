@@ -48,6 +48,22 @@ where
 {
     type FrameType = (T, C);
 
+    fn on_error_before_close(
+        &mut self,
+        _audio_stream: &mut dyn oboe::AudioInputStreamSafe,
+        error: oboe::Error,
+    ) {
+        (self.error_cb)(StreamError::from(error))
+    }
+
+    fn on_error_after_close(
+        &mut self,
+        _audio_stream: &mut dyn oboe::AudioInputStreamSafe,
+        error: oboe::Error,
+    ) {
+        (self.error_cb)(StreamError::from(error))
+    }
+
     fn on_audio_ready(
         &mut self,
         audio_stream: &mut dyn oboe::AudioInputStreamSafe,
@@ -70,21 +86,5 @@ where
             &cb_info,
         );
         oboe::DataCallbackResult::Continue
-    }
-
-    fn on_error_before_close(
-        &mut self,
-        _audio_stream: &mut dyn oboe::AudioInputStreamSafe,
-        error: oboe::Error,
-    ) {
-        (self.error_cb)(StreamError::from(error))
-    }
-
-    fn on_error_after_close(
-        &mut self,
-        _audio_stream: &mut dyn oboe::AudioInputStreamSafe,
-        error: oboe::Error,
-    ) {
-        (self.error_cb)(StreamError::from(error))
     }
 }

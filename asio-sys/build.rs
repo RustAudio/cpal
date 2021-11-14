@@ -26,7 +26,7 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
 
     // Check if library exists
-    // if it doesn't create it
+    // If it doesn't create it
     let mut lib_path = out_dir.clone();
     lib_path.push("libasio.a");
     if !lib_path.exists() {
@@ -41,7 +41,7 @@ fn main() {
     println!("cargo:rustc-cfg=asio");
 
     // Check if bindings exist
-    // if they dont create them
+    // If they don't create them
     let mut binding_path = out_dir.clone();
     binding_path.push("asio_bindings.rs");
     if !binding_path.exists() {

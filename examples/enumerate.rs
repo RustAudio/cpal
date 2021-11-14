@@ -26,16 +26,16 @@ fn main() -> Result<(), anyhow::Error> {
             if let Ok(conf) = device.default_input_config() {
                 println!("    Default input stream config:\n      {:?}", conf);
             }
-            let mut input_configs = match device.supported_input_configs() {
-                Ok(f) => f.peekable(),
+            let input_configs = match device.supported_input_configs() {
+                Ok(f) => f.collect(),
                 Err(e) => {
-                    println!("Error: {:?}", e);
-                    continue;
+                    println!("    Error getting supported input configs: {:?}", e);
+                    Vec::new()
                 }
             };
-            if input_configs.peek().is_some() {
+            if !input_configs.is_empty() {
                 println!("    All supported input stream configs:");
-                for (config_index, config) in input_configs.enumerate() {
+                for (config_index, config) in input_configs.into_iter().enumerate() {
                     println!(
                         "      {}.{}. {:?}",
                         device_index + 1,
@@ -49,16 +49,16 @@ fn main() -> Result<(), anyhow::Error> {
             if let Ok(conf) = device.default_output_config() {
                 println!("    Default output stream config:\n      {:?}", conf);
             }
-            let mut output_configs = match device.supported_output_configs() {
-                Ok(f) => f.peekable(),
+            let output_configs = match device.supported_output_configs() {
+                Ok(f) => f.collect(),
                 Err(e) => {
-                    println!("Error: {:?}", e);
-                    continue;
+                    println!("    Error getting supported output configs: {:?}", e);
+                    Vec::new()
                 }
             };
-            if output_configs.peek().is_some() {
+            if !output_configs.is_empty() {
                 println!("    All supported output stream configs:");
-                for (config_index, config) in output_configs.enumerate() {
+                for (config_index, config) in output_configs.into_iter().enumerate() {
                     println!(
                         "      {}.{}. {:?}",
                         device_index + 1,

@@ -44,7 +44,7 @@ const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
 const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
 const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
 const MIN_BUFFER_SIZE: u32 = 1;
-const MAX_BUFFER_SIZE: u32 = std::u32::MAX;
+const MAX_BUFFER_SIZE: u32 = u32::MAX;
 const DEFAULT_BUFFER_SIZE: usize = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -232,10 +232,14 @@ impl StreamTrait for Stream {
     }
 }
 
-fn callback_fn<D>(
-    mut data_callback: D,
-) -> impl FnOnce(Stream, StreamConfig, SampleFormat, usize) + 'static
-where
+// The first argument of the callback function (a `void*`) is a cast pointer to `self`
+// and to the `callback` parameter that was passed to `run`.
+fn audio_callback_fn<D, E>(
+    user_data_ptr: *mut c_void,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    buffer_size_frames: usize,
+) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     |stream: Stream,
@@ -256,6 +260,10 @@ where
             let mut data = unsafe { Data::from_parts(data, len, sample_format) };
             let now_secs: f64 = audio_ctxt.current_time();
             let callback = crate::StreamInstant::from_secs_f64(now_secs);
+            // TODO: Use proper latency instead. Currently, unsupported on most browsers though, so
+            // we estimate based on buffer size instead. Probably should use this, but it's only
+            // supported by firefox (2020-04-28).
+            // let latency_secs: f64 = js!(@{audio_ctxt}.outputLatency).try_into().unwrap();
             let buffer_duration = frames_to_duration(len, sample_rate as usize);
             let playback = callback
                 .add(buffer_duration)

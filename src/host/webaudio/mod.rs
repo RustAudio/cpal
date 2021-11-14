@@ -40,7 +40,7 @@ const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
 const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
 const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
 const MIN_BUFFER_SIZE: u32 = 1;
-const MAX_BUFFER_SIZE: u32 = std::u32::MAX;
+const MAX_BUFFER_SIZE: u32 = u32::MAX;
 const DEFAULT_BUFFER_SIZE: usize = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -234,7 +234,7 @@ impl DeviceTrait for Device {
         let time = Arc::new(RwLock::new(0f64));
 
         // Create a set of closures / callbacks which will continuously fetch and schedule sample
-        // playback. Starting with two workers, eg a front and back buffer so that audio frames
+        // playback. Starting with two workers, e.g. a front and back buffer so that audio frames
         // can be fetched in the background.
         for _i in 0..2 {
             let data_callback_handle = data_callback.clone();
@@ -297,7 +297,7 @@ impl DeviceTrait for Device {
                     }
 
                     // Deinterleave the sample data and copy into the audio context buffer.
-                    // We do not reference the audio context buffer directly eg getChannelData.
+                    // We do not reference the audio context buffer directly e.g. getChannelData.
                     // As wasm-bindgen only gives us a copy, not a direct reference.
                     for channel in 0..n_channels {
                         for i in 0..buffer_size_frames {
