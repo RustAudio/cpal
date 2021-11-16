@@ -8,34 +8,24 @@ extern crate cpal;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-//
-
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for(sample_next)?;
     stream.play()?;
     std::thread::sleep(std::time::Duration::from_millis(3000));
-    return Ok(());
+    Ok(())
 }
-
-//
 
 fn sample_next(o: &mut SampleRequestOptions) -> f32 {
     o.tick();
     o.tone(440.) * 0.1 + o.tone(880.) * 0.1
-    /*
-    combination of several tones
-    */
+    // combination of several tones
 }
-
-//
 
 pub struct SampleRequestOptions {
     pub sample_rate: f32,
     pub sample_clock: f32,
     pub nchannels: usize,
 }
-
-//
 
 impl SampleRequestOptions {
     fn tone(&self, freq: f32) -> f32 {
@@ -46,8 +36,6 @@ impl SampleRequestOptions {
     }
 }
 
-//
-
 pub fn stream_setup_for<F>(on_sample: F) -> Result<cpal::Stream, anyhow::Error>
 where
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static + Copy,
@@ -55,9 +43,9 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => _stream_make::<f32, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I16 => _stream_make::<i16, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U16 => _stream_make::<u16, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I16 => stream_make::<i16, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U16 => stream_make::<u16, _>(&device, &config.into(), on_sample),
     }
 }
 
@@ -76,7 +64,7 @@ pub fn host_device_setup(
     Ok((host, device, config))
 }
 
-pub fn _stream_make<T, F>(
+pub fn stream_make<T, F>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     on_sample: F,
@@ -103,7 +91,7 @@ where
         err_fn,
     )?;
 
-    return Ok(stream);
+    Ok(stream)
 }
 
 fn on_window<T, F>(output: &mut [T], request: &mut SampleRequestOptions, mut on_sample: F)
