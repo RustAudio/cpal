@@ -73,11 +73,12 @@ unsafe impl Sample for i16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        if *self < 0 {
-            *self as f32 / -(i16::MIN as f32)
-        } else {
-            *self as f32 / i16::MAX as f32
-        }
+        const POSITIVE_MULTIPLIER:f32 = 1.0 / i16::MAX as f32;
+        const NEGATIVE_MULTIPLIER:f32 = 1.0 / -(i16::MIN as f32);
+        const NEGATIVE_OFFSET:f32 =  NEGATIVE_MULTIPLIER - POSITIVE_MULTIPLIER;
+        let sign_bit = (*self as u16 >> 15) as f32;
+        let multiplier = NEGATIVE_OFFSET.mul_add(sign_bit, POSITIVE_MULTIPLIER);
+        *self as f32 * multiplier
     }
 
     #[inline]
@@ -98,7 +99,7 @@ unsafe impl Sample for i16 {
         sample.to_i16()
     }
 }
-
+const F32_TO_16BIT_INT_MULTIPLIER:f32 = u16::MAX as f32 * 0.5;
 unsafe impl Sample for f32 {
     const FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -109,16 +110,12 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn to_i16(&self) -> i16 {
-        if *self >= 0.0 {
-            (*self * i16::MAX as f32) as i16
-        } else {
-            (-*self * i16::MIN as f32) as i16
-        }
+        (*self * F32_TO_16BIT_INT_MULTIPLIER).floor() as i16
     }
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        (((*self + 1.0) * 0.5) * u16::MAX as f32).round() as u16
+        self.mul_add(F32_TO_16BIT_INT_MULTIPLIER,F32_TO_16BIT_INT_MULTIPLIER).round() as u16
     }
 
     #[inline]
