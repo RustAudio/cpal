@@ -51,11 +51,7 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn to_i16(&self) -> i16 {
-        if *self >= 32768 {
-            (*self - 32768) as i16
-        } else {
-            (*self as i16) - 32767 - 1
-        }
+        (*self as i16).wrapping_add(i16::MIN)
     }
 
     #[inline]
@@ -91,11 +87,7 @@ unsafe impl Sample for i16 {
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        if *self < 0 {
-            (*self - i16::MIN) as u16
-        } else {
-            (*self as u16) + 32768
-        }
+        self.wrapping_add(i16::MIN) as u16
     }
 
     #[inline]
