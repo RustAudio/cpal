@@ -1,0 +1,4 @@
+[target.aarch64-apple-ios]
+linker="/usr/bin/clang"
+[target.x86_64-apple-darwin]
+linker="/usr/bin/clang"
