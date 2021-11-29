@@ -100,8 +100,10 @@ impl Stream {
             commands: rx,
         };
 
-        let thread =
-            thread::spawn(move || run_input(run_context, &mut data_callback, &mut error_callback));
+        let thread = thread::Builder::new()
+            .name("cpal_wasapi_in".to_owned())
+            .spawn(move || run_input(run_context, &mut data_callback, &mut error_callback))
+            .unwrap();
 
         Stream {
             thread: Some(thread),
@@ -129,8 +131,10 @@ impl Stream {
             commands: rx,
         };
 
-        let thread =
-            thread::spawn(move || run_output(run_context, &mut data_callback, &mut error_callback));
+        let thread = thread::Builder::new()
+            .name("cpal_wasapi_out".to_owned())
+            .spawn(move || run_output(run_context, &mut data_callback, &mut error_callback))
+            .unwrap();
 
         Stream {
             thread: Some(thread),

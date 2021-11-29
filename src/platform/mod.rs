@@ -41,13 +41,13 @@ macro_rules! impl_platform_host {
 
         /// The platform's dynamically dispatched **Host** type.
         ///
-        /// An instance of this **Host** type may represent one of any of the **Host**s available
+        /// An instance of this **Host** type may represent one of the **Host**s available
         /// on the platform.
         ///
         /// Use this type if you require switching between available hosts at runtime.
         ///
         /// This type may be constructed via the **host_from_id** function. **HostId**s may
-        /// be acquired via the **ALL_HOSTS** const and the **available_hosts** function.
+        /// be acquired via the **ALL_HOSTS** const, and the **available_hosts** function.
         pub struct Host(HostInner);
 
         /// The **Device** implementation associated with the platform's dynamically dispatched

@@ -82,7 +82,7 @@
 //! > provide a blocking API (e.g. ALSA), CPAL will create a thread in order to consistently
 //! > provide non-blocking behaviour (currently this is a thread per stream, but this may change to
 //! > use a single thread for all streams). *If this is an issue for your platform or design,
-//! > please share your issue and use-case with the CPAL team on the github issue tracker for
+//! > please share your issue and use-case with the CPAL team on the GitHub issue tracker for
 //! > consideration.*
 //!
 //! In this example, we simply fill the given output buffer with silence.
@@ -409,11 +409,11 @@ impl StreamInstant {
     #[allow(dead_code)]
     fn from_nanos_i128(nanos: i128) -> Option<Self> {
         let secs = nanos / 1_000_000_000;
-        if secs > std::i64::MAX as i128 || secs < std::i64::MIN as i128 {
+        if secs > i64::MAX as i128 || secs < i64::MIN as i128 {
             None
         } else {
             let subsec_nanos = nanos - secs * 1_000_000_000;
-            debug_assert!(subsec_nanos < std::u32::MAX as i128);
+            debug_assert!(subsec_nanos < u32::MAX as i128);
             Some(Self::new(secs as i64, subsec_nanos as u32))
         }
     }
@@ -755,8 +755,8 @@ const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
 fn test_stream_instant() {
     let a = StreamInstant::new(2, 0);
     let b = StreamInstant::new(-2, 0);
-    let min = StreamInstant::new(std::i64::MIN, 0);
-    let max = StreamInstant::new(std::i64::MAX, 0);
+    let min = StreamInstant::new(i64::MIN, 0);
+    let max = StreamInstant::new(i64::MAX, 0);
     assert_eq!(
         a.sub(Duration::from_secs(1)),
         Some(StreamInstant::new(1, 0))

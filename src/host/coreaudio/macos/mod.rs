@@ -245,7 +245,7 @@ impl Device {
             }
 
             // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
-            // I16 but just use F32 for now as its the default anyway.
+            // I16 but just use F32 for now as it's the default anyway.
             let sample_format = SampleFormat::F32;
 
             // Get available sample rate ranges.
@@ -535,7 +535,7 @@ impl Device {
 
                 // Setting the sample rate of a device is an asynchronous process in coreaudio.
                 //
-                // Thus we are required to set a `listener` so that we may be notified when the
+                // Thus, we are required to set a `listener` so that we may be notified when the
                 // change occurs.
                 unsafe extern "C" fn rate_listener(
                     device_id: AudioObjectID,

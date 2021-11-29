@@ -98,8 +98,8 @@ impl DeviceTrait for Device {
 }
 
 impl HostTrait for Host {
-    type Device = Device;
     type Devices = Devices;
+    type Device = Device;
 
     fn is_available() -> bool {
         false

@@ -12,7 +12,7 @@ pub struct HostUnavailable;
 /// - It is unclear exactly what error might be produced by the backend API.
 /// - It does not make sense to add a variant to the enclosing error type.
 /// - No error was expected to occur at all, but we return an error to avoid the possibility of a
-///   `panic!` caused by some unforseen or unknown reason.
+///   `panic!` caused by some unforeseen or unknown reason.
 ///
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
 /// cross-platform manner, please create an issue or submit a pull request with a patch that adds

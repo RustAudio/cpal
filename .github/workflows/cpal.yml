@@ -29,7 +29,7 @@ jobs:
       uses: actions-rs/clippy-check@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --all-features --target armv7-linux-androideabi
+        args: --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
@@ -63,11 +63,12 @@ jobs:
       continue-on-error: true
       run: |
         CPAL_TMP=$(mktemp /tmp/cpalXXX.txt) || echo "::error::mktemp error"
-        echo "::set-env name=CPAL_TMP::$CPAL_TMP"
+        echo "CPAL_TMP=$CPAL_TMP" >> $GITHUB_ENV
         cargo publish --token $CRATESIO_TOKEN 2> $CPAL_TMP
     - name: Check if cpal is already published
       run: |
         empty=0
+        CPAL_TMP="${{ env.CPAL_TMP }}"
         grep -q '[^[:space:]]' < $CPAL_TMP || empty=1
         [ $empty -eq 0 ] && cat $CPAL_TMP
         [ $empty -eq 1 ] || grep -q "is already uploaded" < $CPAL_TMP
@@ -167,8 +168,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Install emscripten
-      run: sudo apt-get install emscripten
+    - name: Setup Emscripten toolchain
+      uses: mymindstorm/setup-emsdk@v10
+      with:
+        version: 2.0.9 # https://github.com/rust-lang/rust/issues/85821
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -176,7 +179,7 @@ jobs:
         toolchain: stable
         target: ${{ matrix.target }}
     - name: Build beep example
-      run: cargo build --example beep --target ${{ matrix.target }}
+      run: cargo build --example beep --release --target ${{ matrix.target }}
 
   wasm32-bindgen-test:
 
@@ -279,15 +282,15 @@ jobs:
         override: true
         target: armv7-linux-androideabi
     - name: Check android
-      run: cargo check --example android --target armv7-linux-androideabi --verbose
+      run: cargo check --example android --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
     - name: Check beep
-      run: cargo check --example beep --target armv7-linux-androideabi --verbose
+      run: cargo check --example beep --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
     - name: Check enumerate
-      run: cargo check --example enumerate --target armv7-linux-androideabi --verbose
+      run: cargo check --example enumerate --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
     - name: Check feedback
-      run: cargo check --example feedback --target armv7-linux-androideabi --verbose
+      run: cargo check --example feedback --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
     - name: Check record_wav
-      run: cargo check --example record_wav --target armv7-linux-androideabi --verbose
+      run: cargo check --example record_wav --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
 
   android-apk-build:
     runs-on: ubuntu-latest
