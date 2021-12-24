@@ -449,9 +449,6 @@ impl Driver {
     ) -> Result<c_long, AsioError> {
         let num_channels = buffer_infos.len();
 
-        // To pass as ai::ASIOCallbacks
-        let mut callbacks = create_asio_callbacks();
-
         let mut state = self.inner.lock_state();
 
         // Retrieve the available buffer sizes.
@@ -486,7 +483,7 @@ impl Driver {
                 buffer_infos.as_mut_ptr() as *mut _,
                 num_channels as i32,
                 buffer_size,
-                &mut callbacks as *mut _ as *mut _,
+                &mut ASIO_CALLBACKS as *mut _ as *mut _,
             ))?;
         }
         *state = DriverState::Prepared;
@@ -795,15 +792,17 @@ fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo
         .collect()
 }
 
-/// The set of callbacks passed to `ASIOCreateBuffers`.
-fn create_asio_callbacks() -> AsioCallbacks {
-    AsioCallbacks {
-        buffer_switch: buffer_switch,
-        sample_rate_did_change: sample_rate_did_change,
-        asio_message: asio_message,
-        buffer_switch_time_info: buffer_switch_time_info,
-    }
-}
+/// the set of callbacks passed to `asiocreatebuffers`.
+/// A note about static mut:
+/// While it is generally considered bad practice to have a static mut variable, in this case it
+/// makes sense because the ASIO driver needs a pointer that is not const. I can't see any reason
+/// this would actually be modified.
+static mut ASIO_CALLBACKS: AsioCallbacks = AsioCallbacks {
+    buffer_switch,
+    sample_rate_did_change,
+    asio_message,
+    buffer_switch_time_info,
+};
 
 /// Retrieve the minimum, maximum and preferred buffer sizes along with the available
 /// buffer size granularity.
