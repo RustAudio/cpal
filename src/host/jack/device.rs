@@ -1,8 +1,9 @@
 use crate::{
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedDuplexChannels,
+    SupportedDuplexStreamConfig, SupportedDuplexStreamConfigRange, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
 use traits::DeviceTrait;
@@ -12,9 +13,12 @@ use super::JACK_SAMPLE_FORMAT;
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = std::option::IntoIter<SupportedDuplexStreamConfigRange>;
 
+// TODO: Retrieve from "system" devices instead?
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
+const DEFAULT_DUPLEX_MAX_CHANNELS: u16 = u16::MAX;
 
 /// If a device is for input or output.
 /// Until we have duplex stream support JACK clients and CPAL devices for JACK will be either input or output.
@@ -22,6 +26,7 @@ const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64
 pub enum DeviceType {
     InputDevice,
     OutputDevice,
+    DuplexDevice,
 }
 #[derive(Clone, Debug)]
 pub struct Device {
@@ -91,6 +96,21 @@ impl Device {
         )
     }
 
+    pub fn default_duplex_device(
+        name: &str,
+        connect_ports_automatically: bool,
+        start_server_automatically: bool,
+    ) -> Result<Self, String> {
+        let duplex_client_name = name.to_owned();
+        Device::new_device(
+            duplex_client_name,
+            connect_ports_automatically,
+            start_server_automatically,
+            DeviceType::DuplexDevice,
+        )
+    }
+
+    /// Default config for input and output, not duplex.
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
@@ -107,6 +127,7 @@ impl Device {
         })
     }
 
+    /// Supported configs for input and output, not duplex.
     pub fn supported_configs(&self) -> Vec<SupportedStreamConfigRange> {
         let f = match self.default_config() {
             Err(_) => return vec![],
@@ -134,11 +155,16 @@ impl Device {
     pub fn is_output(&self) -> bool {
         matches!(self.device_type, DeviceType::OutputDevice)
     }
+
+    pub fn is_duplex(&self) -> bool {
+        matches!(self.device_type, DeviceType::DuplexDevice)
+    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -157,6 +183,31 @@ impl DeviceTrait for Device {
         Ok(self.supported_configs().into_iter())
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        let config = match self.default_duplex_config() {
+            Err(_) => None,
+            Ok(f) => Some(SupportedDuplexStreamConfigRange {
+                input_channels: SupportedDuplexChannels {
+                    min: 0,
+                    max: DEFAULT_DUPLEX_MAX_CHANNELS,
+                    default: Some(f.input_channels),
+                },
+                output_channels: SupportedDuplexChannels {
+                    min: 0,
+                    max: DEFAULT_DUPLEX_MAX_CHANNELS,
+                    default: Some(f.output_channels),
+                },
+                min_sample_rate: f.sample_rate,
+                max_sample_rate: f.sample_rate,
+                buffer_size: f.buffer_size.clone(),
+                sample_format: f.sample_format.clone(),
+            }),
+        };
+        Ok(config.into_iter())
+    }
+
     /// Returns the default input config
     /// The sample format for JACK audio ports is always "32-bit float mono audio" unless using a custom type.
     /// The sample rate is set by the JACK server.
@@ -171,6 +222,24 @@ impl DeviceTrait for Device {
         self.default_config()
     }
 
+    /// Returns the default duplex config
+    /// The sample format for JACK audio ports is always "32 bit float mono audio" unless using a custom type.
+    /// The sample rate is set by the JACK server.
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        let sample_rate = self.sample_rate;
+        let buffer_size = self.buffer_size.clone();
+        let sample_format = JACK_SAMPLE_FORMAT;
+        Ok(SupportedDuplexStreamConfig {
+            input_channels: DEFAULT_NUM_CHANNELS,
+            output_channels: DEFAULT_NUM_CHANNELS,
+            sample_rate,
+            buffer_size,
+            sample_format,
+        })
+    }
+
     fn build_input_stream_raw<D, E>(
         &self,
         conf: &StreamConfig,
@@ -182,8 +251,8 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::OutputDevice = &self.device_type {
-            // Trying to create an input stream from an output device
+        if !matches!(self.device_type, DeviceType::InputDevice) {
+            // Trying to create an input stream from another type of device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
         if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
@@ -220,8 +289,8 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::InputDevice = &self.device_type {
-            // Trying to create an output stream from an input device
+        if !matches!(self.device_type, DeviceType::OutputDevice) {
+            // Trying to create an output stream from another type of device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
         if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
@@ -242,6 +311,54 @@ impl DeviceTrait for Device {
         let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
 
         if self.connect_ports_automatically {
+            stream.connect_to_system_outputs();
+        }
+
+        Ok(stream)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        conf: &DuplexStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        if !matches!(self.device_type, DeviceType::DuplexDevice) {
+            // Trying to create a duplex stream from another type of device
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+        if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+
+        // The settings should be fine, create a Client
+        let client_options = super::get_client_options(self.start_server_automatically);
+        let client;
+        match super::get_client(&self.name, client_options) {
+            Ok(c) => client = c,
+            Err(e) => {
+                return Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: e.to_string(),
+                    },
+                })
+            }
+        };
+        let mut stream = Stream::new_duplex(
+            client,
+            conf.input_channels,
+            conf.output_channels,
+            data_callback,
+            error_callback,
+        );
+
+        if self.connect_ports_automatically {
+            stream.connect_to_system_inputs();
             stream.connect_to_system_outputs();
         }
 
