@@ -8,9 +8,11 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    DeviceNameError, DevicesError, DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedDuplexStreamConfig,
+    SupportedDuplexStreamConfigRange, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
@@ -33,6 +35,7 @@ pub struct Stream {
 
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = ::std::vec::IntoIter<SupportedDuplexStreamConfigRange>;
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
@@ -69,6 +72,10 @@ impl HostTrait for Host {
 
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
+    }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        default_duplex_device()
     }
 }
 
@@ -113,6 +120,14 @@ impl Device {
     }
 
     #[inline]
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        // TODO
+        Ok(Vec::new().into_iter())
+    }
+
+    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // TODO
         Err(DefaultStreamConfigError::StreamTypeNotSupported)
@@ -130,11 +145,20 @@ impl Device {
 
         Ok(config)
     }
+
+    #[inline]
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
+    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     #[inline]
@@ -157,6 +181,13 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        Device::supported_duplex_configs(self)
+    }
+
+    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
@@ -164,6 +195,13 @@ impl DeviceTrait for Device {
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
+    }
+
+    #[inline]
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        Device::default_duplex_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -348,6 +386,21 @@ impl DeviceTrait for Device {
             buffer_size_frames,
         })
     }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _conf: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
+    }
 }
 
 impl StreamTrait for Stream {
@@ -437,6 +490,12 @@ fn default_output_device() -> Option<Device> {
     } else {
         None
     }
+}
+
+#[inline]
+fn default_duplex_device() -> Option<Device> {
+    // TODO
+    None
 }
 
 // Detects whether the `AudioContext` global variable is available.

@@ -17,13 +17,13 @@ mod macos;
 
 #[cfg(target_os = "ios")]
 pub use self::ios::{
-    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
+    enumerate::{Devices, SupportedDuplexConfigs, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,
 };
 
 #[cfg(target_os = "macos")]
 pub use self::macos::{
-    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
+    enumerate::{Devices, SupportedDuplexConfigs, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,
 };
 

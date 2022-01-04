@@ -1,6 +1,7 @@
 use std;
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = std::vec::IntoIter<SupportedDuplexStreamConfigRange>;
 
 use super::parking_lot::Mutex;
 use super::sys;
@@ -13,6 +14,7 @@ use DevicesError;
 use SampleFormat;
 use SampleRate;
 use SupportedBufferSize;
+use SupportedDupolexStreamConfigRange;
 use SupportedStreamConfig;
 use SupportedStreamConfigRange;
 use SupportedStreamConfigsError;
@@ -127,6 +129,13 @@ impl Device {
         Ok(supported_configs.into_iter())
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        // TODO
+        Ok(Vec::new().into_iter())
+    }
+
     /// Returns the default input config
     pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = self.driver.channels().map_err(default_config_err)?.ins as u16;
@@ -166,6 +175,13 @@ impl Device {
             buffer_size,
             sample_format,
         })
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 }
 

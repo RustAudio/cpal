@@ -19,7 +19,9 @@ use std::thread::{self, JoinHandle};
 use std::vec::IntoIter as VecIntoIter;
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
+pub use self::enumerate::{
+    default_duplex_device, default_input_device, default_output_device, Devices,
+};
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -59,7 +61,7 @@ impl HostTrait for Host {
     }
 
     fn default_duplex_device(&self) -> Option<Self::Device> {
-        todo!()
+        default_duplex_device()
     }
 }
 
@@ -88,7 +90,7 @@ impl DeviceTrait for Device {
     fn supported_duplex_configs(
         &self,
     ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
-        todo!()
+        Device::supported_duplex_configs(self)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
@@ -102,7 +104,7 @@ impl DeviceTrait for Device {
     fn default_duplex_config(
         &self,
     ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
-        todo!()
+        Device::default_duplex_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -150,7 +152,8 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        todo!()
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
@@ -475,6 +478,13 @@ impl Device {
         self.supported_configs(alsa::Direction::Playback)
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        // TODO
+        Ok(Vec::new().into_iter())
+    }
+
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedStreamConfigRange::cmp_default_heuristics` order and select the greatest.
     fn default_config(
@@ -521,6 +531,13 @@ impl Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         self.default_config(alsa::Direction::Playback)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 }
 

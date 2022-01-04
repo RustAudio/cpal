@@ -1,7 +1,8 @@
 use crate::{
     BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DevicesError, DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedDuplexStreamConfig,
+    SupportedDuplexStreamConfigRange, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std;
@@ -53,6 +54,7 @@ use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = std::vec::IntoIter<SupportedDuplexStreamConfigRange>;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Copy, Clone)]
@@ -71,6 +73,7 @@ pub struct Device {
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -89,12 +92,24 @@ impl DeviceTrait for Device {
         Device::supported_output_configs(self)
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        Device::supported_duplex_configs(self)
+    }
+
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        Device::default_duplex_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -133,6 +148,21 @@ impl DeviceTrait for Device {
             data_callback,
             error_callback,
         ))
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _conf: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
@@ -1193,6 +1223,11 @@ pub fn default_input_device() -> Option<Device> {
 
 pub fn default_output_device() -> Option<Device> {
     default_device(eRender)
+}
+
+pub fn default_duplex_device() -> Option<Device> {
+    // TODO
+    None
 }
 
 /// Get the audio clock used to produce `StreamInstant`s.

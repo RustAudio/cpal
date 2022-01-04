@@ -1,8 +1,8 @@
 extern crate winapi;
 
 pub use self::device::{
-    default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    default_duplex_device, default_input_device, default_output_device, Device, Devices,
+    SupportedDuplexConfigs, SupportedInputConfigs, SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
 use self::winapi::um::winnt::HRESULT;
@@ -48,6 +48,10 @@ impl HostTrait for Host {
 
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
+    }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        default_duplex_device()
     }
 }
 
