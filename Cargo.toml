@@ -18,7 +18,7 @@ thiserror = "1.0.2"
 anyhow = "1.0.12"
 hound = "3.4"
 ringbuf = "0.2"
-clap = { version = "2.33.3", default-features = false }
+clap = { version = "3", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "profileapi", "std", "synchapi", "winbase", "winuser"] }
