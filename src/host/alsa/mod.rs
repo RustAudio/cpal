@@ -556,13 +556,11 @@ fn input_stream_worker(
 ) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
-        let flow = match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt) {
-            Ok(val) => val,
-            Err(err) => {
+        let flow =
+            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
                 error_callback(err.into());
                 PollDescriptorsFlow::Continue
-            }
-        };
+            });
 
         match flow {
             PollDescriptorsFlow::Continue => {
@@ -608,13 +606,11 @@ fn output_stream_worker(
 ) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
-        let flow = match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt) {
-            Ok(val) => val,
-            Err(err) => {
+        let flow =
+            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
                 error_callback(err.into());
                 PollDescriptorsFlow::Continue
-            }
-        };
+            });
 
         match flow {
             PollDescriptorsFlow::Continue => continue,
