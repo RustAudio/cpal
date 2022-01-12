@@ -556,18 +556,22 @@ fn input_stream_worker(
 ) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
-        let flow = report_error(
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt),
-            error_callback,
-        )
-        .unwrap_or(PollDescriptorsFlow::Continue);
+        let flow = match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt) {
+            Ok(val) => val,
+            Err(err) => {
+                error_callback(err.into());
+                PollDescriptorsFlow::Continue
+            }
+        };
 
         match flow {
             PollDescriptorsFlow::Continue => {
                 continue;
             }
             PollDescriptorsFlow::XRun => {
-                report_error(stream.channel.prepare(), error_callback);
+                if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                }
                 continue;
             }
             PollDescriptorsFlow::Return => return,
@@ -582,14 +586,15 @@ fn input_stream_worker(
                     StreamType::Input,
                     "expected input stream, but polling descriptors indicated output",
                 );
-                let res = process_input(
+                if let Err(err) = process_input(
                     stream,
                     &mut ctxt.buffer,
                     status,
                     delay_frames,
                     data_callback,
-                );
-                report_error(res, error_callback);
+                ) {
+                    error_callback(err.into());
+                }
             }
         }
     }
@@ -603,16 +608,20 @@ fn output_stream_worker(
 ) {
     let mut ctxt = StreamWorkerContext::default();
     loop {
-        let flow = report_error(
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt),
-            error_callback,
-        )
-        .unwrap_or(PollDescriptorsFlow::Continue);
+        let flow = match poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt) {
+            Ok(val) => val,
+            Err(err) => {
+                error_callback(err.into());
+                PollDescriptorsFlow::Continue
+            }
+        };
 
         match flow {
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::XRun => {
-                report_error(stream.channel.prepare(), error_callback);
+                if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                }
                 continue;
             }
             PollDescriptorsFlow::Return => return,
@@ -627,7 +636,7 @@ fn output_stream_worker(
                     StreamType::Output,
                     "expected output stream, but polling descriptors indicated input",
                 );
-                let res = process_output(
+                if let Err(err) = process_output(
                     stream,
                     &mut ctxt.buffer,
                     status,
@@ -635,25 +644,10 @@ fn output_stream_worker(
                     delay_frames,
                     data_callback,
                     error_callback,
-                );
-                report_error(res, error_callback);
+                ) {
+                    error_callback(err.into());
+                }
             }
-        }
-    }
-}
-
-fn report_error<T, E>(
-    result: Result<T, E>,
-    error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
-) -> Option<T>
-where
-    E: Into<StreamError>,
-{
-    match result {
-        Ok(val) => Some(val),
-        Err(err) => {
-            error_callback(err.into());
-            None
         }
     }
 }
