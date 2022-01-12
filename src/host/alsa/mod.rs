@@ -1018,6 +1018,11 @@ fn set_sw_params_from_format(
 
         let start_threshold = match stream_type {
             alsa::Direction::Playback => buffer - period,
+
+            // For capture streams, the start threshold is irrelevant and ignored,
+            // because build_stream_inner() starts the stream before process_input()
+            // reads from it. Set it anyway I guess, since it's better than leaving
+            // it at an unspecified default value.
             alsa::Direction::Capture => 1,
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
