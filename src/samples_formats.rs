@@ -109,7 +109,11 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn to_i16(&self) -> i16 {
-        (*self * F32_TO_16BIT_INT_MULTIPLIER).floor() as i16
+        if *self >= 0.0 {
+            (*self * i16::MAX as f32) as i16
+        } else {
+            (-*self * i16::MIN as f32) as i16
+        }
     }
 
     #[inline]
