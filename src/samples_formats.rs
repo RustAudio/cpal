@@ -98,7 +98,7 @@ unsafe impl Sample for i16 {
         sample.to_i16()
     }
 }
-const F32_TO_16BIT_INT_MULTIPLIER:f32 = u16::MAX as f32 * 0.5;
+const F32_TO_16BIT_INT_MULTIPLIER: f32 = u16::MAX as f32 * 0.5;
 unsafe impl Sample for f32 {
     const FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -114,7 +114,8 @@ unsafe impl Sample for f32 {
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        self.mul_add(F32_TO_16BIT_INT_MULTIPLIER,F32_TO_16BIT_INT_MULTIPLIER).round() as u16
+        self.mul_add(F32_TO_16BIT_INT_MULTIPLIER, F32_TO_16BIT_INT_MULTIPLIER)
+            .round() as u16
     }
 
     #[inline]
