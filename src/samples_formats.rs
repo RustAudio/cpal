@@ -73,12 +73,11 @@ unsafe impl Sample for i16 {
 
     #[inline]
     fn to_f32(&self) -> f32 {
-        const POSITIVE_MULTIPLIER:f32 = 1.0 / i16::MAX as f32;
-        const NEGATIVE_MULTIPLIER:f32 = 1.0 / -(i16::MIN as f32);
-        const NEGATIVE_OFFSET:f32 =  NEGATIVE_MULTIPLIER - POSITIVE_MULTIPLIER;
-        let sign_bit = (*self as u16 >> 15) as f32;
-        let multiplier = NEGATIVE_OFFSET.mul_add(sign_bit, POSITIVE_MULTIPLIER);
-        *self as f32 * multiplier
+        if *self < 0 {
+            *self as f32 / -(i16::MIN as f32)
+        } else {
+            *self as f32 / i16::MAX as f32
+        }
     }
 
     #[inline]
