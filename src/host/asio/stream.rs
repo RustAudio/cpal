@@ -182,7 +182,7 @@ impl Device {
                 // `process_output_callback` function above by removing the unnecessary sample
                 // conversion function.
                 (&sys::AsioSampleType::ASIOSTInt32LSB, SampleFormat::I32) => {
-                    process_input_callback::<i32, i16, _, _>(
+                    process_input_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
@@ -192,7 +192,7 @@ impl Device {
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
-                    process_input_callback::<i32, i16, _, _>(
+                    process_input_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
