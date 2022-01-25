@@ -1,5 +1,5 @@
 //!
-//! coreaudio on iOS looks a bit different than on macOS. A lot of configuration needs to use
+//! coreaudio on iOS looks a bit different from macOS. A lot of configuration needs to use
 //! the AVAudioSession objc API which doesn't exist on macOS.
 //!
 //! TODO:

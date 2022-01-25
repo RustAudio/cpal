@@ -34,7 +34,7 @@ impl HostTrait for Host {
     type Device = Device;
 
     fn is_available() -> bool {
-        // Assume WASAPI is always available on windows.
+        // Assume WASAPI is always available on Windows.
         true
     }
 

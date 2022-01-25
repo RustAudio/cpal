@@ -25,7 +25,7 @@ use {
 /// however it has its own limitations w.r.t. low-latency and high-performance audio applications.
 /// JACK is yet another host API that is more suitable to pro-audio applications, however it is
 /// less readily available by default in many Linux distributions and is known to be tricky to
-/// setup.
+/// set up.
 pub trait HostTrait {
     /// The type used for enumerating available devices by the host.
     type Devices: Iterator<Item = Self::Device>;
@@ -81,7 +81,7 @@ pub trait HostTrait {
 
 /// A device that is capable of audio input and/or output.
 ///
-/// Please note that `Device`s may become invalid if they get disconnected. Therefore all the
+/// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
 pub trait DeviceTrait {
     /// The iterator type yielding supported input stream formats.
@@ -96,14 +96,14 @@ pub trait DeviceTrait {
 
     /// An iterator yielding formats that are supported by the backend.
     ///
-    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
+    /// Can return an error if the device is no longer valid (e.g. it has been disconnected).
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError>;
 
     /// An iterator yielding output stream formats that are supported by the device.
     ///
-    /// Can return an error if the device is no longer valid (eg. it has been disconnected).
+    /// Can return an error if the device is no longer valid (e.g. it has been disconnected).
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError>;

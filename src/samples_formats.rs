@@ -40,7 +40,7 @@ pub unsafe trait Sample: Copy + Clone {
     fn to_i32(&self) -> i32;
 
     /// Converts any sample type to this one by calling `to_i16`, `to_i32`, `to_u16`,  or `to_f32`.
-    fn from<S>(sample: &S) -> Self
+    fn from<S>(s: &S) -> Self
     where
         S: Sample;
 }
@@ -60,11 +60,7 @@ unsafe impl Sample for u16 {
 
     #[inline]
     fn to_i16(&self) -> i16 {
-        if *self >= 32768 {
-            (*self - 32768) as i16
-        } else {
-            (*self as i16) - 32767 - 1
-        }
+        (*self as i16).wrapping_add(i16::MIN)
     }
 
     #[inline]
@@ -87,19 +83,15 @@ unsafe impl Sample for i16 {
     #[inline]
     fn to_f32(&self) -> f32 {
         if *self < 0 {
-            *self as f32 / -(::std::i16::MIN as f32)
+            *self as f32 / -(i16::MIN as f32)
         } else {
-            *self as f32 / ::std::i16::MAX as f32
+            *self as f32 / i16::MAX as f32
         }
     }
 
     #[inline]
     fn to_u16(&self) -> u16 {
-        if *self < 0 {
-            (*self - ::std::i16::MIN) as u16
-        } else {
-            (*self as u16) + 32768
-        }
+        self.wrapping_add(i16::MIN) as u16
     }
 
     #[inline]
@@ -120,7 +112,7 @@ unsafe impl Sample for i16 {
         sample.to_i16()
     }
 }
-
+const F32_TO_16BIT_INT_MULTIPLIER: f32 = u16::MAX as f32 * 0.5;
 unsafe impl Sample for f32 {
     const FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -128,20 +120,14 @@ unsafe impl Sample for f32 {
     fn to_f32(&self) -> f32 {
         *self
     }
-
-    /// This function inherently returns a lossy value due to scaling.
-    #[inline]
-    fn to_u16(&self) -> u16 {
-        (((*self + 1.0) * 0.5) * ::std::u16::MAX as f32).round() as u16
-    }
-
+  
     /// This function inherently returns a lossy value due to scaling.
     #[inline]
     fn to_i16(&self) -> i16 {
         if *self >= 0.0 {
-            (*self * ::std::i16::MAX as f32) as i16
+            (*self * i16::MAX as f32) as i16
         } else {
-            (-*self * ::std::i16::MIN as f32) as i16
+            (-*self * i16::MIN as f32) as i16
         }
     }
 
@@ -152,6 +138,12 @@ unsafe impl Sample for f32 {
         } else {
             (*self as f64 * -(std::i32::MIN as f64)).round() as i32
         }
+    }
+  
+    /// This function inherently returns a lossy value due to scaling.
+    fn to_u16(&self) -> u16 {
+        self.mul_add(F32_TO_16BIT_INT_MULTIPLIER, F32_TO_16BIT_INT_MULTIPLIER)
+            .round() as u16
     }
 
     #[inline]
@@ -304,9 +296,9 @@ mod test {
     #[test]
     fn f32_to_i16() {
         assert_eq!(0.0f32.to_i16(), 0);
-        assert_eq!((-0.5f32).to_i16(), ::std::i16::MIN / 2);
-        assert_eq!(1.0f32.to_i16(), ::std::i16::MAX);
-        assert_eq!((-1.0f32).to_i16(), ::std::i16::MIN);
+        assert_eq!((-0.5f32).to_i16(), i16::MIN / 2);
+        assert_eq!(1.0f32.to_i16(), i16::MAX);
+        assert_eq!((-1.0f32).to_i16(), i16::MIN);
     }
 
     #[test]

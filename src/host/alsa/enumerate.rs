@@ -3,7 +3,7 @@ use super::parking_lot::Mutex;
 use super::{Device, DeviceHandles};
 use {BackendSpecificError, DevicesError};
 
-/// ALSA implementation for `Devices`.
+/// ALSA's implementation for `Devices`.
 pub struct Devices {
     hint_iter: alsa::device_name::HintIter,
 }

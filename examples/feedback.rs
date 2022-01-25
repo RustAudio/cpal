@@ -12,6 +12,7 @@ extern crate cpal;
 extern crate ringbuf;
 
 use anyhow::Context;
+use clap::arg;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::RingBuffer;
 
@@ -31,17 +32,16 @@ struct Opt {
 impl Opt {
     fn from_args() -> anyhow::Result<Self> {
         let app = clap::App::new("beep")
-        .arg_from_usage(
-            "-l, --latency [DELAY_MS] 'Specify the delay between input and output [default: 150]'",
-        )
-        .arg_from_usage("[IN] 'The input audio device to use'")
-        .arg_from_usage("[OUT] 'The output audio device to use'");
+            .arg(arg!(
+            -l --latency [DELAY_MS] "Specify the delay between input and output [default: 150]"))
+            .arg(arg!([IN] "The input audio device to use"))
+            .arg(arg!([OUT] "The output audio device to use"));
 
         #[cfg(all(
             any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
             feature = "jack"
         ))]
-        let app = app.arg_from_usage("-j, --jack 'Use the JACK host");
+        let app = app.arg(arg!(-j --jack "Use the JACK host"));
         let matches = app.get_matches();
         let latency: f32 = matches
             .value_of("latency")

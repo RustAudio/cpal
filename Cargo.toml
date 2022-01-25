@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.13.1"
+version = "0.13.4"
 authors = ["The CPAL contributors", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Low-level cross-platform audio I/O library in pure Rust."
 repository = "https://github.com/rustaudio/cpal"
@@ -18,24 +18,24 @@ thiserror = "1.0.2"
 anyhow = "1.0.12"
 hound = "3.4"
 ringbuf = "0.2"
-clap = { version = "2.33.3", default-features = false }
+clap = { version = "3", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["audiosessiontypes", "audioclient", "coml2api", "combaseapi", "debug", "devpkey", "handleapi", "ksmedia", "mmdeviceapi", "objbase", "profileapi", "std", "synchapi", "winbase", "winuser"] }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 parking_lot = "0.11"
-lazy_static = "1.3"
+lazy_static = "1.4"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))'.dependencies]
-alsa = "0.4.3"
-nix = "0.15.0"
+alsa = "0.6"
+nix = "0.23"
 libc = "0.2.65"
 parking_lot = "0.11"
-jack = { version = "0.6.5", optional = true }
+jack = { version = "0.8", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-core-foundation-sys = "0.6.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
+core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach = "0.3" # For access to mach_timebase type.
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -53,10 +53,10 @@ js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-oboe = { version = "0.3.0", features = [ "java-interface" ] }
-ndk = "0.2"
-ndk-glue = "0.2"
-jni = "0.17"
+oboe = { version = "0.4", features = [ "java-interface" ] }
+ndk = "0.6"
+ndk-glue = "0.6"
+jni = "0.19"
 
 [[example]]
 name = "android"
@@ -74,3 +74,6 @@ name = "feedback"
 
 [[example]]
 name = "record_wav"
+
+[[example]]
+name = "synth_tones"

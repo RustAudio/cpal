@@ -14,9 +14,9 @@ This library currently supports the following:
 - Get the current default input and output stream formats for a device.
 - Build and run input and output PCM streams on a chosen device with a given stream format.
 
-Currently supported hosts include:
+Currently, supported hosts include:
 
-- Linux (via ALSA)
+- Linux (via ALSA or JACK)
 - Windows (via WASAPI by default, see ASIO instructions below)
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
@@ -29,7 +29,14 @@ as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
 
 ## Compiling for Web Assembly
 
-If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. 
+If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch.
+
+## Feature flags for audio backends
+
+Some audio backends are optional and will only be compiled with a [feature flag](https://doc.rust-lang.org/cargo/reference/features.html).
+
+- JACK (on Linux): `jack`
+- ASIO (on Windows): `asio`
 
 ## ASIO on Windows
 
@@ -66,7 +73,7 @@ WASAPI. To do so, follow these steps:
    it being useless.
 7. **Loading VCVARS**. `rust-bindgen` uses the C++ tool-chain when generating
    bindings to the ASIO SDK. As a result, it is necessary to load some
-   environment variables in the command prompt that we use to build our project.
+   environment variables in the command prompt that we used to build our project.
    On 64-bit machines run:
    ```
    "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64

@@ -2,6 +2,7 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
+use clap::arg;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[derive(Debug)]
@@ -17,12 +18,12 @@ struct Opt {
 
 impl Opt {
     fn from_args() -> Self {
-        let app = clap::App::new("beep").arg_from_usage("[DEVICE] 'The audio device to use'");
+        let app = clap::App::new("beep").arg(arg!([DEVICE] "The audio device to use"));
         #[cfg(all(
             any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
             feature = "jack"
         ))]
-        let app = app.arg_from_usage("-j, --jack 'Use the JACK host");
+        let app = app.arg(arg!(-j --jack "Use the JACK host"));
         let matches = app.get_matches();
         let device = matches.value_of("DEVICE").unwrap_or("default").to_string();
 
