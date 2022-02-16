@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 extern crate jni;
-extern crate ndk_glue;
 
 use self::jni::Executor;
-use self::jni::{errors::Result as JResult, objects::JObject, JNIEnv, JavaVM};
+use self::jni::{errors::Result as JResult, JNIEnv, JavaVM};
 
 // constants from android.media.AudioFormat
 pub const ENCODING_PCM_16BIT: i32 = 2;
@@ -14,12 +13,11 @@ pub const CHANNEL_OUT_STEREO: i32 = 12;
 
 fn with_attached<F, R>(closure: F) -> JResult<R>
 where
-    F: FnOnce(&JNIEnv, JObject) -> JResult<R>,
+    F: FnOnce(&JNIEnv) -> JResult<R>,
 {
-    let activity = ndk_glue::native_activity();
-    let vm = Arc::new(unsafe { JavaVM::from_raw(activity.vm())? });
-    let activity = activity.activity();
-    Executor::new(vm).with_attached(|env| closure(env, activity.into()))
+    let android_context = ndk_context::android_context();
+    let vm = Arc::new(unsafe { JavaVM::from_raw(android_context.vm().cast())? });
+    Executor::new(vm).with_attached(|env| closure(env))
 }
 
 fn get_min_buffer_size(
@@ -31,7 +29,7 @@ fn get_min_buffer_size(
     // Unwrapping everything because these operations are not expected to fail
     // or throw exceptions. Android returns negative values for invalid parameters,
     // which is what we expect.
-    with_attached(|env, _activity| {
+    with_attached(|env| {
         let class = env.find_class(class).unwrap();
         env.call_static_method(
             class,
