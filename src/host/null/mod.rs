@@ -1,8 +1,9 @@
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    SupportedDuplexStreamConfig, SupportedDuplexStreamConfigRange, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -19,6 +20,7 @@ pub struct Stream;
 
 pub struct SupportedInputConfigs;
 pub struct SupportedOutputConfigs;
+pub struct SupportedDuplexConfigs;
 
 impl Host {
     #[allow(dead_code)]
@@ -36,6 +38,7 @@ impl Devices {
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     #[inline]
@@ -58,12 +61,26 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        unimplemented!()
+    }
+
+    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        unimplemented!()
+    }
+
+    #[inline]
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
@@ -95,6 +112,20 @@ impl DeviceTrait for Device {
     {
         unimplemented!()
     }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        unimplemented!()
+    }
 }
 
 impl HostTrait for Host {
@@ -114,6 +145,10 @@ impl HostTrait for Host {
     }
 
     fn default_output_device(&self) -> Option<Device> {
+        None
+    }
+
+    fn default_duplex_device(&self) -> Option<Device> {
         None
     }
 }
@@ -151,6 +186,15 @@ impl Iterator for SupportedOutputConfigs {
 
     #[inline]
     fn next(&mut self) -> Option<SupportedStreamConfigRange> {
+        None
+    }
+}
+
+impl Iterator for SupportedDuplexConfigs {
+    type Item = SupportedDuplexStreamConfigRange;
+
+    #[inline]
+    fn next(&mut self) -> Option<SupportedDuplexStreamConfigRange> {
         None
     }
 }

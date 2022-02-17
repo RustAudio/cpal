@@ -8,9 +8,10 @@ extern crate oboe;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, Sample, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DeviceNameError, DevicesError, DuplexCallbackInfo, DuplexStreamConfig, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedDuplexStreamConfig,
+    SupportedDuplexStreamConfigRange, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 
@@ -43,6 +44,7 @@ pub enum Stream {
 }
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = VecIntoIter<SupportedDuplexStreamConfigRange>;
 pub type Devices = VecIntoIter<Device>;
 
 impl Host {
@@ -86,6 +88,11 @@ impl HostTrait for Host {
         } else {
             Some(Device(None))
         }
+    }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        // TODO
+        None
     }
 }
 
@@ -276,6 +283,7 @@ where
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -305,6 +313,13 @@ impl DeviceTrait for Device {
         }
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        // TODO
+        Ok(Vec::new().into_iter())
+    }
+
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let mut configs: Vec<_> = self.supported_input_configs().unwrap().collect();
         configs.sort_by(|a, b| b.cmp_default_heuristics(a));
@@ -325,6 +340,13 @@ impl DeviceTrait for Device {
             .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?
             .with_max_sample_rate();
         Ok(config)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -471,6 +493,21 @@ impl DeviceTrait for Device {
             }
             .into()),
         }
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _conf: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 

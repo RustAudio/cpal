@@ -75,6 +75,10 @@ macro_rules! impl_platform_host {
         /// dispatched **Host** type.
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
+        /// The **SupportedDuplexConfigs** iterator associated with the platform's dynamically
+        /// dispatched **Host** type.
+        pub struct SupportedDuplexConfigs(SupportedDuplexConfigsInner);
+
         /// Unique identifier for available hosts on the platform.
         #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
         pub enum HostId {
@@ -116,6 +120,12 @@ macro_rules! impl_platform_host {
         enum SupportedOutputConfigsInner {
             $(
                 $HostVariant(crate::host::$host_mod::SupportedOutputConfigs),
+            )*
+        }
+
+        enum SupportedDuplexConfigsInner {
+            $(
+                $HostVariant(crate::host::$host_mod::SupportedDuplexConfigs),
             )*
         }
 
@@ -202,9 +212,30 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl Iterator for SupportedDuplexConfigs {
+            type Item = crate::SupportedDuplexStreamConfigRange;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                match self.0 {
+                    $(
+                        SupportedDuplexConfigsInner::$HostVariant(ref mut s) => s.next(),
+                    )*
+                }
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                match self.0 {
+                    $(
+                        SupportedDuplexConfigsInner::$HostVariant(ref d) => d.size_hint(),
+                    )*
+                }
+            }
+        }
+
         impl crate::traits::DeviceTrait for Device {
             type SupportedInputConfigs = SupportedInputConfigs;
             type SupportedOutputConfigs = SupportedOutputConfigs;
+            type SupportedDuplexConfigs = SupportedDuplexConfigs;
             type Stream = Stream;
 
             fn name(&self) -> Result<String, crate::DeviceNameError> {
@@ -239,6 +270,18 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn supported_duplex_configs(&self) -> Result<Self::SupportedDuplexConfigs, crate::SupportedStreamConfigsError> {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => {
+                            d.supported_duplex_configs()
+                                .map(SupportedDuplexConfigsInner::$HostVariant)
+                                .map(SupportedDuplexConfigs)
+                        }
+                    )*
+                }
+            }
+
             fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
                 match self.0 {
                     $(
@@ -251,6 +294,14 @@ macro_rules! impl_platform_host {
                 match self.0 {
                     $(
                         DeviceInner::$HostVariant(ref d) => d.default_output_config(),
+                    )*
+                }
+            }
+
+            fn default_duplex_config(&self) -> Result<crate::SupportedDuplexStreamConfig, crate::DefaultStreamConfigError> {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => d.default_duplex_config(),
                     )*
                 }
             }
@@ -306,6 +357,32 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn build_duplex_stream_raw<D, E>(
+                &self,
+                config: &crate::DuplexStreamConfig,
+                sample_format: crate::SampleFormat,
+                data_callback: D,
+                error_callback: E,
+            ) -> Result<Self::Stream, crate::BuildStreamError>
+            where
+                D: FnMut(&crate::Data, &mut crate::Data, &crate::DuplexCallbackInfo) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
+            {
+                match self.0 {
+                    $(
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_duplex_stream_raw(
+                                config,
+                                sample_format,
+                                data_callback,
+                                error_callback,
+                            )
+                            .map(StreamInner::$HostVariant)
+                            .map(Stream::from),
+                    )*
+                }
+            }
         }
 
         impl crate::traits::HostTrait for Host {
@@ -341,6 +418,16 @@ macro_rules! impl_platform_host {
                     $(
                         HostInner::$HostVariant(ref h) => {
                             h.default_output_device().map(DeviceInner::$HostVariant).map(Device::from)
+                        }
+                    )*
+                }
+            }
+
+            fn default_duplex_device(&self) -> Option<Self::Device> {
+                match self.0 {
+                    $(
+                        HostInner::$HostVariant(ref h) => {
+                            h.default_duplex_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
                     )*
                 }
@@ -449,15 +536,23 @@ macro_rules! impl_platform_host {
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"))]
 mod platform_impl {
     pub use crate::host::alsa::{
-        Device as AlsaDevice, Devices as AlsaDevices, Host as AlsaHost, Stream as AlsaStream,
+        Device as AlsaDevice,
+        Devices as AlsaDevices,
+        Host as AlsaHost,
+        Stream as AlsaStream,
         SupportedInputConfigs as AlsaSupportedInputConfigs,
         SupportedOutputConfigs as AlsaSupportedOutputConfigs,
+        // SupportedDuplexConfigs as AlsaSupportedDuplexConfigs,
     };
     #[cfg(feature = "jack")]
     pub use crate::host::jack::{
-        Device as JackDevice, Devices as JackDevices, Host as JackHost, Stream as JackStream,
+        Device as JackDevice,
+        Devices as JackDevices,
+        Host as JackHost,
+        Stream as JackStream,
         SupportedInputConfigs as JackSupportedInputConfigs,
         SupportedOutputConfigs as JackSupportedOutputConfigs,
+        // SupportedDuplexConfigs as JackSupportedDuplexConfigs,
     };
 
     #[cfg(feature = "jack")]
@@ -477,9 +572,13 @@ mod platform_impl {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform_impl {
     pub use crate::host::coreaudio::{
-        Device as CoreAudioDevice, Devices as CoreAudioDevices, Host as CoreAudioHost,
-        Stream as CoreAudioStream, SupportedInputConfigs as CoreAudioSupportedInputConfigs,
+        Device as CoreAudioDevice,
+        Devices as CoreAudioDevices,
+        Host as CoreAudioHost,
+        Stream as CoreAudioStream,
+        SupportedInputConfigs as CoreAudioSupportedInputConfigs,
         SupportedOutputConfigs as CoreAudioSupportedOutputConfigs,
+        // SupportedDuplexConfigs as CoreAudioSupportedDuplexConfigs,
     };
 
     impl_platform_host!(CoreAudio coreaudio "CoreAudio");
@@ -495,9 +594,13 @@ mod platform_impl {
 #[cfg(target_os = "emscripten")]
 mod platform_impl {
     pub use crate::host::emscripten::{
-        Device as EmscriptenDevice, Devices as EmscriptenDevices, Host as EmscriptenHost,
-        Stream as EmscriptenStream, SupportedInputConfigs as EmscriptenSupportedInputConfigs,
+        Device as EmscriptenDevice,
+        Devices as EmscriptenDevices,
+        Host as EmscriptenHost,
+        Stream as EmscriptenStream,
+        SupportedInputConfigs as EmscriptenSupportedInputConfigs,
         SupportedOutputConfigs as EmscriptenSupportedOutputConfigs,
+        // SupportedDuplexConfigs as EmscriptenSupportedDuplexConfigs,
     };
 
     impl_platform_host!(Emscripten emscripten "Emscripten");
@@ -513,9 +616,13 @@ mod platform_impl {
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
     pub use crate::host::webaudio::{
-        Device as WebAudioDevice, Devices as WebAudioDevices, Host as WebAudioHost,
-        Stream as WebAudioStream, SupportedInputConfigs as WebAudioSupportedInputConfigs,
+        Device as WebAudioDevice,
+        Devices as WebAudioDevices,
+        Host as WebAudioHost,
+        Stream as WebAudioStream,
+        SupportedInputConfigs as WebAudioSupportedInputConfigs,
         SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
+        // SupportedDuplexConfigs as WebAudioSupportedDuplexConfigs,
     };
 
     impl_platform_host!(WebAudio webaudio "WebAudio");
@@ -532,14 +639,22 @@ mod platform_impl {
 mod platform_impl {
     #[cfg(feature = "asio")]
     pub use crate::host::asio::{
-        Device as AsioDevice, Devices as AsioDevices, Host as AsioHost, Stream as AsioStream,
+        Device as AsioDevice,
+        Devices as AsioDevices,
+        Host as AsioHost,
+        Stream as AsioStream,
         SupportedInputConfigs as AsioSupportedInputConfigs,
         SupportedOutputConfigs as AsioSupportedOutputConfigs,
+        // SupportedDuplexConfigs as AsioSupportedDuplexConfigs,
     };
     pub use crate::host::wasapi::{
-        Device as WasapiDevice, Devices as WasapiDevices, Host as WasapiHost,
-        Stream as WasapiStream, SupportedInputConfigs as WasapiSupportedInputConfigs,
+        Device as WasapiDevice,
+        Devices as WasapiDevices,
+        Host as WasapiHost,
+        Stream as WasapiStream,
+        SupportedInputConfigs as WasapiSupportedInputConfigs,
         SupportedOutputConfigs as WasapiSupportedOutputConfigs,
+        // SupportedDuplexConfigs as WasapiSupportedDuplexConfigs,
     };
 
     #[cfg(feature = "asio")]
@@ -559,9 +674,13 @@ mod platform_impl {
 #[cfg(target_os = "android")]
 mod platform_impl {
     pub use crate::host::oboe::{
-        Device as OboeDevice, Devices as OboeDevices, Host as OboeHost, Stream as OboeStream,
+        Device as OboeDevice,
+        Devices as OboeDevices,
+        Host as OboeHost,
+        Stream as OboeStream,
         SupportedInputConfigs as OboeSupportedInputConfigs,
         SupportedOutputConfigs as OboeSupportedOutputConfigs,
+        // SupportedDuplexConfigs as OboeSupportedDuplexConfigs,
     };
 
     impl_platform_host!(Oboe oboe "Oboe");
@@ -587,9 +706,12 @@ mod platform_impl {
 )))]
 mod platform_impl {
     pub use crate::host::null::{
-        Device as NullDevice, Devices as NullDevices, Host as NullHost,
+        Device as NullDevice,
+        Devices as NullDevices,
+        Host as NullHost,
         SupportedInputConfigs as NullSupportedInputConfigs,
         SupportedOutputConfigs as NullSupportedOutputConfigs,
+        // SupportedDuplexConfigs as NullSupportedDuplexConfigs,
     };
 
     impl_platform_host!(Null null "Null");

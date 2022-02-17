@@ -62,6 +62,12 @@ pub fn default_output_device() -> Option<Device> {
     })
 }
 
+#[inline]
+pub fn default_duplex_device() -> Option<Device> {
+    // TODO
+    None
+}
+
 impl From<alsa::Error> for DevicesError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();

@@ -11,7 +11,10 @@ use super::Device;
 use std::mem;
 use std::ptr::null;
 use std::vec::IntoIter as VecIntoIter;
-use {BackendSpecificError, DevicesError, SupportedStreamConfigRange};
+use {
+    BackendSpecificError, DevicesError, SupportedDuplexStreamConfigRange,
+    SupportedStreamConfigRange,
+};
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     let property_address = AudioObjectPropertyAddress {
@@ -141,5 +144,11 @@ pub fn default_output_device() -> Option<Device> {
     Some(device)
 }
 
+pub fn default_duplex_device() -> Option<Device> {
+    // TODO
+    None
+}
+
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub type SupportedDuplexConfigs = VecIntoIter<SupportedDuplexStreamConfigRange>;

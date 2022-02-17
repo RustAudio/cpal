@@ -174,6 +174,9 @@ pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bo
 /// A host's device iterator yielding only *output* devices.
 pub type OutputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
 
+/// A host's device iterator yielding only *duplex* devices.
+pub type DuplexDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+
 /// Number of channels.
 pub type ChannelCount = u16;
 
@@ -227,6 +230,17 @@ pub struct StreamConfig {
     pub buffer_size: BufferSize,
 }
 
+/// The set of parameters used to describe how to open a *duplex* stream.
+///
+/// The sample format is omitted in favour of using a sample type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DuplexStreamConfig {
+    pub input_channels: ChannelCount,
+    pub output_channels: ChannelCount,
+    pub sample_rate: SampleRate,
+    pub buffer_size: BufferSize,
+}
+
 /// Describes the minimum and maximum supported buffer size for the device
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
@@ -254,11 +268,49 @@ pub struct SupportedStreamConfigRange {
     pub(crate) sample_format: SampleFormat,
 }
 
+/// Describes the minimum and maximum supported channel counts for one direction of a full duplex
+/// stream. A default value may also be provided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedDuplexChannels {
+    pub min: ChannelCount,
+    pub max: ChannelCount,
+    pub default: Option<ChannelCount>,
+}
+
+/// Describes a range of supported *duplex* stream configurations, retrieved via the
+/// `Device::supported_duplex_configs` method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedDuplexStreamConfigRange {
+    /// The range of possible input channel configurations.
+    pub(crate) input_channels: SupportedDuplexChannels,
+    /// The range of possible output channel configurations.
+    pub(crate) output_channels: SupportedDuplexChannels,
+    /// Minimum value for the samples rate of the supported formats.
+    pub(crate) min_sample_rate: SampleRate,
+    /// Maximum value for the samples rate of the supported formats.
+    pub(crate) max_sample_rate: SampleRate,
+    /// Buffersize ranges supported by the device
+    pub(crate) buffer_size: SupportedBufferSize,
+    /// Type of data expected by the device.
+    pub(crate) sample_format: SampleFormat,
+}
+
 /// Describes a single supported stream configuration, retrieved via either a
 /// `SupportedStreamConfigRange` instance or one of the `Device::default_input/output_config` methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
+    sample_rate: SampleRate,
+    buffer_size: SupportedBufferSize,
+    sample_format: SampleFormat,
+}
+
+/// Describes a single supported *duplex* stream configuration, retrieved via either a
+/// `SupportedDuplexStreamConfigRange` instance or the `Device::default_duplex_config` method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedDuplexStreamConfig {
+    input_channels: ChannelCount,
+    output_channels: ChannelCount,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
     sample_format: SampleFormat,
@@ -321,6 +373,21 @@ pub struct OutputStreamTimestamp {
     pub playback: StreamInstant,
 }
 
+/// A timestamp associated with a call to a duplex stream's data callback.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct DuplexStreamTimestamp {
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
+    /// The instant that data was captured from the device.
+    ///
+    /// E.g. The instant data was read from an ADC.
+    pub capture: StreamInstant,
+    /// The predicted instant that data written will be delivered to the device for playback.
+    ///
+    /// E.g. The instant data will be played by a DAC.
+    pub playback: StreamInstant,
+}
+
 /// Information relevant to a single call to the user's input stream data callback.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputCallbackInfo {
@@ -331,6 +398,12 @@ pub struct InputCallbackInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
+}
+
+/// Information relevant to a single call to the user's duplex stream data callback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DuplexCallbackInfo {
+    timestamp: DuplexStreamTimestamp,
 }
 
 impl SupportedStreamConfig {
@@ -353,6 +426,37 @@ impl SupportedStreamConfig {
     pub fn config(&self) -> StreamConfig {
         StreamConfig {
             channels: self.channels,
+            sample_rate: self.sample_rate,
+            buffer_size: BufferSize::Default,
+        }
+    }
+}
+
+impl SupportedDuplexStreamConfig {
+    pub fn input_channels(&self) -> ChannelCount {
+        self.input_channels
+    }
+
+    pub fn output_channels(&self) -> ChannelCount {
+        self.output_channels
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    pub fn config(&self) -> DuplexStreamConfig {
+        DuplexStreamConfig {
+            input_channels: self.input_channels,
+            output_channels: self.output_channels,
             sample_rate: self.sample_rate,
             buffer_size: BufferSize::Default,
         }
@@ -440,6 +544,13 @@ impl InputCallbackInfo {
 impl OutputCallbackInfo {
     /// The timestamp associated with the call to an output stream's data callback.
     pub fn timestamp(&self) -> OutputStreamTimestamp {
+        self.timestamp
+    }
+}
+
+impl DuplexCallbackInfo {
+    /// The timestamp associated with the call to a duplex stream's data callback.
+    pub fn timestamp(&self) -> DuplexStreamTimestamp {
         self.timestamp
     }
 }
@@ -655,6 +766,119 @@ impl SupportedStreamConfigRange {
     }
 }
 
+impl SupportedDuplexStreamConfigRange {
+    pub fn input_channels(&self) -> SupportedDuplexChannels {
+        self.input_channels.clone()
+    }
+
+    pub fn output_channels(&self) -> SupportedDuplexChannels {
+        self.output_channels.clone()
+    }
+
+    pub fn min_sample_rate(&self) -> SampleRate {
+        self.min_sample_rate
+    }
+
+    pub fn max_sample_rate(&self) -> SampleRate {
+        self.max_sample_rate
+    }
+
+    pub fn buffer_size(&self) -> &SupportedBufferSize {
+        &self.buffer_size
+    }
+
+    pub fn sample_format(&self) -> SampleFormat {
+        self.sample_format
+    }
+
+    /// Retrieve a `SupportedDuplexStreamConfig` with the given sample rate and default channel
+    /// counts.
+    ///
+    /// If there is no `default` channel count available, at most 2 will be selected.
+    ///
+    /// **panic!**s if the given `sample_rate` is outside the range specified within this
+    /// `SupportedDuplexStreamConfigRange` instance.
+    pub fn default_with_sample_rate(self, sample_rate: SampleRate) -> SupportedDuplexStreamConfig {
+        assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
+        SupportedDuplexStreamConfig {
+            input_channels: match self.input_channels.default {
+                Some(count) => count,
+                None => 2.max(self.input_channels.min).min(self.input_channels.max),
+            },
+            output_channels: match self.output_channels.default {
+                Some(count) => count,
+                None => 2.max(self.input_channels.min).min(self.input_channels.max),
+            },
+            sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
+        }
+    }
+
+    /// Turns this `SupportedDuplexStreamConfigRange` into a `SupportedDuplexStreamConfig`
+    /// corresponding to the maximum sample rate and default channel counts.
+    ///
+    /// If there is no `default` channel count available, at most 2 will be selected.
+    pub fn default_with_max_sample_rate(self) -> SupportedDuplexStreamConfig {
+        SupportedDuplexStreamConfig {
+            input_channels: match self.input_channels.default {
+                Some(count) => count,
+                None => 2.max(self.input_channels.min).min(self.input_channels.max),
+            },
+            output_channels: match self.output_channels.default {
+                Some(count) => count,
+                None => 2.max(self.input_channels.min).min(self.input_channels.max),
+            },
+            sample_rate: self.max_sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
+        }
+    }
+
+    /// Retrieve a `SupportedDuplexStreamConfig` with the given channel counts and sample rate.
+    ///
+    /// **panic!**s if the given `input_channels`, `output_channels` or `sample_rate` are outside
+    /// the range specified within this `SupportedDuplexStreamConfigRange` instance.
+    pub fn with_channels_sample_rate(
+        self,
+        input_channels: ChannelCount,
+        output_channels: ChannelCount,
+        sample_rate: SampleRate,
+    ) -> SupportedDuplexStreamConfig {
+        assert!(
+            self.min_sample_rate <= sample_rate
+                && sample_rate <= self.max_sample_rate
+                && self.input_channels.min <= input_channels
+                && input_channels <= self.input_channels.max
+                && self.output_channels.min <= output_channels
+                && output_channels <= self.output_channels.max
+        );
+        SupportedDuplexStreamConfig {
+            input_channels,
+            output_channels,
+            sample_rate,
+            sample_format: self.sample_format,
+            buffer_size: self.buffer_size,
+        }
+    }
+
+    /// A comparison function which compares two `SupportedDuplexStreamConfigRange`s in terms of their priority of
+    /// use as a default stream format.
+    ///
+    /// Refer to [`SupportedStreamConfigRange::cmp_default_heuristics`] for more details. The duplex
+    /// version prioritizes channel configurations as follows:
+    ///
+    /// - Both input and output stereo
+    /// - Mono input and stereo output (does this make sense?)
+    /// - Mono input and mono output
+    /// - Max output channels
+    /// - Max input channels
+    pub fn cmp_default_heuristics(&self, _other: &Self) -> std::cmp::Ordering {
+        // TODO: Refactor out common parts with the half duplex implementation?
+        todo!()
+    }
+}
+
 #[test]
 fn test_cmp_default_heuristics() {
     let mut formats = vec![
@@ -726,6 +950,12 @@ fn test_cmp_default_heuristics() {
 
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
+        conf.config()
+    }
+}
+
+impl From<SupportedDuplexStreamConfig> for DuplexStreamConfig {
+    fn from(conf: SupportedDuplexStreamConfig) -> Self {
         conf.config()
     }
 }

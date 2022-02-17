@@ -1,6 +1,6 @@
 extern crate jack;
 
-use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
+use crate::{DevicesError, SampleFormat};
 use traits::HostTrait;
 
 mod device;
@@ -10,8 +10,9 @@ mod stream;
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub type SupportedInputConfigs = self::device::SupportedInputConfigs;
+pub type SupportedOutputConfigs = self::device::SupportedOutputConfigs;
+pub type SupportedDuplexConfigs = self::device::SupportedDuplexConfigs;
 pub type Devices = std::vec::IntoIter<Device>;
 
 /// The JACK Host type
@@ -62,6 +63,11 @@ impl Host {
         self.default_output_device()
     }
 
+    pub fn duplex_device_with_name(&mut self, name: &str) -> Option<Device> {
+        self.name = name.to_owned();
+        self.default_duplex_device()
+    }
+
     fn initialize_default_devices(&mut self) {
         let in_device_res = Device::default_input_device(
             &self.name,
@@ -82,6 +88,18 @@ impl Host {
             self.start_server_automatically,
         );
         match out_device_res {
+            Ok(device) => self.devices_created.push(device),
+            Err(err) => {
+                println!("{}", err);
+            }
+        }
+
+        let duplex_device_res = Device::default_duplex_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
+        match duplex_device_res {
             Ok(device) => self.devices_created.push(device),
             Err(err) => {
                 println!("{}", err);
@@ -124,6 +142,15 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         for device in &self.devices_created {
             if device.is_output() {
+                return Some(device.clone());
+            }
+        }
+        None
+    }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        for device in &self.devices_created {
+            if device.is_duplex() {
                 return Some(device.clone());
             }
         }

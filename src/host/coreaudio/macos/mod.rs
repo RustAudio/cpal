@@ -23,9 +23,10 @@ use self::coreaudio::sys::{
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, DuplexCallbackInfo,
+    DuplexStreamConfig, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedDuplexStreamConfig, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cell::RefCell;
@@ -39,8 +40,8 @@ use std::thread;
 use std::time::Duration;
 
 pub use self::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    default_duplex_device, default_input_device, default_output_device, Devices,
+    SupportedDuplexConfigs, SupportedInputConfigs, SupportedOutputConfigs,
 };
 
 pub mod enumerate;
@@ -75,11 +76,16 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
+
+    fn default_duplex_device(&self) -> Option<Self::Device> {
+        default_duplex_device()
+    }
 }
 
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedDuplexConfigs = SupportedDuplexConfigs;
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -98,12 +104,24 @@ impl DeviceTrait for Device {
         Device::supported_output_configs(self)
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<Self::SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        Device::supported_duplex_configs(self)
+    }
+
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        Device::default_duplex_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -132,6 +150,21 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _conf: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
@@ -308,6 +341,13 @@ impl Device {
         self.supported_configs(kAudioObjectPropertyScopeOutput)
     }
 
+    fn supported_duplex_configs(
+        &self,
+    ) -> Result<SupportedDuplexConfigs, SupportedStreamConfigsError> {
+        // TODO
+        Ok(Vec::new().into_iter())
+    }
+
     fn default_config(
         &self,
         scope: AudioObjectPropertyScope,
@@ -397,6 +437,13 @@ impl Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         self.default_config(kAudioObjectPropertyScopeOutput)
+    }
+
+    fn default_duplex_config(
+        &self,
+    ) -> Result<SupportedDuplexStreamConfig, DefaultStreamConfigError> {
+        // TODO
+        Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 }
 
