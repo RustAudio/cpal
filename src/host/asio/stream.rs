@@ -21,7 +21,7 @@ trait Silence {
 /// Constraints on the ASIO sample types.
 trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {
     fn to_cpal_sample<T: Sample>(&self) -> T;
-    fn from_cpal_sample<T: Sample>(&T) -> Self;
+    fn from_cpal_sample<T: Sample>(_: &T) -> Self;
 }
 
 // Used to keep track of whether or not the current asio stream buffer requires

@@ -5,8 +5,8 @@ use self::coreaudio::sys::{
     AudioStreamBasicDescription, OSStatus,
 };
 
-use DefaultStreamConfigError;
-use {BuildStreamError, SupportedStreamConfigsError};
+use crate::DefaultStreamConfigError;
+use crate::{BuildStreamError, SupportedStreamConfigsError};
 
 use crate::{BackendSpecificError, SampleFormat, StreamConfig};
 
