@@ -300,7 +300,7 @@ unsafe fn format_from_waveformatex_ptr(
         a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 && a.Data4 == b.Data4
     }
     let sample_format = match (
-        (*waveformatex_ptr).wBitsPerSample,
+        (*waveformatex_ptr).wBitsPerSample, // 8 or 16 for integers, 32 for floats
         (*waveformatex_ptr).wFormatTag,
     ) {
         (16, mmreg::WAVE_FORMAT_PCM) => SampleFormat::I16,
@@ -1228,7 +1228,7 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::I16 => mmreg::WAVE_FORMAT_PCM,
         SampleFormat::F32 => mmreg::WAVE_FORMAT_EXTENSIBLE,
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let channels = config.channels as WORD;
     let sample_rate = config.sample_rate.0 as DWORD;
@@ -1243,7 +1243,7 @@ fn config_to_waveformatextensible(
             let ex_size = mem::size_of::<mmreg::WAVEFORMATEX>();
             (extensible_size - ex_size) as WORD
         }
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let waveformatex = mmreg::WAVEFORMATEX {
         wFormatTag: format_tag,
@@ -1263,7 +1263,7 @@ fn config_to_waveformatextensible(
     let sub_format = match sample_format {
         SampleFormat::I16 => ksmedia::KSDATAFORMAT_SUBTYPE_PCM,
         SampleFormat::F32 => ksmedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        SampleFormat::U16 => return None,
+        SampleFormat::U16 | SampleFormat::I32 => return None,
     };
     let waveformatextensible = mmreg::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,

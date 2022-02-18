@@ -181,8 +181,8 @@ impl Device {
                 // TODO: Add support for the following sample formats to CPAL and simplify the
                 // `process_output_callback` function above by removing the unnecessary sample
                 // conversion function.
-                (&sys::AsioSampleType::ASIOSTInt32LSB, SampleFormat::I16) => {
-                    process_input_callback::<i32, i16, _, _>(
+                (&sys::AsioSampleType::ASIOSTInt32LSB, SampleFormat::I32) => {
+                    process_input_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
@@ -191,8 +191,8 @@ impl Device {
                         from_le,
                     );
                 }
-                (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I16) => {
-                    process_input_callback::<i32, i16, _, _>(
+                (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
+                    process_input_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
@@ -404,8 +404,8 @@ impl Device {
                 // TODO: Add support for the following sample formats to CPAL and simplify the
                 // `process_output_callback` function above by removing the unnecessary sample
                 // conversion function.
-                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32LSB) => {
-                    process_output_callback::<i16, i32, _, _>(
+                (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32LSB) => {
+                    process_output_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
@@ -415,8 +415,8 @@ impl Device {
                         to_le,
                     );
                 }
-                (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt32MSB) => {
-                    process_output_callback::<i16, i32, _, _>(
+                (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
+                    process_output_callback::<i32, i32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
@@ -675,7 +675,7 @@ fn check_config(
     }
     // unsigned formats are not supported by asio
     match sample_format {
-        SampleFormat::I16 | SampleFormat::F32 => (),
+        SampleFormat::I16 | SampleFormat::I32 | SampleFormat::F32 => (),
         SampleFormat::U16 => return Err(BuildStreamError::StreamConfigNotSupported),
     }
     if *channels > num_asio_channels {
