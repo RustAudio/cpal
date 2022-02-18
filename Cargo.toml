@@ -35,8 +35,8 @@ lazy_static = "1.4"
 alsa = "0.6"
 nix = "0.23"
 libc = "0.2.65"
-parking_lot = "0.11"
-jack = { version = "0.8", optional = true }
+parking_lot = "0.12"
+jack = { version = "0.9", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
