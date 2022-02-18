@@ -1,7 +1,7 @@
 extern crate jack;
 
+use crate::traits::HostTrait;
 use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
-use traits::HostTrait;
 
 mod device;
 pub use self::device::Device;

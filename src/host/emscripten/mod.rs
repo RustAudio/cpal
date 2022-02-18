@@ -7,13 +7,13 @@ use stdweb::web::set_timeout;
 use stdweb::web::TypedArray;
 use stdweb::Reference;
 
+use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
     SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
-use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
 // Creating a stream creates a new `AudioContext`. Destroying a stream destroys it. Creation of a

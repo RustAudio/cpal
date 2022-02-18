@@ -6,10 +6,10 @@ pub use self::device::{
 };
 pub use self::stream::Stream;
 use self::winapi::um::winnt::HRESULT;
+use crate::traits::HostTrait;
+use crate::BackendSpecificError;
+use crate::DevicesError;
 use std::io::Error as IoError;
-use traits::HostTrait;
-use BackendSpecificError;
-use DevicesError;
 
 mod com;
 mod device;

@@ -1,3 +1,4 @@
+use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
     InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
@@ -5,7 +6,6 @@ use crate::{
     SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
-use traits::DeviceTrait;
 
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
