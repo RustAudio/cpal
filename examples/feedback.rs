@@ -31,7 +31,7 @@ struct Opt {
 
 impl Opt {
     fn from_args() -> anyhow::Result<Self> {
-        let app = clap::App::new("beep")
+        let app = clap::Command::new("beep")
             .arg(arg!(
             -l --latency [DELAY_MS] "Specify the delay between input and output [default: 150]"))
             .arg(arg!([IN] "The input audio device to use"))
