@@ -367,7 +367,7 @@ impl Device {
                 len += 1;
             }
 
-            // Create the utf16 slice and covert it into a string.
+            // Create the utf16 slice and convert it into a string.
             let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
             let name_os_string: OsString = OsStringExt::from_wide(name_slice);
             let name_string = match name_os_string.into_string() {
@@ -959,7 +959,7 @@ impl Device {
 impl PartialEq for Device {
     #[inline]
     fn eq(&self, other: &Device) -> bool {
-        // Use case: In oder to check whether the default device has changed
+        // Use case: In order to check whether the default device has changed
         // the client code might need to compare the previous default device with the current one.
         // The pointer comparison (`self.device == other.device`) don't work there,
         // because the pointers are different even when the default device stays the same.

@@ -440,7 +440,7 @@ impl Driver {
     /// This will destroy any already allocated buffers.
     ///
     /// If buffersize is None then the preferred buffer size from ASIO is used,
-    /// otherwise the desired buffersize is used if the requeted size is within
+    /// otherwise the desired buffersize is used if the requested size is within
     /// the range of accepted buffersizes for the device.
     fn create_buffers(
         &self,
@@ -842,7 +842,7 @@ fn asio_channel_info(channel: c_long, is_input: bool) -> Result<ai::ASIOChannelI
 /// If `is_input` is true, this will be queried on the input stream.
 fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
     let channel_info = asio_channel_info(0, is_input)?;
-    Ok(FromPrimitive::from_i32(channel_info.type_).expect("unkown `ASIOSampletype` value"))
+    Ok(FromPrimitive::from_i32(channel_info.type_).expect("unknown `ASIOSampletype` value"))
 }
 
 /// ASIO uses null terminated c strings for driver names.
