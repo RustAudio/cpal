@@ -311,7 +311,7 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        // TODO: check endianess
+        // TODO: check endianness
         const FORMATS: [(SampleFormat, alsa::pcm::Format); 3] = [
             //SND_PCM_FORMAT_S8,
             //SND_PCM_FORMAT_U8,
