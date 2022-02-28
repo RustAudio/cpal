@@ -138,6 +138,7 @@ impl DeviceTrait for Device {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
+    is_default: bool,
 }
 
 impl Device {
@@ -421,7 +422,12 @@ struct StreamInner {
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let mut audio_unit = AudioUnit::new(coreaudio::audio_unit::IOType::HalOutput)?;
+    let output_type = if device.is_default && !input {
+        coreaudio::audio_unit::IOType::DefaultOutput
+    } else {
+        coreaudio::audio_unit::IOType::HalOutput
+    };
+    let mut audio_unit = AudioUnit::new(output_type)?;
 
     if input {
         // Enable input processing.

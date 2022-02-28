@@ -83,6 +83,7 @@ impl Iterator for Devices {
     fn next(&mut self) -> Option<Device> {
         self.0.next().map(|id| Device {
             audio_device_id: id,
+            is_default: false,
         })
     }
 }
@@ -110,7 +111,10 @@ pub fn default_input_device() -> Option<Device> {
         return None;
     }
 
-    let device = Device { audio_device_id };
+    let device = Device {
+        audio_device_id,
+        is_default: true,
+    };
     Some(device)
 }
 
@@ -137,7 +141,10 @@ pub fn default_output_device() -> Option<Device> {
         return None;
     }
 
-    let device = Device { audio_device_id };
+    let device = Device {
+        audio_device_id,
+        is_default: true,
+    };
     Some(device)
 }
 
