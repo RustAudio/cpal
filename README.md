@@ -21,6 +21,7 @@ Currently, supported hosts include:
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
 - Android (via Oboe)
+- OpenBSD (via sndio)
 - Emscripten
 
 Note that on Linux, the ALSA development files are required. These are provided

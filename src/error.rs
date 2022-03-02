@@ -147,7 +147,7 @@ pub enum PauseStreamError {
 }
 
 /// Errors that might occur while a stream is running.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.

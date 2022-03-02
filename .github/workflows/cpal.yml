@@ -83,6 +83,17 @@ jobs:
       run: sudo apt-get install libasound2-dev
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+    - name: Install sndio
+      run: |
+        sudo apt-get install build-essential &&
+        git clone https://caoua.org/git/sndio &&
+        cd sndio &&
+        ./configure &&
+        make &&
+        sudo mkdir /var/run/sndiod &&
+        sudo useradd -r -g audio -s /sbin/nologin -d /var/run/sndiod sndiod &&
+        sudo make install &&
+        sudo ldconfig 
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -99,6 +110,11 @@ jobs:
       with:
         command: test
         args: --all --all-features --verbose
+    - name: Run with jack feature
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --features jack --verbose
 
   linux-check-and-test-armv7:
     runs-on: ubuntu-latest

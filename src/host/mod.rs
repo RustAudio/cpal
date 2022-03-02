@@ -14,6 +14,11 @@ pub(crate) mod jack;
 pub(crate) mod null;
 #[cfg(target_os = "android")]
 pub(crate) mod oboe;
+#[cfg(any(
+    target_os = "openbsd",
+    all(target_os = "linux", feature = "linux-sndio")
+))]
+pub(crate) mod sndio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
