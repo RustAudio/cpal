@@ -586,8 +586,14 @@ mod platform_impl {
         SupportedInputConfigs as JackSupportedInputConfigs,
         SupportedOutputConfigs as JackSupportedOutputConfigs,
     };
+    #[cfg(feature = "pipewire")]
+    pub use crate::host::pipewire::{
+        Device as PipeWireDevice, Devices as PipeWireDevices, Host as PipeWireHost, Stream as PipeWireStream,
+        SupportedInputConfigs as PipeWireSupportedInputConfigs,
+        SupportedOutputConfigs as PipeWireupportedOutputConfigs,
+    };
 
-    impl_platform_host!(#[cfg(feature = "jack")] Jack jack "JACK", Alsa alsa "ALSA");
+    impl_platform_host!(#[cfg(feature = "pipewire")] PipeWire pipewire "PipeWire", #[cfg(feature = "jack")] Jack jack "JACK", Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
