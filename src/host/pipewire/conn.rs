@@ -96,7 +96,7 @@ impl PWClient {
 #[derive(Default)]
 struct State {
     settings: Settings,
-    nodes: Vec<Node>,
+    nodes: Vec<ProxyItem>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -125,7 +125,7 @@ fn pw_thread(
     pipewire::init();
     // let state = Rc::new(State::default());
     let state = Rc::new(RefCell::new(State::default()));
-    let proxies = Rc::new(RefCell::new(HashMap::<u32, ProxyItem>::new()));
+    let proxies = Rc::new(RefCell::new(HashMap::new()));
 
     let mainloop = pipewire::MainLoop::new().expect("Failed to create PipeWire Mainloop");
 
@@ -142,6 +142,7 @@ fn pw_thread(
         let state = state.clone();
         let main_sender = main_sender.clone();
         let core = core.clone();
+        let proxies = proxies.clone();
 
         move |msg| match msg {
             Message::Terminate => mainloop.quit(),
@@ -177,8 +178,8 @@ fn pw_thread(
 
                 let _listener = node
                     .add_listener_local()
-                    .info(|f| {
-                        println!("{:?}", f);
+                    .info(|info| {
+                        // println!("{:?}", info);
                     })
                     .param(|a, b, c, d| {
                         println!("{}, {}, {}, {}", a, b, c, d);
@@ -187,15 +188,10 @@ fn pw_thread(
 
                 println!("{:?}", node);
 
-                state.as_ref().borrow_mut().nodes.push(node);
-
-                // proxies.as_ref().borrow_mut().insert(
-                //     node.proxy.id(),
-                //     ProxyItem::Node {
-                //         _proxy: node,
-                //         _listener,
-                //     },
-                // );
+                state.as_ref().borrow_mut().nodes.push(ProxyItem::Node {
+                    _proxy: node,
+                    _listener,
+                });
 
                 main_sender.send(MessageRepl::NodeInfo(NodeInfo { name }));
             }
