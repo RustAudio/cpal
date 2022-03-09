@@ -16,10 +16,10 @@ type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(StreamError) + Send + 'static>>;
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
     playing: Arc<AtomicBool>,
-    async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
+    // async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
-    input_port_names: Vec<String>,
-    output_port_names: Vec<String>,
+    // input_port_names: Vec<String>,
+    // output_port_names: Vec<String>,
 }
 
 impl Stream {
@@ -34,58 +34,58 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let mut ports = vec![];
-        let mut port_names: Vec<String> = vec![];
+        // let mut ports = vec![];
+        // let mut port_names: Vec<String> = vec![];
         // Create ports
-        for i in 0..channels {
-            let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
-            match port_try {
-                Ok(port) => {
-                    // Get the port name in order to later connect it automatically
-                    if let Ok(port_name) = port.name() {
-                        port_names.push(port_name);
-                    }
-                    // Store the port into a Vec to move to the ProcessHandler
-                    ports.push(port);
-                }
-                Err(e) => {
-                    // If port creation failed, send the error back via the error_callback
-                    error_callback(
-                        BackendSpecificError {
-                            description: e.to_string(),
-                        }
-                        .into(),
-                    );
-                }
-            }
-        }
+        // for i in 0..channels {
+        //     let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
+        //     match port_try {
+        //         Ok(port) => {
+        //             // Get the port name in order to later connect it automatically
+        //             if let Ok(port_name) = port.name() {
+        //                 port_names.push(port_name);
+        //             }
+        //             // Store the port into a Vec to move to the ProcessHandler
+        //             ports.push(port);
+        //         }
+        //         Err(e) => {
+        //             // If port creation failed, send the error back via the error_callback
+        //             error_callback(
+        //                 BackendSpecificError {
+        //                     description: e.to_string(),
+        //                 }
+        //                 .into(),
+        //             );
+        //         }
+        //     }
+        // }
 
         let playing = Arc::new(AtomicBool::new(true));
 
         let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
 
-        let input_process_handler = LocalProcessHandler::new(
-            vec![],
-            ports,
-            SampleRate(client.sample_rate() as u32),
-            client.buffer_size() as usize,
-            Some(Box::new(data_callback)),
-            None,
-            playing.clone(),
-            Arc::clone(&error_callback_ptr),
-        );
+        // let input_process_handler = LocalProcessHandler::new(
+        //     vec![],
+        //     ports,
+        //     SampleRate(client.sample_rate() as u32),
+        //     client.buffer_size() as usize,
+        //     Some(Box::new(data_callback)),
+        //     None,
+        //     playing.clone(),
+        //     Arc::clone(&error_callback_ptr),
+        // );
 
         let notification_handler = JackNotificationHandler::new(error_callback_ptr);
 
-        let async_client = client
-            .activate_async(notification_handler, input_process_handler)
-            .unwrap();
+        // let async_client = client
+        //     .activate_async(notification_handler, input_process_handler)
+        //     .unwrap();
 
         Stream {
             playing,
-            async_client,
-            input_port_names: port_names,
-            output_port_names: vec![],
+            // async_client,
+            // input_port_names: port_names,
+            // output_port_names: vec![],
         }
     }
 
@@ -99,58 +99,58 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let mut ports = vec![];
-        let mut port_names: Vec<String> = vec![];
-        // Create ports
-        for i in 0..channels {
-            let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut::default());
-            match port_try {
-                Ok(port) => {
-                    // Get the port name in order to later connect it automatically
-                    if let Ok(port_name) = port.name() {
-                        port_names.push(port_name);
-                    }
-                    // Store the port into a Vec to move to the ProcessHandler
-                    ports.push(port);
-                }
-                Err(e) => {
-                    // If port creation failed, send the error back via the error_callback
-                    error_callback(
-                        BackendSpecificError {
-                            description: e.to_string(),
-                        }
-                        .into(),
-                    );
-                }
-            }
-        }
+        // let mut ports = vec![];
+        // let mut port_names: Vec<String> = vec![];
+        // // Create ports
+        // for i in 0..channels {
+        //     let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut::default());
+        //     match port_try {
+        //         Ok(port) => {
+        //             // Get the port name in order to later connect it automatically
+        //             if let Ok(port_name) = port.name() {
+        //                 port_names.push(port_name);
+        //             }
+        //             // Store the port into a Vec to move to the ProcessHandler
+        //             ports.push(port);
+        //         }
+        //         Err(e) => {
+        //             // If port creation failed, send the error back via the error_callback
+        //             error_callback(
+        //                 BackendSpecificError {
+        //                     description: e.to_string(),
+        //                 }
+        //                 .into(),
+        //             );
+        //         }
+        //     }
+        // }
 
         let playing = Arc::new(AtomicBool::new(true));
 
         let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
 
-        let output_process_handler = LocalProcessHandler::new(
-            ports,
-            vec![],
-            SampleRate(client.sample_rate() as u32),
-            client.buffer_size() as usize,
-            None,
-            Some(Box::new(data_callback)),
-            playing.clone(),
-            Arc::clone(&error_callback_ptr),
-        );
+        // let output_process_handler = LocalProcessHandler::new(
+        //     ports,
+        //     vec![],
+        //     SampleRate(client.sample_rate() as u32),
+        //     client.buffer_size() as usize,
+        //     None,
+        //     Some(Box::new(data_callback)),
+        //     playing.clone(),
+        //     Arc::clone(&error_callback_ptr),
+        // );
 
-        let notification_handler = JackNotificationHandler::new(error_callback_ptr);
+        // let notification_handler = JackNotificationHandler::new(error_callback_ptr);
 
-        let async_client = client
-            .activate_async(notification_handler, output_process_handler)
-            .unwrap();
+        // let async_client = client
+        //     .activate_async(notification_handler, output_process_handler)
+        //     .unwrap();
 
         Stream {
             playing,
-            async_client,
-            input_port_names: vec![],
-            output_port_names: port_names,
+            // async_client,
+            // input_port_names: vec![],
+            // output_port_names: port_names,
         }
     }
 
@@ -158,52 +158,52 @@ impl Stream {
     /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
     pub fn connect_to_system_outputs(&mut self) {
         // Get the system ports
-        let system_ports = self.async_client.as_client().ports(
-            Some("system:playback_.*"),
-            None,
-            jack::PortFlags::empty(),
-        );
+        // let system_ports = self.async_client.as_client().ports(
+        //     Some("system:playback_.*"),
+        //     None,
+        //     jack::PortFlags::empty(),
+        // );
 
-        // Connect outputs from this client to the system playback inputs
-        for i in 0..self.output_port_names.len() {
-            if i >= system_ports.len() {
-                break;
-            }
-            match self
-                .async_client
-                .as_client()
-                .connect_ports_by_name(&self.output_port_names[i], &system_ports[i])
-            {
-                Ok(_) => (),
-                Err(e) => println!("Unable to connect to port with error {}", e),
-            }
-        }
+        // // Connect outputs from this client to the system playback inputs
+        // for i in 0..self.output_port_names.len() {
+        //     if i >= system_ports.len() {
+        //         break;
+        //     }
+        //     match self
+        //         .async_client
+        //         .as_client()
+        //         .connect_ports_by_name(&self.output_port_names[i], &system_ports[i])
+        //     {
+        //         Ok(_) => (),
+        //         Err(e) => println!("Unable to connect to port with error {}", e),
+        //     }
+        // }
     }
 
     /// Connect to the standard system outputs in jack, system:capture_1 and system:capture_2
     /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
     pub fn connect_to_system_inputs(&mut self) {
         // Get the system ports
-        let system_ports = self.async_client.as_client().ports(
-            Some("system:capture_.*"),
-            None,
-            jack::PortFlags::empty(),
-        );
+        // let system_ports = self.async_client.as_client().ports(
+        //     Some("system:capture_.*"),
+        //     None,
+        //     jack::PortFlags::empty(),
+        // );
 
-        // Connect outputs from this client to the system playback inputs
-        for i in 0..self.input_port_names.len() {
-            if i >= system_ports.len() {
-                break;
-            }
-            match self
-                .async_client
-                .as_client()
-                .connect_ports_by_name(&system_ports[i], &self.input_port_names[i])
-            {
-                Ok(_) => (),
-                Err(e) => println!("Unable to connect to port with error {}", e),
-            }
-        }
+        // // Connect outputs from this client to the system playback inputs
+        // for i in 0..self.input_port_names.len() {
+        //     if i >= system_ports.len() {
+        //         break;
+        //     }
+        //     match self
+        //         .async_client
+        //         .as_client()
+        //         .connect_ports_by_name(&system_ports[i], &self.input_port_names[i])
+        //     {
+        //         Ok(_) => (),
+        //         Err(e) => println!("Unable to connect to port with error {}", e),
+        //     }
+        // }
     }
 }
 

@@ -1,5 +1,6 @@
 extern crate pipewire;
 
+use std::rc::Rc;
 use std::sync::mpsc;
 
 use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
@@ -29,12 +30,12 @@ pub struct Host {
     /// A list of the devices that have been created from this Host.
     devices_created: Vec<Device>,
 
-    client: conn::PWClient
+    client: Rc<conn::PWClient>
 }
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        let client = conn::PWClient::new();
+        let client = Rc::new(conn::PWClient::new());
 
         let mut host = Host {
             name: "cpal_client".to_owned(),
@@ -67,7 +68,7 @@ impl Host {
         let in_device_res = Device::default_input_device(
             &self.name,
             self.connect_ports_automatically,
-            self.client
+            self.client.clone()
         );
 
         match in_device_res {
@@ -80,7 +81,7 @@ impl Host {
         let out_device_res = Device::default_output_device(
             &self.name,
             self.connect_ports_automatically,
-            self.client
+            self.client.clone()
         );
         match out_device_res {
             Ok(device) => self.devices_created.push(device),

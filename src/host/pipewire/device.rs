@@ -39,12 +39,16 @@ impl Device {
         name: String,
         connect_ports_automatically: bool,
         device_type: DeviceType,
-        client: super::conn::PWClient,
+        client: Rc<super::conn::PWClient>,
     ) -> Result<Self, String> {
-        let settings = client.get_settings();
+        while client.get_settings().and_then(|s| if s.sample_rate == 0 {Err(String::new())} else {Ok(true)} ).is_err() {}
+
+        let settings = client.get_settings().unwrap();
+
+        let info = client.create_device_node(name, device_type.clone()).expect("Error creating device");
 
         Ok(Device {
-            name: "cpal_client".to_string(),
+            name: info.name,
             sample_rate: SampleRate(settings.sample_rate),
             buffer_size: SupportedBufferSize::Range {
                 min: settings.min_buffer_size,
@@ -52,14 +56,14 @@ impl Device {
             },
             device_type,
             connect_ports_automatically,
-            client: Rc::new(client)
+            client
         })
     }
 
     pub fn default_output_device(
         name: &str,
         connect_ports_automatically: bool,
-        client: super::conn::PWClient,
+        client: Rc<super::conn::PWClient>,
     ) -> Result<Self, String> {
         let output_client_name = format!("{}_out", name);
         Device::new_device(
@@ -73,7 +77,7 @@ impl Device {
     pub fn default_input_device(
         name: &str,
         connect_ports_automatically: bool,
-        client: super::conn::PWClient,
+        client: Rc<super::conn::PWClient>,
     ) -> Result<Self, String> {
         let input_client_name = format!("{}_in", name);
         Device::new_device(
@@ -183,7 +187,7 @@ impl DeviceTrait for Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let mut stream = Stream::new_input(self.client, conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_input(self.client.clone(), conf.channels, data_callback, error_callback);
 
         if self.connect_ports_automatically {
             stream.connect_to_system_inputs();
@@ -211,7 +215,7 @@ impl DeviceTrait for Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let mut stream = Stream::new_output(self.client, conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_output(self.client.clone(), conf.channels, data_callback, error_callback);
 
         if self.connect_ports_automatically {
             stream.connect_to_system_outputs();
