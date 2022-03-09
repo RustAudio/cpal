@@ -45,7 +45,7 @@ impl Device {
 
         let settings = client.get_settings().unwrap();
 
-        let info = client.create_device_node(name, device_type.clone()).expect("Error creating device");
+        let info = client.create_device_node(name, device_type.clone(), connect_ports_automatically).expect("Error creating device");
 
         Ok(Device {
             name: info.name,
