@@ -31,10 +31,11 @@ pub use self::platform_impl::*;
 // SupportedOutputConfigs and all their necessary trait implementations.
 // ```
 macro_rules! impl_platform_host {
-    ($($HostVariant:ident $host_mod:ident $host_name:literal),*) => {
+    ($($(#[cfg($feat: meta)])? $HostVariant:ident $host_mod:ident $host_name:literal),*) => {
         /// All hosts supported by CPAL on this platform.
         pub const ALL_HOSTS: &'static [HostId] = &[
             $(
+                $(#[cfg($feat)])?
                 HostId::$HostVariant,
             )*
         ];
@@ -79,42 +80,49 @@ macro_rules! impl_platform_host {
         #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
         pub enum HostId {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant,
             )*
         }
 
         enum DeviceInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Device),
             )*
         }
 
         enum DevicesInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Devices),
             )*
         }
 
         enum HostInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Host),
             )*
         }
 
         enum StreamInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Stream),
             )*
         }
 
         enum SupportedInputConfigsInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::SupportedInputConfigs),
             )*
         }
 
         enum SupportedOutputConfigsInner {
             $(
+                $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::SupportedOutputConfigs),
             )*
         }
@@ -123,6 +131,7 @@ macro_rules! impl_platform_host {
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
+                        $(#[cfg($feat)])?
                         HostId::$HostVariant => $host_name,
                     )*
                 }
@@ -134,6 +143,7 @@ macro_rules! impl_platform_host {
             pub fn id(&self) -> HostId {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         HostInner::$HostVariant(_) => HostId::$HostVariant,
                     )*
                 }
@@ -146,6 +156,7 @@ macro_rules! impl_platform_host {
             fn next(&mut self) -> Option<Self::Item> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DevicesInner::$HostVariant(ref mut d) => {
                             d.next().map(DeviceInner::$HostVariant).map(Device::from)
                         }
@@ -156,6 +167,7 @@ macro_rules! impl_platform_host {
             fn size_hint(&self) -> (usize, Option<usize>) {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DevicesInner::$HostVariant(ref d) => d.size_hint(),
                     )*
                 }
@@ -168,6 +180,7 @@ macro_rules! impl_platform_host {
             fn next(&mut self) -> Option<Self::Item> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         SupportedInputConfigsInner::$HostVariant(ref mut s) => s.next(),
                     )*
                 }
@@ -176,6 +189,7 @@ macro_rules! impl_platform_host {
             fn size_hint(&self) -> (usize, Option<usize>) {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         SupportedInputConfigsInner::$HostVariant(ref d) => d.size_hint(),
                     )*
                 }
@@ -188,6 +202,7 @@ macro_rules! impl_platform_host {
             fn next(&mut self) -> Option<Self::Item> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         SupportedOutputConfigsInner::$HostVariant(ref mut s) => s.next(),
                     )*
                 }
@@ -196,6 +211,7 @@ macro_rules! impl_platform_host {
             fn size_hint(&self) -> (usize, Option<usize>) {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         SupportedOutputConfigsInner::$HostVariant(ref d) => d.size_hint(),
                     )*
                 }
@@ -210,6 +226,7 @@ macro_rules! impl_platform_host {
             fn name(&self) -> Result<String, crate::DeviceNameError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d.name(),
                     )*
                 }
@@ -218,6 +235,7 @@ macro_rules! impl_platform_host {
             fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => {
                             d.supported_input_configs()
                                 .map(SupportedInputConfigsInner::$HostVariant)
@@ -230,6 +248,7 @@ macro_rules! impl_platform_host {
             fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => {
                             d.supported_output_configs()
                                 .map(SupportedOutputConfigsInner::$HostVariant)
@@ -242,6 +261,7 @@ macro_rules! impl_platform_host {
             fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d.default_input_config(),
                     )*
                 }
@@ -250,6 +270,7 @@ macro_rules! impl_platform_host {
             fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d.default_output_config(),
                     )*
                 }
@@ -268,6 +289,7 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d
                             .build_input_stream_raw(
                                 config,
@@ -294,6 +316,7 @@ macro_rules! impl_platform_host {
             {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d
                             .build_output_stream_raw(
                                 config,
@@ -313,12 +336,17 @@ macro_rules! impl_platform_host {
             type Device = Device;
 
             fn is_available() -> bool {
-                $( crate::host::$host_mod::Host::is_available() ||)* false
+                $(
+                    $(#[cfg($feat)])?
+                    if crate::host::$host_mod::Host::is_available() { return true; }
+                )*
+                false
             }
 
             fn devices(&self) -> Result<Self::Devices, crate::DevicesError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         HostInner::$HostVariant(ref h) => {
                             h.devices().map(DevicesInner::$HostVariant).map(Devices::from)
                         }
@@ -329,6 +357,7 @@ macro_rules! impl_platform_host {
             fn default_input_device(&self) -> Option<Self::Device> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         HostInner::$HostVariant(ref h) => {
                             h.default_input_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
@@ -339,6 +368,7 @@ macro_rules! impl_platform_host {
             fn default_output_device(&self) -> Option<Self::Device> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         HostInner::$HostVariant(ref h) => {
                             h.default_output_device().map(DeviceInner::$HostVariant).map(Device::from)
                         }
@@ -351,6 +381,7 @@ macro_rules! impl_platform_host {
             fn play(&self) -> Result<(), crate::PlayStreamError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         StreamInner::$HostVariant(ref s) => {
                             s.play()
                         }
@@ -361,6 +392,7 @@ macro_rules! impl_platform_host {
             fn pause(&self) -> Result<(), crate::PauseStreamError> {
                 match self.0 {
                     $(
+                        $(#[cfg($feat)])?
                         StreamInner::$HostVariant(ref s) => {
                             s.pause()
                         }
@@ -394,24 +426,28 @@ macro_rules! impl_platform_host {
         }
 
         $(
+            $(#[cfg($feat)])?
             impl From<crate::host::$host_mod::Device> for Device {
                 fn from(h: crate::host::$host_mod::Device) -> Self {
                     DeviceInner::$HostVariant(h).into()
                 }
             }
 
+            $(#[cfg($feat)])?
             impl From<crate::host::$host_mod::Devices> for Devices {
                 fn from(h: crate::host::$host_mod::Devices) -> Self {
                     DevicesInner::$HostVariant(h).into()
                 }
             }
 
+            $(#[cfg($feat)])?
             impl From<crate::host::$host_mod::Host> for Host {
                 fn from(h: crate::host::$host_mod::Host) -> Self {
                     HostInner::$HostVariant(h).into()
                 }
             }
 
+            $(#[cfg($feat)])?
             impl From<crate::host::$host_mod::Stream> for Stream {
                 fn from(h: crate::host::$host_mod::Stream) -> Self {
                     StreamInner::$HostVariant(h).into()
@@ -423,6 +459,7 @@ macro_rules! impl_platform_host {
         pub fn available_hosts() -> Vec<HostId> {
             let mut host_ids = vec![];
             $(
+                $(#[cfg($feat)])?
                 if <crate::host::$host_mod::Host as crate::traits::HostTrait>::is_available() {
                     host_ids.push(HostId::$HostVariant);
                 }
@@ -434,6 +471,7 @@ macro_rules! impl_platform_host {
         pub fn host_from_id(id: HostId) -> Result<Host, crate::HostUnavailable> {
             match id {
                 $(
+                    $(#[cfg($feat)])?
                     HostId::$HostVariant => {
                         crate::host::$host_mod::Host::new()
                             .map(HostInner::$HostVariant)
@@ -460,11 +498,7 @@ mod platform_impl {
         SupportedOutputConfigs as JackSupportedOutputConfigs,
     };
 
-    #[cfg(feature = "jack")]
-    impl_platform_host!(Jack jack "JACK", Alsa alsa "ALSA");
-
-    #[cfg(not(feature = "jack"))]
-    impl_platform_host!(Alsa alsa "ALSA");
+    impl_platform_host!(#[cfg(feature = "jack")] Jack jack "JACK", Alsa alsa "ALSA");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -542,11 +576,7 @@ mod platform_impl {
         SupportedOutputConfigs as WasapiSupportedOutputConfigs,
     };
 
-    #[cfg(feature = "asio")]
-    impl_platform_host!(Asio asio "ASIO", Wasapi wasapi "WASAPI");
-
-    #[cfg(not(feature = "asio"))]
-    impl_platform_host!(Wasapi wasapi "WASAPI");
+    impl_platform_host!(#[cfg(feature = "asio")] Asio asio "ASIO", Wasapi wasapi "WASAPI");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
