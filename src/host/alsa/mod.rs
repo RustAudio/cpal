@@ -1023,7 +1023,13 @@ fn set_sw_params_from_format(
     sw_params.set_tstamp_mode(true)?;
     sw_params.set_tstamp_type(alsa::pcm::TstampType::MonotonicRaw)?;
 
-    pcm_handle.sw_params(&sw_params)?;
+    // tstamp_type param cannot be changed after the device is opened.
+    // The default tstamp_type value on most Linux systems is "monotonic",
+    // let's try to use it if setting the tstamp_type fails.
+    if pcm_handle.sw_params(&sw_params).is_err() {
+        sw_params.set_tstamp_type(alsa::pcm::TstampType::Monotonic)?;
+        pcm_handle.sw_params(&sw_params)?;
+    }
 
     Ok(period_len)
 }
