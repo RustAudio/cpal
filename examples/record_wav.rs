@@ -26,7 +26,7 @@ struct Opt {
 
 impl Opt {
     fn from_args() -> Self {
-        let app = clap::Command::new("beep").arg(arg!([DEVICE] "The audio device to use"));
+        let app = clap::Command::new("record_wav").arg(arg!([DEVICE] "The audio device to use"));
         #[cfg(all(
             any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
             feature = "jack"
