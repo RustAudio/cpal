@@ -85,28 +85,29 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        enum DeviceInner {
+        pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Device),
             )*
         }
 
-        enum DevicesInner {
+        pub enum DevicesInner {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Devices),
             )*
         }
 
-        enum HostInner {
+
+        pub enum HostInner {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Host),
             )*
         }
 
-        enum StreamInner {
+        pub enum StreamInner {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(crate::host::$host_mod::Stream),
@@ -138,6 +139,44 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl Devices {
+            /// Returns a reference to the underlying platform specific implementation of this
+            /// `Devices`.
+            pub fn as_inner(&self) -> &DevicesInner {
+                &self.0
+            }
+
+            /// Returns a mutable reference to the underlying platform specific implementation of
+            /// this `Devices`.
+            pub fn as_inner_mut(&self) -> &DevicesInner {
+                &self.0
+            }
+
+            /// Returns the underlying platform specific implementation of this `Devices`.
+            pub fn into_inner(self) -> DevicesInner {
+                self.0
+            }
+        }
+
+        impl Device {
+            /// Returns a reference to the underlying platform specific implementation of this
+            /// `Device`.
+            pub fn as_inner(&self) -> &DeviceInner {
+                &self.0
+            }
+
+            /// Returns a mutable reference to the underlying platform specific implementation of
+            /// this `Device`.
+            pub fn as_inner_mut(&self) -> &DeviceInner {
+                &self.0
+            }
+
+            /// Returns the underlying platform specific implementation of this `Device`.
+            pub fn into_inner(self) -> DeviceInner {
+                self.0
+            }
+        }
+
         impl Host {
             /// The unique identifier associated with this host.
             pub fn id(&self) -> HostId {
@@ -147,6 +186,42 @@ macro_rules! impl_platform_host {
                         HostInner::$HostVariant(_) => HostId::$HostVariant,
                     )*
                 }
+            }
+
+            /// Returns a reference to the underlying platform specific implementation of this
+            /// `Host`.
+            pub fn as_inner(&self) -> &HostInner {
+                &self.0
+            }
+
+            /// Returns a mutable reference to the underlying platform specific implementation of
+            /// this `Host`.
+            pub fn as_inner_mut(&self) -> &HostInner {
+                &self.0
+            }
+
+            /// Returns the underlying platform specific implementation of this `Host`.
+            pub fn into_inner(self) -> HostInner {
+                self.0
+            }
+        }
+
+        impl Stream {
+            /// Returns a reference to the underlying platform specific implementation of this
+            /// `Stream`.
+            pub fn as_inner(&self) -> &StreamInner {
+                &self.0
+            }
+
+            /// Returns a mutable reference to the underlying platform specific implementation of
+            /// this `Stream`.
+            pub fn as_inner_mut(&self) -> &StreamInner {
+                &self.0
+            }
+
+            /// Returns the underlying platform specific implementation of this `Stream`.
+            pub fn into_inner(self) -> StreamInner {
+                self.0
             }
         }
 
