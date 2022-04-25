@@ -350,6 +350,14 @@ impl DeviceTrait for Device {
     }
 }
 
+impl Stream {
+    /// Return the [`AudioContext`](https://developer.mozilla.org/docs/Web/API/AudioContext) used
+    /// by this stream.
+    pub fn audio_context(&self) -> &AudioContext {
+        &*self.ctx
+    }
+}
+
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         let window = web_sys::window().unwrap();
