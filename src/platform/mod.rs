@@ -85,6 +85,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform specific `Device` implementation.
         pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?
@@ -92,6 +93,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform specific `Devices` implementation.
         pub enum DevicesInner {
             $(
                 $(#[cfg($feat)])?
@@ -99,7 +101,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-
+        /// Contains a platform specific `Host` implementation.
         pub enum HostInner {
             $(
                 $(#[cfg($feat)])?
@@ -107,6 +109,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform specific `Stream` implementation.
         pub enum StreamInner {
             $(
                 $(#[cfg($feat)])?
