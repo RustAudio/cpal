@@ -151,8 +151,8 @@ macro_rules! impl_platform_host {
 
             /// Returns a mutable reference to the underlying platform specific implementation of
             /// this `Devices`.
-            pub fn as_inner_mut(&self) -> &DevicesInner {
-                &self.0
+            pub fn as_inner_mut(&mut self) -> &mut DevicesInner {
+                &mut self.0
             }
 
             /// Returns the underlying platform specific implementation of this `Devices`.
@@ -170,8 +170,8 @@ macro_rules! impl_platform_host {
 
             /// Returns a mutable reference to the underlying platform specific implementation of
             /// this `Device`.
-            pub fn as_inner_mut(&self) -> &DeviceInner {
-                &self.0
+            pub fn as_inner_mut(&mut self) -> &mut DeviceInner {
+                &mut self.0
             }
 
             /// Returns the underlying platform specific implementation of this `Device`.
@@ -199,8 +199,8 @@ macro_rules! impl_platform_host {
 
             /// Returns a mutable reference to the underlying platform specific implementation of
             /// this `Host`.
-            pub fn as_inner_mut(&self) -> &HostInner {
-                &self.0
+            pub fn as_inner_mut(&mut self) -> &mut HostInner {
+                &mut self.0
             }
 
             /// Returns the underlying platform specific implementation of this `Host`.
@@ -218,8 +218,8 @@ macro_rules! impl_platform_host {
 
             /// Returns a mutable reference to the underlying platform specific implementation of
             /// this `Stream`.
-            pub fn as_inner_mut(&self) -> &StreamInner {
-                &self.0
+            pub fn as_inner_mut(&mut self) -> &mut StreamInner {
+                &mut self.0
             }
 
             /// Returns the underlying platform specific implementation of this `Stream`.
