@@ -1,4 +1,5 @@
 use super::check_result;
+use super::audioclient_error;
 // use super::winapi::shared::basetsd::{UINT32, UINT64};
 // use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
 // use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
@@ -61,16 +62,16 @@ pub enum Command {
 
 pub enum AudioClientFlow {
     Render {
-        render_client: *mut Audio::IAudioRenderClient,
+        render_client: Audio::IAudioRenderClient,
     },
     Capture {
-        capture_client: *mut Audio::IAudioCaptureClient,
+        capture_client: Audio::IAudioCaptureClient,
     },
 }
 
 pub struct StreamInner {
-    pub audio_client: *mut Audio::IAudioClient,
-    pub audio_clock: *mut Audio::IAudioClock,
+    pub audio_client: Audio::IAudioClient,
+    pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
@@ -97,7 +98,8 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
-            unsafe { Threading::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
+            unsafe { Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null())) }
+                .unwrap(); // TODO: ADD ERROR MESSAGE
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -128,7 +130,8 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event =
-            unsafe { Threading::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
+            unsafe { Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null())) }
+                .unwrap(); // TODO: GIVE SPECIFIC ERROR MESSAGE
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -155,7 +158,7 @@ impl Stream {
         let _ = self.commands.send(command);
         unsafe {
             let result = Threading::SetEvent(self.pending_scheduled_event);
-            assert_ne!(result, 0);
+            assert_ne!(result, false);
         }
     }
 }
@@ -182,23 +185,10 @@ impl StreamTrait for Stream {
     }
 }
 
-impl Drop for AudioClientFlow {
-    fn drop(&mut self) {
-        unsafe {
-            match *self {
-                AudioClientFlow::Capture { capture_client } => (*capture_client).Release(),
-                AudioClientFlow::Render { render_client } => (*render_client).Release(),
-            };
-        }
-    }
-}
-
 impl Drop for StreamInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            (*self.audio_client).Release();
-            (*self.audio_clock).Release();
             Foundation::CloseHandle(self.event);
         }
     }
@@ -210,22 +200,17 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
         match command {
-            Command::PlayStream => {
+            Command::PlayStream => unsafe {
                 if !run_context.stream.playing {
-                    let hresult = unsafe { (*run_context.stream.audio_client).Start() };
-
-                    if let Err(err) = stream_error_from_hresult(hresult) {
-                        return Err(err);
-                    }
+		    run_context.stream.audio_client.Start()
+			.map_err(audioclient_error::<StreamError>)?;
                     run_context.stream.playing = true;
                 }
             }
-            Command::PauseStream => {
+            Command::PauseStream => unsafe {
                 if run_context.stream.playing {
-                    let hresult = unsafe { (*run_context.stream.audio_client).Stop() };
-                    if let Err(err) = stream_error_from_hresult(hresult) {
-                        return Err(err);
-                    }
+		    run_context.stream.audio_client.Stop()
+			.map_err(audioclient_error::<StreamError>)?;
                     run_context.stream.playing = false;
                 }
             }
@@ -249,16 +234,15 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
     debug_assert!(handles.len() <= SystemServices::MAXIMUM_WAIT_OBJECTS as usize);
     let result = unsafe {
         Threading::WaitForMultipleObjectsEx(
-            handles.len() as u32,
-            handles.as_ptr(),
-            0,             // Don't wait for all, just wait for the first
+	    handles,
+            false,             // Don't wait for all, just wait for the first
             WindowsProgramming::INFINITE, // TODO: allow setting a timeout
-            0,             // irrelevant parameter here
+            false,             // irrelevant parameter here
         )
     };
-    if result == Foundation::WAIT_FAILED {
+    if result == Foundation::WAIT_FAILED.0 {
         let err = unsafe { Foundation::GetLastError() };
-        let description = format!("`WaitForMultipleObjectsEx failed: {}", err);
+        let description = format!("`WaitForMultipleObjectsEx failed: {}", err.0);
         let err = BackendSpecificError { description };
         return Err(err);
     }
@@ -270,9 +254,8 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
 // Get the number of available frames that are available for writing/reading.
 fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     unsafe {
-        let mut padding = 0u32;
-        let hresult = (*stream.audio_client).GetCurrentPadding(&mut padding);
-        stream_error_from_hresult(hresult)?;
+	let padding = stream.audio_client.GetCurrentPadding()
+	    .map_err(audioclient_error::<StreamError>)?;
         Ok(stream.max_frames_in_buffer - padding)
     }
 }
@@ -302,7 +285,7 @@ fn run_input(
             None => (),
         }
         let capture_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Capture { capture_client } => capture_client,
+            AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
         match process_input(
@@ -329,7 +312,7 @@ fn run_output(
             None => (),
         }
         let render_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Render { render_client } => render_client,
+            AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
         match process_output(
@@ -384,7 +367,7 @@ fn process_commands_and_await_signal(
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
-    capture_client: *mut Audio::IAudioCaptureClient,
+    capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
@@ -394,16 +377,16 @@ fn process_input(
         let mut buffer: *mut u8 = ptr::null_mut();
         let mut flags = mem::MaybeUninit::uninit();
         loop {
-            let hresult = (*capture_client).GetNextPacketSize(&mut frames_available);
-            if let Err(err) = stream_error_from_hresult(hresult) {
-                error_callback(err);
-                return ControlFlow::Break;
-            }
-            if frames_available == 0 {
-                return ControlFlow::Continue;
-            }
+	    let mut frames_available = match capture_client.GetNextPacketSize() {
+		Ok(0) => return ControlFlow::Continue,
+		Ok(f) => f,
+		Err(err) => {
+		    error_callback(audioclient_error(err));
+		    return ControlFlow::Break;
+		}
+	    };
             let mut qpc_position: u64 = 0;
-            let hresult = (*capture_client).GetBuffer(
+            let result = capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
@@ -411,13 +394,15 @@ fn process_input(
                 &mut qpc_position,
             );
 
-            // TODO: Can this happen?
-            if hresult == Audio::AUDCLNT_S_BUFFER_EMPTY {
-                continue;
-            } else if let Err(err) = stream_error_from_hresult(hresult) {
-                error_callback(err);
-                return ControlFlow::Break;
-            }
+	    match result {
+		// TODO: Can this happen?
+		Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
+		Err(e) => {
+		    error_callback(audioclient_error(e));
+		    return ControlFlow::Break;
+		},
+		Ok(_) => (),
+	    }
 
             debug_assert!(!buffer.is_null());
 
@@ -438,8 +423,9 @@ fn process_input(
             data_callback(&data, &info);
 
             // Release the buffer.
-            let hresult = (*capture_client).ReleaseBuffer(frames_available);
-            if let Err(err) = stream_error_from_hresult(hresult) {
+            let result = capture_client.ReleaseBuffer(frames_available)
+                .map_err(audioclient_error);
+            if let Err(err) = result {
                 error_callback(err);
                 return ControlFlow::Break;
             }
@@ -450,7 +436,7 @@ fn process_input(
 // The loop for writing output data.
 fn process_output(
     stream: &StreamInner,
-    render_client: *mut Audio::IAudioRenderClient,
+    render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
@@ -465,13 +451,13 @@ fn process_output(
     };
 
     unsafe {
-        let mut buffer: *mut u8 = ptr::null_mut();
-        let hresult = (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
-
-        if let Err(err) = stream_error_from_hresult(hresult) {
-            error_callback(err);
-            return ControlFlow::Break;
-        }
+	let buffer = match render_client.GetBuffer(frames_available) {
+	    Ok(b) => b,
+	    Err(e) => {
+		error_callback(audioclient_error(e));
+		return ControlFlow::Break;
+	    }
+	};
 
         debug_assert!(!buffer.is_null());
 
@@ -490,11 +476,10 @@ fn process_output(
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
-        let hresult = (*render_client).ReleaseBuffer(frames_available as u32, 0);
-        if let Err(err) = stream_error_from_hresult(hresult) {
-            error_callback(err);
-            return ControlFlow::Break;
-        }
+	if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
+	    error_callback(audioclient_error(err));
+	    return ControlFlow::Break;
+	}
     }
 
     ControlFlow::Continue
@@ -514,9 +499,11 @@ fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Durati
 fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamError> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
-    let res = unsafe { (*stream.audio_clock).GetPosition(&mut position, &mut qpc_position) };
-    stream_error_from_hresult(res)?;
-    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+    unsafe {
+	stream.audio_clock.GetPosition(&mut position, &mut qpc_position)
+            .map_err(audioclient_error::<StreamError>)?;
+    };
+        // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
     let qpc_nanos = qpc_position as i128 * 100;
     let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
         .expect("performance counter out of range of `StreamInstant` representation");

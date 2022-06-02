@@ -4,6 +4,7 @@ pub use self::device::{
 };
 pub use self::stream::Stream;
 use windows::core::HRESULT;
+use windows::Win32::Media::Audio;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
@@ -51,10 +52,18 @@ impl HostTrait for Host {
 
 #[inline]
 fn check_result(result: HRESULT) -> Result<(), IoError> {
-    if result < 0 {
-        Err(IoError::from_raw_os_error(result))
+    if result.is_err() {
+        Err(IoError::from_raw_os_error(result.0))
     } else {
         Ok(())
+    }
+}
+
+impl From<windows::core::Error> for BackendSpecificError {
+    fn from(error: windows::core::Error) -> Self {
+	BackendSpecificError {
+	    description: format!("{}", IoError::from(error))
+	}
     }
 }
 
@@ -64,5 +73,53 @@ fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificE
         Err(err) => Err(BackendSpecificError {
             description: format!("{}", err),
         }),
+    }
+}
+
+
+trait ErrDeviceNotAvailable: From<BackendSpecificError> {
+    fn device_not_available() -> Self;
+}
+
+impl ErrDeviceNotAvailable for crate::BuildStreamError {
+    fn device_not_available() -> Self {
+	Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::SupportedStreamConfigsError {
+    fn device_not_available() -> Self {
+	Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::DefaultStreamConfigError {
+    fn device_not_available() -> Self {
+	Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::StreamError {
+    fn device_not_available() -> Self {
+	Self::DeviceNotAvailable
+    }
+}
+
+// TODO: This isn't just used for audioclient, so rename it
+// appropriately.
+fn audioclient_error<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
+    audioclient_error_message::<E>(e, "")
+}
+
+fn audioclient_error_message<E: ErrDeviceNotAvailable>(e: windows::core::Error, message: &str) -> E {
+    match e.code() {
+        Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
+	    E::device_not_available()
+        }
+        _ => {
+            let description = format!("{}{}", message, e);
+            let err = BackendSpecificError { description };
+            err.into()
+        }
     }
 }

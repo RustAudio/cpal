@@ -17,15 +17,19 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
         // That's OK though since COM ensures thread-safety/compatibility through marshalling when
         // necessary.
         let result = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED);
-        if result.is_ok() || result == RPC_E_CHANGED_MODE {
-            ComInitialized {
-                result,
-                _ptr: PhantomData,
-            }
-        } else {
-            // COM initialization failed in another way, something is really wrong.
-            panic!("Failed to initialize COM: {}", IoError::from_raw_os_error(result));
-        }
+	match result.clone().map_err(|e| e.code()) {
+	    Ok(_) |
+	    Err(RPC_E_CHANGED_MODE) => {
+		ComInitialized {
+		    result,
+		    _ptr: PhantomData,
+		}
+	    },
+	    Err(e) => {
+		// COM initialization failed in another way, something is really wrong.
+		panic!("Failed to initialize COM: {}", IoError::from_raw_os_error(e.0));
+	    }
+	}
     }
 });
 
@@ -34,7 +38,7 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
 // We store a raw pointer because it's the only way at the moment to remove `Send`/`Sync` from the
 // object.
 struct ComInitialized {
-    result: HRESULT,
+    result: windows::core::Result<()>,
     _ptr: PhantomData<*mut ()>,
 }
 
