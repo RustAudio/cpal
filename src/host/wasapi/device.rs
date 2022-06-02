@@ -14,7 +14,6 @@ use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::check_result;
 use super::com;
 use super::{audioclient_error, audioclient_error_message};
 use std::ffi::c_void;
@@ -331,7 +330,7 @@ impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
         unsafe {
             // Open the device's property store.
-            let mut property_store = self.device.OpenPropertyStore(StructuredStorage::STGM_READ)
+            let property_store = self.device.OpenPropertyStore(StructuredStorage::STGM_READ)
                 .expect("could not open property store");
 
             // Get the endpoint's friendly-name property.
@@ -371,7 +370,7 @@ impl Device {
             };
 
             // Clean up the property.
-            StructuredStorage::PropVariantClear(&mut property_value);
+            StructuredStorage::PropVariantClear(&mut property_value).ok();
 
             Ok(name_string)
         }
@@ -685,7 +684,7 @@ impl Device {
             let event = {
                 let event = Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null()))
                     .map_err(|e| {
-			let description = "failed to create event".to_string();
+			let description = format!("failed to create event: {}", e);
 			let err = BackendSpecificError { description };
 			BuildStreamError::from(err)
 		    })?;
@@ -778,7 +777,7 @@ impl Device {
 	    let event = {
                 let event = Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null()))
                     .map_err(|e| {
-			let description = "failed to create event".to_string();
+			let description = format!("failed to create event: {}", e);
 			let err = BackendSpecificError { description };
 			BuildStreamError::from(err)
 		    })?;

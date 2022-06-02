@@ -4,7 +4,6 @@ use super::IoError;
 use std::marker::PhantomData;
 use std::ptr;
 
-use windows::core::HRESULT;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 

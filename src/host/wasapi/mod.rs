@@ -3,7 +3,6 @@ pub use self::device::{
     SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
-use windows::core::HRESULT;
 use windows::Win32::Media::Audio;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
@@ -50,15 +49,6 @@ impl HostTrait for Host {
     }
 }
 
-#[inline]
-fn check_result(result: HRESULT) -> Result<(), IoError> {
-    if result.is_err() {
-        Err(IoError::from_raw_os_error(result.0))
-    } else {
-        Ok(())
-    }
-}
-
 impl From<windows::core::Error> for BackendSpecificError {
     fn from(error: windows::core::Error) -> Self {
 	BackendSpecificError {
@@ -66,16 +56,6 @@ impl From<windows::core::Error> for BackendSpecificError {
 	}
     }
 }
-
-fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificError> {
-    match check_result(result) {
-        Ok(()) => Ok(()),
-        Err(err) => Err(BackendSpecificError {
-            description: format!("{}", err),
-        }),
-    }
-}
-
 
 trait ErrDeviceNotAvailable: From<BackendSpecificError> {
     fn device_not_available() -> Self;

@@ -1,4 +1,3 @@
-use super::check_result;
 use super::audioclient_error;
 // use super::winapi::shared::basetsd::{UINT32, UINT64};
 // use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
@@ -7,7 +6,6 @@ use super::audioclient_error;
 // use super::winapi::um::synchapi;
 // use super::winapi::um::winbase;
 // use super::winapi::um::winnt;
-use windows::core;
 use windows::Win32::Foundation;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Threading;
@@ -260,19 +258,6 @@ fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     }
 }
 
-// Convert the given `HRESULT` into a `StreamError` if it does indicate an error.
-fn stream_error_from_hresult(hresult: core::HRESULT) -> Result<(), StreamError> {
-    if hresult == Audio::AUDCLNT_E_DEVICE_INVALIDATED {
-        return Err(StreamError::DeviceNotAvailable);
-    }
-    if let Err(err) = check_result(hresult) {
-        let description = format!("{}", err);
-        let err = BackendSpecificError { description };
-        return Err(err.into());
-    }
-    Ok(())
-}
-
 fn run_input(
     mut run_ctxt: RunContext,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
@@ -371,7 +356,6 @@ fn process_input(
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
-    let mut frames_available = 0;
     unsafe {
         // Get the available data in the shared buffer.
         let mut buffer: *mut u8 = ptr::null_mut();
