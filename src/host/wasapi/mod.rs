@@ -1,11 +1,9 @@
-extern crate winapi;
-
 pub use self::device::{
     default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
-use self::winapi::um::winnt::HRESULT;
+use windows::core::HRESULT;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
