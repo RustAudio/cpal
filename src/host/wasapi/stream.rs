@@ -1,9 +1,4 @@
 use super::windows_err_to_cpal_err;
-use windows::Win32::Foundation;
-use windows::Win32::Media::Audio;
-use windows::Win32::System::Threading;
-use windows::Win32::System::SystemServices;
-use windows::Win32::System::WindowsProgramming;
 use crate::traits::StreamTrait;
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
@@ -13,6 +8,11 @@ use std::mem;
 use std::ptr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{self, JoinHandle};
+use windows::Win32::Foundation;
+use windows::Win32::Media::Audio;
+use windows::Win32::System::SystemServices;
+use windows::Win32::System::Threading;
+use windows::Win32::System::WindowsProgramming;
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -88,9 +88,15 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event =
-            unsafe { Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null())) }
-                .unwrap(); // TODO: ADD ERROR MESSAGE
+        let pending_scheduled_event = unsafe {
+            Threading::CreateEventA(
+                ptr::null_mut(),
+                false,
+                false,
+                windows::core::PCSTR(ptr::null()),
+            )
+        }
+        .unwrap(); // TODO: ADD ERROR MESSAGE
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -120,9 +126,15 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event =
-            unsafe { Threading::CreateEventA(ptr::null_mut(), false, false, windows::core::PCSTR(ptr::null())) }
-                .unwrap(); // TODO: GIVE SPECIFIC ERROR MESSAGE
+        let pending_scheduled_event = unsafe {
+            Threading::CreateEventA(
+                ptr::null_mut(),
+                false,
+                false,
+                windows::core::PCSTR(ptr::null()),
+            )
+        }
+        .unwrap(); // TODO: GIVE SPECIFIC ERROR MESSAGE
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -193,18 +205,24 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
         match command {
             Command::PlayStream => unsafe {
                 if !run_context.stream.playing {
-                    run_context.stream.audio_client.Start()
+                    run_context
+                        .stream
+                        .audio_client
+                        .Start()
                         .map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = true;
                 }
-            }
+            },
             Command::PauseStream => unsafe {
                 if run_context.stream.playing {
-                    run_context.stream.audio_client.Stop()
+                    run_context
+                        .stream
+                        .audio_client
+                        .Stop()
                         .map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = false;
                 }
-            }
+            },
             Command::Terminate => {
                 return Ok(false);
             }
@@ -226,9 +244,9 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
     let result = unsafe {
         Threading::WaitForMultipleObjectsEx(
             handles,
-            false,             // Don't wait for all, just wait for the first
+            false,                        // Don't wait for all, just wait for the first
             WindowsProgramming::INFINITE, // TODO: allow setting a timeout
-            false,             // irrelevant parameter here
+            false,                        // irrelevant parameter here
         )
     };
     if result == Foundation::WAIT_FAILED.0 {
@@ -245,7 +263,9 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
 // Get the number of available frames that are available for writing/reading.
 fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     unsafe {
-        let padding = stream.audio_client.GetCurrentPadding()
+        let padding = stream
+            .audio_client
+            .GetCurrentPadding()
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
         Ok(stream.max_frames_in_buffer - padding)
     }
@@ -377,7 +397,7 @@ fn process_input(
                 Err(e) => {
                     error_callback(windows_err_to_cpal_err(e));
                     return ControlFlow::Break;
-                },
+                }
                 Ok(_) => (),
             }
 
@@ -400,7 +420,8 @@ fn process_input(
             data_callback(&data, &info);
 
             // Release the buffer.
-            let result = capture_client.ReleaseBuffer(frames_available)
+            let result = capture_client
+                .ReleaseBuffer(frames_available)
                 .map_err(windows_err_to_cpal_err);
             if let Err(err) = result {
                 error_callback(err);
@@ -477,10 +498,12 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
-        stream.audio_clock.GetPosition(&mut position, &mut qpc_position)
+        stream
+            .audio_clock
+            .GetPosition(&mut position, &mut qpc_position)
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
-        // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
     let qpc_nanos = qpc_position as i128 * 100;
     let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
         .expect("performance counter out of range of `StreamInstant` representation");

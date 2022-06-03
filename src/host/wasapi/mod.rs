@@ -3,11 +3,11 @@ pub use self::device::{
     SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
-use windows::Win32::Media::Audio;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
 use std::io::Error as IoError;
+use windows::Win32::Media::Audio;
 
 mod com;
 mod device;
@@ -52,7 +52,7 @@ impl HostTrait for Host {
 impl From<windows::core::Error> for BackendSpecificError {
     fn from(error: windows::core::Error) -> Self {
         BackendSpecificError {
-            description: format!("{}", IoError::from(error))
+            description: format!("{}", IoError::from(error)),
         }
     }
 }
@@ -89,11 +89,12 @@ fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) ->
     windows_err_to_cpal_err_message::<E>(e, "")
 }
 
-fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(e: windows::core::Error, message: &str) -> E {
+fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
+    e: windows::core::Error,
+    message: &str,
+) -> E {
     match e.code() {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-            E::device_not_available()
-        }
+        Audio::AUDCLNT_E_DEVICE_INVALIDATED => E::device_not_available(),
         _ => {
             let description = format!("{}{}", message, e);
             let err = BackendSpecificError { description };
