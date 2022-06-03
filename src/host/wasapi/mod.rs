@@ -51,9 +51,9 @@ impl HostTrait for Host {
 
 impl From<windows::core::Error> for BackendSpecificError {
     fn from(error: windows::core::Error) -> Self {
-	BackendSpecificError {
-	    description: format!("{}", IoError::from(error))
-	}
+        BackendSpecificError {
+            description: format!("{}", IoError::from(error))
+        }
     }
 }
 
@@ -63,25 +63,25 @@ trait ErrDeviceNotAvailable: From<BackendSpecificError> {
 
 impl ErrDeviceNotAvailable for crate::BuildStreamError {
     fn device_not_available() -> Self {
-	Self::DeviceNotAvailable
+        Self::DeviceNotAvailable
     }
 }
 
 impl ErrDeviceNotAvailable for crate::SupportedStreamConfigsError {
     fn device_not_available() -> Self {
-	Self::DeviceNotAvailable
+        Self::DeviceNotAvailable
     }
 }
 
 impl ErrDeviceNotAvailable for crate::DefaultStreamConfigError {
     fn device_not_available() -> Self {
-	Self::DeviceNotAvailable
+        Self::DeviceNotAvailable
     }
 }
 
 impl ErrDeviceNotAvailable for crate::StreamError {
     fn device_not_available() -> Self {
-	Self::DeviceNotAvailable
+        Self::DeviceNotAvailable
     }
 }
 
@@ -92,7 +92,7 @@ fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) ->
 fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(e: windows::core::Error, message: &str) -> E {
     match e.code() {
         Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-	    E::device_not_available()
+            E::device_not_available()
         }
         _ => {
             let description = format!("{}{}", message, e);

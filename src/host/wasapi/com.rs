@@ -16,19 +16,19 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
         // That's OK though since COM ensures thread-safety/compatibility through marshalling when
         // necessary.
         let result = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED);
-	match result.clone().map_err(|e| e.code()) {
-	    Ok(_) |
-	    Err(RPC_E_CHANGED_MODE) => {
-		ComInitialized {
-		    result,
-		    _ptr: PhantomData,
-		}
-	    },
-	    Err(e) => {
-		// COM initialization failed in another way, something is really wrong.
-		panic!("Failed to initialize COM: {}", IoError::from_raw_os_error(e.0));
-	    }
-	}
+        match result.clone().map_err(|e| e.code()) {
+            Ok(_) |
+            Err(RPC_E_CHANGED_MODE) => {
+                ComInitialized {
+                    result,
+                    _ptr: PhantomData,
+                }
+            },
+            Err(e) => {
+                // COM initialization failed in another way, something is really wrong.
+                panic!("Failed to initialize COM: {}", IoError::from_raw_os_error(e.0));
+            }
+        }
     }
 });
 
