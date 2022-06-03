@@ -197,38 +197,6 @@ pub unsafe fn is_format_supported(
     client: &Audio::IAudioClient,
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
-    /*
-    // `IsFormatSupported` checks whether the format is supported and fills
-    // a `WAVEFORMATEX`
-    let mut dummy_fmt_ptr: *mut Audio::WAVEFORMATEX = mem::uninitialized();
-    let hresult =
-        audio_client
-            .IsFormatSupported(share_mode, &format_attempt.Format, &mut dummy_fmt_ptr);
-    // we free that `WAVEFORMATEX` immediately after because we don't need it
-    if !dummy_fmt_ptr.is_null() {
-        CoTaskMemFree(dummy_fmt_ptr as *mut _);
-    }
-
-    // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
-    // has been found), but we also treat this as an error
-    match (hresult, check_result(hresult)) {
-        (_, Err(ref e))
-            if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
-            audio_client.Release();
-            return Err(BuildStreamError::DeviceNotAvailable);
-        },
-        (_, Err(e)) => {
-            audio_client.Release();
-            panic!("{:?}", e);
-        },
-        (Foundation::S_FALSE, _) => {
-            audio_client.Release();
-            return Err(BuildStreamError::StreamConfigNotSupported);
-        },
-        (_, Ok(())) => (),
-    };
-    */
-
     // Check if the given format is supported.
     let is_supported = |waveformatex_ptr, mut closest_waveformatex_ptr| {
         let result = client.IsFormatSupported(

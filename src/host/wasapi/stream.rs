@@ -96,7 +96,7 @@ impl Stream {
                 windows::core::PCSTR(ptr::null()),
             )
         }
-        .unwrap(); // TODO: ADD ERROR MESSAGE
+        .expect("cpal: could not create input stream event")
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -134,7 +134,7 @@ impl Stream {
                 windows::core::PCSTR(ptr::null()),
             )
         }
-        .unwrap(); // TODO: GIVE SPECIFIC ERROR MESSAGE
+        .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
 
         let run_context = RunContext {
