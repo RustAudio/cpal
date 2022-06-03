@@ -1,11 +1,4 @@
-use super::audioclient_error;
-// use super::winapi::shared::basetsd::{UINT32, UINT64};
-// use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
-// use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
-// use super::winapi::um::handleapi;
-// use super::winapi::um::synchapi;
-// use super::winapi::um::winbase;
-// use super::winapi::um::winnt;
+use super::windows_err_to_cpal_err;
 use windows::Win32::Foundation;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Threading;
@@ -201,14 +194,14 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
             Command::PlayStream => unsafe {
                 if !run_context.stream.playing {
 		    run_context.stream.audio_client.Start()
-			.map_err(audioclient_error::<StreamError>)?;
+			.map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = true;
                 }
             }
             Command::PauseStream => unsafe {
                 if run_context.stream.playing {
 		    run_context.stream.audio_client.Stop()
-			.map_err(audioclient_error::<StreamError>)?;
+			.map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = false;
                 }
             }
@@ -253,7 +246,7 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
 fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     unsafe {
 	let padding = stream.audio_client.GetCurrentPadding()
-	    .map_err(audioclient_error::<StreamError>)?;
+	    .map_err(windows_err_to_cpal_err::<StreamError>)?;
         Ok(stream.max_frames_in_buffer - padding)
     }
 }
@@ -365,7 +358,7 @@ fn process_input(
 		Ok(0) => return ControlFlow::Continue,
 		Ok(f) => f,
 		Err(err) => {
-		    error_callback(audioclient_error(err));
+		    error_callback(windows_err_to_cpal_err(err));
 		    return ControlFlow::Break;
 		}
 	    };
@@ -382,7 +375,7 @@ fn process_input(
 		// TODO: Can this happen?
 		Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
 		Err(e) => {
-		    error_callback(audioclient_error(e));
+		    error_callback(windows_err_to_cpal_err(e));
 		    return ControlFlow::Break;
 		},
 		Ok(_) => (),
@@ -408,7 +401,7 @@ fn process_input(
 
             // Release the buffer.
             let result = capture_client.ReleaseBuffer(frames_available)
-                .map_err(audioclient_error);
+                .map_err(windows_err_to_cpal_err);
             if let Err(err) = result {
                 error_callback(err);
                 return ControlFlow::Break;
@@ -438,7 +431,7 @@ fn process_output(
 	let buffer = match render_client.GetBuffer(frames_available) {
 	    Ok(b) => b,
 	    Err(e) => {
-		error_callback(audioclient_error(e));
+		error_callback(windows_err_to_cpal_err(e));
 		return ControlFlow::Break;
 	    }
 	};
@@ -461,7 +454,7 @@ fn process_output(
         data_callback(&mut data, &info);
 
 	if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
-	    error_callback(audioclient_error(err));
+	    error_callback(windows_err_to_cpal_err(err));
 	    return ControlFlow::Break;
 	}
     }
@@ -485,7 +478,7 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
     let mut qpc_position: u64 = 0;
     unsafe {
 	stream.audio_clock.GetPosition(&mut position, &mut qpc_position)
-            .map_err(audioclient_error::<StreamError>)?;
+            .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
         // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
     let qpc_nanos = qpc_position as i128 * 100;

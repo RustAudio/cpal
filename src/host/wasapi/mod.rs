@@ -85,13 +85,11 @@ impl ErrDeviceNotAvailable for crate::StreamError {
     }
 }
 
-// TODO: This isn't just used for audioclient, so rename it
-// appropriately.
-fn audioclient_error<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
-    audioclient_error_message::<E>(e, "")
+fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
+    windows_err_to_cpal_err_message::<E>(e, "")
 }
 
-fn audioclient_error_message<E: ErrDeviceNotAvailable>(e: windows::core::Error, message: &str) -> E {
+fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(e: windows::core::Error, message: &str) -> E {
     match e.code() {
         Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
 	    E::device_not_available()

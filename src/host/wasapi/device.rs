@@ -1,3 +1,4 @@
+use crate::FrameCount;
 use crate::{
     BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
     DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
@@ -15,7 +16,7 @@ use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::com;
-use super::{audioclient_error, audioclient_error_message};
+use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
 use std::ffi::c_void;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::core::Interface;
@@ -28,27 +29,7 @@ use windows::Win32::System::Com::StructuredStorage;
 use windows::Win32::System::Threading;
 use windows::core::GUID;
 
-// https://msdn.microsoft.com/en-us/library/cc230355.aspx
-// use super::winapi::um::audioclient::{
-//     self, IAudioClient, IID_IAudioClient, AUDCLNT_E_DEVICE_INVALIDATED,
-// };
-// use super::winapi::um::audiosessiontypes::{
-//     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
-// };
-// use super::winapi::um::combaseapi::{
-//     CoCreateInstance, CoTaskMemFree, PropVariantClear, CLSCTX_ALL,
-// };
-// use super::winapi::um::coml2api;
-// use super::winapi::um::mmdeviceapi::{
-//     eAll, Audio::eCapture, eConsole, Audio::eRender, CLSID_MMDeviceEnumerator, EDataFlow, IMMDevice,
-//     IMMDeviceCollection, IMMDeviceEnumerator, IMMEndpoint, DEVICE_STATE_ACTIVE,
-// };
-// use super::winapi::um::winnt::{LPWSTR, WCHAR};
-
-use super::{
-    stream::{AudioClientFlow, Stream, StreamInner},
-//    winapi::um::synchapi,
-};
+use super::stream::{AudioClientFlow, Stream, StreamInner};
 use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
@@ -289,6 +270,7 @@ pub unsafe fn is_format_supported(
 // Get a cpal Format from a WAVEFORMATEX.
 unsafe fn format_from_waveformatex_ptr(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
+    audio_client: &Audio::IAudioClient,
 ) -> Option<SupportedStreamConfig> {
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
         a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
@@ -314,10 +296,44 @@ unsafe fn format_from_waveformatex_ptr(
         _ => return None,
     };
 
+    let sample_rate = SampleRate((*waveformatex_ptr).nSamplesPerSec);
+
+    // GetBufferSizeLimits is only used for Hardware-Offloaded Audio
+    // Processing, which was added in Windows 8, which places hardware
+    // limits on the size of the audio buffer. If the sound system
+    // *isn't* using offloaded audio, we're using a software audio
+    // processing stack and have pretty much free rein to set buffer
+    // size.
+    //
+    // In software audio stacks GetBufferSizeLimits returns
+    // AUDCLNT_E_OFFLOAD_MODE_ONLY.
+    //
+    // https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/hardware-offloaded-audio-processing
+    let (mut min_buffer_duration, mut max_buffer_duration) = (0, 0);
+    let buffer_size_is_limited = audio_client.cast::<Audio::IAudioClient2>()
+        .and_then(|audio_client| audio_client.GetBufferSizeLimits(
+	    waveformatex_ptr,
+	    true,
+	    &mut min_buffer_duration,
+	    &mut max_buffer_duration
+	))
+        .is_ok();
+    let buffer_size = if buffer_size_is_limited {
+	SupportedBufferSize::Range {
+	    min: buffer_duration_to_frames(min_buffer_duration, sample_rate.0),
+	    max: buffer_duration_to_frames(max_buffer_duration, sample_rate.0),
+	}
+    } else {
+	SupportedBufferSize::Range {
+	    min: 0,
+	    max: u32::max_value(),
+	}
+    };
+
     let format = SupportedStreamConfig {
         channels: (*waveformatex_ptr).nChannels as _,
-        sample_rate: SampleRate((*waveformatex_ptr).nSamplesPerSec),
-        buffer_size: SupportedBufferSize::Unknown,
+        sample_rate,
+        buffer_size,
         sample_format,
     };
     Some(format)
@@ -455,7 +471,7 @@ impl Device {
             // Retrieve the pointer to the default WAVEFORMATEX.
             let default_waveformatex_ptr = client.GetMixFormat()
                 .map(WaveFormatExPtr)
-                .map_err(audioclient_error::<SupportedStreamConfigsError>)?;
+                .map_err(windows_err_to_cpal_err::<SupportedStreamConfigsError>)?;
 
             // If the default format can't succeed we have no hope of finding other formats.
             assert_eq!(
@@ -501,7 +517,7 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0) {
+            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0, &client) {
                 Some(fmt) => fmt,
                 None => {
                     let description =
@@ -571,9 +587,9 @@ impl Device {
         unsafe {
 	    let format_ptr = client.GetMixFormat()
 		.map(WaveFormatExPtr)
-		.map_err(audioclient_error::<DefaultStreamConfigError>)?;
+		.map_err(windows_err_to_cpal_err::<DefaultStreamConfigError>)?;
 
-            format_from_waveformatex_ptr(format_ptr.0)
+            format_from_waveformatex_ptr(format_ptr.0, client)
                 .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
         }
     }
@@ -623,15 +639,7 @@ impl Device {
                 }
             };
 
-            match config.buffer_size {
-                BufferSize::Fixed(_) => {
-                    // TO DO: We need IAudioClient3 to get buffersize ranges first
-                    // Otherwise the supported ranges are unknown. In the meantime
-                    // the smallest buffersize is selected and used.
-                    return Err(BuildStreamError::StreamConfigNotSupported);
-                }
-                BufferSize::Default => (),
-            };
+	    let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
 
             let mut stream_flags = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
@@ -656,7 +664,7 @@ impl Device {
                 let hresult = audio_client.Initialize(
                     share_mode,
                     stream_flags,
-                    0,
+                    buffer_duration,
                     0,
                     &format_attempt.Format,
                     ptr::null(),
@@ -678,7 +686,7 @@ impl Device {
 
             // obtaining the size of the samples buffer in number of frames
 	    let max_frames_in_buffer = audio_client.GetBufferSize()
-		.map_err(audioclient_error::<BuildStreamError>)?;
+		.map_err(windows_err_to_cpal_err::<BuildStreamError>)?;
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
@@ -700,7 +708,7 @@ impl Device {
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = audio_client.GetService::<Audio::IAudioCaptureClient>()
-                .map_err(|e| audioclient_error_message::<BuildStreamError>(e, "failed to build capture client: "))?;
+                .map_err(|e| windows_err_to_cpal_err_message::<BuildStreamError>(e, "failed to build capture client: "))?;
 
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
@@ -735,17 +743,9 @@ impl Device {
 
             // Obtaining a `IAudioClient`.
 	    let audio_client = self.build_audioclient()
-		.map_err(audioclient_error::<BuildStreamError>)?;
+		.map_err(windows_err_to_cpal_err::<BuildStreamError>)?;
 
-            match config.buffer_size {
-                BufferSize::Fixed(_) => {
-                    // TO DO: We need IAudioClient3 to get buffersize ranges first
-                    // Otherwise the supported ranges are unknown. In the meantime
-                    // the smallest buffersize is selected and used.
-                    return Err(BuildStreamError::StreamConfigNotSupported);
-                }
-                BufferSize::Default => (),
-            };
+	    let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
 
             // Computing the format and initializing the device.
             let waveformatex = {
@@ -764,11 +764,11 @@ impl Device {
                 audio_client.Initialize(
                     share_mode,
                     Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                    0,
+		    buffer_duration,
                     0,
                     &format_attempt.Format,
                     ptr::null(),
-                ).map_err(audioclient_error::<BuildStreamError>)?;
+                ).map_err(windows_err_to_cpal_err::<BuildStreamError>)?;
 
                 format_attempt.Format
             };
@@ -793,12 +793,11 @@ impl Device {
 
             // obtaining the size of the samples buffer in number of frames
 	    let max_frames_in_buffer = audio_client.GetBufferSize()
-		.map_err(|e| audioclient_error_message::<BuildStreamError>(e, "failed to obtain buffer size: "))?;
-
+		.map_err(|e| windows_err_to_cpal_err_message::<BuildStreamError>(e, "failed to obtain buffer size: "))?;
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
 	    let render_client = audio_client.GetService::<IAudioRenderClient>()
-		.map_err(|e| audioclient_error_message::<BuildStreamError>(e, "failed to build render client: "))?;
+		.map_err(|e| windows_err_to_cpal_err_message::<BuildStreamError>(e, "failed to build render client: "))?;
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
@@ -985,7 +984,7 @@ unsafe fn get_audio_clock(
     audio_client: &Audio::IAudioClient,
 ) -> Result<Audio::IAudioClock, BuildStreamError> {
     audio_client.GetService::<Audio::IAudioClock>()
-        .map_err(|e| audioclient_error_message::<BuildStreamError>(e, "failed to build audio clock: "))
+        .map_err(|e| windows_err_to_cpal_err_message::<BuildStreamError>(e, "failed to build audio clock: "))
 }
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
@@ -1041,4 +1040,17 @@ fn config_to_waveformatextensible(
     };
 
     Some(waveformatextensible)
+}
+
+fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: u32) -> i64 {
+    match buffer_size {
+        BufferSize::Fixed(frames) => {
+	    *frames as i64 * (1_000_000_000 / 100) / sample_rate as i64
+        }
+        BufferSize::Default => 0,
+    }
+}
+
+fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: u32) -> FrameCount {
+    (buffer_duration * sample_rate as i64 * 100 / 1_000_000_000) as FrameCount
 }
