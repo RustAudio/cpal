@@ -141,7 +141,7 @@
 //! stream.pause().unwrap();
 //! ```
 
-#![recursion_limit = "512"]
+#![recursion_limit = "2048"]
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
