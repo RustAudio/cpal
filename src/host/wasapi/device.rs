@@ -4,6 +4,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
+use once_cell::sync::Lazy;
 use std;
 use std::ffi::OsString;
 use std::fmt;
@@ -1068,29 +1069,27 @@ impl Endpoint {
     }
 }
 
-lazy_static! {
-    static ref ENUMERATOR: Enumerator = {
-        // COM initialization is thread local, but we only need to have COM initialized in the
-        // thread we create the objects in
-        com::com_initialized();
+static ENUMERATOR: Lazy<Enumerator> = Lazy::new(|| {
+    // COM initialization is thread local, but we only need to have COM initialized in the
+    // thread we create the objects in
+    com::com_initialized();
 
-        // building the devices enumerator object
-        unsafe {
-            let mut enumerator: *mut IMMDeviceEnumerator = ptr::null_mut();
+    // building the devices enumerator object
+    unsafe {
+        let mut enumerator: *mut IMMDeviceEnumerator = ptr::null_mut();
 
-            let hresult = CoCreateInstance(
-                &CLSID_MMDeviceEnumerator,
-                ptr::null_mut(),
-                CLSCTX_ALL,
-                &IMMDeviceEnumerator::uuidof(),
-                &mut enumerator as *mut *mut IMMDeviceEnumerator as *mut _,
-            );
+        let hresult = CoCreateInstance(
+            &CLSID_MMDeviceEnumerator,
+            ptr::null_mut(),
+            CLSCTX_ALL,
+            &IMMDeviceEnumerator::uuidof(),
+            &mut enumerator as *mut *mut IMMDeviceEnumerator as *mut _,
+        );
 
-            check_result(hresult).unwrap();
-            Enumerator(enumerator)
-        }
-    };
-}
+        check_result(hresult).unwrap();
+        Enumerator(enumerator)
+    }
+});
 
 /// RAII objects around `IMMDeviceEnumerator`.
 struct Enumerator(*mut IMMDeviceEnumerator);

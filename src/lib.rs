@@ -143,9 +143,6 @@
 
 #![recursion_limit = "512"]
 
-#[cfg(target_os = "windows")]
-#[macro_use]
-extern crate lazy_static;
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
 #[macro_use]
