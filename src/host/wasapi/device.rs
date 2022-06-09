@@ -5,6 +5,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
+use once_cell::sync::Lazy;
 use std;
 use std::ffi::OsString;
 use std::fmt;
@@ -897,24 +898,22 @@ impl Endpoint {
     }
 }
 
-lazy_static! {
-    static ref ENUMERATOR: Enumerator = {
-        // COM initialization is thread local, but we only need to have COM initialized in the
-        // thread we create the objects in
-        com::com_initialized();
+static ENUMERATOR: Lazy<Enumerator> = Lazy::new(|| {
+    // COM initialization is thread local, but we only need to have COM initialized in the
+    // thread we create the objects in
+    com::com_initialized();
 
-        // building the devices enumerator object
-        unsafe {
-            let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator >(
-                &Audio::MMDeviceEnumerator,
-        None,
-                Com::CLSCTX_ALL,
-            ).unwrap();
+    // building the devices enumerator object
+    unsafe {
+        let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
+            &Audio::MMDeviceEnumerator,
+            None,
+            Com::CLSCTX_ALL,
+        ).unwrap();
 
-            Enumerator(enumerator)
-        }
-    };
-}
+        Enumerator(enumerator)
+    }
+});
 
 /// Send/Sync wrapper around `IMMDeviceEnumerator`.
 struct Enumerator(Audio::IMMDeviceEnumerator);

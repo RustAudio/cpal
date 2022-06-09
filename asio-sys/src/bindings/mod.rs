@@ -4,6 +4,7 @@ pub mod errors;
 
 use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use num_traits::FromPrimitive;
+use once_cell::sync::Lazy;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_long, c_void};
@@ -248,17 +249,16 @@ struct BufferSizes {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CallbackId(usize);
 
-lazy_static! {
-    /// A global way to access all the callbacks.
-    ///
-    /// This is required because of how ASIO calls the `buffer_switch` function with no data
-    /// parameters.
-    ///
-    /// Options are used so that when a callback is removed we don't change the Vec indices.
-    ///
-    /// The indices are how we match a callback with a stream.
-    static ref BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
-}
+/// A global way to access all the callbacks.
+///
+/// This is required because of how ASIO calls the `buffer_switch` function with no data
+/// parameters.
+///
+/// Options are used so that when a callback is removed we don't change the Vec indices.
+///
+/// The indices are how we match a callback with a stream.
+static BUFFER_CALLBACK: Lazy<Mutex<Vec<(CallbackId, BufferCallback)>>> =
+    Lazy::new(|| Mutex::new(Vec::new()));
 
 impl Asio {
     /// Initialise the ASIO API.
