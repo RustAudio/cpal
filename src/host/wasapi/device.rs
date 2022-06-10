@@ -909,7 +909,8 @@ static ENUMERATOR: Lazy<Enumerator> = Lazy::new(|| {
             &Audio::MMDeviceEnumerator,
             None,
             Com::CLSCTX_ALL,
-        ).unwrap();
+        )
+        .unwrap();
 
         Enumerator(enumerator)
     }
