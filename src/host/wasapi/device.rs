@@ -858,8 +858,8 @@ impl PartialEq for Device {
             // 16-bit null-terminated comparison.
             let mut offset = 0;
             loop {
-                let w1: u16 = *id1.0 .0.offset(offset);
-                let w2: u16 = *id2.0 .0.offset(offset);
+                let w1: u16 = *(id1.0).0.offset(offset);
+                let w2: u16 = *(id2.0).0.offset(offset);
                 if w1 == 0 && w2 == 0 {
                     return true;
                 }
