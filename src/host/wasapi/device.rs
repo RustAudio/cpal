@@ -245,7 +245,7 @@ unsafe fn format_from_waveformatex_ptr(
     audio_client: &Audio::IAudioClient,
 ) -> Option<SupportedStreamConfig> {
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
-        a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
+        (a.data1, a.data2, a.data3, a.data4) == (b.data1, b.data2, b.data3, b.data4)
     }
     let sample_format = match (
         (*waveformatex_ptr).wBitsPerSample,
