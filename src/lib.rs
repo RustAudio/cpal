@@ -536,6 +536,22 @@ impl Data {
 }
 
 impl SupportedStreamConfigRange {
+    pub fn new(
+        channels: ChannelCount,
+        min_sample_rate: SampleRate,
+        max_sample_rate: SampleRate,
+        buffer_size: SupportedBufferSize,
+        sample_format: SampleFormat,
+    ) -> Self {
+        Self {
+            channels,
+            min_sample_rate,
+            max_sample_rate,
+            buffer_size,
+            sample_format,
+        }
+    }
+
     pub fn channels(&self) -> ChannelCount {
         self.channels
     }
