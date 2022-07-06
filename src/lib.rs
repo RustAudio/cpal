@@ -331,6 +331,20 @@ pub struct OutputCallbackInfo {
 }
 
 impl SupportedStreamConfig {
+    pub fn new(
+        channels: ChannelCount,
+        sample_rate: SampleRate,
+        buffer_size: SupportedBufferSize,
+        sample_format: SampleFormat,
+    ) -> Self {
+        Self {
+            channels,
+            sample_rate,
+            buffer_size,
+            sample_format,
+        }
+    }
+
     pub fn channels(&self) -> ChannelCount {
         self.channels
     }
