@@ -13,7 +13,6 @@ asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for se
 oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
 
 [dependencies]
-thiserror = "1.0"
 dasp_sample = "0.11"
 
 [dev-dependencies]
