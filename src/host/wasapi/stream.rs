@@ -1,11 +1,4 @@
-use super::check_result;
-use super::winapi::shared::basetsd::{UINT32, UINT64};
-use super::winapi::shared::minwindef::{BYTE, FALSE, WORD};
-use super::winapi::um::audioclient::{self, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_S_BUFFER_EMPTY};
-use super::winapi::um::handleapi;
-use super::winapi::um::synchapi;
-use super::winapi::um::winbase;
-use super::winapi::um::winnt;
+use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
@@ -15,6 +8,11 @@ use std::mem;
 use std::ptr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{self, JoinHandle};
+use windows::Win32::Foundation;
+use windows::Win32::Media::Audio;
+use windows::Win32::System::SystemServices;
+use windows::Win32::System::Threading;
+use windows::Win32::System::WindowsProgramming;
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -30,7 +28,7 @@ pub struct Stream {
 
     // This event is signalled after a new entry is added to `commands`, so that the `run()`
     // method can be notified.
-    pending_scheduled_event: winnt::HANDLE,
+    pending_scheduled_event: Foundation::HANDLE,
 }
 
 struct RunContext {
@@ -39,7 +37,7 @@ struct RunContext {
 
     // Handles corresponding to the `event` field of each element of `voices`. Must always be in
     // sync with `voices`, except that the first element is always `pending_scheduled_event`.
-    handles: Vec<winnt::HANDLE>,
+    handles: Vec<Foundation::HANDLE>,
 
     commands: Receiver<Command>,
 }
@@ -55,25 +53,25 @@ pub enum Command {
 
 pub enum AudioClientFlow {
     Render {
-        render_client: *mut audioclient::IAudioRenderClient,
+        render_client: Audio::IAudioRenderClient,
     },
     Capture {
-        capture_client: *mut audioclient::IAudioCaptureClient,
+        capture_client: Audio::IAudioCaptureClient,
     },
 }
 
 pub struct StreamInner {
-    pub audio_client: *mut audioclient::IAudioClient,
-    pub audio_clock: *mut audioclient::IAudioClock,
+    pub audio_client: Audio::IAudioClient,
+    pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
-    pub event: winnt::HANDLE,
+    pub event: Foundation::HANDLE,
     // True if the stream is currently playing. False if paused.
     pub playing: bool,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
-    pub max_frames_in_buffer: UINT32,
+    pub max_frames_in_buffer: u32,
     // Number of bytes that each frame occupies.
-    pub bytes_per_frame: WORD,
+    pub bytes_per_frame: u16,
     // The configuration with which the stream was created.
     pub config: crate::StreamConfig,
     // The sample format with which the stream was created.
@@ -90,8 +88,15 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event =
-            unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
+        let pending_scheduled_event = unsafe {
+            Threading::CreateEventA(
+                ptr::null_mut(),
+                false,
+                false,
+                windows::core::PCSTR(ptr::null()),
+            )
+        }
+        .expect("cpal: could not create input stream event");
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -121,8 +126,15 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event =
-            unsafe { synchapi::CreateEventA(ptr::null_mut(), 0, 0, ptr::null()) };
+        let pending_scheduled_event = unsafe {
+            Threading::CreateEventA(
+                ptr::null_mut(),
+                false,
+                false,
+                windows::core::PCSTR(ptr::null()),
+            )
+        }
+        .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -148,8 +160,8 @@ impl Stream {
         // Sender generally outlives receiver, unless the device gets unplugged.
         let _ = self.commands.send(command);
         unsafe {
-            let result = synchapi::SetEvent(self.pending_scheduled_event);
-            assert_ne!(result, 0);
+            let result = Threading::SetEvent(self.pending_scheduled_event);
+            assert_ne!(result, false);
         }
     }
 }
@@ -160,7 +172,7 @@ impl Drop for Stream {
         self.push_command(Command::Terminate);
         self.thread.take().unwrap().join().unwrap();
         unsafe {
-            handleapi::CloseHandle(self.pending_scheduled_event);
+            Foundation::CloseHandle(self.pending_scheduled_event);
         }
     }
 }
@@ -176,24 +188,11 @@ impl StreamTrait for Stream {
     }
 }
 
-impl Drop for AudioClientFlow {
-    fn drop(&mut self) {
-        unsafe {
-            match *self {
-                AudioClientFlow::Capture { capture_client } => (*capture_client).Release(),
-                AudioClientFlow::Render { render_client } => (*render_client).Release(),
-            };
-        }
-    }
-}
-
 impl Drop for StreamInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            (*self.audio_client).Release();
-            (*self.audio_clock).Release();
-            handleapi::CloseHandle(self.event);
+            Foundation::CloseHandle(self.event);
         }
     }
 }
@@ -204,25 +203,26 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
     // Process the pending commands.
     for command in run_context.commands.try_iter() {
         match command {
-            Command::PlayStream => {
+            Command::PlayStream => unsafe {
                 if !run_context.stream.playing {
-                    let hresult = unsafe { (*run_context.stream.audio_client).Start() };
-
-                    if let Err(err) = stream_error_from_hresult(hresult) {
-                        return Err(err);
-                    }
+                    run_context
+                        .stream
+                        .audio_client
+                        .Start()
+                        .map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = true;
                 }
-            }
-            Command::PauseStream => {
+            },
+            Command::PauseStream => unsafe {
                 if run_context.stream.playing {
-                    let hresult = unsafe { (*run_context.stream.audio_client).Stop() };
-                    if let Err(err) = stream_error_from_hresult(hresult) {
-                        return Err(err);
-                    }
+                    run_context
+                        .stream
+                        .audio_client
+                        .Stop()
+                        .map_err(windows_err_to_cpal_err::<StreamError>)?;
                     run_context.stream.playing = false;
                 }
-            }
+            },
             Command::Terminate => {
                 return Ok(false);
             }
@@ -239,49 +239,36 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
 // This is called when the `run` thread is ready to wait for the next event. The
 // next event might be some command submitted by the user (the first handle) or
 // might indicate that one of the streams is ready to deliver or receive audio.
-fn wait_for_handle_signal(handles: &[winnt::HANDLE]) -> Result<usize, BackendSpecificError> {
-    debug_assert!(handles.len() <= winnt::MAXIMUM_WAIT_OBJECTS as usize);
+fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, BackendSpecificError> {
+    debug_assert!(handles.len() <= SystemServices::MAXIMUM_WAIT_OBJECTS as usize);
     let result = unsafe {
-        synchapi::WaitForMultipleObjectsEx(
-            handles.len() as u32,
-            handles.as_ptr(),
-            FALSE,             // Don't wait for all, just wait for the first
-            winbase::INFINITE, // TODO: allow setting a timeout
-            FALSE,             // irrelevant parameter here
+        Threading::WaitForMultipleObjectsEx(
+            handles,
+            false,                        // Don't wait for all, just wait for the first
+            WindowsProgramming::INFINITE, // TODO: allow setting a timeout
+            false,                        // irrelevant parameter here
         )
     };
-    if result == winbase::WAIT_FAILED {
-        let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-        let description = format!("`WaitForMultipleObjectsEx failed: {}", err);
+    if result == Foundation::WAIT_FAILED.0 {
+        let err = unsafe { Foundation::GetLastError() };
+        let description = format!("`WaitForMultipleObjectsEx failed: {}", err.0);
         let err = BackendSpecificError { description };
         return Err(err);
     }
     // Notifying the corresponding task handler.
-    let handle_idx = (result - winbase::WAIT_OBJECT_0) as usize;
+    let handle_idx = (result - Threading::WAIT_OBJECT_0) as usize;
     Ok(handle_idx)
 }
 
 // Get the number of available frames that are available for writing/reading.
 fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
     unsafe {
-        let mut padding = 0u32;
-        let hresult = (*stream.audio_client).GetCurrentPadding(&mut padding);
-        stream_error_from_hresult(hresult)?;
+        let padding = stream
+            .audio_client
+            .GetCurrentPadding()
+            .map_err(windows_err_to_cpal_err::<StreamError>)?;
         Ok(stream.max_frames_in_buffer - padding)
     }
-}
-
-// Convert the given `HRESULT` into a `StreamError` if it does indicate an error.
-fn stream_error_from_hresult(hresult: winnt::HRESULT) -> Result<(), StreamError> {
-    if hresult == AUDCLNT_E_DEVICE_INVALIDATED {
-        return Err(StreamError::DeviceNotAvailable);
-    }
-    if let Err(err) = check_result(hresult) {
-        let description = format!("{}", err);
-        let err = BackendSpecificError { description };
-        return Err(err.into());
-    }
-    Ok(())
 }
 
 fn run_input(
@@ -296,7 +283,7 @@ fn run_input(
             None => (),
         }
         let capture_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Capture { capture_client } => capture_client,
+            AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
         match process_input(
@@ -323,7 +310,7 @@ fn run_output(
             None => (),
         }
         let render_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Render { render_client } => render_client,
+            AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
         match process_output(
@@ -378,26 +365,25 @@ fn process_commands_and_await_signal(
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
-    capture_client: *mut audioclient::IAudioCaptureClient,
+    capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
-    let mut frames_available = 0;
     unsafe {
         // Get the available data in the shared buffer.
-        let mut buffer: *mut BYTE = ptr::null_mut();
+        let mut buffer: *mut u8 = ptr::null_mut();
         let mut flags = mem::MaybeUninit::uninit();
         loop {
-            let hresult = (*capture_client).GetNextPacketSize(&mut frames_available);
-            if let Err(err) = stream_error_from_hresult(hresult) {
-                error_callback(err);
-                return ControlFlow::Break;
-            }
-            if frames_available == 0 {
-                return ControlFlow::Continue;
-            }
-            let mut qpc_position: UINT64 = 0;
-            let hresult = (*capture_client).GetBuffer(
+            let mut frames_available = match capture_client.GetNextPacketSize() {
+                Ok(0) => return ControlFlow::Continue,
+                Ok(f) => f,
+                Err(err) => {
+                    error_callback(windows_err_to_cpal_err(err));
+                    return ControlFlow::Break;
+                }
+            };
+            let mut qpc_position: u64 = 0;
+            let result = capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
@@ -405,12 +391,14 @@ fn process_input(
                 &mut qpc_position,
             );
 
-            // TODO: Can this happen?
-            if hresult == AUDCLNT_S_BUFFER_EMPTY {
-                continue;
-            } else if let Err(err) = stream_error_from_hresult(hresult) {
-                error_callback(err);
-                return ControlFlow::Break;
+            match result {
+                // TODO: Can this happen?
+                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
+                Err(e) => {
+                    error_callback(windows_err_to_cpal_err(e));
+                    return ControlFlow::Break;
+                }
+                Ok(_) => (),
             }
 
             debug_assert!(!buffer.is_null());
@@ -432,8 +420,10 @@ fn process_input(
             data_callback(&data, &info);
 
             // Release the buffer.
-            let hresult = (*capture_client).ReleaseBuffer(frames_available);
-            if let Err(err) = stream_error_from_hresult(hresult) {
+            let result = capture_client
+                .ReleaseBuffer(frames_available)
+                .map_err(windows_err_to_cpal_err);
+            if let Err(err) = result {
                 error_callback(err);
                 return ControlFlow::Break;
             }
@@ -444,7 +434,7 @@ fn process_input(
 // The loop for writing output data.
 fn process_output(
     stream: &StreamInner,
-    render_client: *mut audioclient::IAudioRenderClient,
+    render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
@@ -459,13 +449,13 @@ fn process_output(
     };
 
     unsafe {
-        let mut buffer: *mut BYTE = ptr::null_mut();
-        let hresult = (*render_client).GetBuffer(frames_available, &mut buffer as *mut *mut _);
-
-        if let Err(err) = stream_error_from_hresult(hresult) {
-            error_callback(err);
-            return ControlFlow::Break;
-        }
+        let buffer = match render_client.GetBuffer(frames_available) {
+            Ok(b) => b,
+            Err(e) => {
+                error_callback(windows_err_to_cpal_err(e));
+                return ControlFlow::Break;
+            }
+        };
 
         debug_assert!(!buffer.is_null());
 
@@ -484,9 +474,8 @@ fn process_output(
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
-        let hresult = (*render_client).ReleaseBuffer(frames_available as u32, 0);
-        if let Err(err) = stream_error_from_hresult(hresult) {
-            error_callback(err);
+        if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
+            error_callback(windows_err_to_cpal_err(err));
             return ControlFlow::Break;
         }
     }
@@ -506,10 +495,14 @@ fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Durati
 ///
 /// Uses the QPC position produced via the `GetPosition` method.
 fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamError> {
-    let mut position: UINT64 = 0;
-    let mut qpc_position: UINT64 = 0;
-    let res = unsafe { (*stream.audio_clock).GetPosition(&mut position, &mut qpc_position) };
-    stream_error_from_hresult(res)?;
+    let mut position: u64 = 0;
+    let mut qpc_position: u64 = 0;
+    unsafe {
+        stream
+            .audio_clock
+            .GetPosition(&mut position, &mut qpc_position)
+            .map_err(windows_err_to_cpal_err::<StreamError>)?;
+    };
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
     let qpc_nanos = qpc_position as i128 * 100;
     let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
@@ -524,7 +517,7 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
 /// captured.
 fn input_timestamp(
     stream: &StreamInner,
-    buffer_qpc_position: UINT64,
+    buffer_qpc_position: u64,
 ) -> Result<crate::InputStreamTimestamp, StreamError> {
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
     let qpc_nanos = buffer_qpc_position as i128 * 100;

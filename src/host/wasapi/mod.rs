@@ -1,15 +1,13 @@
-extern crate winapi;
-
 pub use self::device::{
     default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
-use self::winapi::um::winnt::HRESULT;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
 use std::io::Error as IoError;
+use windows::Win32::Media::Audio;
 
 mod com;
 mod device;
@@ -51,20 +49,56 @@ impl HostTrait for Host {
     }
 }
 
-#[inline]
-fn check_result(result: HRESULT) -> Result<(), IoError> {
-    if result < 0 {
-        Err(IoError::from_raw_os_error(result))
-    } else {
-        Ok(())
+impl From<windows::core::Error> for BackendSpecificError {
+    fn from(error: windows::core::Error) -> Self {
+        BackendSpecificError {
+            description: format!("{}", IoError::from(error)),
+        }
     }
 }
 
-fn check_result_backend_specific(result: HRESULT) -> Result<(), BackendSpecificError> {
-    match check_result(result) {
-        Ok(()) => Ok(()),
-        Err(err) => Err(BackendSpecificError {
-            description: format!("{}", err),
-        }),
+trait ErrDeviceNotAvailable: From<BackendSpecificError> {
+    fn device_not_available() -> Self;
+}
+
+impl ErrDeviceNotAvailable for crate::BuildStreamError {
+    fn device_not_available() -> Self {
+        Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::SupportedStreamConfigsError {
+    fn device_not_available() -> Self {
+        Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::DefaultStreamConfigError {
+    fn device_not_available() -> Self {
+        Self::DeviceNotAvailable
+    }
+}
+
+impl ErrDeviceNotAvailable for crate::StreamError {
+    fn device_not_available() -> Self {
+        Self::DeviceNotAvailable
+    }
+}
+
+fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
+    windows_err_to_cpal_err_message::<E>(e, "")
+}
+
+fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
+    e: windows::core::Error,
+    message: &str,
+) -> E {
+    match e.code() {
+        Audio::AUDCLNT_E_DEVICE_INVALIDATED => E::device_not_available(),
+        _ => {
+            let description = format!("{}{}", message, e);
+            let err = BackendSpecificError { description };
+            err.into()
+        }
     }
 }
