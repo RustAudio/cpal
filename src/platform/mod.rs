@@ -15,7 +15,9 @@ pub use self::platform_impl::*;
 /// For example the invocation `impl_platform_host(Wasapi wasapi "WASAPI", Asio asio "ASIO")`,
 /// this macro should expand to:
 ///
-/// ```no_run
+// This sample code block is marked as text because it's not a valid test,
+// it's just illustrative. (see rust issue #96573)
+/// ```text
 /// pub enum HostId {
 ///     Wasapi,
 ///     Asio,
