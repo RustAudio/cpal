@@ -21,7 +21,7 @@
 //!
 //! Then choose an available [`Device`]. The easiest way is to use the default input or output
 //! `Device` via the [`default_input_device()`] or [`default_output_device()`] methods on `host`.
-//! 
+//!
 //! Alternatively, you can enumerate all the available devices with the [`devices()`] method.
 //! Beware that the `default_*_device()` functions return an `Option<Device>` in case no device
 //! is available for that stream type on the system.
@@ -38,7 +38,7 @@
 //! [`supported_input_configs()`] and [`supported_output_configs()`] methods.
 //! These produce a list of [`SupportedStreamConfigRange`] structs which can later be turned into
 //! actual [`SupportedStreamConfig`] structs.
-//! 
+//!
 //! If you don't want to query the list of configs,
 //! you can also build your own [`StreamConfig`] manually, but doing so could lead to an error when
 //! building the stream if the config is not supported by the device.
@@ -146,7 +146,7 @@
 //! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.pause().unwrap();
 //! ```
-//! 
+//!
 //! [`default_input_device()`]: traits::HostTrait::default_input_device
 //! [`default_output_device()`]: traits::HostTrait::default_output_device
 //! [`devices()`]: traits::HostTrait::devices
@@ -227,7 +227,7 @@ pub type FrameCount = u32;
 /// large, leading to latency issues. If low latency is desired, [`Fixed(FrameCount)`]
 /// should be used in accordance with the [`SupportedBufferSize`] range produced by
 /// the [`SupportedStreamConfig`] API.  
-/// 
+///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
 /// [`SupportedStreamConfig`]: SupportedStreamConfig::buffer_size
@@ -633,7 +633,7 @@ impl SupportedStreamConfigRange {
     /// Retrieve a [`SupportedStreamConfig`] with the given sample rate and buffer size.
     ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the given `sample_rate` is outside the range specified within this
     /// [`SupportedStreamConfigRange`] instance.
     pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {

@@ -28,7 +28,7 @@ use crate::{
 /// JACK is yet another host API that is more suitable to pro-audio applications, however it is
 /// less readily available by default in many Linux distributions and is known to be tricky to
 /// set up.
-/// 
+///
 /// [`Host`]: crate::Host
 pub trait HostTrait {
     /// The type used for enumerating available devices by the host.
@@ -93,7 +93,7 @@ pub trait DeviceTrait {
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The stream type created by [`build_input_stream_raw`] and [`build_output_stream_raw`].
-    /// 
+    ///
     /// [`build_input_stream_raw`]: Self::build_input_stream_raw
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
     type Stream: StreamTrait;

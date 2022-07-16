@@ -29,7 +29,7 @@ pub use self::platform_impl::*;
 ///
 /// And so on for Device, Devices, Host, Stream, SupportedInputConfigs,
 /// SupportedOutputConfigs and all their necessary trait implementations.
-/// 
+///
 macro_rules! impl_platform_host {
     ($($(#[cfg($feat: meta)])? $HostVariant:ident $host_mod:ident $host_name:literal),*) => {
         /// All hosts supported by CPAL on this platform.
