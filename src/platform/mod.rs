@@ -1,35 +1,35 @@
 //! Platform-specific items.
 //!
-//! This module also contains the implementation of the platform's dynamically dispatched `Host`
-//! type and its associated `Device`, `StreamId` and other associated types. These
+//! This module also contains the implementation of the platform's dynamically dispatched [`Host`]
+//! type and its associated [`Device`], [`Stream`] and other associated types. These
 //! types are useful in the case that users require switching between audio host APIs at runtime.
 
 #[doc(inline)]
 pub use self::platform_impl::*;
 
-// A macro to assist with implementing a platform's dynamically dispatched `Host` type.
-//
-// These dynamically dispatched types are necessary to allow for users to switch between hosts at
-// runtime.
-//
-// For example the invocation `impl_platform_host(Wasapi wasapi "WASAPI", Asio asio "ASIO")`,
-// this macro should expand to:
-//
-// ```
-// pub enum HostId {
-//     Wasapi,
-//     Asio,
-// }
-//
-// pub enum Host {
-//     Wasapi(crate::host::wasapi::Host),
-//     Asio(crate::host::asio::Host),
-// }
-// ```
-//
-// And so on for Device, Devices, Host, StreamId, SupportedInputConfigs,
-// SupportedOutputConfigs and all their necessary trait implementations.
-// ```
+/// A macro to assist with implementing a platform's dynamically dispatched [`Host`] type.
+///
+/// These dynamically dispatched types are necessary to allow for users to switch between hosts at
+/// runtime.
+///
+/// For example the invocation `impl_platform_host(Wasapi wasapi "WASAPI", Asio asio "ASIO")`,
+/// this macro should expand to:
+///
+/// ```no_run
+/// pub enum HostId {
+///     Wasapi,
+///     Asio,
+/// }
+///
+/// pub enum Host {
+///     Wasapi(crate::host::wasapi::Host),
+///     Asio(crate::host::asio::Host),
+/// }
+/// ```
+///
+/// And so on for Device, Devices, Host, Stream, SupportedInputConfigs,
+/// SupportedOutputConfigs and all their necessary trait implementations.
+/// 
 macro_rules! impl_platform_host {
     ($($(#[cfg($feat: meta)])? $HostVariant:ident $host_mod:ident $host_name:literal),*) => {
         /// All hosts supported by CPAL on this platform.
@@ -40,27 +40,27 @@ macro_rules! impl_platform_host {
             )*
         ];
 
-        /// The platform's dynamically dispatched **Host** type.
+        /// The platform's dynamically dispatched `Host` type.
         ///
-        /// An instance of this **Host** type may represent one of the **Host**s available
+        /// An instance of this `Host` type may represent one of the `Host`s available
         /// on the platform.
         ///
         /// Use this type if you require switching between available hosts at runtime.
         ///
-        /// This type may be constructed via the **host_from_id** function. **HostId**s may
-        /// be acquired via the **ALL_HOSTS** const, and the **available_hosts** function.
+        /// This type may be constructed via the [`host_from_id`] function. [`HostId`]s may
+        /// be acquired via the [`ALL_HOSTS`] const, and the [`available_hosts`] function.
         pub struct Host(HostInner);
 
-        /// The **Device** implementation associated with the platform's dynamically dispatched
-        /// **Host** type.
+        /// The `Device` implementation associated with the platform's dynamically dispatched
+        /// [`Host`] type.
         pub struct Device(DeviceInner);
 
-        /// The **Devices** iterator associated with the platform's dynamically dispatched **Host**
+        /// The `Devices` iterator associated with the platform's dynamically dispatched [`Host`]
         /// type.
         pub struct Devices(DevicesInner);
 
-        /// The **Stream** implementation associated with the platform's dynamically dispatched
-        /// **Host** type.
+        /// The `Stream` implementation associated with the platform's dynamically dispatched
+        /// [`Host`] type.
         // Streams cannot be `Send` or `Sync` if we plan to support Android's AAudio API. This is
         // because the stream API is not thread-safe, and the API prohibits calling certain
         // functions within the callback.
@@ -68,12 +68,12 @@ macro_rules! impl_platform_host {
         // TODO: Confirm this and add more specific detail and references.
         pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
 
-        /// The **SupportedInputConfigs** iterator associated with the platform's dynamically
-        /// dispatched **Host** type.
+        /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
+        /// dispatched [`Host`] type.
         pub struct SupportedInputConfigs(SupportedInputConfigsInner);
 
-        /// The **SupportedOutputConfigs** iterator associated with the platform's dynamically
-        /// dispatched **Host** type.
+        /// The `SupportedOutputConfigs` iterator associated with the platform's dynamically
+        /// dispatched [`Host`] type.
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
@@ -85,7 +85,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        /// Contains a platform specific `Device` implementation.
+        /// Contains a platform specific [`Device`] implementation.
         pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?
@@ -93,7 +93,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        /// Contains a platform specific `Devices` implementation.
+        /// Contains a platform specific [`Devices`] implementation.
         pub enum DevicesInner {
             $(
                 $(#[cfg($feat)])?
@@ -101,7 +101,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        /// Contains a platform specific `Host` implementation.
+        /// Contains a platform specific [`Host`] implementation.
         pub enum HostInner {
             $(
                 $(#[cfg($feat)])?
@@ -109,7 +109,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
-        /// Contains a platform specific `Stream` implementation.
+        /// Contains a platform specific [`Stream`] implementation.
         pub enum StreamInner {
             $(
                 $(#[cfg($feat)])?
@@ -181,7 +181,7 @@ macro_rules! impl_platform_host {
         }
 
         impl Host {
-            /// The unique identifier associated with this host.
+            /// The unique identifier associated with this `Host`.
             pub fn id(&self) -> HostId {
                 match self.0 {
                     $(

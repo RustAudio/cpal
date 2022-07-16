@@ -26,7 +26,7 @@ pub struct BackendSpecificError {
 /// An error that might occur while attempting to enumerate the available devices on a system.
 #[derive(Debug, Error)]
 pub enum DevicesError {
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -37,7 +37,7 @@ pub enum DevicesError {
 /// An error that may occur while attempting to retrieve a device name.
 #[derive(Debug, Error)]
 pub enum DeviceNameError {
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -57,7 +57,7 @@ pub enum SupportedStreamConfigsError {
         "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it."
     )]
     InvalidArgument,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -65,7 +65,7 @@ pub enum SupportedStreamConfigsError {
     },
 }
 
-/// May occur when attempting to request the default input or output stream format from a `Device`.
+/// May occur when attempting to request the default input or output stream format from a [`Device`](crate::Device).
 #[derive(Debug, Error)]
 pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
@@ -75,7 +75,7 @@ pub enum DefaultStreamConfigError {
     /// Returned if e.g. the default input format was requested on an output-only audio device.
     #[error("The requested stream type is not supported by the device.")]
     StreamTypeNotSupported,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -83,7 +83,7 @@ pub enum DefaultStreamConfigError {
     },
 }
 
-/// Error that can happen when creating a `Stream`.
+/// Error that can happen when creating a [`Stream`](crate::Stream).
 #[derive(Debug, Error)]
 pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
@@ -102,7 +102,7 @@ pub enum BuildStreamError {
     /// Occurs if adding a new Stream ID would cause an integer overflow.
     #[error("Adding a new stream ID would cause an overflow")]
     StreamIdOverflow,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -110,7 +110,7 @@ pub enum BuildStreamError {
     },
 }
 
-/// Errors that might occur when calling `play_stream`.
+/// Errors that might occur when calling [`Stream::play()`](crate::traits::StreamTrait::play).
 ///
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
@@ -120,7 +120,7 @@ pub enum PlayStreamError {
     /// The device associated with the stream is no longer available.
     #[error("the device associated with the stream is no longer available")]
     DeviceNotAvailable,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -128,7 +128,7 @@ pub enum PlayStreamError {
     },
 }
 
-/// Errors that might occur when calling `pause_stream`.
+/// Errors that might occur when calling [`Stream::pause()`](crate::traits::StreamTrait::pause).
 ///
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
@@ -138,7 +138,7 @@ pub enum PauseStreamError {
     /// The device associated with the stream is no longer available.
     #[error("the device associated with the stream is no longer available")]
     DeviceNotAvailable,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
@@ -153,7 +153,7 @@ pub enum StreamError {
     /// program is running.
     #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
-    /// See the `BackendSpecificError` docs for more information about this error variant.
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
     #[error("{err}")]
     BackendSpecific {
         #[from]
