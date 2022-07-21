@@ -14,8 +14,13 @@ module.exports = {
     path: dist,
     filename: "[name].js"
   },
+  experiments: {
+    syncWebAssembly: true
+  },
   devServer: {
-    contentBase: dist,
+    static: {
+      directory: dist
+    },
   },
   plugins: [
     new HtmlWebpackPlugin({
@@ -23,7 +28,7 @@ module.exports = {
     }),
     new WasmPackPlugin({
       crateDirectory: __dirname,
-      extraArgs: "--out-name index"
+      outName: "index"
     }),
   ]
 };
