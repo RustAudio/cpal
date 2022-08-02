@@ -22,7 +22,7 @@ ringbuf = "0.2"
 clap = { version = "3.1", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "android")'.dev-dependencies]
-ndk-glue = "0.6"
+ndk-glue = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.37", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_System_Com", "Win32_Devices_Properties", "Win32_Media_KernelStreaming", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Threading", "Win32_Security", "Win32_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_Media_Multimedia", "Win32_UI_Shell_PropertiesSystem"]}
@@ -58,7 +58,7 @@ web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOption
 
 [target.'cfg(target_os = "android")'.dependencies]
 oboe = { version = "0.4", features = [ "java-interface" ] }
-ndk = "0.6"
+ndk = "0.7"
 ndk-context = "0.1"
 jni = "0.19"
 
