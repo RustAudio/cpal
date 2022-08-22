@@ -1,3 +1,8 @@
+# Version 0.13.5 (2022-01-28)
+
+- Faster sample format conversion
+- Update dependencies (ndk, oboe, ndk-glue, jack, alsa, nix)
+
 # Version 0.13.4 (2021-08-08)
 
 - wasapi: Allow both threading models and switch the default to STA
