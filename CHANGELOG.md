@@ -1,3 +1,9 @@
+# Version 0.14.0 (2022-08-22)
+
+- Switch to `windows-rs` crate
+- Turn `ndk-glue` into a dev-dependency and use `ndk-context` instead
+- Update dependencies (ndk, ndk-glue, parking_lot, once_cell, jack)
+
 # Version 0.13.5 (2022-01-28)
 
 - Faster sample format conversion
