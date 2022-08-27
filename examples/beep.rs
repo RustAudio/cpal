@@ -25,12 +25,26 @@ struct Opt {
     #[arg(short, long)]
     #[allow(dead_code)]
     jack: bool,
+    /// Use the Pipewire host
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
+    #[allow(dead_code)]
+    pipewire: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
     // Conditionally compile with jack if the feature is specified.
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
     #[cfg(all(
         any(
             target_os = "linux",
@@ -40,8 +54,6 @@ fn main() -> anyhow::Result<()> {
         ),
         feature = "jack"
     ))]
-    // Manually check for flags. Can be passed through cargo with -- e.g.
-    // cargo run --release --example beep --features jack -- --jack
     let host = if opt.jack {
         cpal::host_from_id(cpal::available_hosts()
             .into_iter()
@@ -53,6 +65,29 @@ fn main() -> anyhow::Result<()> {
         cpal::default_host()
     };
 
+    // Conditionally compile with PipeWire if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features pipewire -- --pipewire
+    let host = if opt.pipewire {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::PipeWire)
+            .expect(
+                "make sure --features pipewire is specified. only works on OSes where PipeWire is available",
+            )).expect("PipeWire host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
     #[cfg(any(
         not(any(
             target_os = "linux",
@@ -60,7 +95,7 @@ fn main() -> anyhow::Result<()> {
             target_os = "freebsd",
             target_os = "netbsd"
         )),
-        not(feature = "jack")
+        not(any(feature = "jack", feature = "pipewire"))
     ))]
     let host = cpal::default_host();
 
