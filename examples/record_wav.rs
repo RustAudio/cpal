@@ -9,6 +9,7 @@ extern crate hound;
 
 use clap::arg;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, Sample};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
@@ -112,9 +113,9 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
+        cpal::SampleFormat::I8 => device.build_input_stream(
             &config.into(),
-            move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
+            move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
             err_fn,
         )?,
         cpal::SampleFormat::I16 => device.build_input_stream(
@@ -122,11 +123,17 @@ fn main() -> Result<(), anyhow::Error> {
             move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
         )?,
-        cpal::SampleFormat::U16 => device.build_input_stream(
+        cpal::SampleFormat::I32 => device.build_input_stream(
             &config.into(),
-            move |data, _: &_| write_input_data::<u16, i16>(data, &writer_2),
+            move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
             err_fn,
         )?,
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
+            err_fn,
+        )?,
+        sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample formet '{sample_format}'"))),
     };
 
     stream.play()?;
@@ -140,11 +147,7 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
-    match format {
-        cpal::SampleFormat::U16 => hound::SampleFormat::Int,
-        cpal::SampleFormat::I16 => hound::SampleFormat::Int,
-        cpal::SampleFormat::F32 => hound::SampleFormat::Float,
-    }
+    if format.is_float() { hound::SampleFormat::Float } else { hound::SampleFormat::Int }
 }
 
 fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec {
@@ -160,13 +163,13 @@ type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
 fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
 where
-    T: cpal::Sample,
-    U: cpal::Sample + hound::Sample,
+    T: Sample,
+    U: Sample + hound::Sample + FromSample<T>,
 {
     if let Ok(mut guard) = writer.try_lock() {
         if let Some(writer) = guard.as_mut() {
             for &sample in input.iter() {
-                let sample: U = cpal::Sample::from(&sample);
+                let sample: U = U::from_sample(sample);
                 writer.write_sample(sample).ok();
             }
         }

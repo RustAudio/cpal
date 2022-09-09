@@ -6,7 +6,8 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample};
+use cpal::{Sample, FromSample};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for(sample_next)?;
@@ -43,9 +44,21 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I8 => stream_make::<i8, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::I16 => stream_make::<i16, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::I24 => stream_make::<I24, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I32 => stream_make::<i32, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::I48 => stream_make::<I48, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I64 => stream_make::<i64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U8 => stream_make::<u8, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::U16 => stream_make::<u16, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::U24 => stream_make::<U24, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U32 => stream_make::<u32, _>(&device, &config.into(), on_sample),
+        // cpal::SampleFormat::U48 => stream_make::<U48, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U64 => stream_make::<u64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F64 => stream_make::<f64, _>(&device, &config.into(), on_sample),
+        sample_format => Err(anyhow::Error::msg(format!("Unsupported sample formet '{sample_format}'"))),
     }
 }
 
@@ -70,7 +83,7 @@ pub fn stream_make<T, F>(
     on_sample: F,
 ) -> Result<cpal::Stream, anyhow::Error>
 where
-    T: cpal::Sample,
+    T: SizedSample + FromSample<f32>,
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static + Copy,
 {
     let sample_rate = config.sample_rate.0 as f32;
@@ -96,11 +109,11 @@ where
 
 fn on_window<T, F>(output: &mut [T], request: &mut SampleRequestOptions, mut on_sample: F)
 where
-    T: cpal::Sample,
+    T: Sample + FromSample<f32>,
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static,
 {
     for frame in output.chunks_mut(request.nchannels) {
-        let value: T = cpal::Sample::from::<f32>(&on_sample(request));
+        let value: T = T::from_sample(on_sample(request));
         for sample in frame.iter_mut() {
             *sample = value;
         }
