@@ -3,7 +3,8 @@ extern crate clap;
 extern crate cpal;
 
 use clap::arg;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample};
+use cpal::{Sample, FromSample};
 
 #[derive(Debug)]
 struct Opt {
@@ -84,15 +85,27 @@ fn main() -> anyhow::Result<()> {
     println!("Default output config: {:?}", config);
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
+        // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
+        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
+        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
+        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
+        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
+        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
+        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
+        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
+        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
+        sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
 pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
-    T: cpal::Sample,
+    T: SizedSample + FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
@@ -122,10 +135,10 @@ where
 
 fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
-    T: cpal::Sample,
+    T: Sample + FromSample<f32>,
 {
     for frame in output.chunks_mut(channels) {
-        let value: T = cpal::Sample::from::<f32>(&next_sample());
+        let value: T = T::from_sample(next_sample());
         for sample in frame.iter_mut() {
             *sample = value;
         }

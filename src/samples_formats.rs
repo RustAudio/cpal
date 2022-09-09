@@ -1,206 +1,167 @@
-use std::mem;
+use std::{mem, fmt::Display};
+
+pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
 
 /// Format that each sample has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SampleFormat {
-    /// The value 0 corresponds to 0.
+    /// `i8` with a valid range of 'u8::MIN..=u8::MAX' with `0` being the origin
+    I8,
+
+    /// `i16` with a valid range of 'u16::MIN..=u16::MAX' with `0` being the origin
     I16,
-    /// The value 0 corresponds to 32768.
+
+    // /// `I24` with a valid range of '-(1 << 23)..(1 << 23)' with `0` being the origin
+    // I24,
+
+    /// `i32` with a valid range of 'u32::MIN..=u32::MAX' with `0` being the origin
+    I32,
+
+    // /// `I24` with a valid range of '-(1 << 47)..(1 << 47)' with `0` being the origin
+    // I48,
+
+    /// `i64` with a valid range of 'u64::MIN..=u64::MAX' with `0` being the origin
+    I64,
+
+    /// `u8` with a valid range of 'u8::MIN..=u8::MAX' with `1 << 7 == 128` being the origin
+    U8,
+
+    /// `u16` with a valid range of 'u16::MIN..=u16::MAX' with `1 << 15 == 32768` being the origin
     U16,
-    /// The boundaries are (-1.0, 1.0).
+
+    // /// `U24` with a valid range of '0..16777216' with `1 << 23 == 8388608` being the origin
+    // U24,
+
+    /// `u32` with a valid range of 'u32::MIN..=u32::MAX' with `1 << 31` being the origin
+    U32,
+
+    // /// `U48` with a valid range of '0..(1 << 48)' with `1 << 47` being the origin
+    // U48,
+
+    /// `u64` with a valid range of 'u64::MIN..=u64::MAX' with `1 << 63` being the origin
+    U64,
+
+    /// `f32` with a valid range of `-1.0..1.0` with `0.0` being the origin
     F32,
+
+    /// `f64` with a valid range of -1.0..1.0 with 0.0 being the origin
+    F64,
 }
 
 impl SampleFormat {
     /// Returns the size in bytes of a sample of this format.
     #[inline]
+    #[must_use]
     pub fn sample_size(&self) -> usize {
         match *self {
-            SampleFormat::I16 => mem::size_of::<i16>(),
-            SampleFormat::U16 => mem::size_of::<u16>(),
+            SampleFormat::I8 | SampleFormat::U8 => mem::size_of::<i8>(),
+            SampleFormat::I16 | SampleFormat::U16 => mem::size_of::<i16>(),
+            // SampleFormat::I24 | SampleFormat::U24 => 3,
+            SampleFormat::I32 | SampleFormat::U32 => mem::size_of::<i32>(),
+            // SampleFormat::I48 | SampleFormat::U48 => 6,
+            SampleFormat::I64 | SampleFormat::U64 => mem::size_of::<i64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
+            SampleFormat::F64 => mem::size_of::<f64>(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_int(&self) -> bool {
+        //matches!(*self, SampleFormat::I8 | SampleFormat::I16 | SampleFormat::I24 | SampleFormat::I32 | SampleFormat::I48 | SampleFormat::I64)
+        matches!(*self, SampleFormat::I8 | SampleFormat::I16 | SampleFormat::I32 | SampleFormat::I64)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_uint(&self) -> bool {
+        //matches!(*self, SampleFormat::U8 | SampleFormat::U16 | SampleFormat::U24 | SampleFormat::U32 | SampleFormat::U48 | SampleFormat::U64)
+        matches!(*self, SampleFormat::U8 | SampleFormat::U16 | SampleFormat::U32 | SampleFormat::U64)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_float(&self) -> bool {
+        matches!(*self, SampleFormat::F32 | SampleFormat::F64)
+    }
+
+}
+
+impl Display for SampleFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match * self {
+            SampleFormat::I8 => "i8",
+            SampleFormat::I16 => "i16",
+            // SampleFormat::I24 => "i24",
+            SampleFormat::I32 => "i32",
+            // SampleFormat::I48 => "i48",
+            SampleFormat::I64 => "i64",
+            SampleFormat::U8 => "u8",
+            SampleFormat::U16 => "u16",
+            // SampleFormat::U24 => "u24",
+            SampleFormat::U32 => "u32",
+            // SampleFormat::U48 => "u48",
+            SampleFormat::U64 => "u64",
+            SampleFormat::F32 => "f32",
+            SampleFormat::F64 => "f64",
+        }.fmt(f)
     }
 }
 
-/// Trait for containers that contain PCM data.
-pub unsafe trait Sample: Copy + Clone {
-    /// The `SampleFormat` corresponding to this data type.
+pub trait SizedSample: Sample {
     const FORMAT: SampleFormat;
-
-    /// Turns the sample into its equivalent as a floating-point.
-    fn to_f32(&self) -> f32;
-    /// Converts this sample into a standard i16 sample.
-    fn to_i16(&self) -> i16;
-    /// Converts this sample into a standard u16 sample.
-    fn to_u16(&self) -> u16;
-
-    /// Converts any sample type to this one by calling `to_i16`, `to_u16` or `to_f32`.
-    fn from<S>(s: &S) -> Self
-    where
-        S: Sample;
 }
 
-unsafe impl Sample for u16 {
-    const FORMAT: SampleFormat = SampleFormat::U16;
+impl SizedSample for i8 { const FORMAT: SampleFormat = SampleFormat::I8; }
+impl SizedSample for i16 { const FORMAT: SampleFormat = SampleFormat::I16; }
+// impl SizedSample for I24 { const FORMAT: SampleFormat = SampleFormat::I24; }
+impl SizedSample for i32 { const FORMAT: SampleFormat = SampleFormat::I32; }
+// impl SizedSample for I48 { const FORMAT: SampleFormat = SampleFormat::I48; }
+impl SizedSample for i64 { const FORMAT: SampleFormat = SampleFormat::I64; }
+impl SizedSample for u8 { const FORMAT: SampleFormat = SampleFormat::U8; }
+impl SizedSample for u16 { const FORMAT: SampleFormat = SampleFormat::U16; }
+// impl SizedSample for U24 { const FORMAT: SampleFormat = SampleFormat::U24; }
+impl SizedSample for u32 { const FORMAT: SampleFormat = SampleFormat::U32; }
+// impl SizedSample for U48 { const FORMAT: SampleFormat = SampleFormat::U48; }
+impl SizedSample for u64 { const FORMAT: SampleFormat = SampleFormat::U64; }
+impl SizedSample for f32 { const FORMAT: SampleFormat = SampleFormat::F32; }
+impl SizedSample for f64 { const FORMAT: SampleFormat = SampleFormat::F64; }
 
-    #[inline]
-    fn to_f32(&self) -> f32 {
-        self.to_i16().to_f32()
-    }
 
-    #[inline]
-    fn to_i16(&self) -> i16 {
-        (*self as i16).wrapping_add(i16::MIN)
-    }
-
-    #[inline]
-    fn to_u16(&self) -> u16 {
-        *self
-    }
-
-    #[inline]
-    fn from<S>(sample: &S) -> Self
-    where
-        S: Sample,
-    {
-        sample.to_u16()
-    }
-}
-
-unsafe impl Sample for i16 {
-    const FORMAT: SampleFormat = SampleFormat::I16;
-
-    #[inline]
-    fn to_f32(&self) -> f32 {
-        if *self < 0 {
-            *self as f32 / -(i16::MIN as f32)
-        } else {
-            *self as f32 / i16::MAX as f32
-        }
-    }
-
-    #[inline]
-    fn to_i16(&self) -> i16 {
-        *self
-    }
-
-    #[inline]
-    fn to_u16(&self) -> u16 {
-        self.wrapping_add(i16::MIN) as u16
-    }
-
-    #[inline]
-    fn from<S>(sample: &S) -> Self
-    where
-        S: Sample,
-    {
-        sample.to_i16()
-    }
-}
-const F32_TO_16BIT_INT_MULTIPLIER: f32 = u16::MAX as f32 * 0.5;
-unsafe impl Sample for f32 {
-    const FORMAT: SampleFormat = SampleFormat::F32;
-
-    #[inline]
-    fn to_f32(&self) -> f32 {
-        *self
-    }
-
-    #[inline]
-    fn to_i16(&self) -> i16 {
-        if *self >= 0.0 {
-            (*self * i16::MAX as f32) as i16
-        } else {
-            (-*self * i16::MIN as f32) as i16
-        }
-    }
-
-    #[inline]
-    fn to_u16(&self) -> u16 {
-        self.mul_add(F32_TO_16BIT_INT_MULTIPLIER, F32_TO_16BIT_INT_MULTIPLIER)
-            .round() as u16
-    }
-
-    #[inline]
-    fn from<S>(sample: &S) -> Self
-    where
-        S: Sample,
-    {
-        sample.to_f32()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::Sample;
-
-    #[test]
-    fn i16_to_i16() {
-        assert_eq!(0i16.to_i16(), 0);
-        assert_eq!((-467i16).to_i16(), -467);
-        assert_eq!(32767i16.to_i16(), 32767);
-        assert_eq!((-32768i16).to_i16(), -32768);
-    }
-
-    #[test]
-    fn i16_to_u16() {
-        assert_eq!(0i16.to_u16(), 32768);
-        assert_eq!((-16384i16).to_u16(), 16384);
-        assert_eq!(32767i16.to_u16(), 65535);
-        assert_eq!((-32768i16).to_u16(), 0);
-    }
-
-    #[test]
-    fn i16_to_f32() {
-        assert_eq!(0i16.to_f32(), 0.0);
-        assert_eq!((-16384i16).to_f32(), -0.5);
-        assert_eq!(32767i16.to_f32(), 1.0);
-        assert_eq!((-32768i16).to_f32(), -1.0);
-    }
-
-    #[test]
-    fn u16_to_i16() {
-        assert_eq!(32768u16.to_i16(), 0);
-        assert_eq!(16384u16.to_i16(), -16384);
-        assert_eq!(65535u16.to_i16(), 32767);
-        assert_eq!(0u16.to_i16(), -32768);
-    }
-
-    #[test]
-    fn u16_to_u16() {
-        assert_eq!(0u16.to_u16(), 0);
-        assert_eq!(467u16.to_u16(), 467);
-        assert_eq!(32767u16.to_u16(), 32767);
-        assert_eq!(65535u16.to_u16(), 65535);
-    }
-
-    #[test]
-    fn u16_to_f32() {
-        assert_eq!(0u16.to_f32(), -1.0);
-        assert_eq!(32768u16.to_f32(), 0.0);
-        assert_eq!(65535u16.to_f32(), 1.0);
-    }
-
-    #[test]
-    fn f32_to_i16() {
-        assert_eq!(0.0f32.to_i16(), 0);
-        assert_eq!((-0.5f32).to_i16(), i16::MIN / 2);
-        assert_eq!(1.0f32.to_i16(), i16::MAX);
-        assert_eq!((-1.0f32).to_i16(), i16::MIN);
-    }
-
-    #[test]
-    fn f32_to_u16() {
-        assert_eq!((-1.0f32).to_u16(), 0);
-        assert_eq!(0.0f32.to_u16(), 32768);
-        assert_eq!(1.0f32.to_u16(), 65535);
-    }
-
-    #[test]
-    fn f32_to_f32() {
-        assert_eq!(0.1f32.to_f32(), 0.1);
-        assert_eq!((-0.7f32).to_f32(), -0.7);
-        assert_eq!(1.0f32.to_f32(), 1.0);
-    }
-}
+// enum SampleStorageFormat {
+//     I8,
+//     I16LE,
+//     I16BE,
+//     I24LE3,
+//     I24BE3,
+//     I24LE4,
+//     I24BE4,
+//     I32LE,
+//     I32BE,
+//     I48LE6,
+//     I48BE6,
+//     I48LE8,
+//     I48BE8,
+//     I64LE,
+//     I64BE,
+//     U8,
+//     U16LE,
+//     U16BE,
+//     U24LE3,
+//     U24BE3,
+//     U24LE4,
+//     U24BE4,
+//     U32LE,
+//     U32BE,
+//     U48LE6,
+//     U48BE6,
+//     U48LE8,
+//     U48BE8,
+//     U64LE,
+//     U64BE,
+//     F32LE,
+//     F32BE,
+//     F64LE,
+//     F64BE,
+// }
