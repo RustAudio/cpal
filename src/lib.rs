@@ -155,6 +155,10 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
+
+mod samples;
+pub use samples::{i8};
+
 pub use samples_formats::{SizedSample, SampleFormat, Sample, FromSample, I24, I48, U24, U48};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
@@ -320,13 +324,13 @@ pub struct OutputStreamTimestamp {
 }
 
 /// Information relevant to a single call to the user's input stream data callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputCallbackInfo {
     timestamp: InputStreamTimestamp,
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
 }
