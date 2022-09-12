@@ -3,6 +3,8 @@
 extern crate anyhow;
 extern crate cpal;
 
+use std::iter;
+
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Transcoder, samples::{SampleBufferMut, self}, Endianness};
 use cpal::{Sample, FromSample};
 
@@ -102,10 +104,10 @@ where
     T: Transcoder,
     T::Sample: FromSample<f32> ,
 {
-    let samples = &mut output.into_iter();
-    while let (Some(mut left), Some(mut right)) = (samples.next(), samples.next()) {
-        let value: T::Sample = T::Sample::from_sample(next_sample());
-        left.set(value);
-        right.set(value);
-    }
+    let source = iter::from_fn(|| {
+        let sample = T::Sample::from_sample(next_sample());
+            Some(iter::repeat(sample).take(channels))
+        }).flatten();
+
+    output.into_iter().write_iter(source);
 }
