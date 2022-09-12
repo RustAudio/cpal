@@ -82,6 +82,11 @@ impl SampleFormat {
         matches!(self, SampleFormat::U16B2(_))
     }
 
+    pub fn is_float(self) -> bool {
+        matches!(self, SampleFormat::F32B4(_) | SampleFormat::F64B8(_))
+    }
+
+
 }
 
 impl Endianness {

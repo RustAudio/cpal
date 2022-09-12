@@ -13,7 +13,7 @@ extern crate ringbuf;
 
 use anyhow::Context;
 use clap::arg;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, samples::{SampleBuffer, SampleBufferMut, self}};
 use ringbuf::RingBuffer;
 
 #[derive(Debug)]
@@ -139,9 +139,14 @@ fn main() -> anyhow::Result<()> {
         producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+    #[cfg(target_endian = "big")]
+    type NativeTranscoder = samples::f32::B4BE;
+    #[cfg(target_endian = "little")]
+    type NativeTranscoder = samples::f32::B4LE;
+
+    let input_data_fn = move |data: SampleBuffer<NativeTranscoder>, _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
-        for &sample in data {
+        for sample in data {
             if producer.push(sample).is_err() {
                 output_fell_behind = true;
             }
@@ -151,16 +156,16 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |data: SampleBufferMut<NativeTranscoder>, _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
-        for sample in data {
-            *sample = match consumer.pop() {
+        for mut sample in data {
+            sample.set(match consumer.pop() {
                 Some(s) => s,
                 None => {
                     input_fell_behind = true;
                     0.0
                 }
-            };
+            });
         }
         if input_fell_behind {
             eprintln!("input stream fell behind: try increasing latency");

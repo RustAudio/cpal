@@ -123,7 +123,7 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         T: Transcoder,
-        D: FnMut(&SampleBuffer<'_, T>, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(SampleBuffer<'_, T>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
@@ -131,7 +131,7 @@ pub trait DeviceTrait {
             T::FORMAT,
             move |data, info| {
                 let bytes = data.as_slice::<T>().expect("host supplied incorrect sample type");
-                data_callback(&SampleBuffer::new(bytes), info)
+                data_callback(SampleBuffer::new(bytes), info)
             },
             error_callback,
         )

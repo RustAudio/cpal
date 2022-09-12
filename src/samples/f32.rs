@@ -160,6 +160,11 @@ impl Transcoder for B4BE {
 
 }
 
+// #[cfg(target_endian = "big")]
+// type B4NE = B4BE;
+// #[cfg(target_endian = "little")]
+// type B4NE = B4LE;
+
 pub struct B4NE {}
 
 impl Transcoder for B4NE {
