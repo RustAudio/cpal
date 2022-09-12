@@ -49,10 +49,12 @@ pub enum SampleFormat {
     I8B1,
     I16B2(Endianness),
     I32B4(Endianness),
+    I64B8(Endianness),
     
     U8B1,
     U16B2(Endianness),
     U32B4(Endianness),
+    U64B8(Endianness),
     
     F32B4(Endianness),
     F64B8(Endianness),
@@ -65,9 +67,13 @@ impl SampleFormat {
             SampleFormat::I8B1 => 1,
             SampleFormat::I16B2(_) => 2,
             SampleFormat::I32B4(_) => 4,
+            SampleFormat::I64B8(_) => 8,
+
             SampleFormat::U8B1 => 1,
             SampleFormat::U16B2(_) => 2,
             SampleFormat::U32B4(_) => 4,
+            SampleFormat::U64B8(_) => 8,
+
             SampleFormat::F32B4(_) => 4,
             SampleFormat::F64B8(_) => 8,
         }
@@ -108,9 +114,13 @@ impl Display for SampleFormat {
             Self::I8B1 => "i8b1".to_string(),
             Self::I16B2(endianness) => format!("i16b2{endianness}"),
             Self::I32B4(endianness) => format!("i32b4{endianness}"),
-            Self::U8B1 => "u8".to_string(),
+            Self::I64B8(endianness) => format!("i64b8{endianness}"),
+
+            Self::U8B1 => "u8b1".to_string(),
             Self::U16B2(endianness) => format!("u16b2{endianness}"),
             Self::U32B4(endianness) => format!("u32b4{endianness}"),
+            Self::U64B8(endianness) => format!("u64b8{endianness}"),
+
             Self::F32B4(endianness) => format!("f32b4{endianness}"),
             Self::F64B8(endianness) => format!("f64b8{endianness}"),
         }.fmt(f)
@@ -440,3 +450,33 @@ pub trait BufferWriteAccess<S> {
     fn set(&mut self, index: usize, sample: S);
 }
 
+
+#[macro_export]
+macro_rules! transcoder {
+    ($transcoder:ty, $sample:ty, $stride:expr, $endianness:expr, $format:expr) => {
+        impl $crate::Transcoder for $transcoder {
+            type Sample = $sample;
+            const STRIDE: usize = $stride;
+            const ENDIANNESS: u8 = $endianness;
+            type Bytes = [u8; $stride];
+            const FORMAT: SampleFormat = $format;
+
+            fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
+                Self::Bytes::try_from(bytes).unwrap()
+            }
+
+            fn slice_to_bytes_mut(bytes: &mut[u8]) -> &mut Self::Bytes {
+                <&mut Self::Bytes>::try_from(bytes).unwrap()
+            }
+
+            fn bytes_to_sample(bytes: Self::Bytes) -> Self::Sample {
+                <Self::Sample as FromBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::from_bytes(bytes)
+            }
+
+            fn sample_to_bytes(sample: Self::Sample) -> Self::Bytes {
+                <Self::Sample as ToBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::to_bytes(sample)
+            }
+
+        }
+    };
+}

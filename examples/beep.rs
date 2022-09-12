@@ -87,20 +87,27 @@ fn main() -> anyhow::Result<()> {
     println!("Default output config: {:?}", config);
 
     match config.sample_format() {
-        // cpal::SampleFormat::I8B1 => run::<I8B1>(&device, &config.into()),
+        cpal::SampleFormat::I8B1 => run::<samples::i8::B1NE>(&device, &config.into()),
         cpal::SampleFormat::I16B2(Endianness::Big) => run::<samples::i16::B2BE>(&device, &config.into()),
         cpal::SampleFormat::I16B2(Endianness::Little) => run::<samples::i16::B2LE>(&device, &config.into()),
-        // cpal::SampleFormat::I32B4(Endianness::Big) => run::<I32B4BE>(&device, &config.into()),
-        // cpal::SampleFormat::I32B4(Endianness::Little) => run::<I32B4LE>(&device, &config.into()),
-        // cpal::SampleFormat::U8B1 => run::<U8B2>(&device, &config.into()),
-        // cpal::SampleFormat::U16B2(Endianness::Big) => run::<U16B2BE>(&device, &config.into()),
-        // cpal::SampleFormat::U16B2(Endianness::Little) => run::<U16B2LE>(&device, &config.into()),
-        // cpal::SampleFormat::U32B4(Endianness::Big) => run::<U32B4BE>(&device, &config.into()),
-        // cpal::SampleFormat::U32B4(Endianness::Little) => run::<U32B4LE>(&device, &config.into()),
+        cpal::SampleFormat::I32B4(Endianness::Big) => run::<samples::i32::B4BE>(&device, &config.into()),
+        cpal::SampleFormat::I32B4(Endianness::Little) => run::<samples::i32::B4LE>(&device, &config.into()),
+        cpal::SampleFormat::I64B8(Endianness::Big) => run::<samples::i64::B8BE>(&device, &config.into()),
+        cpal::SampleFormat::I64B8(Endianness::Little) => run::<samples::i64::B8LE>(&device, &config.into()),
+
+        cpal::SampleFormat::U8B1 => run::<samples::u8::B1NE>(&device, &config.into()),
+        cpal::SampleFormat::U16B2(Endianness::Big) => run::<samples::u16::B2BE>(&device, &config.into()),
+        cpal::SampleFormat::U16B2(Endianness::Little) => run::<samples::u16::B2LE>(&device, &config.into()),
+        cpal::SampleFormat::U32B4(Endianness::Big) => run::<samples::u32::B4BE>(&device, &config.into()),
+        cpal::SampleFormat::U32B4(Endianness::Little) => run::<samples::u32::B4LE>(&device, &config.into()),
+        cpal::SampleFormat::U64B8(Endianness::Big) => run::<samples::u64::B8BE>(&device, &config.into()),
+        cpal::SampleFormat::U64B8(Endianness::Little) => run::<samples::u64::B8LE>(&device, &config.into()),
+
         cpal::SampleFormat::F32B4(Endianness::Big) => run::<samples::f32::B4BE>(&device, &config.into()),
         cpal::SampleFormat::F32B4(Endianness::Little) => run::<samples::f32::B4LE>(&device, &config.into()),
-        // cpal::SampleFormat::F64B8(Endianness::Big) => run::<F64B8BE>(&device, &config.into()),
-        // cpal::SampleFormat::F64B8(Endianness::Little) => run::<F64B8LE>(&device, &config.into()),
+        cpal::SampleFormat::F64B8(Endianness::Big) => run::<samples::f64::B8BE>(&device, &config.into()),
+        cpal::SampleFormat::F64B8(Endianness::Little) => run::<samples::f64::B8LE>(&device, &config.into()),
+
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 
