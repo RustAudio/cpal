@@ -1,13 +1,11 @@
-use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, NATIVE_ENDIAN, Transcoder, EndiannessU8, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess, SampleFormat, Endianness};
+use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, Transcoder, EndiannessU8, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess, SampleFormat, Endianness};
 
 type Sample = f32;
 
 impl ToBytes<4, LITTLE_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 4] { self.to_le_bytes() } }
 impl ToBytes<4, BIG_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 4] { self.to_be_bytes() } }
-impl ToBytes<4, NATIVE_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 4] { self.to_ne_bytes() } }
 impl FromBytes<4, LITTLE_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 4]) -> Self { Self::from_le_bytes(bytes) } }
 impl FromBytes<4, BIG_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 4]) -> Self { Self::from_be_bytes(bytes) } }
-impl FromBytes<4, NATIVE_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 4]) -> Self { Self::from_ne_bytes(bytes) } }
 
 pub enum F32SampleBuffer<'buffer> {
     B4LE(SampleBuffer<'buffer, B4LE>),
@@ -160,34 +158,7 @@ impl Transcoder for B4BE {
 
 }
 
-// #[cfg(target_endian = "big")]
-// type B4NE = B4BE;
-// #[cfg(target_endian = "little")]
-// type B4NE = B4LE;
-
-pub struct B4NE {}
-
-impl Transcoder for B4NE {
-    type Sample = Sample;
-    const STRIDE: usize = 4;
-    const ENDIANNESS: EndiannessU8 = NATIVE_ENDIAN;
-    type Bytes = [u8; 4];
-    const FORMAT: SampleFormat = SampleFormat::F32B4(Endianness::Native);
-
-    fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
-        Self::Bytes::try_from(bytes).unwrap()
-    }
-
-    fn slice_to_bytes_mut(bytes: &mut[u8]) -> &mut Self::Bytes {
-        <&mut Self::Bytes>::try_from(bytes).unwrap()
-    }
-
-    fn bytes_to_sample(bytes: Self::Bytes) -> Self::Sample {
-        <Self::Sample as FromBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::from_bytes(bytes)
-    }
-
-    fn sample_to_bytes(sample: Self::Sample) -> Self::Bytes {
-        <Self::Sample as ToBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::to_bytes(sample)
-    }
-
-}
+#[cfg(target_endian = "big")]
+pub type B4NE = B4BE;
+#[cfg(target_endian = "little")]
+pub type B4NE = B4LE;

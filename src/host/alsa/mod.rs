@@ -960,16 +960,25 @@ fn set_hw_params_from_format(
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     use alsa::pcm::Format::*;
+    use Endianness::*;
 
     let sample_format = match sample_format {
-        SampleFormat::I8B1 => alsa::pcm::Format::S8,
-        SampleFormat::I16B2(endianness) => if endianness.is_big() { S16BE } else { S16LE },
-        SampleFormat::I32B4(endianness) => if endianness.is_big() { S32BE } else { S32LE },
-        SampleFormat::U8B1 => alsa::pcm::Format::U8,
-        SampleFormat::U16B2(endianness) => if endianness.is_big() { U16BE } else { U16LE },
-        SampleFormat::U32B4(endianness) => if endianness.is_big() { U32BE } else { U32LE },
-        SampleFormat::F32B4(endianness) => if endianness.is_big() { FloatBE } else { FloatLE },
-        SampleFormat::F64B8(endianness) => if endianness.is_big() { Float64BE } else { Float64LE },
+        SampleFormat::I8B1 => S8,
+        SampleFormat::I16B2(Big) => S16BE,
+        SampleFormat::I16B2(Little) => S16LE,
+        SampleFormat::I32B4(Big) => S32BE,
+        SampleFormat::I32B4(Little) => S32LE,
+
+        SampleFormat::U8B1 => U8,
+        SampleFormat::U16B2(Big) => U16BE,
+        SampleFormat::U16B2(Little) => U16LE,
+        SampleFormat::U32B4(Big) => U32BE,
+        SampleFormat::U32B4(Little) => U32LE,
+
+        SampleFormat::F32B4(Big) => FloatBE,
+        SampleFormat::F32B4(Little) => FloatLE,
+        SampleFormat::F64B8(Big) => Float64BE,
+        SampleFormat::F64B8(Little) => Float64LE,
         sample_format => return Err(BackendSpecificError {
             description: format!("Sample format '{}' is not supported by this backend", sample_format),
         })

@@ -2,8 +2,6 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
-use std::fmt::Display;
-
 use clap::arg;
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Transcoder, Endianness, samples::{self, SampleBufferMut}};
 use cpal::{Sample, FromSample};
@@ -90,23 +88,17 @@ fn main() -> anyhow::Result<()> {
         // cpal::SampleFormat::I8B1 => run::<I8B1>(&device, &config.into()),
         cpal::SampleFormat::I16B2(Endianness::Big) => run::<samples::i16::B2BE>(&device, &config.into()),
         cpal::SampleFormat::I16B2(Endianness::Little) => run::<samples::i16::B2LE>(&device, &config.into()),
-        cpal::SampleFormat::I16B2(Endianness::Native) => run::<samples::i16::B2NE>(&device, &config.into()),
         // cpal::SampleFormat::I32B4(Endianness::Big) => run::<I32B4BE>(&device, &config.into()),
         // cpal::SampleFormat::I32B4(Endianness::Little) => run::<I32B4LE>(&device, &config.into()),
-        // cpal::SampleFormat::I32B4(Endianness::Native) => run::<I32NE>(&device, &config.into()),
         // cpal::SampleFormat::U8B1 => run::<U8B2>(&device, &config.into()),
         // cpal::SampleFormat::U16B2(Endianness::Big) => run::<U16B2BE>(&device, &config.into()),
         // cpal::SampleFormat::U16B2(Endianness::Little) => run::<U16B2LE>(&device, &config.into()),
-        // cpal::SampleFormat::U16B2(Endianness::Native) => run::<U16B2NE>(&device, &config.into()),
         // cpal::SampleFormat::U32B4(Endianness::Big) => run::<U32B4BE>(&device, &config.into()),
         // cpal::SampleFormat::U32B4(Endianness::Little) => run::<U32B4LE>(&device, &config.into()),
-        // cpal::SampleFormat::U32B4(Endianness::Native) => run::<U32B4NE>(&device, &config.into()),
         cpal::SampleFormat::F32B4(Endianness::Big) => run::<samples::f32::B4BE>(&device, &config.into()),
         cpal::SampleFormat::F32B4(Endianness::Little) => run::<samples::f32::B4LE>(&device, &config.into()),
-        cpal::SampleFormat::F32B4(Endianness::Native) => run::<samples::f32::B4NE>(&device, &config.into()),
         // cpal::SampleFormat::F64B8(Endianness::Big) => run::<F64B8BE>(&device, &config.into()),
         // cpal::SampleFormat::F64B8(Endianness::Little) => run::<F64B8LE>(&device, &config.into()),
-        // cpal::SampleFormat::F64B8(Endianness::Native) => run::<F64B8NE>(&device, &config.into()),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 

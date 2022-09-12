@@ -16,7 +16,6 @@ pub mod f32;
 pub mod f64;
 
 // Workaround until enums can be used as generic arguments
-const NATIVE_ENDIAN: u8 = 0;
 const LITTLE_ENDIAN: u8 = 1;
 const BIG_ENDIAN: u8 = 2;
 type EndiannessU8 = u8;
@@ -24,9 +23,13 @@ type EndiannessU8 = u8;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Endianness {
-    Native = NATIVE_ENDIAN,
     Little = LITTLE_ENDIAN,
     Big = BIG_ENDIAN,
+}
+
+
+impl Endianness {
+    pub const NATIVE: Endianness = if cfg!(target_endian = "big") { Self::Big } else { Self::Little };
 }
 
 pub trait ToBytes<const N: usize, const ENDIANNESS: EndiannessU8> {
@@ -89,30 +92,9 @@ impl SampleFormat {
 
 }
 
-impl Endianness {
-
-    pub fn is_big(self) -> bool {
-        match self {
-            Endianness::Native => cfg!(target_endian = "big"),
-            Endianness::Little => false,
-            Endianness::Big => true,
-        }
-    }
-
-    pub fn is_little(self) -> bool {
-        match self {
-            Endianness::Native => cfg!(target_endian = "little"),
-            Endianness::Little => true,
-            Endianness::Big => false,
-        }
-    }
-
-}
-
 impl Display for Endianness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Endianness::Native => "ne",
             Endianness::Little => "le",
             Endianness::Big => "be",
         }.fmt(f)

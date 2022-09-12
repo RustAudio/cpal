@@ -139,12 +139,7 @@ fn main() -> anyhow::Result<()> {
         producer.push(0.0).unwrap();
     }
 
-    #[cfg(target_endian = "big")]
-    type NativeTranscoder = samples::f32::B4BE;
-    #[cfg(target_endian = "little")]
-    type NativeTranscoder = samples::f32::B4LE;
-
-    let input_data_fn = move |data: SampleBuffer<NativeTranscoder>, _: &cpal::InputCallbackInfo| {
+    let input_data_fn = move |data: SampleBuffer<samples::f32::B4NE>, _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for sample in data {
             if producer.push(sample).is_err() {
@@ -156,7 +151,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let output_data_fn = move |data: SampleBufferMut<NativeTranscoder>, _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |data: SampleBufferMut<samples::f32::B4NE>, _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for mut sample in data {
             sample.set(match consumer.pop() {

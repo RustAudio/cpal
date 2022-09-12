@@ -1,13 +1,11 @@
-use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, NATIVE_ENDIAN, Transcoder, EndiannessU8, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess, SampleFormat, Endianness};
+use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, Transcoder, EndiannessU8, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess, SampleFormat, Endianness};
 
 type Sample = i16;
 
 impl ToBytes<2, LITTLE_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 2] { self.to_le_bytes() } }
 impl ToBytes<2, BIG_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 2] { self.to_be_bytes() } }
-impl ToBytes<2, NATIVE_ENDIAN> for Sample { #[inline] fn to_bytes(self) -> [u8; 2] { self.to_ne_bytes() } }
 impl FromBytes<2, LITTLE_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_le_bytes(bytes) } }
 impl FromBytes<2, BIG_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_be_bytes(bytes) } }
-impl FromBytes<2, NATIVE_ENDIAN> for Sample { #[inline] fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_ne_bytes(bytes) } }
 
 pub enum I16SampleBuffer<'buffer> {
     B2LE(SampleBuffer<'buffer, B2LE>),
@@ -160,29 +158,7 @@ impl Transcoder for B2BE {
 
 }
 
-pub struct B2NE {}
-
-impl Transcoder for B2NE {
-    type Sample = Sample;
-    const STRIDE: usize = 2;
-    const ENDIANNESS: EndiannessU8 = NATIVE_ENDIAN;
-    type Bytes = [u8; 2];
-    const FORMAT: SampleFormat = SampleFormat::I16B2(Endianness::Native);
-
-    fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
-        Self::Bytes::try_from(bytes).unwrap()
-    }
-
-    fn slice_to_bytes_mut(bytes: &mut[u8]) -> &mut Self::Bytes {
-        <&mut Self::Bytes>::try_from(bytes).unwrap()
-    }
-
-    fn bytes_to_sample(bytes: Self::Bytes) -> Self::Sample {
-        <Self::Sample as FromBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::from_bytes(bytes)
-    }
-
-    fn sample_to_bytes(sample: Self::Sample) -> Self::Bytes {
-        <Self::Sample as ToBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::to_bytes(sample)
-    }
-
-}
+#[cfg(target_endian = "big")]
+pub type B2NE = B2BE;
+#[cfg(target_endian = "little")]
+pub type B2NE = B2LE;
