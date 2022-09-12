@@ -156,10 +156,10 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 
-mod samples;
-pub use samples::{i8};
+pub mod samples;
+pub use samples::{Transcoder, SampleFormat, Endianness};
 
-pub use samples_formats::{SizedSample, SampleFormat, Sample, FromSample, I24, I48, U24, U48};
+pub use samples_formats::{Sample, FromSample, I24, I48, U24, U48};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
@@ -519,14 +519,16 @@ impl Data {
     /// Access the data as a slice of sample type `T`.
     ///
     /// Returns `None` if the sample type does not match the expected sample format.
-    pub fn as_slice<T>(&self) -> Option<&[T]>
-    where
-        T: SizedSample,
-    {
-        if T::FORMAT == self.sample_format {
+    pub fn as_slice<T: Transcoder>(&self) -> Option<&[u8]> {
+        if T::STRIDE == self.sample_format.sample_size() {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
-            unsafe { Some(std::slice::from_raw_parts(self.data as *const T, self.len)) }
+            unsafe {
+                Some(std::slice::from_raw_parts(
+                    self.data as *const u8,
+                    self.len * T::STRIDE,
+                ))
+            }
         } else {
             None
         }
@@ -535,17 +537,16 @@ impl Data {
     /// Access the data as a slice of sample type `T`.
     ///
     /// Returns `None` if the sample type does not match the expected sample format.
-    pub fn as_slice_mut<T>(&mut self) -> Option<&mut [T]>
-    where
-        T: SizedSample,
-    {
-        if T::FORMAT == self.sample_format {
+    pub fn as_slice_mut<T: Transcoder>(&mut self) -> Option<&mut [u8]> {
+        // TODO check for endianness and sample type as well
+        // TODO maybe this could be a `try_from/into` for `Data`
+        if T::STRIDE == self.sample_format.sample_size() {
             // The safety of this block relies on correct construction of the `Data` instance. See
             // the unsafe `from_parts` constructor for these requirements.
             unsafe {
                 Some(std::slice::from_raw_parts_mut(
-                    self.data as *mut T,
-                    self.len,
+                    self.data as *mut u8,
+                    self.len * T::STRIDE,
                 ))
             }
         } else {
@@ -642,7 +643,6 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -659,17 +659,18 @@ impl SupportedStreamConfigRange {
             return cmp_channels;
         }
 
-        let cmp_f32 = (self.sample_format == F32).cmp(&(other.sample_format == F32));
+        // TODO the strategy should be updated as new types became available and the endianness might be respected as well
+        let cmp_f32 = (self.sample_format.is_f32()).cmp(&(other.sample_format.is_f32()));
         if cmp_f32 != Equal {
             return cmp_f32;
         }
 
-        let cmp_i16 = (self.sample_format == I16).cmp(&(other.sample_format == I16));
+        let cmp_i16 = (self.sample_format.is_i16()).cmp(&(other.sample_format.is_i16()));
         if cmp_i16 != Equal {
             return cmp_i16;
         }
 
-        let cmp_u16 = (self.sample_format == U16).cmp(&(other.sample_format == U16));
+        let cmp_u16 = (self.sample_format.is_u16()).cmp(&(other.sample_format.is_u16()));
         if cmp_u16 != Equal {
             return cmp_u16;
         }
@@ -689,68 +690,70 @@ impl SupportedStreamConfigRange {
 
 #[test]
 fn test_cmp_default_heuristics() {
+    use crate::samples::Endianness;
+
     let mut formats = vec![
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::F32,
+            sample_format: SampleFormat::F32B4(Endianness::Native),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 1,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::F32,
+            sample_format: SampleFormat::F32B4(Endianness::Native),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::I16,
+            sample_format: SampleFormat::I16B2(Endianness::Native),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(96000),
-            sample_format: SampleFormat::U16,
+            sample_format: SampleFormat::U16B2(Endianness::Native),
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
             min_sample_rate: SampleRate(1),
             max_sample_rate: SampleRate(22050),
-            sample_format: SampleFormat::F32,
+            sample_format: SampleFormat::F32B4(Endianness::Native),
         },
     ];
 
     formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
     // lowest-priority first:
-    assert_eq!(formats[0].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[0].sample_format(), SampleFormat::F32B4(Endianness::Native),);
     assert_eq!(formats[0].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[0].channels(), 1);
 
-    assert_eq!(formats[1].sample_format(), SampleFormat::U16);
+    assert_eq!(formats[1].sample_format(), SampleFormat::U16B2(Endianness::Native),);
     assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[1].channels(), 2);
 
-    assert_eq!(formats[2].sample_format(), SampleFormat::I16);
+    assert_eq!(formats[2].sample_format(), SampleFormat::I16B2(Endianness::Native),);
     assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[2].channels(), 2);
 
-    assert_eq!(formats[3].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[3].sample_format(), SampleFormat::F32B4(Endianness::Native),);
     assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
     assert_eq!(formats[3].channels(), 2);
 
-    assert_eq!(formats[4].sample_format(), SampleFormat::F32);
+    assert_eq!(formats[4].sample_format(), SampleFormat::F32B4(Endianness::Native),);
     assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
     assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
     assert_eq!(formats[4].channels(), 2);

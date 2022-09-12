@@ -4,7 +4,7 @@ use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
     PlayStreamError, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, SizedSample,
+    SupportedStreamConfigRange, SupportedStreamConfigsError, samples::{Transcoder, SampleBufferMut, SampleBuffer},
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -122,19 +122,16 @@ pub trait DeviceTrait {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: SizedSample,
-        D: FnMut(&[T], &InputCallbackInfo) + Send + 'static,
+        T: Transcoder,
+        D: FnMut(&SampleBuffer<'_, T>, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_input_stream_raw(
             config,
             T::FORMAT,
             move |data, info| {
-                data_callback(
-                    data.as_slice()
-                        .expect("host supplied incorrect sample type"),
-                    info,
-                )
+                let bytes = data.as_slice::<T>().expect("host supplied incorrect sample type");
+                data_callback(&SampleBuffer::new(bytes), info)
             },
             error_callback,
         )
@@ -148,19 +145,16 @@ pub trait DeviceTrait {
         error_callback: E,
     ) -> Result<Self::Stream, BuildStreamError>
     where
-        T: SizedSample,
-        D: FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static,
+        T: Transcoder,
+        D: FnMut(SampleBufferMut<T>, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         self.build_output_stream_raw(
             config,
             T::FORMAT,
-            move |data, info| {
-                data_callback(
-                    data.as_slice_mut()
-                        .expect("host supplied incorrect sample type"),
-                    info,
-                )
+            move |data: &mut Data, info| {
+                let bytes = data.as_slice_mut::<T>().expect("host supplied incorrect sample type");
+                data_callback(SampleBufferMut::new(bytes), info)
             },
             error_callback,
         )

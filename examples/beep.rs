@@ -2,8 +2,10 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
+use std::fmt::Display;
+
 use clap::arg;
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Transcoder, Endianness, samples::{self, SampleBufferMut}};
 use cpal::{Sample, FromSample};
 
 #[derive(Debug)]
@@ -85,27 +87,52 @@ fn main() -> anyhow::Result<()> {
     println!("Default output config: {:?}", config);
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
-        // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
-        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
-        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
-        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
-        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
-        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
-        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
+        // cpal::SampleFormat::I8B1 => run::<I8B1>(&device, &config.into()),
+        cpal::SampleFormat::I16B2(Endianness::Big) => run::<samples::i16::B2BE>(&device, &config.into()),
+        cpal::SampleFormat::I16B2(Endianness::Little) => run::<samples::i16::B2LE>(&device, &config.into()),
+        cpal::SampleFormat::I16B2(Endianness::Native) => run::<samples::i16::B2NE>(&device, &config.into()),
+        // cpal::SampleFormat::I32B4(Endianness::Big) => run::<I32B4BE>(&device, &config.into()),
+        // cpal::SampleFormat::I32B4(Endianness::Little) => run::<I32B4LE>(&device, &config.into()),
+        // cpal::SampleFormat::I32B4(Endianness::Native) => run::<I32NE>(&device, &config.into()),
+        // cpal::SampleFormat::U8B1 => run::<U8B2>(&device, &config.into()),
+        // cpal::SampleFormat::U16B2(Endianness::Big) => run::<U16B2BE>(&device, &config.into()),
+        // cpal::SampleFormat::U16B2(Endianness::Little) => run::<U16B2LE>(&device, &config.into()),
+        // cpal::SampleFormat::U16B2(Endianness::Native) => run::<U16B2NE>(&device, &config.into()),
+        // cpal::SampleFormat::U32B4(Endianness::Big) => run::<U32B4BE>(&device, &config.into()),
+        // cpal::SampleFormat::U32B4(Endianness::Little) => run::<U32B4LE>(&device, &config.into()),
+        // cpal::SampleFormat::U32B4(Endianness::Native) => run::<U32B4NE>(&device, &config.into()),
+        cpal::SampleFormat::F32B4(Endianness::Big) => run::<samples::f32::B4BE>(&device, &config.into()),
+        cpal::SampleFormat::F32B4(Endianness::Little) => run::<samples::f32::B4LE>(&device, &config.into()),
+        cpal::SampleFormat::F32B4(Endianness::Native) => run::<samples::f32::B4NE>(&device, &config.into()),
+        // cpal::SampleFormat::F64B8(Endianness::Big) => run::<F64B8BE>(&device, &config.into()),
+        // cpal::SampleFormat::F64B8(Endianness::Little) => run::<F64B8LE>(&device, &config.into()),
+        // cpal::SampleFormat::F64B8(Endianness::Native) => run::<F64B8NE>(&device, &config.into()),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
+
+    // match config.sample_format() {
+    //     cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
+    //     cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
+    //     // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
+    //     cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
+    //     // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
+    //     cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
+    //     cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
+    //     cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
+    //     // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
+    //     cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
+    //     // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
+    //     cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
+    //     cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+    //     cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
+    //     sample_format => panic!("Unsupported sample format '{sample_format}'"),
+    // };
 }
 
 pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
-    T: SizedSample + FromSample<f32>,
+    T: Transcoder,
+    T::Sample: FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
@@ -119,10 +146,10 @@ where
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
-    let stream = device.build_output_stream(
+    let stream = device.build_output_stream::<T, _, _>(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
+        move |sample_buffer: SampleBufferMut<_>, _: &cpal::OutputCallbackInfo| {
+            write_data::<T>(sample_buffer, channels, &mut next_value)
         },
         err_fn,
     )?;
@@ -133,14 +160,15 @@ where
     Ok(())
 }
 
-fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
+fn write_data<T>(output: SampleBufferMut<T>, channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
-    T: Sample + FromSample<f32>,
+    T: Transcoder,
+    T::Sample: FromSample<f32> ,
 {
-    for frame in output.chunks_mut(channels) {
-        let value: T = T::from_sample(next_sample());
-        for sample in frame.iter_mut() {
-            *sample = value;
-        }
+    let samples = &mut output.into_iter();
+    while let (Some(mut left), Some(mut right)) = (samples.next(), samples.next()) {
+        let value: T::Sample = T::Sample::from_sample(next_sample());
+        left.set(value);
+        right.set(value);
     }
 }

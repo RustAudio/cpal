@@ -4,6 +4,7 @@ extern crate parking_lot;
 
 use self::alsa::poll::Descriptors;
 use self::parking_lot::Mutex;
+use crate::samples::Endianness;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -311,26 +312,42 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 8] = [
-            (SampleFormat::I8, alsa::pcm::Format::S8),
-            (SampleFormat::U8, alsa::pcm::Format::U8),
-            (SampleFormat::I16, alsa::pcm::Format::S16LE),
-            //SND_PCM_FORMAT_S16_BE,
-            (SampleFormat::U16, alsa::pcm::Format::U16LE),
-            //SND_PCM_FORMAT_U16_BE,
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 14] = [
+            // signed integers
+            (SampleFormat::I8B1, alsa::pcm::Format::S8),
+            (SampleFormat::I16B2(Endianness::Big), alsa::pcm::Format::S16BE),
+            (SampleFormat::I16B2(Endianness::Little), alsa::pcm::Format::S16LE),
+            //SND_PCM_FORMAT_S18_3LE,
+            //SND_PCM_FORMAT_S18_3BE,
+            //SND_PCM_FORMAT_S20_3LE,
+            //SND_PCM_FORMAT_S20_3BE,
             //SND_PCM_FORMAT_S24_LE,
             //SND_PCM_FORMAT_S24_BE,
+            //SND_PCM_FORMAT_S24_3LE,
+            //SND_PCM_FORMAT_S24_3BE,
+            (SampleFormat::I32B4(Endianness::Big), alsa::pcm::Format::S32BE),
+            (SampleFormat::I32B4(Endianness::Little), alsa::pcm::Format::S32LE),
+
+            // unsigned integers
+            (SampleFormat::U8B1, alsa::pcm::Format::U8),
+            (SampleFormat::U16B2(Endianness::Big), alsa::pcm::Format::U16BE),
+            (SampleFormat::U16B2(Endianness::Little), alsa::pcm::Format::U16LE),
+            //SND_PCM_FORMAT_U18_3LE,
+            //SND_PCM_FORMAT_U18_3BE,
+            //SND_PCM_FORMAT_U20_3LE,
+            //SND_PCM_FORMAT_U20_3BE,
             //SND_PCM_FORMAT_U24_LE,
             //SND_PCM_FORMAT_U24_BE,
-            (SampleFormat::I32, alsa::pcm::Format::S32LE),
-            //SND_PCM_FORMAT_S32_BE,
-            (SampleFormat::U32, alsa::pcm::Format::U32LE),
-            //SND_PCM_FORMAT_U32_BE,
-            (SampleFormat::F32, alsa::pcm::Format::FloatLE),
-            //SND_PCM_FORMAT_FLOAT_BE,
-            (SampleFormat::F64, alsa::pcm::Format::Float64LE),
-            //SND_PCM_FORMAT_FLOAT64_BE,
+            //SND_PCM_FORMAT_U24_3LE,
+            //SND_PCM_FORMAT_U24_3BE,
+            (SampleFormat::U32B4(Endianness::Big), alsa::pcm::Format::U32BE),
+            (SampleFormat::U32B4(Endianness::Little), alsa::pcm::Format::U32LE),
+
+            // floats
+            (SampleFormat::F32B4(Endianness::Big), alsa::pcm::Format::FloatBE),
+            (SampleFormat::F32B4(Endianness::Little), alsa::pcm::Format::FloatLE),
+            (SampleFormat::F64B8(Endianness::Big), alsa::pcm::Format::Float64BE),
+            (SampleFormat::F64B8(Endianness::Little), alsa::pcm::Format::Float64LE),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -339,18 +356,6 @@ impl Device {
             //SND_PCM_FORMAT_MPEG,
             //SND_PCM_FORMAT_GSM,
             //SND_PCM_FORMAT_SPECIAL,
-            //SND_PCM_FORMAT_S24_3LE,
-            //SND_PCM_FORMAT_S24_3BE,
-            //SND_PCM_FORMAT_U24_3LE,
-            //SND_PCM_FORMAT_U24_3BE,
-            //SND_PCM_FORMAT_S20_3LE,
-            //SND_PCM_FORMAT_S20_3BE,
-            //SND_PCM_FORMAT_U20_3LE,
-            //SND_PCM_FORMAT_U20_3BE,
-            //SND_PCM_FORMAT_S18_3LE,
-            //SND_PCM_FORMAT_S18_3BE,
-            //SND_PCM_FORMAT_U18_3LE,
-            //SND_PCM_FORMAT_U18_3BE,
         ];
 
         let mut supported_formats = Vec::new();
@@ -954,46 +959,20 @@ fn set_hw_params_from_format(
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
-    let sample_format = if cfg!(target_endian = "big") {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24BE,
-            SampleFormat::I32 => alsa::pcm::Format::S32BE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48BE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64BE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24BE,
-            SampleFormat::U32 => alsa::pcm::Format::U32BE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48BE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64BE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
-            sample_format => return Err(BackendSpecificError {
-                description: format!("Sample format '{}' is not supported by this backend", sample_format),
-            })
-        }
-    } else {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24LE,
-            SampleFormat::I32 => alsa::pcm::Format::S32LE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48LE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64LE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24LE,
-            SampleFormat::U32 => alsa::pcm::Format::U32LE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48LE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64LE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
-            sample_format => return Err(BackendSpecificError {
-                description: format!("Sample format '{}' is not supported by this backend", sample_format),
-            })
-        }
+    use alsa::pcm::Format::*;
+
+    let sample_format = match sample_format {
+        SampleFormat::I8B1 => alsa::pcm::Format::S8,
+        SampleFormat::I16B2(endianness) => if endianness.is_big() { S16BE } else { S16LE },
+        SampleFormat::I32B4(endianness) => if endianness.is_big() { S32BE } else { S32LE },
+        SampleFormat::U8B1 => alsa::pcm::Format::U8,
+        SampleFormat::U16B2(endianness) => if endianness.is_big() { U16BE } else { U16LE },
+        SampleFormat::U32B4(endianness) => if endianness.is_big() { U32BE } else { U32LE },
+        SampleFormat::F32B4(endianness) => if endianness.is_big() { FloatBE } else { FloatLE },
+        SampleFormat::F64B8(endianness) => if endianness.is_big() { Float64BE } else { Float64LE },
+        sample_format => return Err(BackendSpecificError {
+            description: format!("Sample format '{}' is not supported by this backend", sample_format),
+        })
     };
 
     hw_params.set_format(sample_format)?;

@@ -1,4 +1,4 @@
-use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, NATIVE_ENDIAN, Transcoder, Endianness, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess};
+use super::{ToBytes, FromBytes, LITTLE_ENDIAN, BIG_ENDIAN, NATIVE_ENDIAN, Transcoder, EndiannessU8, SampleBuffer, SampleBufferMut, BufferReadAccess, BufferWriteAccess, SampleFormat, Endianness};
 
 type Sample = i16;
 
@@ -111,8 +111,9 @@ pub struct B2LE {}
 impl Transcoder for B2LE {
     type Sample = Sample;
     const STRIDE: usize = 2;
-    const ENDIANNESS: Endianness = LITTLE_ENDIAN;
+    const ENDIANNESS: EndiannessU8 = LITTLE_ENDIAN;
     type Bytes = [u8; 2];
+    const FORMAT: SampleFormat = SampleFormat::I16B2(Endianness::Little);
 
     fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
         Self::Bytes::try_from(bytes).unwrap()
@@ -137,8 +138,9 @@ pub struct B2BE {}
 impl Transcoder for B2BE {
     type Sample = Sample;
     const STRIDE: usize = 2;
-    const ENDIANNESS: Endianness = BIG_ENDIAN;
+    const ENDIANNESS: EndiannessU8 = BIG_ENDIAN;
     type Bytes = [u8; 2];
+    const FORMAT: SampleFormat = SampleFormat::I16B2(Endianness::Big);
 
     fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
         Self::Bytes::try_from(bytes).unwrap()
@@ -163,8 +165,9 @@ pub struct B2NE {}
 impl Transcoder for B2NE {
     type Sample = Sample;
     const STRIDE: usize = 2;
-    const ENDIANNESS: Endianness = NATIVE_ENDIAN;
+    const ENDIANNESS: EndiannessU8 = NATIVE_ENDIAN;
     type Bytes = [u8; 2];
+    const FORMAT: SampleFormat = SampleFormat::I16B2(Endianness::Native);
 
     fn slice_to_bytes(bytes: &[u8]) -> Self::Bytes {
         Self::Bytes::try_from(bytes).unwrap()

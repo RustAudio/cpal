@@ -133,7 +133,7 @@ fn main() -> Result<(), anyhow::Error> {
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
         )?,
-        sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample formet '{sample_format}'"))),
+        sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
     };
 
     stream.play()?;
