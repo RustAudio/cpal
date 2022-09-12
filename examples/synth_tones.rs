@@ -58,7 +58,7 @@ where
         cpal::SampleFormat::U64 => stream_make::<u64, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::F64 => stream_make::<f64, _>(&device, &config.into(), on_sample),
-        sample_format => Err(anyhow::Error::msg(format!("Unsupported sample formet '{sample_format}'"))),
+        sample_format => Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
     }
 }
 
