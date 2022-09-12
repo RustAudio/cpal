@@ -8,8 +8,9 @@ extern crate cpal;
 extern crate hound;
 
 use clap::arg;
+use cpal::samples::SampleBuffer;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, Sample};
+use cpal::{FromSample, Sample, Transcoder, Endianness, samples};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
@@ -113,24 +114,24 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::I8 => device.build_input_stream(
+        // cpal::SampleFormat::I8B1 => device.build_input_stream(
+        //     &config.into(),
+        //     move |data, _: &_| write_input_data::<samples::i8::B1, i8>(data, &writer_2),
+        //     err_fn,
+        // )?,
+        cpal::SampleFormat::I16B2(Endianness::NATIVE) => device.build_input_stream(
             &config.into(),
-            move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
+            move |data, _: &_| write_input_data::<samples::i16::B2NE, i16>(data, &writer_2),
             err_fn,
         )?,
-        cpal::SampleFormat::I16 => device.build_input_stream(
+        // cpal::SampleFormat::I32B4(endianness) => device.build_input_stream(
+        //     &config.into(),
+        //     move |data, _: &_| write_input_data::<samples::i32::B4NE, i32>(data, &writer_2),
+        //     err_fn,
+        // )?,
+        cpal::SampleFormat::F32B4(Endianness::NATIVE) => device.build_input_stream(
             &config.into(),
-            move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
-            err_fn,
-        )?,
-        cpal::SampleFormat::I32 => device.build_input_stream(
-            &config.into(),
-            move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
-            err_fn,
-        )?,
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
-            move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
+            move |data, _: &_| write_input_data::<samples::f32::B4NE, f32>(data, &writer_2),
             err_fn,
         )?,
         sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
@@ -161,14 +162,14 @@ fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec 
 
 type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
-fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
+fn write_input_data<T, U>(input: SampleBuffer<T>, writer: &WavWriterHandle)
 where
-    T: Sample,
-    U: Sample + hound::Sample + FromSample<T>,
+    T: Transcoder,
+    U: Sample + hound::Sample + FromSample<T::Sample>,
 {
     if let Ok(mut guard) = writer.try_lock() {
         if let Some(writer) = guard.as_mut() {
-            for &sample in input.iter() {
+            for sample in input {
                 let sample: U = U::from_sample(sample);
                 writer.write_sample(sample).ok();
             }
