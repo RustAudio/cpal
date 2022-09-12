@@ -6,8 +6,11 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample};
-use cpal::{Sample, FromSample};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    SizedSample,
+};
+use cpal::{FromSample, Sample};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for(sample_next)?;
@@ -58,7 +61,9 @@ where
         cpal::SampleFormat::U64 => stream_make::<u64, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::F64 => stream_make::<f64, _>(&device, &config.into(), on_sample),
-        sample_format => Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
+        sample_format => Err(anyhow::Error::msg(format!(
+            "Unsupported sample format '{sample_format}'"
+        ))),
     }
 }
 
