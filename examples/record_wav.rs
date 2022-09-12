@@ -133,7 +133,11 @@ fn main() -> Result<(), anyhow::Error> {
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
         )?,
-        sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
+        sample_format => {
+            return Err(anyhow::Error::msg(format!(
+                "Unsupported sample format '{sample_format}'"
+            )))
+        }
     };
 
     stream.play()?;
@@ -147,7 +151,11 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
-    if format.is_float() { hound::SampleFormat::Float } else { hound::SampleFormat::Int }
+    if format.is_float() {
+        hound::SampleFormat::Float
+    } else {
+        hound::SampleFormat::Int
+    }
 }
 
 fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec {

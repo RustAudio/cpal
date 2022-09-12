@@ -3,8 +3,11 @@ extern crate clap;
 extern crate cpal;
 
 use clap::arg;
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample};
-use cpal::{Sample, FromSample};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    SizedSample,
+};
+use cpal::{FromSample, Sample};
 
 #[derive(Debug)]
 struct Opt {

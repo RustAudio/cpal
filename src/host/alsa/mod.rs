@@ -970,9 +970,14 @@ fn set_hw_params_from_format(
             // SampleFormat::U64 => alsa::pcm::Format::U64BE,
             SampleFormat::F32 => alsa::pcm::Format::FloatBE,
             SampleFormat::F64 => alsa::pcm::Format::Float64BE,
-            sample_format => return Err(BackendSpecificError {
-                description: format!("Sample format '{}' is not supported by this backend", sample_format),
-            })
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{}' is not supported by this backend",
+                        sample_format
+                    ),
+                })
+            }
         }
     } else {
         match sample_format {
@@ -990,9 +995,14 @@ fn set_hw_params_from_format(
             // SampleFormat::U64 => alsa::pcm::Format::U64LE,
             SampleFormat::F32 => alsa::pcm::Format::FloatLE,
             SampleFormat::F64 => alsa::pcm::Format::Float64LE,
-            sample_format => return Err(BackendSpecificError {
-                description: format!("Sample format '{}' is not supported by this backend", sample_format),
-            })
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{}' is not supported by this backend",
+                        sample_format
+                    ),
+                })
+            }
         }
     };
 
