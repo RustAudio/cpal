@@ -897,7 +897,7 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+                input_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
             })
             .unwrap();
         Stream {
@@ -922,7 +922,7 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+                output_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
             })
             .unwrap();
         Stream {
@@ -979,9 +979,9 @@ fn set_hw_params_from_format(
         SampleFormat::F32B4(Little) => FloatLE,
         SampleFormat::F64B8(Big) => Float64BE,
         SampleFormat::F64B8(Little) => Float64LE,
-        sample_format => return Err(BackendSpecificError {
-            description: format!("Sample format '{}' is not supported by this backend", sample_format),
-        })
+        // sample_format => return Err(BackendSpecificError {
+        //     description: format!("Sample format '{}' is not supported by this backend", sample_format),
+        // })
     };
 
     hw_params.set_format(sample_format)?;
