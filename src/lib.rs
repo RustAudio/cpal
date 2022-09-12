@@ -58,12 +58,13 @@
 //! ```no_run
 //! use cpal::Data;
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+//! use cpal::samples::{SampleBufferMut, f32};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
 //!     &config,
-//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+//!     move |data: SampleBufferMut<f32::B4NE>, _: &cpal::OutputCallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -88,7 +89,8 @@
 //! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
-//! use cpal::{Data, Sample, SampleFormat, FromSample};
+//! use std::iter;
+//! use cpal::{Data, Sample, SampleFormat, FromSample, Endianness, Transcoder, samples::SampleBufferMut, samples};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
@@ -97,16 +99,14 @@
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
-//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
-//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
-//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
+//!     SampleFormat::F32B4(Endianness::NATIVE) => device.build_output_stream(&config, write_silence::<samples::f32::B4NE>, err_fn),
+//!     SampleFormat::I16B2(Endianness::NATIVE) => device.build_output_stream(&config, write_silence::<samples::i16::B2NE>, err_fn),
+//!     SampleFormat::U16B2(Endianness::NATIVE) => device.build_output_stream(&config, write_silence::<samples::u16::B2NE>, err_fn),
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
-//!     for sample in data.iter_mut() {
-//!         *sample = Sample::EQUILIBRIUM;
-//!     }
+//! fn write_silence<T: Transcoder>(data: SampleBufferMut<T>, _: &cpal::OutputCallbackInfo) {
+//!     data.into_iter().write_iter(iter::repeat(T::Sample::EQUILIBRIUM));
 //! }
 //! ```
 //!
