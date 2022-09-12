@@ -1,16 +1,16 @@
-use std::{marker::PhantomData, mem, ops::Range, fmt::Display, array::from_fn};
+use std::{array::from_fn, fmt::Display, marker::PhantomData, mem, ops::Range};
 
 use dasp_sample::Sample;
 
-pub mod i8;
 pub mod i16;
 pub mod i32;
 pub mod i64;
+pub mod i8;
 
-pub mod u8;
 pub mod u16;
 pub mod u32;
 pub mod u64;
+pub mod u8;
 
 pub mod f32;
 pub mod f64;
@@ -27,9 +27,12 @@ pub enum Endianness {
     Big = BIG_ENDIAN,
 }
 
-
 impl Endianness {
-    pub const NATIVE: Endianness = if cfg!(target_endian = "big") { Self::Big } else { Self::Little };
+    pub const NATIVE: Endianness = if cfg!(target_endian = "big") {
+        Self::Big
+    } else {
+        Self::Little
+    };
 }
 
 pub trait ToBytes<const N: usize, const ENDIANNESS: EndiannessU8> {
@@ -40,7 +43,9 @@ pub trait FromBytes<const N: usize, const ENDIANNESS: EndiannessU8> {
     fn from_bytes(bytes: [u8; N]) -> Self;
 }
 
-pub trait FromToBytes<const ENDIANNESS: EndiannessU8, const STRIDE: usize>: FromBytes<STRIDE, ENDIANNESS> + ToBytes<STRIDE, ENDIANNESS> {
+pub trait FromToBytes<const ENDIANNESS: EndiannessU8, const STRIDE: usize>:
+    FromBytes<STRIDE, ENDIANNESS> + ToBytes<STRIDE, ENDIANNESS>
+{
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,18 +55,17 @@ pub enum SampleFormat {
     I16B2(Endianness),
     I32B4(Endianness),
     I64B8(Endianness),
-    
+
     U8B1,
     U16B2(Endianness),
     U32B4(Endianness),
     U64B8(Endianness),
-    
+
     F32B4(Endianness),
     F64B8(Endianness),
 }
 
 impl SampleFormat {
-
     pub fn sample_size(self) -> usize {
         match self {
             SampleFormat::I8B1 => 1,
@@ -94,8 +98,6 @@ impl SampleFormat {
     pub fn is_float(self) -> bool {
         matches!(self, SampleFormat::F32B4(_) | SampleFormat::F64B8(_))
     }
-
-
 }
 
 impl Display for Endianness {
@@ -103,10 +105,10 @@ impl Display for Endianness {
         match *self {
             Endianness::Little => "le",
             Endianness::Big => "be",
-        }.fmt(f)
+        }
+        .fmt(f)
     }
 }
-
 
 impl Display for SampleFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -123,10 +125,10 @@ impl Display for SampleFormat {
 
             Self::F32B4(endianness) => format!("f32b4{endianness}"),
             Self::F64B8(endianness) => format!("f64b8{endianness}"),
-        }.fmt(f)
+        }
+        .fmt(f)
     }
 }
-
 
 /// Describes how to read/write a stream of samples from/to a byte-backed buffer
 pub trait Transcoder {
@@ -145,7 +147,6 @@ pub trait Transcoder {
     fn slice_to_sample(bytes: &[u8]) -> Self::Sample {
         Self::bytes_to_sample(Self::slice_to_bytes(bytes))
     }
-
 }
 
 /// wraps a byte buffer and provides an iterator over samples
@@ -155,21 +156,19 @@ pub struct SampleReader<'buffer, T: Transcoder> {
 }
 
 impl<'buffer, T: Transcoder> SampleReader<'buffer, T> {
-
-    fn new(buffer: &'buffer[u8]) -> Self {
+    fn new(buffer: &'buffer [u8]) -> Self {
         Self {
             buffer,
             phantom_data: PhantomData::default(),
         }
     }
-
 }
 
 impl<'buffer, T: Transcoder> Iterator for SampleReader<'buffer, T> {
     type Item = T::Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
-        (self.buffer.len() >= T::STRIDE).then( || {
+        (self.buffer.len() >= T::STRIDE).then(|| {
             let (sample_bytes, remainder) = self.buffer.split_at(T::STRIDE);
             self.buffer = remainder;
             T::bytes_to_sample(T::slice_to_bytes(sample_bytes))
@@ -186,7 +185,6 @@ pub struct SampleWriter<'buffer, T: Transcoder> {
 }
 
 impl<'buffer, T: Transcoder> SampleWriter<'buffer, T> {
-
     fn new(buffer: &'buffer mut [u8]) -> Self {
         Self {
             buffer,
@@ -198,16 +196,18 @@ impl<'buffer, T: Transcoder> SampleWriter<'buffer, T> {
         self.buffer.len() / T::STRIDE
     }
 
-    pub fn frame_array<const COUNT: usize>(&'buffer mut self) -> Option<[<Self as Iterator>::Item; COUNT]> {
-        (self.remaining() >= COUNT).then(|| {
-            from_fn(|_| self.next().unwrap())
-        })
+    pub fn frame_array<const COUNT: usize>(
+        &'buffer mut self,
+    ) -> Option<[<Self as Iterator>::Item; COUNT]> {
+        (self.remaining() >= COUNT).then(|| from_fn(|_| self.next().unwrap()))
     }
 
     pub fn write_iter(&mut self, source: impl Iterator<Item = T::Sample>) -> usize {
-        self.buffer.chunks_mut(T::STRIDE).zip(source)
-                .map(|(bytes, sample)| *T::slice_to_bytes_mut(bytes) = T::sample_to_bytes(sample))
-                .count()
+        self.buffer
+            .chunks_mut(T::STRIDE)
+            .zip(source)
+            .map(|(bytes, sample)| *T::slice_to_bytes_mut(bytes) = T::sample_to_bytes(sample))
+            .count()
     }
 
     pub fn frames(&'buffer mut self, count: usize) -> Option<SampleWriter<'buffer, T>> {
@@ -218,7 +218,6 @@ impl<'buffer, T: Transcoder> SampleWriter<'buffer, T> {
             SampleWriter::new(frame_bytes)
         })
     }
-
 }
 
 impl<'buffer, T: Transcoder> Iterator for SampleWriter<'buffer, T>
@@ -228,7 +227,7 @@ where
     type Item = SampleMut<'buffer, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        (self.buffer.len() >= T::STRIDE).then( || {
+        (self.buffer.len() >= T::STRIDE).then(|| {
             let tmp = mem::take(&mut self.buffer);
             let (sample_bytes, remainder) = tmp.split_at_mut(T::STRIDE);
             self.buffer = remainder;
@@ -251,11 +250,7 @@ where
     // TODO implement more iterator methods and impl more iterator traits
 }
 
-impl<'buffer, T: Transcoder> ExactSizeIterator for SampleWriter<'buffer, T>
-where
-    T::Bytes: 'buffer,
-{
-}
+impl<'buffer, T: Transcoder> ExactSizeIterator for SampleWriter<'buffer, T> where T::Bytes: 'buffer {}
 
 /// provides write access to a single byte-backed sample
 pub struct SampleMut<'buffer, T: Transcoder> {
@@ -280,7 +275,6 @@ impl<'a, T: Transcoder> SampleMut<'a, T> {
     pub fn set(&mut self, sample: T::Sample) {
         *self.bytes = T::sample_to_bytes(sample);
     }
-
 }
 
 pub struct SampleBuffer<'buffer, T: Transcoder> {
@@ -289,7 +283,6 @@ pub struct SampleBuffer<'buffer, T: Transcoder> {
 }
 
 impl<'buffer, T: Transcoder> SampleBuffer<'buffer, T> {
-
     pub fn new(bytes: &'buffer [u8]) -> Self {
         Self {
             bytes,
@@ -312,7 +305,6 @@ impl<'buffer, T: Transcoder> SampleBuffer<'buffer, T> {
     fn get_sample_bytes(&self, index: usize) -> Option<&[u8]> {
         self.bytes.get(Self::index_range(index))
     }
-
 }
 
 impl<'buffer, T: Transcoder> BufferReadAccess<T::Sample> for SampleBuffer<'buffer, T> {
@@ -353,7 +345,6 @@ pub struct SampleBufferMut<'buffer, T: Transcoder> {
 }
 
 impl<'buffer, T: Transcoder> SampleBufferMut<'buffer, T> {
-
     pub fn new(bytes: &'buffer mut [u8]) -> Self {
         Self {
             bytes,
@@ -385,9 +376,8 @@ impl<'buffer, T: Transcoder> SampleBufferMut<'buffer, T> {
     #[inline]
     pub fn get_mut(&mut self, index: usize) -> Option<SampleMut<'_, T>> {
         self.get_sample_bytes_mut(index)
-                .map(|bytes| SampleMut::new(T::slice_to_bytes_mut(bytes)))
+            .map(|bytes| SampleMut::new(T::slice_to_bytes_mut(bytes)))
     }
-
 }
 
 impl<'buffer, T: Transcoder> BufferReadAccess<T::Sample> for SampleBufferMut<'buffer, T> {
@@ -437,7 +427,6 @@ where
     }
 }
 
-
 pub trait BufferReadAccess<S> {
     fn len(&self) -> usize;
     fn get(&self, index: usize) -> Option<S>;
@@ -449,7 +438,6 @@ pub trait BufferReadAccess<S> {
 pub trait BufferWriteAccess<S> {
     fn set(&mut self, index: usize, sample: S);
 }
-
 
 #[macro_export]
 macro_rules! transcoder {
@@ -465,18 +453,19 @@ macro_rules! transcoder {
                 Self::Bytes::try_from(bytes).unwrap()
             }
 
-            fn slice_to_bytes_mut(bytes: &mut[u8]) -> &mut Self::Bytes {
+            fn slice_to_bytes_mut(bytes: &mut [u8]) -> &mut Self::Bytes {
                 <&mut Self::Bytes>::try_from(bytes).unwrap()
             }
 
             fn bytes_to_sample(bytes: Self::Bytes) -> Self::Sample {
-                <Self::Sample as FromBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::from_bytes(bytes)
+                <Self::Sample as FromBytes<{ Self::STRIDE }, { Self::ENDIANNESS }>>::from_bytes(
+                    bytes,
+                )
             }
 
             fn sample_to_bytes(sample: Self::Sample) -> Self::Bytes {
-                <Self::Sample as ToBytes::<{Self::STRIDE}, {Self::ENDIANNESS}>>::to_bytes(sample)
+                <Self::Sample as ToBytes<{ Self::STRIDE }, { Self::ENDIANNESS }>>::to_bytes(sample)
             }
-
         }
     };
 }

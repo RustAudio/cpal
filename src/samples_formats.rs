@@ -1,7 +1,6 @@
 //use std::{mem, fmt::Display};
 
-
-pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
+pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 
 // /// Format that each sample has.
 // #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,12 +128,10 @@ pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
 // impl SizedSample for f32 { const FORMAT: SampleFormat = SampleFormat::F32; }
 // impl SizedSample for f64 { const FORMAT: SampleFormat = SampleFormat::F64; }
 
-
 // pub struct RawSampleBuffer<'a, SAMPLE, const ENDIANNESS: Endianness, const STRIDE: usize> {
 //     bytes: &'a mut [u8],
 //     phantom_data: PhantomData<SAMPLE>,
 // }
-
 
 // trait SampleAccess<SAMPLE, const ENDIANNESS: Endianness, const STRIDE: usize> {
 //     fn get_sample(&self, index: usize) -> SAMPLE;
@@ -231,7 +228,7 @@ pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
 // where
 //     SAMPLE: FromToBytes<ENDIANNESS, STRIDE>
 // {
-    
+
 //     fn new(bytes: &'a mut [u8]) -> Self {
 //         Self {
 //             bytes,
@@ -317,9 +314,6 @@ pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
 // pub enum I8SampleBuffer<'bytes> {
 //     I8B1(RawSampleBuffer<'bytes, i8, NATIVE_ENDIAN, 1>),
 // }
-
-
-
 
 // pub enum U8SampleBuffer<'bytes> {
 //     U8B1(RawSampleBuffer<'bytes, u8, NATIVE_ENDIAN, 1>),
@@ -418,8 +412,6 @@ pub use dasp_sample::{I24, I48, U24, U48, Sample, FromSample};
 //     F64B4BE(RawSampleBuffer<'bytes, f64, BIG_ENDIAN, 8>),
 //     F64B4NE(RawSampleBuffer<'bytes, f64, NATIVE_ENDIAN, 8>),
 // }
-
-
 
 // enum SampleStorageFormat {
 //     I8,

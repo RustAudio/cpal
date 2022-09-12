@@ -13,7 +13,10 @@ extern crate ringbuf;
 
 use anyhow::Context;
 use clap::arg;
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, samples::{SampleBuffer, SampleBufferMut, self}};
+use cpal::{
+    samples::{self, SampleBuffer, SampleBufferMut},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use ringbuf::RingBuffer;
 
 #[derive(Debug)]
@@ -139,7 +142,8 @@ fn main() -> anyhow::Result<()> {
         producer.push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: SampleBuffer<samples::f32::B4NE>, _: &cpal::InputCallbackInfo| {
+    let input_data_fn = move |data: SampleBuffer<samples::f32::B4NE>,
+                              _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for sample in data {
             if producer.push(sample).is_err() {
@@ -151,7 +155,8 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let output_data_fn = move |data: SampleBufferMut<samples::f32::B4NE>, _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |data: SampleBufferMut<samples::f32::B4NE>,
+                               _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for mut sample in data {
             sample.set(match consumer.pop() {

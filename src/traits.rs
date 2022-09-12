@@ -1,10 +1,11 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
 use crate::{
+    samples::{SampleBuffer, SampleBufferMut, Transcoder},
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
     PlayStreamError, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, samples::{Transcoder, SampleBufferMut, SampleBuffer},
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A **Host** provides access to the available audio devices on the system.
@@ -130,7 +131,9 @@ pub trait DeviceTrait {
             config,
             T::FORMAT,
             move |data, info| {
-                let bytes = data.as_slice::<T>().expect("host supplied incorrect sample type");
+                let bytes = data
+                    .as_slice::<T>()
+                    .expect("host supplied incorrect sample type");
                 data_callback(SampleBuffer::new(bytes), info)
             },
             error_callback,
@@ -153,7 +156,9 @@ pub trait DeviceTrait {
             config,
             T::FORMAT,
             move |data: &mut Data, info| {
-                let bytes = data.as_slice_mut::<T>().expect("host supplied incorrect sample type");
+                let bytes = data
+                    .as_slice_mut::<T>()
+                    .expect("host supplied incorrect sample type");
                 data_callback(SampleBufferMut::new(bytes), info)
             },
             error_callback,

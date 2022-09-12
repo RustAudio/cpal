@@ -5,8 +5,12 @@ extern crate cpal;
 use std::iter;
 
 use clap::arg;
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Transcoder, Endianness, samples::{self, SampleBufferMut}};
-use cpal::{Sample, FromSample};
+use cpal::{
+    samples::{self, SampleBufferMut},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Endianness, Transcoder,
+};
+use cpal::{FromSample, Sample};
 
 #[derive(Debug)]
 struct Opt {
@@ -88,29 +92,60 @@ fn main() -> anyhow::Result<()> {
 
     match config.sample_format() {
         cpal::SampleFormat::I8B1 => run::<samples::i8::B1NE>(&device, &config.into()),
-        cpal::SampleFormat::I16B2(Endianness::Big) => run::<samples::i16::B2BE>(&device, &config.into()),
-        cpal::SampleFormat::I16B2(Endianness::Little) => run::<samples::i16::B2LE>(&device, &config.into()),
-        cpal::SampleFormat::I32B4(Endianness::Big) => run::<samples::i32::B4BE>(&device, &config.into()),
-        cpal::SampleFormat::I32B4(Endianness::Little) => run::<samples::i32::B4LE>(&device, &config.into()),
-        cpal::SampleFormat::I64B8(Endianness::Big) => run::<samples::i64::B8BE>(&device, &config.into()),
-        cpal::SampleFormat::I64B8(Endianness::Little) => run::<samples::i64::B8LE>(&device, &config.into()),
+        cpal::SampleFormat::I16B2(Endianness::Big) => {
+            run::<samples::i16::B2BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::I16B2(Endianness::Little) => {
+            run::<samples::i16::B2LE>(&device, &config.into())
+        }
+        cpal::SampleFormat::I32B4(Endianness::Big) => {
+            run::<samples::i32::B4BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::I32B4(Endianness::Little) => {
+            run::<samples::i32::B4LE>(&device, &config.into())
+        }
+        cpal::SampleFormat::I64B8(Endianness::Big) => {
+            run::<samples::i64::B8BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::I64B8(Endianness::Little) => {
+            run::<samples::i64::B8LE>(&device, &config.into())
+        }
 
         cpal::SampleFormat::U8B1 => run::<samples::u8::B1NE>(&device, &config.into()),
-        cpal::SampleFormat::U16B2(Endianness::Big) => run::<samples::u16::B2BE>(&device, &config.into()),
-        cpal::SampleFormat::U16B2(Endianness::Little) => run::<samples::u16::B2LE>(&device, &config.into()),
-        cpal::SampleFormat::U32B4(Endianness::Big) => run::<samples::u32::B4BE>(&device, &config.into()),
-        cpal::SampleFormat::U32B4(Endianness::Little) => run::<samples::u32::B4LE>(&device, &config.into()),
-        cpal::SampleFormat::U64B8(Endianness::Big) => run::<samples::u64::B8BE>(&device, &config.into()),
-        cpal::SampleFormat::U64B8(Endianness::Little) => run::<samples::u64::B8LE>(&device, &config.into()),
+        cpal::SampleFormat::U16B2(Endianness::Big) => {
+            run::<samples::u16::B2BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::U16B2(Endianness::Little) => {
+            run::<samples::u16::B2LE>(&device, &config.into())
+        }
+        cpal::SampleFormat::U32B4(Endianness::Big) => {
+            run::<samples::u32::B4BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::U32B4(Endianness::Little) => {
+            run::<samples::u32::B4LE>(&device, &config.into())
+        }
+        cpal::SampleFormat::U64B8(Endianness::Big) => {
+            run::<samples::u64::B8BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::U64B8(Endianness::Little) => {
+            run::<samples::u64::B8LE>(&device, &config.into())
+        }
 
-        cpal::SampleFormat::F32B4(Endianness::Big) => run::<samples::f32::B4BE>(&device, &config.into()),
-        cpal::SampleFormat::F32B4(Endianness::Little) => run::<samples::f32::B4LE>(&device, &config.into()),
-        cpal::SampleFormat::F64B8(Endianness::Big) => run::<samples::f64::B8BE>(&device, &config.into()),
-        cpal::SampleFormat::F64B8(Endianness::Little) => run::<samples::f64::B8LE>(&device, &config.into()),
+        cpal::SampleFormat::F32B4(Endianness::Big) => {
+            run::<samples::f32::B4BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::F32B4(Endianness::Little) => {
+            run::<samples::f32::B4LE>(&device, &config.into())
+        }
+        cpal::SampleFormat::F64B8(Endianness::Big) => {
+            run::<samples::f64::B8BE>(&device, &config.into())
+        }
+        cpal::SampleFormat::F64B8(Endianness::Little) => {
+            run::<samples::f64::B8LE>(&device, &config.into())
+        }
 
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
-
 }
 
 pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
@@ -147,12 +182,13 @@ where
 fn write_data<T>(output: SampleBufferMut<T>, channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
     T: Transcoder,
-    T::Sample: FromSample<f32> ,
+    T::Sample: FromSample<f32>,
 {
     let source = iter::from_fn(|| {
         let sample = T::Sample::from_sample(next_sample());
-            Some(iter::repeat(sample).take(channels))
-        }).flatten();
+        Some(iter::repeat(sample).take(channels))
+    })
+    .flatten();
 
     output.into_iter().write_iter(source);
 }

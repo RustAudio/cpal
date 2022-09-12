@@ -315,8 +315,14 @@ impl Device {
         const FORMATS: [(SampleFormat, alsa::pcm::Format); 14] = [
             // signed integers
             (SampleFormat::I8B1, alsa::pcm::Format::S8),
-            (SampleFormat::I16B2(Endianness::Big), alsa::pcm::Format::S16BE),
-            (SampleFormat::I16B2(Endianness::Little), alsa::pcm::Format::S16LE),
+            (
+                SampleFormat::I16B2(Endianness::Big),
+                alsa::pcm::Format::S16BE,
+            ),
+            (
+                SampleFormat::I16B2(Endianness::Little),
+                alsa::pcm::Format::S16LE,
+            ),
             //SND_PCM_FORMAT_S18_3LE,
             //SND_PCM_FORMAT_S18_3BE,
             //SND_PCM_FORMAT_S20_3LE,
@@ -325,13 +331,24 @@ impl Device {
             //SND_PCM_FORMAT_S24_BE,
             //SND_PCM_FORMAT_S24_3LE,
             //SND_PCM_FORMAT_S24_3BE,
-            (SampleFormat::I32B4(Endianness::Big), alsa::pcm::Format::S32BE),
-            (SampleFormat::I32B4(Endianness::Little), alsa::pcm::Format::S32LE),
-
+            (
+                SampleFormat::I32B4(Endianness::Big),
+                alsa::pcm::Format::S32BE,
+            ),
+            (
+                SampleFormat::I32B4(Endianness::Little),
+                alsa::pcm::Format::S32LE,
+            ),
             // unsigned integers
             (SampleFormat::U8B1, alsa::pcm::Format::U8),
-            (SampleFormat::U16B2(Endianness::Big), alsa::pcm::Format::U16BE),
-            (SampleFormat::U16B2(Endianness::Little), alsa::pcm::Format::U16LE),
+            (
+                SampleFormat::U16B2(Endianness::Big),
+                alsa::pcm::Format::U16BE,
+            ),
+            (
+                SampleFormat::U16B2(Endianness::Little),
+                alsa::pcm::Format::U16LE,
+            ),
             //SND_PCM_FORMAT_U18_3LE,
             //SND_PCM_FORMAT_U18_3BE,
             //SND_PCM_FORMAT_U20_3LE,
@@ -340,14 +357,31 @@ impl Device {
             //SND_PCM_FORMAT_U24_BE,
             //SND_PCM_FORMAT_U24_3LE,
             //SND_PCM_FORMAT_U24_3BE,
-            (SampleFormat::U32B4(Endianness::Big), alsa::pcm::Format::U32BE),
-            (SampleFormat::U32B4(Endianness::Little), alsa::pcm::Format::U32LE),
-
+            (
+                SampleFormat::U32B4(Endianness::Big),
+                alsa::pcm::Format::U32BE,
+            ),
+            (
+                SampleFormat::U32B4(Endianness::Little),
+                alsa::pcm::Format::U32LE,
+            ),
             // floats
-            (SampleFormat::F32B4(Endianness::Big), alsa::pcm::Format::FloatBE),
-            (SampleFormat::F32B4(Endianness::Little), alsa::pcm::Format::FloatLE),
-            (SampleFormat::F64B8(Endianness::Big), alsa::pcm::Format::Float64BE),
-            (SampleFormat::F64B8(Endianness::Little), alsa::pcm::Format::Float64LE),
+            (
+                SampleFormat::F32B4(Endianness::Big),
+                alsa::pcm::Format::FloatBE,
+            ),
+            (
+                SampleFormat::F32B4(Endianness::Little),
+                alsa::pcm::Format::FloatLE,
+            ),
+            (
+                SampleFormat::F64B8(Endianness::Big),
+                alsa::pcm::Format::Float64BE,
+            ),
+            (
+                SampleFormat::F64B8(Endianness::Little),
+                alsa::pcm::Format::Float64LE,
+            ),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -980,9 +1014,14 @@ fn set_hw_params_from_format(
         SampleFormat::F64B8(Big) => Float64BE,
         SampleFormat::F64B8(Little) => Float64LE,
 
-        SampleFormat::I64B8(_) | SampleFormat::U64B8(_) => return Err(BackendSpecificError {
-            description: format!("Sample format '{}' is not supported by this backend", sample_format),
-        })
+        SampleFormat::I64B8(_) | SampleFormat::U64B8(_) => {
+            return Err(BackendSpecificError {
+                description: format!(
+                    "Sample format '{}' is not supported by this backend",
+                    sample_format
+                ),
+            })
+        }
     };
 
     hw_params.set_format(sample_format)?;

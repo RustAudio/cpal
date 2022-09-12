@@ -157,9 +157,9 @@ pub use platform::{
 };
 
 pub mod samples;
-pub use samples::{Transcoder, SampleFormat, Endianness};
+pub use samples::{Endianness, SampleFormat, Transcoder};
 
-pub use samples_formats::{Sample, FromSample, I24, I48, U24, U48};
+pub use samples_formats::{FromSample, Sample, I24, I48, U24, U48};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;

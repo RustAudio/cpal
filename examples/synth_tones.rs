@@ -8,8 +8,12 @@ extern crate cpal;
 
 use std::iter;
 
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Transcoder, samples::{SampleBufferMut, self}, Endianness};
-use cpal::{Sample, FromSample};
+use cpal::{
+    samples::{self, SampleBufferMut},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Endianness, Transcoder,
+};
+use cpal::{FromSample, Sample};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for(sample_next)?;
@@ -46,20 +50,42 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        cpal::SampleFormat::I8B1 => stream_make::<samples::i8::B1NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I16B2(Endianness::NATIVE) => stream_make::<samples::i16::B2NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I32B4(Endianness::NATIVE) => stream_make::<samples::i32::B4NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::I64B8(Endianness::NATIVE) => stream_make::<samples::i64::B8NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I8B1 => {
+            stream_make::<samples::i8::B1NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::I16B2(Endianness::NATIVE) => {
+            stream_make::<samples::i16::B2NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::I32B4(Endianness::NATIVE) => {
+            stream_make::<samples::i32::B4NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::I64B8(Endianness::NATIVE) => {
+            stream_make::<samples::i64::B8NE, _>(&device, &config.into(), on_sample)
+        }
 
-        cpal::SampleFormat::U8B1 => stream_make::<samples::u8::B1NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U16B2(Endianness::NATIVE) => stream_make::<samples::u16::B2NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U32B4(Endianness::NATIVE) => stream_make::<samples::u32::B4NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::U64B8(Endianness::NATIVE) => stream_make::<samples::u64::B8NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U8B1 => {
+            stream_make::<samples::u8::B1NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::U16B2(Endianness::NATIVE) => {
+            stream_make::<samples::u16::B2NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::U32B4(Endianness::NATIVE) => {
+            stream_make::<samples::u32::B4NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::U64B8(Endianness::NATIVE) => {
+            stream_make::<samples::u64::B8NE, _>(&device, &config.into(), on_sample)
+        }
 
-        cpal::SampleFormat::F32B4(Endianness::NATIVE) => stream_make::<samples::f32::B4NE, _>(&device, &config.into(), on_sample),
-        cpal::SampleFormat::F64B8(Endianness::NATIVE) => stream_make::<samples::f64::B8NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F32B4(Endianness::NATIVE) => {
+            stream_make::<samples::f32::B4NE, _>(&device, &config.into(), on_sample)
+        }
+        cpal::SampleFormat::F64B8(Endianness::NATIVE) => {
+            stream_make::<samples::f64::B8NE, _>(&device, &config.into(), on_sample)
+        }
 
-        sample_format => Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
+        sample_format => Err(anyhow::Error::msg(format!(
+            "Unsupported sample format '{sample_format}'"
+        ))),
     }
 }
 
@@ -115,11 +141,11 @@ where
     T::Sample: FromSample<f32>,
     F: FnMut(&mut SampleRequestOptions) -> f32 + std::marker::Send + 'static,
 {
-
     let source = iter::from_fn(|| {
         let sample = T::Sample::from_sample(on_sample(request));
-            Some(iter::repeat(sample).take(request.nchannels))
-        }).flatten();
+        Some(iter::repeat(sample).take(request.nchannels))
+    })
+    .flatten();
 
     output.into_iter().write_iter(source);
 }
