@@ -111,23 +111,6 @@ fn main() -> anyhow::Result<()> {
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 
-    // match config.sample_format() {
-    //     cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
-    //     cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
-    //     // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
-    //     cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
-    //     // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
-    //     cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
-    //     cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
-    //     cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
-    //     // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
-    //     cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
-    //     // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
-    //     cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
-    //     cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
-    //     cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
-    //     sample_format => panic!("Unsupported sample format '{sample_format}'"),
-    // };
 }
 
 pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>

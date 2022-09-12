@@ -46,29 +46,19 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        // cpal::SampleFormat::I8B1 => stream_make::<samples::i8::B1, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I8B1 => stream_make::<samples::i8::B1NE, _>(&device, &config.into(), on_sample),
         cpal::SampleFormat::I16B2(Endianness::NATIVE) => stream_make::<samples::i16::B2NE, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I32B4(Endianness::NATIVE) => stream_make::<samples::i32::B4NE, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U8B1 => stream_make::<samples::u8::B1, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U16B2(Endianness::NATIVE) => stream_make::<samples::u16::B2NE, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U32B4(Endianness::NATIVE) => stream_make::<samples::u32::B4NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I32B4(Endianness::NATIVE) => stream_make::<samples::i32::B4NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::I64B8(Endianness::NATIVE) => stream_make::<samples::i64::B8NE, _>(&device, &config.into(), on_sample),
+
+        cpal::SampleFormat::U8B1 => stream_make::<samples::u8::B1NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U16B2(Endianness::NATIVE) => stream_make::<samples::u16::B2NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U32B4(Endianness::NATIVE) => stream_make::<samples::u32::B4NE, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::U64B8(Endianness::NATIVE) => stream_make::<samples::u64::B8NE, _>(&device, &config.into(), on_sample),
+
         cpal::SampleFormat::F32B4(Endianness::NATIVE) => stream_make::<samples::f32::B4NE, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::F64B8(Endianness::NATIVE) => stream_make::<samples::i64::B8NE, _>(&device, &config.into(), on_sample),
-        
-        // cpal::SampleFormat::I8 => stream_make::<i8, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I16 => stream_make::<i16, _>(&device, &config.into(), on_sample),
-        // // cpal::SampleFormat::I24 => stream_make::<I24, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I32 => stream_make::<i32, _>(&device, &config.into(), on_sample),
-        // // cpal::SampleFormat::I48 => stream_make::<I48, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::I64 => stream_make::<i64, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U8 => stream_make::<u8, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U16 => stream_make::<u16, _>(&device, &config.into(), on_sample),
-        // // cpal::SampleFormat::U24 => stream_make::<U24, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U32 => stream_make::<u32, _>(&device, &config.into(), on_sample),
-        // // cpal::SampleFormat::U48 => stream_make::<U48, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::U64 => stream_make::<u64, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::F32 => stream_make::<f32, _>(&device, &config.into(), on_sample),
-        // cpal::SampleFormat::F64 => stream_make::<f64, _>(&device, &config.into(), on_sample),
+        cpal::SampleFormat::F64B8(Endianness::NATIVE) => stream_make::<samples::f64::B8NE, _>(&device, &config.into(), on_sample),
+
         sample_format => Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
     }
 }

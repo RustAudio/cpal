@@ -114,26 +114,19 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let stream = match config.sample_format() {
-        // cpal::SampleFormat::I8B1 => device.build_input_stream(
-        //     &config.into(),
-        //     move |data, _: &_| write_input_data::<samples::i8::B1, i8>(data, &writer_2),
-        //     err_fn,
-        // )?,
-        cpal::SampleFormat::I16B2(Endianness::NATIVE) => device.build_input_stream(
-            &config.into(),
-            move |data, _: &_| write_input_data::<samples::i16::B2NE, i16>(data, &writer_2),
-            err_fn,
-        )?,
-        // cpal::SampleFormat::I32B4(endianness) => device.build_input_stream(
-        //     &config.into(),
-        //     move |data, _: &_| write_input_data::<samples::i32::B4NE, i32>(data, &writer_2),
-        //     err_fn,
-        // )?,
-        cpal::SampleFormat::F32B4(Endianness::NATIVE) => device.build_input_stream(
-            &config.into(),
-            move |data, _: &_| write_input_data::<samples::f32::B4NE, f32>(data, &writer_2),
-            err_fn,
-        )?,
+        cpal::SampleFormat::I8B1 => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::i8::B1NE, i8>(data, &writer_2), err_fn)?,
+        cpal::SampleFormat::I16B2(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::i16::B2NE, i16>(data, &writer_2), err_fn)?,
+        cpal::SampleFormat::I32B4(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::i32::B4NE, i32>(data, &writer_2), err_fn)?,
+        cpal::SampleFormat::I64B8(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::i64::B8NE, i32>(data, &writer_2), err_fn)?,
+
+        // cpal::SampleFormat::U8B1 => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::u8::B1NE, u8>(data, &writer_2), err_fn)?,
+        // cpal::SampleFormat::U16B2(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::u16::B2NE, u16>(data, &writer_2), err_fn)?,
+        // cpal::SampleFormat::U32B4(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::u32::B4NE, u32>(data, &writer_2), err_fn)?,
+        // cpal::SampleFormat::U64B8(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::u64::B8NE, u32>(data, &writer_2), err_fn)?,
+
+        cpal::SampleFormat::F32B4(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::f32::B4NE, f32>(data, &writer_2), err_fn)?,
+        // cpal::SampleFormat::F64B8(Endianness::NATIVE) => device.build_input_stream(&config.into(), move |data, _: &_| write_input_data::<samples::f64::B8NE, f64>(data, &writer_2), err_fn)?,
+
         sample_format => return Err(anyhow::Error::msg(format!("Unsupported sample format '{sample_format}'"))),
     };
 
