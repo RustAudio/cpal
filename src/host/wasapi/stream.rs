@@ -287,7 +287,7 @@ fn run_input(
             _ => unreachable!(),
         };
         match process_input(
-            &mut run_ctxt.stream,
+            &run_ctxt.stream,
             capture_client,
             data_callback,
             error_callback,
@@ -314,7 +314,7 @@ fn run_output(
             _ => unreachable!(),
         };
         match process_output(
-            &mut run_ctxt.stream,
+            &run_ctxt.stream,
             render_client,
             data_callback,
             error_callback,
@@ -439,7 +439,7 @@ fn process_output(
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(&stream) {
+    let frames_available = match get_available_frames(stream) {
         Ok(0) => return ControlFlow::Continue, // TODO: Can this happen?
         Ok(n) => n,
         Err(err) => {

@@ -6,7 +6,6 @@ use crate::{
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use once_cell::sync::Lazy;
-use std;
 use std::ffi::OsString;
 use std::fmt;
 use std::mem;
@@ -453,10 +452,7 @@ impl Device {
                 .map_err(windows_err_to_cpal_err::<SupportedStreamConfigsError>)?;
 
             // If the default format can't succeed we have no hope of finding other formats.
-            assert_eq!(
-                is_format_supported(client, default_waveformatex_ptr.0)?,
-                true
-            );
+            assert!(is_format_supported(client, default_waveformatex_ptr.0)?);
 
             // Copy the format to use as a test format (as to avoid mutating the original format).
             let mut test_format = {
@@ -496,7 +492,7 @@ impl Device {
             // TODO: Test the different sample formats?
 
             // Create the supported formats.
-            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0, &client) {
+            let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0, client) {
                 Some(fmt) => fmt,
                 None => {
                     let description =
@@ -509,11 +505,11 @@ impl Device {
             let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
             for rate in supported_sample_rates {
                 supported_formats.push(SupportedStreamConfigRange {
-                    channels: format.channels.clone(),
+                    channels: format.channels,
                     min_sample_rate: SampleRate(rate as _),
                     max_sample_rate: SampleRate(rate as _),
                     buffer_size: format.buffer_size.clone(),
-                    sample_format: format.sample_format.clone(),
+                    sample_format: format.sample_format,
                 })
             }
             Ok(supported_formats.into_iter())
@@ -1015,7 +1011,7 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
         SampleFormat::F32 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
-        SampleFormat::U16 => return None,
+        _ => return None,
     } as u16;
     let channels = config.channels;
     let sample_rate = config.sample_rate.0;
@@ -1030,7 +1026,7 @@ fn config_to_waveformatextensible(
             let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
             (extensible_size - ex_size) as u16
         }
-        SampleFormat::U16 => return None,
+        _ => return None,
     };
     let waveformatex = Audio::WAVEFORMATEX {
         wFormatTag: format_tag,
@@ -1048,7 +1044,7 @@ fn config_to_waveformatextensible(
     let sub_format = match sample_format {
         SampleFormat::I16 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
         SampleFormat::F32 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        SampleFormat::U16 => return None,
+        _ => return None,
     };
     let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,
