@@ -4,7 +4,7 @@ use std::time::Instant;
 extern crate oboe;
 
 use super::convert::{stream_instant, to_stream_instant};
-use crate::{Data, InputCallbackInfo, InputStreamTimestamp, Sample, StreamError};
+use crate::{Data, InputCallbackInfo, InputStreamTimestamp, SizedSample, StreamError};
 
 pub struct CpalInputCallback<I, C> {
     data_cb: Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>,
@@ -42,7 +42,7 @@ impl<I, C> CpalInputCallback<I, C> {
     }
 }
 
-impl<T: Sample, C: oboe::IsChannelCount> oboe::AudioInputCallback for CpalInputCallback<T, C>
+impl<T: SizedSample, C: oboe::IsChannelCount> oboe::AudioInputCallback for CpalInputCallback<T, C>
 where
     (T, C): oboe::IsFrameType,
 {
