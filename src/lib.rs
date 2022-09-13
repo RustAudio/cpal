@@ -763,7 +763,7 @@ impl From<SupportedStreamConfig> for StreamConfig {
 //
 // If a rate you desire is missing from this list, feel free to add it!
 #[cfg(target_os = "windows")]
-const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
+const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(5512),
     SampleRate(8000),
     SampleRate(11025),
