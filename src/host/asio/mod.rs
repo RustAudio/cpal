@@ -1,12 +1,12 @@
 extern crate asio_sys as sys;
 extern crate parking_lot;
 
+use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
     StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigsError,
 };
-use traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};
 pub use self::stream::Stream;
