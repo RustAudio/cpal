@@ -4,18 +4,18 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 
 use super::parking_lot::Mutex;
 use super::sys;
+use crate::BackendSpecificError;
+use crate::DefaultStreamConfigError;
+use crate::DeviceNameError;
+use crate::DevicesError;
+use crate::SampleFormat;
+use crate::SampleRate;
+use crate::SupportedBufferSize;
+use crate::SupportedStreamConfig;
+use crate::SupportedStreamConfigRange;
+use crate::SupportedStreamConfigsError;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use BackendSpecificError;
-use DefaultStreamConfigError;
-use DeviceNameError;
-use DevicesError;
-use SampleFormat;
-use SampleRate;
-use SupportedBufferSize;
-use SupportedStreamConfig;
-use SupportedStreamConfigRange;
-use SupportedStreamConfigsError;
 
 /// A ASIO Device
 pub struct Device {
