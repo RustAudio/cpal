@@ -458,8 +458,8 @@ impl DeviceTrait for Device {
                     .into())
                 }
             }
-            SampleFormat::U16 => Err(BackendSpecificError {
-                description: "U16 format is not supported on Android.".to_owned(),
+            sample_format => Err(BackendSpecificError {
+                description: format!("{} format is not supported on Android.", sample_format),
             }
             .into()),
         }
