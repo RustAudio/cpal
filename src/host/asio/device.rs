@@ -68,7 +68,7 @@ impl Device {
 
         // Collect a config for every combination of supported sample rate and number of channels.
         let mut supported_configs = vec![];
-        for &rate in ::COMMON_SAMPLE_RATES {
+        for &rate in crate::COMMON_SAMPLE_RATES {
             if !self
                 .driver
                 .can_sample_rate(rate.0.into())
