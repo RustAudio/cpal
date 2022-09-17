@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 
 use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
-use traits::HostTrait;
+use crate::traits::HostTrait;
 
 mod device;
 pub use self::device::Device;

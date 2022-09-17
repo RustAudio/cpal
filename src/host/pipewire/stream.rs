@@ -2,7 +2,7 @@ use crate::ChannelCount;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use traits::StreamTrait;
+use crate::traits::StreamTrait;
 
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,

@@ -6,7 +6,7 @@ use crate::{
 };
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use traits::DeviceTrait;
+use crate::traits::DeviceTrait;
 
 use super::stream::Stream;
 use super::PIPEWIRE_SAMPLE_FORMAT;
