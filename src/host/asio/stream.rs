@@ -5,9 +5,9 @@ use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, StreamConfig,
-    StreamError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, FromSample, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SizedSample,
+    StreamConfig, StreamError,
 };
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,8 +20,12 @@ trait Silence {
 
 /// Constraints on the ASIO sample types.
 trait AsioSample: Clone + Copy + Silence + std::ops::Add<Self, Output = Self> {
-    fn to_cpal_sample<T: Sample>(&self) -> T;
-    fn from_cpal_sample<T: Sample>(_: &T) -> Self;
+    fn to_cpal_sample<T>(self) -> T
+    where
+        T: FromSample<Self>;
+    fn from_cpal_sample<T>(_: T) -> Self
+    where
+        Self: FromSample<T>;
 }
 
 // Used to keep track of whether or not the current asio stream buffer requires
@@ -319,7 +323,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 to_endianness: F,
             ) where
-                A: Sample,
+                A: SizedSample,
                 B: AsioSample,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(B) -> B,
@@ -583,40 +587,64 @@ impl Silence for f64 {
 }
 
 impl AsioSample for i16 {
-    fn to_cpal_sample<T: Sample>(&self) -> T {
-        T::from(self)
+    fn to_cpal_sample<T>(self) -> T
+    where
+        T: FromSample<Self>,
+    {
+        T::from_sample(self)
     }
-    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
-        Sample::from(t)
+    fn from_cpal_sample<T>(t: T) -> Self
+    where
+        Self: FromSample<T>,
+    {
+        Self::from_sample(t)
     }
 }
 
 impl AsioSample for i32 {
-    fn to_cpal_sample<T: Sample>(&self) -> T {
+    fn to_cpal_sample<T>(self) -> T
+    where
+        T: FromSample<Self>,
+    {
         let s = (*self >> 16) as i16;
         s.to_cpal_sample()
     }
-    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+    fn from_cpal_sample<T>(t: T) -> Self
+    where
+        Self: FromSample<T>,
+    {
         let s = i16::from_cpal_sample(t);
         (s as i32) << 16
     }
 }
 
 impl AsioSample for f32 {
-    fn to_cpal_sample<T: Sample>(&self) -> T {
+    fn to_cpal_sample<T>(self) -> T
+    where
+        T: FromSample<Self>,
+    {
         T::from(self)
     }
-    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+    fn from_cpal_sample<T>(t: T) -> Self
+    where
+        Self: FromSample<T>,
+    {
         Sample::from(t)
     }
 }
 
 impl AsioSample for f64 {
-    fn to_cpal_sample<T: Sample>(&self) -> T {
-        let f = *self as f32;
+    fn to_cpal_sample<T>(self) -> T
+    where
+        T: FromSample<Self>,
+    {
+        let f = self as f32;
         f.to_cpal_sample()
     }
-    fn from_cpal_sample<T: Sample>(t: &T) -> Self {
+    fn from_cpal_sample<T>(t: T) -> Self
+    where
+        Self: FromSample<T>,
+    {
         let f = f32::from_cpal_sample(t);
         f as f64
     }
