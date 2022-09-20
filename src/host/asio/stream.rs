@@ -5,9 +5,9 @@ use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, FromSample, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SizedSample,
-    StreamConfig, StreamError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
+    StreamError,
 };
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -305,7 +305,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 to_endianness: F,
             ) where
-                A: SizedSample,
+                A: SizedSample + std::ops::Add,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(A) -> A,
             {
