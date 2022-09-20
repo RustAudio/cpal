@@ -305,7 +305,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 to_endianness: F,
             ) where
-                A: SizedSample + std::ops::Add,
+                A: SizedSample + std::ops::Add<Output = A>,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(A) -> A,
             {
