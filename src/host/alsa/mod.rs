@@ -892,7 +892,7 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                input_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+                input_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
             })
             .unwrap();
         Stream {
@@ -917,7 +917,7 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                output_stream_worker(rx, &*stream, &mut data_callback, &mut error_callback);
+                output_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
             })
             .unwrap();
         Stream {
