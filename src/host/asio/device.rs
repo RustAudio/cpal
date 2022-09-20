@@ -61,7 +61,7 @@ impl Device {
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         // Retrieve the default config for the total supported channels and supported sample
         // format.
-        let mut f = match self.default_input_config() {
+        let f = match self.default_input_config() {
             Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
             Ok(f) => f,
         };
@@ -98,7 +98,7 @@ impl Device {
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         // Retrieve the default config for the total supported channels and supported sample
         // format.
-        let mut f = match self.default_output_config() {
+        let f = match self.default_output_config() {
             Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
             Ok(f) => f,
         };
