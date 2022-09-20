@@ -584,7 +584,7 @@ fn check_config(
     let StreamConfig {
         channels,
         sample_rate,
-        buffer_size,
+        buffer_size: _,
     } = config;
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();
@@ -603,7 +603,7 @@ fn check_config(
     // unsigned formats are not supported by asio
     match sample_format {
         SampleFormat::I16 | SampleFormat::F32 => (),
-        SampleFormat::U16 => return Err(BuildStreamError::StreamConfigNotSupported),
+        _ => return Err(BuildStreamError::StreamConfigNotSupported),
     }
     if *channels > num_asio_channels {
         return Err(BuildStreamError::StreamConfigNotSupported);
