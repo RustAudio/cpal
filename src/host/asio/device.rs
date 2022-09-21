@@ -4,18 +4,18 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 
 use super::parking_lot::Mutex;
 use super::sys;
+use crate::BackendSpecificError;
+use crate::DefaultStreamConfigError;
+use crate::DeviceNameError;
+use crate::DevicesError;
+use crate::SampleFormat;
+use crate::SampleRate;
+use crate::SupportedBufferSize;
+use crate::SupportedStreamConfig;
+use crate::SupportedStreamConfigRange;
+use crate::SupportedStreamConfigsError;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use BackendSpecificError;
-use DefaultStreamConfigError;
-use DeviceNameError;
-use DevicesError;
-use SampleFormat;
-use SampleRate;
-use SupportedBufferSize;
-use SupportedStreamConfig;
-use SupportedStreamConfigRange;
-use SupportedStreamConfigsError;
 
 /// A ASIO Device
 pub struct Device {
@@ -61,14 +61,14 @@ impl Device {
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         // Retrieve the default config for the total supported channels and supported sample
         // format.
-        let mut f = match self.default_input_config() {
+        let f = match self.default_input_config() {
             Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
             Ok(f) => f,
         };
 
         // Collect a config for every combination of supported sample rate and number of channels.
         let mut supported_configs = vec![];
-        for &rate in ::COMMON_SAMPLE_RATES {
+        for &rate in crate::COMMON_SAMPLE_RATES {
             if !self
                 .driver
                 .can_sample_rate(rate.0.into())
@@ -98,14 +98,14 @@ impl Device {
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         // Retrieve the default config for the total supported channels and supported sample
         // format.
-        let mut f = match self.default_output_config() {
+        let f = match self.default_output_config() {
             Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
             Ok(f) => f,
         };
 
         // Collect a config for every combination of supported sample rate and number of channels.
         let mut supported_configs = vec![];
-        for &rate in ::COMMON_SAMPLE_RATES {
+        for &rate in crate::COMMON_SAMPLE_RATES {
             if !self
                 .driver
                 .can_sample_rate(rate.0.into())
