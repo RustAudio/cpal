@@ -1,8 +1,8 @@
+use crate::traits::StreamTrait;
 use crate::ChannelCount;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use crate::traits::StreamTrait;
 
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
@@ -223,7 +223,6 @@ struct LocalProcessHandler {
     /// No new ports are allowed to be created after the creation of the LocalProcessHandler as that would invalidate the buffer sizes
     // out_ports: Vec<jack::Port<jack::AudioOut>>,
     // in_ports: Vec<jack::Port<jack::AudioIn>>,
-
     sample_rate: SampleRate,
     buffer_size: usize,
     input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,

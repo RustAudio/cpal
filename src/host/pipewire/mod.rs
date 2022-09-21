@@ -3,14 +3,14 @@ extern crate pipewire;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
 use crate::traits::HostTrait;
+use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
 
 mod device;
 pub use self::device::Device;
 pub use self::stream::Stream;
-mod stream;
 mod conn;
+mod stream;
 
 const PIPEWIRE_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
@@ -30,7 +30,7 @@ pub struct Host {
     /// A list of the devices that have been created from this Host.
     devices_created: Vec<Device>,
 
-    client: Rc<conn::PWClient>
+    client: Rc<conn::PWClient>,
 }
 
 impl Host {
@@ -41,7 +41,7 @@ impl Host {
             name: "cpal_client".to_owned(),
             connect_ports_automatically: true,
             devices_created: vec![],
-            client
+            client,
         };
 
         // Devices don't exist for PipeWire, they have to be created
@@ -68,7 +68,7 @@ impl Host {
         let in_device_res = Device::default_input_device(
             &self.name,
             self.connect_ports_automatically,
-            self.client.clone()
+            self.client.clone(),
         );
 
         match in_device_res {
@@ -81,7 +81,7 @@ impl Host {
         let out_device_res = Device::default_output_device(
             &self.name,
             self.connect_ports_automatically,
-            self.client.clone()
+            self.client.clone(),
         );
         match out_device_res {
             Ok(device) => self.devices_created.push(device),

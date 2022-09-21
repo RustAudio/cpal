@@ -588,8 +588,8 @@ mod platform_impl {
     };
     #[cfg(feature = "pipewire")]
     pub use crate::host::pipewire::{
-        Device as PipeWireDevice, Devices as PipeWireDevices, Host as PipeWireHost, Stream as PipeWireStream,
-        SupportedInputConfigs as PipeWireSupportedInputConfigs,
+        Device as PipeWireDevice, Devices as PipeWireDevices, Host as PipeWireHost,
+        Stream as PipeWireStream, SupportedInputConfigs as PipeWireSupportedInputConfigs,
         SupportedOutputConfigs as PipeWireupportedOutputConfigs,
     };
 

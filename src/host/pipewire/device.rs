@@ -1,3 +1,4 @@
+use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
     InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
@@ -6,7 +7,6 @@ use crate::{
 };
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use crate::traits::DeviceTrait;
 
 use super::stream::Stream;
 use super::PIPEWIRE_SAMPLE_FORMAT;
@@ -26,12 +26,10 @@ pub enum DeviceType {
 }
 #[derive(Clone)]
 pub struct Device {
-    name: String,
-    sample_rate: SampleRate,
-    buffer_size: SupportedBufferSize,
-    device_type: DeviceType,
-    connect_ports_automatically: bool,
-    client: Rc<super::conn::PWClient>
+    pub(crate) name: String,
+    pub(crate) device_type: DeviceType,
+    pub(crate) connect_ports_automatically: bool,
+    pub(crate) client: Rc<super::conn::PWClient>,
 }
 
 impl Device {
@@ -41,22 +39,29 @@ impl Device {
         device_type: DeviceType,
         client: Rc<super::conn::PWClient>,
     ) -> Result<Self, String> {
-        while client.get_settings().and_then(|s| if s.sample_rate == 0 {Err(String::new())} else {Ok(true)} ).is_err() {}
+        while client
+            .get_settings()
+            .and_then(|s| {
+                if s.allowed_sample_rates.is_empty() {
+                    Err(String::new())
+                } else {
+                    Ok(true)
+                }
+            })
+            .is_err()
+        {}
 
         let settings = client.get_settings().unwrap();
 
-        let info = client.create_device_node(name, device_type.clone(), connect_ports_automatically).expect("Error creating device");
+        let info = client
+            .create_device_node(name, device_type.clone(), connect_ports_automatically)
+            .expect("Error creating device");
 
         Ok(Device {
             name: info.name,
-            sample_rate: SampleRate(settings.sample_rate),
-            buffer_size: SupportedBufferSize::Range {
-                min: settings.min_buffer_size,
-                max: settings.max_buffer_size,
-            },
             device_type,
             connect_ports_automatically,
-            client
+            client,
         })
     }
 
@@ -89,9 +94,14 @@ impl Device {
     }
 
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        let settings = self.client.get_settings().unwrap();
         let channels = DEFAULT_NUM_CHANNELS;
-        let sample_rate = self.sample_rate;
-        let buffer_size = self.buffer_size.clone();
+        // Default is highest sample rate possible
+        let sample_rate = SampleRate(*settings.allowed_sample_rates.last().unwrap());
+        let buffer_size = SupportedBufferSize::Range {
+            min: settings.min_buffer_size,
+            max: settings.max_buffer_size,
+        };
         // The sample format for JACK audio ports is always "32-bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
@@ -105,6 +115,7 @@ impl Device {
     }
 
     pub fn supported_configs(&self) -> Vec<SupportedStreamConfigRange> {
+        let settings = self.client.get_settings().unwrap();
         let f = match self.default_config() {
             Err(_) => return vec![],
             Ok(f) => f,
@@ -115,7 +126,8 @@ impl Device {
         for &channels in DEFAULT_SUPPORTED_CHANNELS.iter() {
             supported_configs.push(SupportedStreamConfigRange {
                 channels,
-                min_sample_rate: f.sample_rate,
+                min_sample_rate: SampleRate(*settings.allowed_sample_rates.first().unwrap()),
+                // Default is maximum possible, so just use that
                 max_sample_rate: f.sample_rate,
                 buffer_size: f.buffer_size.clone(),
                 sample_format: f.sample_format,
@@ -179,15 +191,25 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        let settings = self.client.get_settings().unwrap();
         if let DeviceType::OutputDevice = &self.device_type {
             // Trying to create an input stream from an output device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
-        if conf.sample_rate != self.sample_rate || sample_format != PIPEWIRE_SAMPLE_FORMAT {
+        // FIXME: Not sure if we should go to the nearest neighbour sample rate
+        // This issue also happens on build_output_stream_raw()
+        if settings.allowed_sample_rates.contains(&conf.sample_rate.0)
+            || sample_format != PIPEWIRE_SAMPLE_FORMAT
+        {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let mut stream = Stream::new_input(self.client.clone(), conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_input(
+            self.client.clone(),
+            conf.channels,
+            data_callback,
+            error_callback,
+        );
 
         if self.connect_ports_automatically {
             stream.connect_to_system_inputs();
@@ -207,15 +229,23 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        let settings = self.client.get_settings().unwrap();
         if let DeviceType::InputDevice = &self.device_type {
             // Trying to create an output stream from an input device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
-        if conf.sample_rate != self.sample_rate || sample_format != PIPEWIRE_SAMPLE_FORMAT {
+        if settings.allowed_sample_rates.contains(&conf.sample_rate.0)
+            || sample_format != PIPEWIRE_SAMPLE_FORMAT
+        {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let mut stream = Stream::new_output(self.client.clone(), conf.channels, data_callback, error_callback);
+        let mut stream = Stream::new_output(
+            self.client.clone(),
+            conf.channels,
+            data_callback,
+            error_callback,
+        );
 
         if self.connect_ports_automatically {
             stream.connect_to_system_outputs();

@@ -1,5 +1,9 @@
 extern crate pipewire;
 
+use intmap::IntMap;
+
+use super::Device;
+
 use self::pipewire::{
     metadata::{Metadata, MetadataListener},
     node::{Node, NodeListener},
@@ -32,6 +36,7 @@ enum Message {
         device_type: DeviceType,
         autoconnect: bool,
     },
+    EnumerateDevices,
 }
 
 enum MessageRepl {
@@ -41,6 +46,7 @@ enum MessageRepl {
 
 pub struct NodeInfo {
     pub name: String,
+    pub id: u32,
 }
 
 pub struct PWClient {
@@ -97,11 +103,12 @@ impl PWClient {
 struct State {
     settings: Settings,
     nodes: Vec<ProxyItem>,
+    devices: IntMap<NodeInfo>,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct Settings {
-    pub sample_rate: u32,
+    pub allowed_sample_rates: Vec<u32>,
     pub min_buffer_size: u32,
     pub max_buffer_size: u32,
     pub default_buffer_size: u32,
@@ -148,7 +155,9 @@ fn pw_thread(
             Message::Terminate => mainloop.quit(),
             Message::GetSettings => {
                 let settings = state.borrow().settings.clone();
-                main_sender.send(MessageRepl::Settings(settings));
+                main_sender
+                    .send(MessageRepl::Settings(settings))
+                    .expect("Failed to send settings");
             }
             Message::CreateDeviceNode {
                 name,
@@ -176,25 +185,32 @@ fn pw_thread(
                     )
                     .expect("Failed to create object");
 
+                let id = Rc::new(Cell::new(0));
+                let id_clone = id.clone();
                 let _listener = node
                     .add_listener_local()
-                    .info(|info| {
-                        // println!("{:?}", info);
+                    .info(move |info| {
+                        id_clone.set(info.id());
                     })
                     .param(|a, b, c, d| {
                         println!("{}, {}, {}, {}", a, b, c, d);
                     })
                     .register();
-
                 println!("{:?}", node);
+                while id.get() == 0 {
+                    mainloop.run();
+                }
 
                 state.as_ref().borrow_mut().nodes.push(ProxyItem::Node {
                     _proxy: node,
                     _listener,
                 });
 
-                main_sender.send(MessageRepl::NodeInfo(NodeInfo { name }));
+                main_sender
+                    .send(MessageRepl::NodeInfo(NodeInfo { name, id: id.get() }))
+                    .expect("Failed to send node info");
             }
+            Message::EnumerateDevices => {}
         }
     });
 
@@ -207,6 +223,47 @@ fn pw_thread(
 
             move |global| match global.type_ {
                 ObjectType::Metadata => handle_metadata(global, &state, &registry, &proxies),
+                ObjectType::Node => {
+                    if let Some(ref props) = global.props {
+                        let mut state = state.as_ref().borrow_mut();
+                        let name = props
+                            .get("node.nick")
+                            .or(props.get("node.description"))
+                            .unwrap_or("Unknown device");
+                        match props.get("media.class") {
+                            Some("Audio/Source") => {
+                                state.devices.insert(
+                                    global.id.into(),
+                                    NodeInfo {
+                                        name: name.to_string(),
+                                        id: global.id,
+                                    },
+                                );
+                            }
+                            Some("Audio/Sink") => {
+                                state.devices.insert(
+                                    global.id.into(),
+                                    NodeInfo {
+                                        name: name.to_string(),
+                                        id: global.id,
+                                    },
+                                );
+                            }
+                            _ => {}
+                        }
+                        if props.get("media.class") == Some("Audio/Source")
+                            && global.type_ == ObjectType::Node
+                        {
+                            println!(
+                                "object: id:{} type:{}/{} nick:{}",
+                                global.id,
+                                global.type_,
+                                global.version,
+                                props.get("node.nick").unwrap_or("failed to get name")
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
         })
@@ -248,11 +305,12 @@ fn handle_metadata(
                 .property({
                     let state = state.clone();
                     move |_, key, _, value| {
+                        let mut sample_rate = 0;
                         let mut state = state.as_ref().borrow_mut();
                         if let Some(value) = value {
                             if let Ok(value) = value.parse::<u32>() {
                                 match key {
-                                    Some("clock.rate") => state.settings.sample_rate = value,
+                                    Some("clock.rate") => sample_rate = value,
                                     Some("clock.quantum") => {
                                         state.settings.default_buffer_size = value
                                     }
@@ -264,7 +322,24 @@ fn handle_metadata(
                                     }
                                     _ => {}
                                 };
+                            } else {
+                                match key {
+                                    Some("clock.allowed-rates") => {
+                                        let rates: Result<Vec<u32>, _> = value[2..value.len() - 2]
+                                            .split_whitespace()
+                                            .map(|x| x.parse::<u32>())
+                                            .collect();
+                                        state.settings.allowed_sample_rates =
+                                            rates.expect("Couldn't parse allowed rates");
+                                    }
+                                    _ => {}
+                                }
                             }
+                        }
+                        // Not sure if allowed-rates can be empty,
+                        // but if it is just push the currently used one.
+                        if state.settings.allowed_sample_rates.is_empty() {
+                            state.settings.allowed_sample_rates.push(sample_rate);
                         }
                         0
                     }
