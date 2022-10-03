@@ -48,6 +48,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -229,6 +230,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,

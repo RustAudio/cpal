@@ -107,6 +107,7 @@ where
             on_window(output, &mut request, on_sample)
         },
         err_fn,
+        None,
     )?;
 
     Ok(stream)

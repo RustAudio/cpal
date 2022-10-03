@@ -69,6 +69,7 @@
 //!     move |err| {
 //!         // react to errors here.
 //!     },
+//!     None // None=blocking, Some(Duration)=timeout
 //! );
 //! ```
 //!
@@ -97,9 +98,9 @@
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
-//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
-//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
-//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
+//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn, None),
+//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn, None),
+//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn, None),
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
@@ -122,7 +123,7 @@
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -138,7 +139,7 @@
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn).unwrap();
+//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.pause().unwrap();
 //! ```
 

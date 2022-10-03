@@ -88,12 +88,20 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_input_stream_raw(self, config, sample_format, data_callback, error_callback)
+        Device::build_input_stream_raw(
+            self,
+            config,
+            sample_format,
+            data_callback,
+            error_callback,
+            timeout,
+        )
     }
 
     fn build_output_stream_raw<D, E>(
@@ -102,12 +110,20 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        Device::build_output_stream_raw(self, config, sample_format, data_callback, error_callback)
+        Device::build_output_stream_raw(
+            self,
+            config,
+            sample_format,
+            data_callback,
+            error_callback,
+            timeout,
+        )
     }
 }
 

@@ -60,6 +60,7 @@ where
             write_data(data, channels, &mut next_value)
         },
         err_fn,
+        None,
     )?;
     stream.play()?;
 

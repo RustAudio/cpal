@@ -62,6 +62,7 @@ where
             config,
             move |data: &mut [T], _| write_data(data, channels, &mut next_value),
             err_fn,
+            None,
         )
         .unwrap();
     stream.play().unwrap();

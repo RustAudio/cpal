@@ -147,21 +147,25 @@ fn main() -> Result<(), anyhow::Error> {
             &config.into(),
             move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
             err_fn,
+            None,
         )?,
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config.into(),
             move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
+            None,
         )?,
         cpal::SampleFormat::I32 => device.build_input_stream(
             &config.into(),
             move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
             err_fn,
+            None,
         )?,
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
+            None,
         )?,
         sample_format => {
             return Err(anyhow::Error::msg(format!(
