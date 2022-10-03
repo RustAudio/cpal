@@ -6,6 +6,7 @@ use crate::{
     SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
+use std::time::Duration;
 
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
