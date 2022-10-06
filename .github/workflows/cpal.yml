@@ -67,8 +67,7 @@ jobs:
       uses: katyo/publish-crates@v1
       with:
         dry-run: true
-        check-repo: false
-        no-verify: true
+        ignore-unpublished-changes: true
     - name: Publish crate
       uses: katyo/publish-crates@v1
       with:
