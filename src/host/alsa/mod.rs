@@ -25,7 +25,7 @@ pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 
 mod enumerate;
 
-/// The default linux, dragonfly and freebsd host type.
+/// The default linux, dragonfly, freebsd and netbsd host type.
 #[derive(Debug)]
 pub struct Host;
 
@@ -40,7 +40,7 @@ impl HostTrait for Host {
     type Device = Device;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/dragonfly/freebsd.
+        // Assume ALSA is always available on linux/dragonfly/freebsd/netbsd.
         true
     }
 
