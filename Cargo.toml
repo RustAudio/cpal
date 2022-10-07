@@ -14,6 +14,7 @@ asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for se
 
 [dependencies]
 thiserror = "1.0.2"
+dasp_sample = "0.11.0"
 
 [dev-dependencies]
 anyhow = "1.0.12"

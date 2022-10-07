@@ -312,9 +312,9 @@ impl Device {
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
         // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 3] = [
-            //SND_PCM_FORMAT_S8,
-            //SND_PCM_FORMAT_U8,
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 8] = [
+            (SampleFormat::I8, alsa::pcm::Format::S8),
+            (SampleFormat::U8, alsa::pcm::Format::U8),
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
             //SND_PCM_FORMAT_S16_BE,
             (SampleFormat::U16, alsa::pcm::Format::U16LE),
@@ -323,13 +323,13 @@ impl Device {
             //SND_PCM_FORMAT_S24_BE,
             //SND_PCM_FORMAT_U24_LE,
             //SND_PCM_FORMAT_U24_BE,
-            //SND_PCM_FORMAT_S32_LE,
+            (SampleFormat::I32, alsa::pcm::Format::S32LE),
             //SND_PCM_FORMAT_S32_BE,
-            //SND_PCM_FORMAT_U32_LE,
+            (SampleFormat::U32, alsa::pcm::Format::U32LE),
             //SND_PCM_FORMAT_U32_BE,
             (SampleFormat::F32, alsa::pcm::Format::FloatLE),
             //SND_PCM_FORMAT_FLOAT_BE,
-            //SND_PCM_FORMAT_FLOAT64_LE,
+            (SampleFormat::F64, alsa::pcm::Format::Float64LE),
             //SND_PCM_FORMAT_FLOAT64_BE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
@@ -956,15 +956,53 @@ fn set_hw_params_from_format(
 
     let sample_format = if cfg!(target_endian = "big") {
         match sample_format {
+            SampleFormat::I8 => alsa::pcm::Format::S8,
             SampleFormat::I16 => alsa::pcm::Format::S16BE,
+            // SampleFormat::I24 => alsa::pcm::Format::S24BE,
+            SampleFormat::I32 => alsa::pcm::Format::S32BE,
+            // SampleFormat::I48 => alsa::pcm::Format::S48BE,
+            // SampleFormat::I64 => alsa::pcm::Format::S64BE,
+            SampleFormat::U8 => alsa::pcm::Format::U8,
             SampleFormat::U16 => alsa::pcm::Format::U16BE,
+            // SampleFormat::U24 => alsa::pcm::Format::U24BE,
+            SampleFormat::U32 => alsa::pcm::Format::U32BE,
+            // SampleFormat::U48 => alsa::pcm::Format::U48BE,
+            // SampleFormat::U64 => alsa::pcm::Format::U64BE,
             SampleFormat::F32 => alsa::pcm::Format::FloatBE,
+            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{}' is not supported by this backend",
+                        sample_format
+                    ),
+                })
+            }
         }
     } else {
         match sample_format {
+            SampleFormat::I8 => alsa::pcm::Format::S8,
             SampleFormat::I16 => alsa::pcm::Format::S16LE,
+            // SampleFormat::I24 => alsa::pcm::Format::S24LE,
+            SampleFormat::I32 => alsa::pcm::Format::S32LE,
+            // SampleFormat::I48 => alsa::pcm::Format::S48LE,
+            // SampleFormat::I64 => alsa::pcm::Format::S64LE,
+            SampleFormat::U8 => alsa::pcm::Format::U8,
             SampleFormat::U16 => alsa::pcm::Format::U16LE,
+            // SampleFormat::U24 => alsa::pcm::Format::U24LE,
+            SampleFormat::U32 => alsa::pcm::Format::U32LE,
+            // SampleFormat::U48 => alsa::pcm::Format::U48LE,
+            // SampleFormat::U64 => alsa::pcm::Format::U64LE,
             SampleFormat::F32 => alsa::pcm::Format::FloatLE,
+            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{}' is not supported by this backend",
+                        sample_format
+                    ),
+                })
+            }
         }
     };
 

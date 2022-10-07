@@ -88,7 +88,7 @@
 //! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
-//! use cpal::{Data, Sample, SampleFormat};
+//! use cpal::{Data, Sample, SampleFormat, FromSample};
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
@@ -100,11 +100,12 @@
 //!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn),
 //!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn),
 //!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn),
+//!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
 //! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
 //!     for sample in data.iter_mut() {
-//!         *sample = Sample::from(&0.0);
+//!         *sample = Sample::EQUILIBRIUM;
 //!     }
 //! }
 //! ```
@@ -154,7 +155,7 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{Sample, SampleFormat};
+pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, I48, U24, U48};
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
@@ -516,7 +517,7 @@ impl Data {
     /// Returns `None` if the sample type does not match the expected sample format.
     pub fn as_slice<T>(&self) -> Option<&[T]>
     where
-        T: Sample,
+        T: SizedSample,
     {
         if T::FORMAT == self.sample_format {
             // The safety of this block relies on correct construction of the `Data` instance. See
@@ -532,7 +533,7 @@ impl Data {
     /// Returns `None` if the sample type does not match the expected sample format.
     pub fn as_slice_mut<T>(&mut self) -> Option<&mut [T]>
     where
-        T: Sample,
+        T: SizedSample,
     {
         if T::FORMAT == self.sample_format {
             // The safety of this block relies on correct construction of the `Data` instance. See
@@ -762,7 +763,7 @@ impl From<SupportedStreamConfig> for StreamConfig {
 //
 // If a rate you desire is missing from this list, feel free to add it!
 #[cfg(target_os = "windows")]
-const COMMON_SAMPLE_RATES: &'static [SampleRate] = &[
+const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(5512),
     SampleRate(8000),
     SampleRate(11025),

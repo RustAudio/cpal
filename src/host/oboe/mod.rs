@@ -9,7 +9,7 @@ use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, Sample, SampleFormat, SampleRate, StreamConfig, StreamError,
+    PlayStreamError, SampleFormat, SampleRate, SizedSample, StreamConfig, StreamError,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
@@ -225,7 +225,7 @@ fn build_input_stream<D, E, C, T>(
     builder: oboe::AudioStreamBuilder<oboe::Input, C, T>,
 ) -> Result<Stream, BuildStreamError>
 where
-    T: Sample + oboe::IsFormat + Send + 'static,
+    T: SizedSample + oboe::IsFormat + Send + 'static,
     C: oboe::IsChannelCount + Send + 'static,
     (T, C): oboe::IsFrameType,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -249,7 +249,7 @@ fn build_output_stream<D, E, C, T>(
     builder: oboe::AudioStreamBuilder<oboe::Output, C, T>,
 ) -> Result<Stream, BuildStreamError>
 where
-    T: Sample + oboe::IsFormat + Send + 'static,
+    T: SizedSample + oboe::IsFormat + Send + 'static,
     C: oboe::IsChannelCount + Send + 'static,
     (T, C): oboe::IsFrameType,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -385,8 +385,8 @@ impl DeviceTrait for Device {
                     .into())
                 }
             }
-            SampleFormat::U16 => Err(BackendSpecificError {
-                description: "U16 format is not supported on Android.".to_owned(),
+            sample_format => Err(BackendSpecificError {
+                description: format!("{} format is not supported on Android.", sample_format),
             }
             .into()),
         }
@@ -458,8 +458,8 @@ impl DeviceTrait for Device {
                     .into())
                 }
             }
-            SampleFormat::U16 => Err(BackendSpecificError {
-                description: "U16 format is not supported on Android.".to_owned(),
+            sample_format => Err(BackendSpecificError {
+                description: format!("{} format is not supported on Android.", sample_format),
             }
             .into()),
         }
