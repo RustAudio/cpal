@@ -16,7 +16,12 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 struct Opt {
     #[cfg(all(
-        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
         feature = "jack"
     ))]
     jack: bool,
@@ -28,7 +33,12 @@ impl Opt {
     fn from_args() -> Self {
         let app = clap::Command::new("record_wav").arg(arg!([DEVICE] "The audio device to use"));
         #[cfg(all(
-            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
             feature = "jack"
         ))]
         let app = app.arg(arg!(-j --jack "Use the JACK host"));
@@ -36,7 +46,12 @@ impl Opt {
         let device = matches.value_of("DEVICE").unwrap_or("default").to_string();
 
         #[cfg(all(
-            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
             feature = "jack"
         ))]
         return Opt {
@@ -45,7 +60,12 @@ impl Opt {
         };
 
         #[cfg(any(
-            not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd")),
+            not(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            )),
             not(feature = "jack")
         ))]
         Opt { device }
@@ -57,7 +77,12 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
-        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
         feature = "jack"
     ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
@@ -74,7 +99,12 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     #[cfg(any(
-        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd")),
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
         not(feature = "jack")
     ))]
     let host = cpal::default_host();

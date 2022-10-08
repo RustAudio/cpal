@@ -19,7 +19,12 @@ use ringbuf::RingBuffer;
 #[derive(Debug)]
 struct Opt {
     #[cfg(all(
-        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
         feature = "jack"
     ))]
     jack: bool,
@@ -38,7 +43,12 @@ impl Opt {
             .arg(arg!([OUT] "The output audio device to use"));
 
         #[cfg(all(
-            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
             feature = "jack"
         ))]
         let app = app.arg(arg!(-j --jack "Use the JACK host"));
@@ -52,7 +62,12 @@ impl Opt {
         let output_device = matches.value_of("OUT").unwrap_or("default").to_string();
 
         #[cfg(all(
-            any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
             feature = "jack"
         ))]
         return Ok(Opt {
@@ -63,7 +78,12 @@ impl Opt {
         });
 
         #[cfg(any(
-            not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd")),
+            not(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            )),
             not(feature = "jack")
         ))]
         Ok(Opt {
@@ -79,7 +99,12 @@ fn main() -> anyhow::Result<()> {
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
-        any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"),
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
         feature = "jack"
     ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
@@ -96,7 +121,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(any(
-        not(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd")),
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
         not(feature = "jack")
     ))]
     let host = cpal::default_host();
