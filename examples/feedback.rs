@@ -24,7 +24,7 @@ struct Opt {
             target_os = "dragonfly",
             target_os = "freebsd",
             target_os = "netbsd"
-        ), 
+        ),
         feature = "jack"
     ))]
     jack: bool,
@@ -48,7 +48,7 @@ impl Opt {
                 target_os = "dragonfly",
                 target_os = "freebsd",
                 target_os = "netbsd"
-            ), 
+            ),
             feature = "jack"
         ))]
         let app = app.arg(arg!(-j --jack "Use the JACK host"));
@@ -67,7 +67,7 @@ impl Opt {
                 target_os = "dragonfly",
                 target_os = "freebsd",
                 target_os = "netbsd"
-            ), 
+            ),
             feature = "jack"
         ))]
         return Ok(Opt {
@@ -83,7 +83,7 @@ impl Opt {
                 target_os = "dragonfly",
                 target_os = "freebsd",
                 target_os = "netbsd"
-            )), 
+            )),
             not(feature = "jack")
         ))]
         Ok(Opt {
@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
             target_os = "dragonfly",
             target_os = "freebsd",
             target_os = "netbsd"
-        ), 
+        ),
         feature = "jack"
     ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
@@ -126,7 +126,7 @@ fn main() -> anyhow::Result<()> {
             target_os = "dragonfly",
             target_os = "freebsd",
             target_os = "netbsd"
-        )), 
+        )),
         not(feature = "jack")
     ))]
     let host = cpal::default_host();

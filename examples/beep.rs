@@ -100,7 +100,7 @@ fn main() -> anyhow::Result<()> {
             target_os = "dragonfly",
             target_os = "freebsd",
             target_os = "netbsd"
-        )), 
+        )),
         not(feature = "jack")
     ))]
     let host = cpal::default_host();
