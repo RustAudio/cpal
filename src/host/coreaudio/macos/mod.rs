@@ -447,7 +447,6 @@ where
             mElement: kAudioObjectPropertyElementMaster,
         },
         move || {
-            println!("Disconnecting.");
             let _ = stream_copy.pause();
             (error_callback.lock())(StreamError::DeviceNotAvailable);
         },
