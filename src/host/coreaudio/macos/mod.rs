@@ -428,7 +428,7 @@ struct StreamInner {
 }
 
 /// Register the on-disconnect callback.
-/// This will both stop the stream and call the error callback DeviceNotAvailable.
+/// This will both stop the stream and call the error callback with DeviceNotAvailable.
 /// This function should only be called once per stream.
 fn add_disconnect_listener<E>(
     stream: &Stream,
