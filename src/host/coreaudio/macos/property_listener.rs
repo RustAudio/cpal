@@ -47,10 +47,10 @@ impl AudioObjectPropertyListener {
     /// Use this method if you need to explicitly handle failure to remove
     /// the property listener.
     pub fn remove(mut self) -> Result<(), BuildStreamError> {
-        self._remove()
+        self.remove_inner()
     }
 
-    fn _remove(&mut self) -> Result<(), BuildStreamError> {
+    fn remove_inner(&mut self) -> Result<(), BuildStreamError> {
         unsafe {
             coreaudio::Error::from_os_status(AudioObjectRemovePropertyListener(
                 self.audio_object_id,
@@ -67,7 +67,7 @@ impl AudioObjectPropertyListener {
 impl Drop for AudioObjectPropertyListener {
     fn drop(&mut self) {
         if !self.removed {
-            self._remove().ok();
+            let _ = self.remove_inner();
         }
     }
 }
