@@ -1,4 +1,5 @@
 extern crate coreaudio;
+extern crate parking_lot;
 
 use self::coreaudio::sys::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,

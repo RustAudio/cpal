@@ -28,7 +28,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::cell::RefCell;
+use parking_lot::Mutex;
 use std::ffi::CStr;
 use std::fmt;
 use std::mem;
@@ -36,6 +36,7 @@ use std::os::raw::c_char;
 use std::ptr::null;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub use self::enumerate::{
@@ -416,8 +417,8 @@ impl fmt::Debug for Device {
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
-    /// Track whether the device has been disconnected.
-    disconnect_listener: Option<AudioObjectPropertyListener>,
+    /// Manage the lifetime of the closure that handles device diconnection.
+    _disconnect_listener: Option<AudioObjectPropertyListener>,
     // Track the device with which the audio unit was spawned.
     //
     // We must do this so that we can avoid changing the device sample rate if there is already
@@ -426,28 +427,32 @@ struct StreamInner {
     device_id: AudioDeviceID,
 }
 
-impl StreamInner {
-    /// Add or replace an existing callback that will be called if the device is disconnected.
-    fn set_on_disconnect<F: FnMut() -> () + 'static>(
-        &mut self,
-        callback: F,
-    ) -> Result<(), BuildStreamError> {
-        // Drop any existing callback first to ensure deregistration happens before
-        // we register the new callback.
-        {
-            self.disconnect_listener = None;
-        }
-        self.disconnect_listener = Some(AudioObjectPropertyListener::new(
-            self.device_id,
-            AudioObjectPropertyAddress {
-                mSelector: kAudioDevicePropertyDeviceIsAlive,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMaster,
-            },
-            callback,
-        )?);
-        Ok(())
-    }
+/// Register the on-disconnect callback.
+/// This will both stop the stream and call the error callback DeviceNotAvailable.
+/// This function should only be called once per stream.
+fn add_disconnect_listener<E>(
+    stream: &Stream,
+    error_callback: Arc<Mutex<E>>,
+) -> Result<(), BuildStreamError>
+where
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let stream_copy = stream.clone();
+    let mut stream_inner = stream.inner.lock();
+    stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
+        stream_inner.device_id,
+        AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMaster,
+        },
+        move || {
+            println!("Disconnecting.");
+            let _ = stream_copy.pause();
+            (error_callback.lock())(StreamError::DeviceNotAvailable);
+        },
+    )?);
+    Ok(())
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
@@ -497,7 +502,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -539,6 +544,9 @@ impl Device {
             BufferSize::Default => (),
         }
 
+        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback_disconnect = error_callback.clone();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -563,7 +571,7 @@ impl Device {
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    error_callback(err.into());
+                    (error_callback.lock())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -580,14 +588,22 @@ impl Device {
             Ok(())
         })?;
 
-        audio_unit.start()?;
-
-        Ok(Stream::new(StreamInner {
+        let stream = Stream::new(StreamInner {
             playing: true,
-            disconnect_listener: None,
+            _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
-        }))
+        });
+
+        // If we didn't request the default device, stop the stream if the
+        // device disconnects.
+        if !self.is_default {
+            add_disconnect_listener(&stream, error_callback_disconnect)?;
+        }
+
+        stream.inner.lock().audio_unit.start()?;
+
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -595,7 +611,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -634,6 +650,9 @@ impl Device {
             BufferSize::Default => (),
         }
 
+        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback_disconnect = error_callback.clone();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -655,7 +674,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    error_callback(err.into());
+                    (error_callback.lock())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -673,14 +692,22 @@ impl Device {
             Ok(())
         })?;
 
-        audio_unit.start()?;
-
-        Ok(Stream::new(StreamInner {
+        let stream = Stream::new(StreamInner {
             playing: true,
-            disconnect_listener: None,
+            _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
-        }))
+        });
+
+        // If we didn't request the default device, stop the stream if the
+        // device disconnects.
+        if !self.is_default {
+            add_disconnect_listener(&stream, error_callback_disconnect)?;
+        }
+
+        stream.inner.lock().audio_unit.start()?;
+
+        Ok(stream)
     }
 }
 
@@ -837,30 +864,22 @@ fn set_sample_rate(
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct Stream {
-    inner: RefCell<StreamInner>,
+    inner: Arc<Mutex<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: RefCell::new(inner),
+            inner: Arc::new(Mutex::new(inner)),
         }
-    }
-
-    /// Add or replace an existing callback that will be called if the device is disconnected.
-    pub fn set_on_disconnect<F: FnMut() -> () + 'static>(
-        &self,
-        f: F,
-    ) -> Result<(), BuildStreamError> {
-        let mut stream = self.inner.borrow_mut();
-        stream.set_on_disconnect(f)
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self.inner.lock();
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -874,7 +893,7 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self.inner.lock();
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
