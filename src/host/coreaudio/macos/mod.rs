@@ -8,17 +8,17 @@ use self::coreaudio::audio_unit::render_callback::{self, data};
 use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use self::coreaudio::sys::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceNameCFString,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyScopeOutput,
-    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
-    kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
-    kAudioUnitProperty_StreamFormat, kCFStringEncodingUTF8, AudioBuffer, AudioBufferList,
-    AudioDeviceID, AudioObjectAddPropertyListener, AudioObjectGetPropertyData,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyDeviceNameCFString, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertyScopeOutput, kAudioDevicePropertyStreamConfiguration,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, kAudioOutputUnitProperty_CurrentDevice,
+    kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat, kCFStringEncodingUTF8,
+    AudioBuffer, AudioBufferList, AudioDeviceID, AudioObjectGetPropertyData,
     AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectRemovePropertyListener, AudioObjectSetPropertyData,
-    AudioStreamBasicDescription, AudioValueRange, OSStatus,
+    AudioObjectPropertyScope, AudioObjectSetPropertyData, AudioStreamBasicDescription,
+    AudioValueRange, OSStatus,
 };
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
@@ -28,22 +28,26 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::cell::RefCell;
+use parking_lot::Mutex;
 use std::ffi::CStr;
 use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
 use std::slice;
-use std::thread;
-use std::time::Duration;
+use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub use self::enumerate::{
     default_input_device, default_output_device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
 
+use property_listener::AudioObjectPropertyListener;
+
 pub mod enumerate;
+mod property_listener;
 
 /// Coreaudio host, the default host on macOS.
 #[derive(Debug)]
@@ -413,12 +417,41 @@ impl fmt::Debug for Device {
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
+    /// Manage the lifetime of the closure that handles device diconnection.
+    _disconnect_listener: Option<AudioObjectPropertyListener>,
     // Track the device with which the audio unit was spawned.
     //
     // We must do this so that we can avoid changing the device sample rate if there is already
     // a stream associated with the device.
     #[allow(dead_code)]
     device_id: AudioDeviceID,
+}
+
+/// Register the on-disconnect callback.
+/// This will both stop the stream and call the error callback with DeviceNotAvailable.
+/// This function should only be called once per stream.
+fn add_disconnect_listener<E>(
+    stream: &Stream,
+    error_callback: Arc<Mutex<E>>,
+) -> Result<(), BuildStreamError>
+where
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let stream_copy = stream.clone();
+    let mut stream_inner = stream.inner.lock();
+    stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
+        stream_inner.device_id,
+        AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMaster,
+        },
+        move || {
+            let _ = stream_copy.pause();
+            (error_callback.lock())(StreamError::DeviceNotAvailable);
+        },
+    )?);
+    Ok(())
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
@@ -468,7 +501,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -478,144 +511,8 @@ impl Device {
         let scope = Scope::Output;
         let element = Element::Input;
 
-        // Check whether or not we need to change the device sample rate to suit the one specified for the stream.
-        unsafe {
-            // Get the current sample rate.
-            let mut property_address = AudioObjectPropertyAddress {
-                mSelector: kAudioDevicePropertyNominalSampleRate,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMaster,
-            };
-            let sample_rate: f64 = 0.0;
-            let data_size = mem::size_of::<f64>() as u32;
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                &property_address as *const _,
-                0,
-                null(),
-                &data_size as *const _ as *mut _,
-                &sample_rate as *const _ as *mut _,
-            );
-            coreaudio::Error::from_os_status(status)?;
-
-            // If the requested sample rate is different to the device sample rate, update the device.
-            if sample_rate as u32 != config.sample_rate.0 {
-                // Get available sample rate ranges.
-                property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-                let data_size = 0u32;
-                let status = AudioObjectGetPropertyDataSize(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    0,
-                    null(),
-                    &data_size as *const _ as *mut _,
-                );
-                coreaudio::Error::from_os_status(status)?;
-                let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-                let mut ranges: Vec<u8> = vec![];
-                ranges.reserve_exact(data_size as usize);
-                let status = AudioObjectGetPropertyData(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    0,
-                    null(),
-                    &data_size as *const _ as *mut _,
-                    ranges.as_mut_ptr() as *mut _,
-                );
-                coreaudio::Error::from_os_status(status)?;
-                let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-                let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
-
-                // Now that we have the available ranges, pick the one matching the desired rate.
-                let sample_rate = config.sample_rate.0;
-                let maybe_index = ranges.iter().position(|r| {
-                    r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate
-                });
-                let range_index = match maybe_index {
-                    None => return Err(BuildStreamError::StreamConfigNotSupported),
-                    Some(i) => i,
-                };
-
-                // Update the property selector to specify the nominal sample rate.
-                property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
-
-                // Setting the sample rate of a device is an asynchronous process in coreaudio.
-                //
-                // Thus, we are required to set a `listener` so that we may be notified when the
-                // change occurs.
-                unsafe extern "C" fn rate_listener(
-                    device_id: AudioObjectID,
-                    _n_addresses: u32,
-                    _properties: *const AudioObjectPropertyAddress,
-                    rate_ptr: *mut ::std::os::raw::c_void,
-                ) -> OSStatus {
-                    let rate_ptr: *const f64 = rate_ptr as *const _;
-                    let data_size = mem::size_of::<f64>();
-                    let property_address = AudioObjectPropertyAddress {
-                        mSelector: kAudioDevicePropertyNominalSampleRate,
-                        mScope: kAudioObjectPropertyScopeGlobal,
-                        mElement: kAudioObjectPropertyElementMaster,
-                    };
-                    AudioObjectGetPropertyData(
-                        device_id,
-                        &property_address as *const _,
-                        0,
-                        null(),
-                        &data_size as *const _ as *mut _,
-                        rate_ptr as *const _ as *mut _,
-                    )
-                }
-
-                // Add our sample rate change listener callback.
-                let reported_rate: f64 = 0.0;
-                let status = AudioObjectAddPropertyListener(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    Some(rate_listener),
-                    &reported_rate as *const _ as *mut _,
-                );
-                coreaudio::Error::from_os_status(status)?;
-
-                // Finally, set the sample rate.
-                let sample_rate = sample_rate as f64;
-                let status = AudioObjectSetPropertyData(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    0,
-                    null(),
-                    data_size,
-                    &ranges[range_index] as *const _ as *const _,
-                );
-                coreaudio::Error::from_os_status(status)?;
-
-                // Wait for the reported_rate to change.
-                //
-                // This should not take longer than a few ms, but we timeout after 1 sec just in case.
-                //
-                // WARNING: a reference to reported_rate is unsafely captured above,
-                // and the loop below assumes it can change - but compiler does not know that!
-                //
-                let timer = ::std::time::Instant::now();
-                while sample_rate != reported_rate {
-                    if timer.elapsed() > Duration::from_secs(1) {
-                        let description =
-                            "timeout waiting for sample rate update for device".into();
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    }
-                    thread::sleep(Duration::from_millis(5));
-                }
-
-                // Remove the `rate_listener` callback.
-                let status = AudioObjectRemovePropertyListener(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    Some(rate_listener),
-                    &reported_rate as *const _ as *mut _,
-                );
-                coreaudio::Error::from_os_status(status)?;
-            }
-        }
+        // Potentially change the device sample rate to match the config.
+        set_sample_rate(self.audio_device_id, config.sample_rate)?;
 
         let mut audio_unit = audio_unit_from_device(self, true)?;
 
@@ -646,6 +543,9 @@ impl Device {
             BufferSize::Default => (),
         }
 
+        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback_disconnect = error_callback.clone();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -670,7 +570,7 @@ impl Device {
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    error_callback(err.into());
+                    (error_callback.lock())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -687,13 +587,22 @@ impl Device {
             Ok(())
         })?;
 
-        audio_unit.start()?;
-
-        Ok(Stream::new(StreamInner {
+        let stream = Stream::new(StreamInner {
             playing: true,
+            _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
-        }))
+        });
+
+        // If we didn't request the default device, stop the stream if the
+        // device disconnects.
+        if !self.is_default {
+            add_disconnect_listener(&stream, error_callback_disconnect)?;
+        }
+
+        stream.inner.lock().audio_unit.start()?;
+
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -701,7 +610,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -740,6 +649,9 @@ impl Device {
             BufferSize::Default => (),
         }
 
+        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback_disconnect = error_callback.clone();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -761,7 +673,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    error_callback(err.into());
+                    (error_callback.lock())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -779,31 +691,194 @@ impl Device {
             Ok(())
         })?;
 
-        audio_unit.start()?;
-
-        Ok(Stream::new(StreamInner {
+        let stream = Stream::new(StreamInner {
             playing: true,
+            _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
-        }))
+        });
+
+        // If we didn't request the default device, stop the stream if the
+        // device disconnects.
+        if !self.is_default {
+            add_disconnect_listener(&stream, error_callback_disconnect)?;
+        }
+
+        stream.inner.lock().audio_unit.start()?;
+
+        Ok(stream)
     }
 }
 
+/// Attempt to set the device sample rate to the provided rate.
+/// Return an error if the requested sample rate is not supported by the device.
+fn set_sample_rate(
+    audio_device_id: AudioObjectID,
+    target_sample_rate: SampleRate,
+) -> Result<(), BuildStreamError> {
+    // Get the current sample rate.
+    let mut property_address = AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMaster,
+    };
+    let sample_rate: f64 = 0.0;
+    let data_size = mem::size_of::<f64>() as u32;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            audio_device_id,
+            &property_address as *const _,
+            0,
+            null(),
+            &data_size as *const _ as *mut _,
+            &sample_rate as *const _ as *mut _,
+        )
+    };
+    coreaudio::Error::from_os_status(status)?;
+
+    // If the requested sample rate is different to the device sample rate, update the device.
+    if sample_rate as u32 != target_sample_rate.0 {
+        // Get available sample rate ranges.
+        property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+        let data_size = 0u32;
+        let status = unsafe {
+            AudioObjectGetPropertyDataSize(
+                audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+            )
+        };
+        coreaudio::Error::from_os_status(status)?;
+        let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
+        let mut ranges: Vec<u8> = vec![];
+        ranges.reserve_exact(data_size as usize);
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                &data_size as *const _ as *mut _,
+                ranges.as_mut_ptr() as *mut _,
+            )
+        };
+        coreaudio::Error::from_os_status(status)?;
+        let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
+        let ranges: &'static [AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
+
+        // Now that we have the available ranges, pick the one matching the desired rate.
+        let sample_rate = target_sample_rate.0;
+        let maybe_index = ranges
+            .iter()
+            .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
+        let range_index = match maybe_index {
+            None => return Err(BuildStreamError::StreamConfigNotSupported),
+            Some(i) => i,
+        };
+
+        let (send, recv) = channel::<Result<f64, coreaudio::Error>>();
+        let sample_rate_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMaster,
+        };
+        // Send sample rate updates back on a channel.
+        let sample_rate_handler = move || {
+            let mut rate: f64 = 0.0;
+            let data_size = mem::size_of::<f64>();
+
+            let result = unsafe {
+                AudioObjectGetPropertyData(
+                    audio_device_id,
+                    &sample_rate_address as *const _,
+                    0,
+                    null(),
+                    &data_size as *const _ as *mut _,
+                    &mut rate as *const _ as *mut _,
+                )
+            };
+            send.send(coreaudio::Error::from_os_status(result).map(|_| rate))
+                .ok();
+        };
+
+        let listener = AudioObjectPropertyListener::new(
+            audio_device_id,
+            sample_rate_address,
+            sample_rate_handler,
+        )?;
+
+        // Finally, set the sample rate.
+        property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
+        let status = unsafe {
+            AudioObjectSetPropertyData(
+                audio_device_id,
+                &property_address as *const _,
+                0,
+                null(),
+                data_size,
+                &ranges[range_index] as *const _ as *const _,
+            )
+        };
+        coreaudio::Error::from_os_status(status)?;
+
+        // Wait for the reported_rate to change.
+        //
+        // This should not take longer than a few ms, but we timeout after 1 sec just in case.
+        // We loop over potentially several events from the channel to ensure
+        // that we catch the expected change in sample rate.
+        let mut timeout = Duration::from_secs(1);
+        let start = Instant::now();
+
+        loop {
+            match recv.recv_timeout(timeout) {
+                Err(err) => {
+                    let description = match err {
+                        RecvTimeoutError::Disconnected => {
+                            "sample rate listener channel disconnected unexpectedly"
+                        }
+                        RecvTimeoutError::Timeout => {
+                            "timeout waiting for sample rate update for device"
+                        }
+                    }
+                    .to_string();
+                    return Err(BackendSpecificError { description }.into());
+                }
+                Ok(Ok(reported_sample_rate)) => {
+                    if reported_sample_rate == target_sample_rate.0 as f64 {
+                        break;
+                    }
+                }
+                Ok(Err(_)) => {
+                    // TODO: should we consider collecting this error?
+                }
+            };
+            timeout = timeout
+                .checked_sub(start.elapsed())
+                .unwrap_or(Duration::ZERO);
+        }
+        listener.remove()?;
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
 pub struct Stream {
-    inner: RefCell<StreamInner>,
+    inner: Arc<Mutex<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: RefCell::new(inner),
+            inner: Arc::new(Mutex::new(inner)),
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self.inner.lock();
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -817,7 +892,7 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self.inner.lock();
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
