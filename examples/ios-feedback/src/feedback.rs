@@ -83,9 +83,9 @@ pub fn run_example() -> Result<(), anyhow::Error> {
         config
     );
     println!("Setup input stream");
-    let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn)?;
+    let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn, None)?;
     println!("Setup output stream");
-    let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn)?;
+    let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn, None)?;
     println!("Successfully built streams.");
 
     // Play the streams.

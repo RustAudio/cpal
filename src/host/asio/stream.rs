@@ -12,6 +12,7 @@ use crate::{
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 // Used to keep track of whether or not the current asio stream buffer requires
 // being silencing before summing audio.
@@ -48,6 +49,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -229,6 +231,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,

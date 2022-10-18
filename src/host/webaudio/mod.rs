@@ -15,6 +15,7 @@ use crate::{
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
@@ -172,6 +173,7 @@ impl DeviceTrait for Device {
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -188,6 +190,7 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,

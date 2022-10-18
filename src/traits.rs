@@ -1,5 +1,7 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
+use std::time::Duration;
+
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
     InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
@@ -120,6 +122,7 @@ pub trait DeviceTrait {
         config: &StreamConfig,
         mut data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         T: SizedSample,
@@ -137,6 +140,7 @@ pub trait DeviceTrait {
                 )
             },
             error_callback,
+            timeout,
         )
     }
 
@@ -146,6 +150,7 @@ pub trait DeviceTrait {
         config: &StreamConfig,
         mut data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         T: SizedSample,
@@ -163,6 +168,7 @@ pub trait DeviceTrait {
                 )
             },
             error_callback,
+            timeout,
         )
     }
 
@@ -173,6 +179,7 @@ pub trait DeviceTrait {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -185,6 +192,7 @@ pub trait DeviceTrait {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,

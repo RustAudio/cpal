@@ -16,6 +16,7 @@ use std::cmp;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use std::vec::IntoIter as VecIntoIter;
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
@@ -92,6 +93,7 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -99,7 +101,12 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = Stream::new_input(Arc::new(stream_inner), data_callback, error_callback);
+        let stream = Stream::new_input(
+            Arc::new(stream_inner),
+            data_callback,
+            error_callback,
+            timeout,
+        );
         Ok(stream)
     }
 
@@ -109,6 +116,7 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -116,7 +124,12 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
-        let stream = Stream::new_output(Arc::new(stream_inner), data_callback, error_callback);
+        let stream = Stream::new_output(
+            Arc::new(stream_inner),
+            data_callback,
+            error_callback,
+            timeout,
+        );
         Ok(stream)
     }
 }
@@ -542,10 +555,26 @@ pub struct Stream {
     trigger: TriggerSender,
 }
 
-#[derive(Default)]
 struct StreamWorkerContext {
     descriptors: Vec<libc::pollfd>,
     buffer: Vec<u8>,
+    poll_timeout: i32,
+}
+
+impl StreamWorkerContext {
+    fn new(poll_timeout: &Option<Duration>) -> Self {
+        let poll_timeout: i32 = if let Some(d) = poll_timeout {
+            d.as_millis().try_into().unwrap()
+        } else {
+            -1
+        };
+
+        Self {
+            descriptors: Vec::new(),
+            buffer: Vec::new(),
+            poll_timeout,
+        }
+    }
 }
 
 fn input_stream_worker(
@@ -553,8 +582,9 @@ fn input_stream_worker(
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+    timeout: Option<Duration>,
 ) {
-    let mut ctxt = StreamWorkerContext::default();
+    let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -603,8 +633,9 @@ fn output_stream_worker(
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
+    timeout: Option<Duration>,
 ) {
-    let mut ctxt = StreamWorkerContext::default();
+    let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -669,6 +700,7 @@ fn poll_descriptors_and_prepare_buffer(
     let StreamWorkerContext {
         ref mut descriptors,
         ref mut buffer,
+        ref poll_timeout,
     } = *ctxt;
 
     descriptors.clear();
@@ -694,7 +726,7 @@ fn poll_descriptors_and_prepare_buffer(
     debug_assert_eq!(filled, stream.num_descriptors);
 
     // Don't timeout, wait forever.
-    let res = alsa::poll::poll(descriptors, -1)?;
+    let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
         let description = String::from("`alsa::poll()` spuriously returned");
         return Err(BackendSpecificError { description });
@@ -881,6 +913,7 @@ impl Stream {
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
+        timeout: Option<Duration>,
     ) -> Stream
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -892,7 +925,13 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                input_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
+                input_stream_worker(
+                    rx,
+                    &stream,
+                    &mut data_callback,
+                    &mut error_callback,
+                    timeout,
+                );
             })
             .unwrap();
         Stream {
@@ -906,6 +945,7 @@ impl Stream {
         inner: Arc<StreamInner>,
         mut data_callback: D,
         mut error_callback: E,
+        timeout: Option<Duration>,
     ) -> Stream
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -917,7 +957,13 @@ impl Stream {
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                output_stream_worker(rx, &stream, &mut data_callback, &mut error_callback);
+                output_stream_worker(
+                    rx,
+                    &stream,
+                    &mut data_callback,
+                    &mut error_callback,
+                    timeout,
+                );
             })
             .unwrap();
         Stream {

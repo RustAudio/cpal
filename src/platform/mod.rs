@@ -360,6 +360,7 @@ macro_rules! impl_platform_host {
                 sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
+                timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
                 D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
@@ -374,6 +375,7 @@ macro_rules! impl_platform_host {
                                 sample_format,
                                 data_callback,
                                 error_callback,
+                                timeout,
                             )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
@@ -387,6 +389,7 @@ macro_rules! impl_platform_host {
                 sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
+                timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::BuildStreamError>
             where
                 D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
@@ -401,6 +404,7 @@ macro_rules! impl_platform_host {
                                 sample_format,
                                 data_callback,
                                 error_callback,
+                                timeout,
                             )
                             .map(StreamInner::$HostVariant)
                             .map(Stream::from),
