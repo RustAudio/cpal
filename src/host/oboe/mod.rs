@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
+use std::time::Duration;
 use std::vec::IntoIter as VecIntoIter;
 
 extern crate oboe;

@@ -15,6 +15,7 @@ use crate::{
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);

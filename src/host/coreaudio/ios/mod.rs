@@ -34,6 +34,7 @@ use self::enumerate::{
     SupportedOutputConfigs,
 };
 use std::slice;
+use std::time::Duration;
 
 pub mod enumerate;
 

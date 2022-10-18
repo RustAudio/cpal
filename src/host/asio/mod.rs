@@ -11,6 +11,7 @@ use crate::{
 pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};
 pub use self::stream::Stream;
 use std::sync::Arc;
+use std::time::Duration;
 
 mod device;
 mod stream;

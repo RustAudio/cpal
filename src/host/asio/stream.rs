@@ -12,6 +12,7 @@ use crate::{
 use std;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 // Used to keep track of whether or not the current asio stream buffer requires
 // being silencing before summing audio.

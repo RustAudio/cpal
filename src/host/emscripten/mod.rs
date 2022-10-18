@@ -1,6 +1,7 @@
 use std::mem;
 use std::os::raw::c_void;
 use std::slice::from_raw_parts;
+use std::time::Duration;
 use stdweb;
 use stdweb::unstable::TryInto;
 use stdweb::web::set_timeout;
