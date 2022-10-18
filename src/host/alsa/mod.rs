@@ -563,7 +563,7 @@ struct StreamWorkerContext {
 
 impl StreamWorkerContext {
     fn new(poll_timeout: &Option<Duration>) -> Self {
-        let poll_timeout_i32: i32 = if let Some(d) = poll_timeout {
+        let poll_timeout: i32 = if let Some(d) = poll_timeout {
             d.as_millis().try_into().unwrap()
         } else {
             -1
@@ -572,7 +572,7 @@ impl StreamWorkerContext {
         Self {
             descriptors: Vec::new(),
             buffer: Vec::new(),
-            poll_timeout: poll_timeout_i32,
+            poll_timeout,
         }
     }
 }
