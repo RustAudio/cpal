@@ -38,6 +38,8 @@ nix = "0.23"
 libc = "0.2.65"
 parking_lot = "0.12"
 jack = { version = "0.9", optional = true }
+# pipewire = { version = "0.4", optional = true }
+pipewire = { git = "https://gitlab.freedesktop.org/pipewire/pipewire-rs", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.

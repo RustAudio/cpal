@@ -21,6 +21,11 @@ pub(crate) mod emscripten;
     feature = "jack"
 ))]
 pub(crate) mod jack;
+#[cfg(all(
+    any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+    feature = "pipewire"
+))]
+pub(crate) mod pipewire;
 pub(crate) mod null;
 #[cfg(target_os = "android")]
 pub(crate) mod oboe;
