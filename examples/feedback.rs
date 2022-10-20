@@ -14,7 +14,7 @@ extern crate ringbuf;
 use anyhow::Context;
 use clap::arg;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::RingBuffer;
+use ringbuf::HeapRb;
 
 #[derive(Debug)]
 struct Opt {
@@ -159,7 +159,7 @@ fn main() -> anyhow::Result<()> {
     let latency_samples = latency_frames as usize * config.channels as usize;
 
     // The buffer to share samples
-    let ring = RingBuffer::new(latency_samples * 2);
+    let ring = HeapRb::<f32>::new(latency_samples * 2);
     let (mut producer, mut consumer) = ring.split();
 
     // Fill the samples with 0.0 equal to the length of the delay.
