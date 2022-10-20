@@ -13,13 +13,13 @@ edition = "2021"
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
 
 [dependencies]
-thiserror = "1.0.37"
-dasp_sample = "0.11.0"
+thiserror = "1.0"
+dasp_sample = "0.11"
 
 [dev-dependencies]
-anyhow = "1.0.65"
-hound = "3.5.0"
-ringbuf = "0.3.1"
+anyhow = "1.0"
+hound = "3.5"
+ringbuf = "0.3"
 clap = { version = "4.0", features = ["derive"] }
 
 [target.'cfg(target_os = "android")'.dev-dependencies]
