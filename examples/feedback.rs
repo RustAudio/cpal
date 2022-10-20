@@ -6,18 +6,26 @@
 //! Uses a delay of `LATENCY_MS` milliseconds in case the default input and output streams are not
 //! precisely synchronised.
 
-extern crate anyhow;
-extern crate clap;
-extern crate cpal;
-extern crate ringbuf;
-
-use anyhow::Context;
-use clap::arg;
+use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::HeapRb;
 
-#[derive(Debug)]
+#[derive(Parser, Debug)]
+#[command(version, about = "CPAL feedback example", long_about = None)]
 struct Opt {
+    /// The input audio device to use
+    #[arg(short, long, value_name = "IN", default_value_t = String::from("default"))]
+    input_device: String,
+
+    /// The output audio device to use
+    #[arg(short, long, value_name = "OUT", default_value_t = String::from("default"))]
+    output_device: String,
+
+    /// Specify the delay between input and output
+    #[arg(short, long, value_name = "DELAY_MS", default_value_t = 150.0)]
+    latency: f32,
+
+    /// Use the JACK host
     #[cfg(all(
         any(
             target_os = "linux",
@@ -27,75 +35,13 @@ struct Opt {
         ),
         feature = "jack"
     ))]
+    #[arg(short, long)]
+    #[allow(dead_code)]
     jack: bool,
-
-    latency: f32,
-    input_device: String,
-    output_device: String,
-}
-
-impl Opt {
-    fn from_args() -> anyhow::Result<Self> {
-        let app = clap::Command::new("feedback")
-            .arg(arg!(
-            -l --latency [DELAY_MS] "Specify the delay between input and output [default: 150]"))
-            .arg(arg!([IN] "The input audio device to use"))
-            .arg(arg!([OUT] "The output audio device to use"));
-
-        #[cfg(all(
-            any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ),
-            feature = "jack"
-        ))]
-        let app = app.arg(arg!(-j --jack "Use the JACK host"));
-        let matches = app.get_matches();
-        let latency: f32 = matches
-            .value_of("latency")
-            .unwrap_or("150")
-            .parse()
-            .context("parsing latency option")?;
-        let input_device = matches.value_of("IN").unwrap_or("default").to_string();
-        let output_device = matches.value_of("OUT").unwrap_or("default").to_string();
-
-        #[cfg(all(
-            any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ),
-            feature = "jack"
-        ))]
-        return Ok(Opt {
-            jack: matches.is_present("jack"),
-            latency,
-            input_device,
-            output_device,
-        });
-
-        #[cfg(any(
-            not(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            )),
-            not(feature = "jack")
-        ))]
-        Ok(Opt {
-            latency,
-            input_device,
-            output_device,
-        })
-    }
 }
 
 fn main() -> anyhow::Result<()> {
-    let opt = Opt::from_args()?;
+    let opt = Opt::parse();
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(

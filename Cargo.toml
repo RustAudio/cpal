@@ -20,7 +20,7 @@ dasp_sample = "0.11.0"
 anyhow = "1.0.65"
 hound = "3.5.0"
 ringbuf = "0.3.1"
-clap = { version = "3.1", default-features = false, features = ["std"] }
+clap = { version = "4.0", features = ["derive"] }
 
 [target.'cfg(target_os = "android")'.dev-dependencies]
 ndk-glue = "0.7"
