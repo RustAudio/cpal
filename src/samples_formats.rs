@@ -1,8 +1,11 @@
 use std::{fmt::Display, mem};
+#[cfg(target_os = "emscripten")]
+use wasm_bindgen::prelude::*;
 
 pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 
 /// Format that each sample has.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SampleFormat {

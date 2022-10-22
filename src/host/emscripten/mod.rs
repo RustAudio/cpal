@@ -1,12 +1,8 @@
-use std::mem;
-use std::os::raw::c_void;
-use std::slice::from_raw_parts;
+use js_sys::Float32Array;
 use std::time::Duration;
-use stdweb;
-use stdweb::unstable::TryInto;
-use stdweb::web::set_timeout;
-use stdweb::web::TypedArray;
-use stdweb::Reference;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
@@ -30,9 +26,11 @@ pub struct Devices(bool);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
+#[wasm_bindgen]
+#[derive(Clone)]
 pub struct Stream {
     // A reference to an `AudioContext` object.
-    audio_ctxt_ref: Reference,
+    audio_ctxt: AudioContext,
 }
 
 // Index within the `streams` array of the events loop.
@@ -54,7 +52,6 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        stdweb::initialize();
         Ok(Host)
     }
 }
@@ -186,7 +183,7 @@ impl DeviceTrait for Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
-        error_callback: E,
+        _error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
@@ -209,12 +206,8 @@ impl DeviceTrait for Device {
         };
 
         // Create the stream.
-        let audio_ctxt_ref = js!(return new AudioContext()).into_reference().unwrap();
-        let stream = Stream { audio_ctxt_ref };
-
-        // Specify the callback.
-        let mut user_data = (self, data_callback, error_callback);
-        let user_data_ptr = &mut user_data as *mut (_, _, _);
+        let audio_ctxt = AudioContext::new().expect("webaudio is not present on this system");
+        let stream = Stream { audio_ctxt };
 
         // Use `set_timeout` to invoke a Rust callback repeatedly.
         //
@@ -223,123 +216,150 @@ impl DeviceTrait for Device {
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
         set_timeout(
-            || {
-                audio_callback_fn::<D, E>(
-                    user_data_ptr as *mut c_void,
-                    config,
-                    sample_format,
-                    buffer_size_frames,
-                )
-            },
             10,
+            stream.clone(),
+            data_callback,
+            config,
+            sample_format,
+            buffer_size_frames as u32,
         );
 
         Ok(stream)
     }
 }
 
+// TODO: Do something useful with the values, maybe through wasm_bindgen_futures
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let audio_ctxt = &self.audio_ctxt_ref;
-        js!(@{audio_ctxt}.resume());
-        Ok(())
+        if self
+            .audio_ctxt
+            .resume()
+            .expect("Could not resume the stream")
+            .is_undefined()
+        {
+            Ok(())
+        } else {
+            Err(PlayStreamError::DeviceNotAvailable)
+        }
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let audio_ctxt = &self.audio_ctxt_ref;
-        js!(@{audio_ctxt}.suspend());
-        Ok(())
+        if self
+            .audio_ctxt
+            .suspend()
+            .expect("Could not suspend the stream")
+            .is_undefined()
+        {
+            Ok(())
+        } else {
+            Err(PauseStreamError::DeviceNotAvailable)
+        }
     }
 }
 
-// The first argument of the callback function (a `void*`) is a cast pointer to `self`
-// and to the `callback` parameter that was passed to `run`.
-fn audio_callback_fn<D, E>(
-    user_data_ptr: *mut c_void,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    buffer_size_frames: usize,
-) where
+fn audio_callback_fn<D>(
+    mut data_callback: D,
+) -> impl FnOnce(Stream, StreamConfig, SampleFormat, u32)
+where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
 {
-    let num_channels = config.channels as usize;
-    let sample_rate = config.sample_rate.0;
-    let buffer_size_samples = buffer_size_frames * num_channels;
-
-    unsafe {
-        let user_data_ptr2 = user_data_ptr as *mut (&Stream, D, E);
-        let user_data = &mut *user_data_ptr2;
-        let (ref stream, ref mut data_cb, ref mut _err_cb) = user_data;
-        let audio_ctxt = &stream.audio_ctxt_ref;
+    |stream, config, sample_format, buffer_size_frames| {
+        let sample_rate = config.sample_rate.0;
+        let buffer_size_samples = buffer_size_frames * config.channels as u32;
+        let audio_ctxt = &stream.audio_ctxt;
 
         // TODO: We should be re-using a buffer.
-        let mut temporary_buffer = vec![0f32; buffer_size_samples];
+        let mut temporary_buffer = vec![0f32; buffer_size_samples as usize];
 
         {
             let len = temporary_buffer.len();
             let data = temporary_buffer.as_mut_ptr() as *mut ();
-            let mut data = Data::from_parts(data, len, sample_format);
-
-            let now_secs: f64 = js!(@{audio_ctxt}.getOutputTimestamp().currentTime)
-                .try_into()
-                .expect("failed to retrieve Value as f64");
+            let mut data = unsafe { Data::from_parts(data, len, sample_format) };
+            let now_secs: f64 = audio_ctxt.current_time();
             let callback = crate::StreamInstant::from_secs_f64(now_secs);
             // TODO: Use proper latency instead. Currently, unsupported on most browsers though, so
             // we estimate based on buffer size instead. Probably should use this, but it's only
             // supported by firefox (2020-04-28).
-            // let latency_secs: f64 = js!(@{audio_ctxt}.outputLatency).try_into().unwrap();
+            // let latency_secs: f64 = audio_ctxt.outputLatency.try_into().unwrap();
             let buffer_duration = frames_to_duration(len, sample_rate as usize);
             let playback = callback
                 .add(buffer_duration)
                 .expect("`playback` occurs beyond representation supported by `StreamInstant`");
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
             let info = OutputCallbackInfo { timestamp };
-            data_cb(&mut data, &info);
+            data_callback(&mut data, &info);
         }
 
-        // TODO: directly use a TypedArray<f32> once this is supported by stdweb
-        let typed_array = {
-            let f32_slice = temporary_buffer.as_slice();
-            let u8_slice: &[u8] = from_raw_parts(
-                f32_slice.as_ptr() as *const _,
-                f32_slice.len() * mem::size_of::<f32>(),
-            );
-            let typed_array: TypedArray<u8> = u8_slice.into();
-            typed_array
-        };
+        let typed_array: Float32Array = temporary_buffer.as_slice().into();
 
-        debug_assert_eq!(temporary_buffer.len() % num_channels as usize, 0);
+        debug_assert_eq!(temporary_buffer.len() % config.channels as usize, 0);
 
-        js!(
-            var src_buffer = new Float32Array(@{typed_array}.buffer);
-            var context = @{audio_ctxt};
-            var buffer_size_frames = @{buffer_size_frames as u32};
-            var num_channels = @{num_channels as u32};
-            var sample_rate = sample_rate;
-
-            var buffer = context.createBuffer(num_channels, buffer_size_frames, sample_rate);
-            for (var channel = 0; channel < num_channels; ++channel) {
-                var buffer_content = buffer.getChannelData(channel);
-                for (var i = 0; i < buffer_size_frames; ++i) {
-                    buffer_content[i] = src_buffer[i * num_channels + channel];
-                }
+        let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
+        let context = audio_ctxt;
+        let buffer = context
+            .create_buffer(
+                config.channels as u32,
+                buffer_size_frames as u32,
+                sample_rate as f32,
+            )
+            .expect("Buffer could not be created");
+        for channel in 0..config.channels {
+            let mut buffer_content = buffer
+                .get_channel_data(channel as u32)
+                .expect("Should be impossible");
+            for (i, buffer_content_item) in buffer_content.iter_mut().enumerate() {
+                *buffer_content_item =
+                    src_buffer.get_index(i as u32 * config.channels as u32 + channel as u32);
             }
+        }
 
-            var node = context.createBufferSource();
-            node.buffer = buffer;
-            node.connect(context.destination);
-            node.start();
-        );
+        let node = context
+            .create_buffer_source()
+            .expect("The buffer source node could not be created");
+        node.set_buffer(Some(&buffer));
+        context
+            .destination()
+            .connect_with_audio_node(&node)
+            .expect("Could not connect the audio node to the destination");
+        node.start().expect("Could not start the audio node");
 
         // TODO: handle latency better ; right now we just use setInterval with the amount of sound
         // data that is in each buffer ; this is obviously bad, and also the schedule is too tight
         // and there may be underflows
         set_timeout(
-            || audio_callback_fn::<D, E>(user_data_ptr, config, sample_format, buffer_size_frames),
-            buffer_size_frames as u32 * 1000 / sample_rate,
+            1000 * buffer_size_frames as i32 / sample_rate as i32,
+            stream.clone().clone(),
+            data_callback,
+            &config,
+            sample_format,
+            buffer_size_frames as u32,
         );
     }
+}
+
+fn set_timeout<D>(
+    time: i32,
+    stream: Stream,
+    data_callback: D,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    buffer_size_frames: u32,
+) where
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+{
+    let window = web_sys::window().expect("Not in a window somehow?");
+    window
+        .set_timeout_with_callback_and_timeout_and_arguments_4(
+            &Closure::once_into_js(audio_callback_fn(data_callback))
+                .dyn_ref::<js_sys::Function>()
+                .expect("The function was somehow not a function"),
+            time,
+            &stream.into(),
+            &((*config).clone()).into(),
+            &Closure::once_into_js(move || sample_format),
+            &buffer_size_frames.into(),
+        )
+        .expect("The timeout could not be set");
 }
 
 impl Default for Devices {
@@ -377,14 +397,7 @@ fn default_output_device() -> Option<Device> {
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
-    stdweb::initialize();
-    js!(if (!AudioContext) {
-        return false;
-    } else {
-        return true;
-    })
-    .try_into()
-    .unwrap()
+    AudioContext::new().is_ok()
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
