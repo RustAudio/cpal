@@ -2,20 +2,21 @@
 //!
 //! The input data is recorded to "$CARGO_MANIFEST_DIR/recorded.wav".
 
-extern crate anyhow;
-extern crate clap;
-extern crate cpal;
-extern crate hound;
-
-use clap::arg;
+use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug)]
+#[derive(Parser, Debug)]
+#[command(version, about = "CPAL record_wav example", long_about = None)]
 struct Opt {
+    /// The audio device to use
+    #[arg(short, long, default_value_t = String::from("default"))]
+    device: String,
+
+    /// Use the JACK host
     #[cfg(all(
         any(
             target_os = "linux",
@@ -25,56 +26,13 @@ struct Opt {
         ),
         feature = "jack"
     ))]
+    #[arg(short, long)]
+    #[allow(dead_code)]
     jack: bool,
-
-    device: String,
-}
-
-impl Opt {
-    fn from_args() -> Self {
-        let app = clap::Command::new("record_wav").arg(arg!([DEVICE] "The audio device to use"));
-        #[cfg(all(
-            any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ),
-            feature = "jack"
-        ))]
-        let app = app.arg(arg!(-j --jack "Use the JACK host"));
-        let matches = app.get_matches();
-        let device = matches.value_of("DEVICE").unwrap_or("default").to_string();
-
-        #[cfg(all(
-            any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            ),
-            feature = "jack"
-        ))]
-        return Opt {
-            jack: matches.is_present("jack"),
-            device,
-        };
-
-        #[cfg(any(
-            not(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd"
-            )),
-            not(feature = "jack")
-        ))]
-        Opt { device }
-    }
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
