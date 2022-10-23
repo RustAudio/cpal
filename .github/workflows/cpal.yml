@@ -49,7 +49,7 @@ jobs:
         args: --all -- --check
 
   cargo-publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/stable-0.14'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
