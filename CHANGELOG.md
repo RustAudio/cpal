@@ -1,3 +1,10 @@
+# Version 0.14.1 (2022-10-23)
+
+- Support the 0.6.1 release of `alsa-rs`
+- Fix `asio` feature broken in 0.14.0
+- `NetBSD` support
+- CI improvements
+
 # Version 0.14.0 (2022-08-22)
 
 - Switch to `windows-rs` crate
