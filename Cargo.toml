@@ -50,7 +50,10 @@ coreaudio-rs = { version = "0.10", default-features = false, features = ["audio_
 coreaudio-rs = { version = "0.10", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
-stdweb = { version = "0.4.20", default-features = false }
+wasm-bindgen = { version = "0.2.58" }
+wasm-bindgen-futures = "0.4.33"
+js-sys = { version = "0.3.35" }
+web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }

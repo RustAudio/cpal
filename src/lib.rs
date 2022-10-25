@@ -148,8 +148,12 @@
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
 #[macro_use]
-extern crate stdweb;
+extern crate wasm_bindgen;
+#[cfg(target_os = "emscripten")]
+extern crate js_sys;
 extern crate thiserror;
+#[cfg(target_os = "emscripten")]
+extern crate web_sys;
 
 pub use error::*;
 pub use platform::{
@@ -160,6 +164,8 @@ pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, I4
 use std::convert::TryInto;
 use std::ops::{Div, Mul};
 use std::time::Duration;
+#[cfg(target_os = "emscripten")]
+use wasm_bindgen::prelude::*;
 
 mod error;
 mod host;
@@ -177,6 +183,7 @@ pub type OutputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> b
 pub type ChannelCount = u16;
 
 /// The number of samples processed per second for a single channel of audio.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleRate(pub u32);
 
@@ -210,15 +217,33 @@ pub type FrameCount = u32;
 /// large, leading to latency issues. If low latency is desired, Fixed(BufferSize)
 /// should be used in accordance with the SupportedBufferSize range produced by
 /// the SupportedStreamConfig API.  
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BufferSize {
     Default,
     Fixed(FrameCount),
 }
 
+#[cfg(target_os = "emscripten")]
+impl wasm_bindgen::describe::WasmDescribe for BufferSize {
+    fn describe() {}
+}
+
+#[cfg(target_os = "emscripten")]
+impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
+    type Abi = wasm_bindgen::convert::WasmOption<u32>;
+    fn into_abi(self) -> Self::Abi {
+        match self {
+            Self::Default => None,
+            Self::Fixed(fc) => Some(fc),
+        }
+        .into_abi()
+    }
+}
+
 /// The set of parameters used to describe how to open a stream.
 ///
 /// The sample format is omitted in favour of using a sample type.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
@@ -267,6 +292,7 @@ pub struct SupportedStreamConfig {
 ///
 /// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
 /// Data`.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug)]
 pub struct Data {
     data: *mut (),
@@ -327,6 +353,7 @@ pub struct InputCallbackInfo {
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
