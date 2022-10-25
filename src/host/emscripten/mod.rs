@@ -2,6 +2,7 @@ use js_sys::Float32Array;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -228,32 +229,35 @@ impl DeviceTrait for Device {
     }
 }
 
-// TODO: Do something useful with the values, maybe through wasm_bindgen_futures
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        if self
-            .audio_ctxt
-            .resume()
-            .expect("Could not resume the stream")
-            .is_undefined()
-        {
-            Ok(())
-        } else {
-            Err(PlayStreamError::DeviceNotAvailable)
-        }
+        let future = JsFuture::from(
+            self.audio_ctxt
+                .resume()
+                .expect("Could not resume the stream"),
+        );
+        spawn_local(async {
+            match future.await {
+                Ok(value) => assert!(value.is_undefined()),
+                Err(value) => panic!("AudioContext.resume() promise was rejected: {:?}", value),
+            }
+        });
+        Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        if self
-            .audio_ctxt
-            .suspend()
-            .expect("Could not suspend the stream")
-            .is_undefined()
-        {
-            Ok(())
-        } else {
-            Err(PauseStreamError::DeviceNotAvailable)
-        }
+        let future = JsFuture::from(
+            self.audio_ctxt
+                .suspend()
+                .expect("Could not suspend the stream"),
+        );
+        spawn_local(async {
+            match future.await {
+                Ok(value) => assert!(value.is_undefined()),
+                Err(value) => panic!("AudioContext.suspend() promise was rejected: {:?}", value),
+            }
+        });
+        Ok(())
     }
 }
 
