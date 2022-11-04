@@ -9,7 +9,7 @@ use crate::{
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
-/// A **Host** provides access to the available audio devices on the system.
+/// A [`Host`] provides access to the available audio devices on the system.
 ///
 /// Each platform may have a number of available hosts depending on the system, each with their own
 /// pros and cons.
@@ -28,6 +28,8 @@ use crate::{
 /// JACK is yet another host API that is more suitable to pro-audio applications, however it is
 /// less readily available by default in many Linux distributions and is known to be tricky to
 /// set up.
+///
+/// [`Host`]: crate::Host
 pub trait HostTrait {
     /// The type used for enumerating available devices by the host.
     type Devices: Iterator<Item = Self::Device>;
@@ -37,7 +39,7 @@ pub trait HostTrait {
     /// Whether or not the host is available on the system.
     fn is_available() -> bool;
 
-    /// An iterator yielding all `Device`s currently available to the host on the system.
+    /// An iterator yielding all [`Device`](DeviceTrait)s currently available to the host on the system.
     ///
     /// Can be empty if the system does not support audio in general.
     fn devices(&self) -> Result<Self::Devices, DevicesError>;
@@ -90,7 +92,10 @@ pub trait DeviceTrait {
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
-    /// The stream type created by `build_input_stream_raw` and `build_output_stream_raw`.
+    /// The stream type created by [`build_input_stream_raw`] and [`build_output_stream_raw`].
+    ///
+    /// [`build_input_stream_raw`]: Self::build_input_stream_raw
+    /// [`build_output_stream_raw`]: Self::build_output_stream_raw
     type Stream: StreamTrait;
 
     /// The human-readable name of the device.
@@ -199,7 +204,7 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 }
 
-/// A stream created from `Device`, with methods to control playback.
+/// A stream created from [`Device`](DeviceTrait), with methods to control playback.
 pub trait StreamTrait {
     /// Run the stream.
     ///
