@@ -74,7 +74,7 @@ where
     T: cpal::Sample,
 {
     for frame in output.chunks_mut(channels) {
-        let value: T = cpal::Sample::from::<f32>(&next_sample());
+        let value: T = <dyn cpal::Sample>::from::<f32>(&next_sample());
         for sample in frame.iter_mut() {
             *sample = value;
         }
