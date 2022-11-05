@@ -43,7 +43,7 @@ pub fn beep() -> Handle {
 
 fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Stream
 where
-    T: cpal::Sample,
+    T: cpal::Sample + cpal::SizedSample,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
