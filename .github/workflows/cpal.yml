@@ -322,7 +322,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install Target
-        run: rustup taret add wasm32-unknown-unknown
+        run: rustup target add wasm32-unknown-unknown
       - name: Cargo Build
         working-directory: ./examples/wasm-beep
         run: cargo build --target wasm32-unknown-unknown
