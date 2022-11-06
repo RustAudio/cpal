@@ -38,12 +38,13 @@ pub fn beep() -> Handle {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
+        _ => panic!("unsupported sample format"),
     })
 }
 
 fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Stream
 where
-    T: cpal::Sample,
+    T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
@@ -71,10 +72,11 @@ where
 
 fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
-    T: cpal::Sample,
+    T: cpal::Sample + cpal::FromSample<f32>,
 {
     for frame in output.chunks_mut(channels) {
-        let value: T = cpal::Sample::from::<f32>(&next_sample());
+        let sample = next_sample();
+        let value = T::from_sample::<f32>(sample);
         for sample in frame.iter_mut() {
             *sample = value;
         }

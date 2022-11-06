@@ -313,3 +313,17 @@ jobs:
     - name: Build iphonesimulator feedback example
       run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
 
+  wasm-beep-build:
+    # this only confirms that the Rust source builds
+    # and checks to prevent regressions like #721.
+    #
+    # It does not test the javascript/web integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Cargo Build
+        working-directory: ./examples/wasm-beep
+        run: cargo build --target wasm32-unknown-unknown
+
