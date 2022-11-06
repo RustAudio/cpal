@@ -323,5 +323,5 @@ jobs:
       - uses: actions/checkout@v2
       - name: Cargo Check
         working-directory: ./examples/wasm-beep
-        run: cargo build --example beep --target wasm32-unknown-unknown --features=wasm-bindgen
+        run: cargo build --target wasm32-unknown-unknown
 
