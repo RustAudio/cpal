@@ -38,6 +38,7 @@ pub fn beep() -> Handle {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
+        _ => panic!("unsupported sample format"),
     })
 }
 
