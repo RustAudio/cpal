@@ -321,7 +321,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cargo Check
+      - name: Install Target
+        run: rustup taret add wasm32-unknown-unknown
+      - name: Cargo Build
         working-directory: ./examples/wasm-beep
         run: cargo build --target wasm32-unknown-unknown
 
