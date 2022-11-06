@@ -313,8 +313,8 @@ jobs:
     - name: Build iphonesimulator feedback example
       run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
 
-  wasm-beep-check:
-    # this only checks that the Rust source builds
+  wasm-beep-build:
+    # this only confirms that the Rust source builds
     # and checks to prevent regressions like #721.
     #
     # It does not test the javascript/web integration
@@ -323,5 +323,5 @@ jobs:
       - uses: actions/checkout@v2
       - name: Cargo Check
         working-directory: ./examples/wasm-beep
-        run: cargo check
+        run: cargo build --example beep --target wasm32-unknown-unknown --features=wasm-bindgen
 
