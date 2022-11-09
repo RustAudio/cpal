@@ -388,9 +388,9 @@ impl Device {
                     _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
                 };
                 let maybe_sample_format =
-                    coreaudio::audio_unit::SampleFormat::from_flags_and_bytes_per_frame(
+                    coreaudio::audio_unit::SampleFormat::from_flags_and_bits_per_sample(
                         flags,
-                        asbd.mBytesPerFrame,
+                        asbd.mBitsPerChannel,
                     );
                 match maybe_sample_format {
                     Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
