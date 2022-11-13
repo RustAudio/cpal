@@ -9,6 +9,7 @@ use std::ptr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation;
+use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::SystemServices;
 use windows::Win32::System::Threading;
@@ -89,12 +90,7 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
-            Threading::CreateEventA(
-                ptr::null_mut(),
-                false,
-                false,
-                windows::core::PCSTR(ptr::null()),
-            )
+            Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
         }
         .expect("cpal: could not create input stream event");
         let (tx, rx) = channel();
@@ -127,12 +123,7 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
-            Threading::CreateEventA(
-                ptr::null_mut(),
-                false,
-                false,
-                windows::core::PCSTR(ptr::null()),
-            )
+            Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
         }
         .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
@@ -249,14 +240,14 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
             false,                        // irrelevant parameter here
         )
     };
-    if result == Foundation::WAIT_FAILED.0 {
+    if result == Foundation::WAIT_FAILED {
         let err = unsafe { Foundation::GetLastError() };
         let description = format!("`WaitForMultipleObjectsEx failed: {}", err.0);
         let err = BackendSpecificError { description };
         return Err(err);
     }
     // Notifying the corresponding task handler.
-    let handle_idx = (result - Threading::WAIT_OBJECT_0) as usize;
+    let handle_idx = (result.0 - WAIT_OBJECT_0.0) as usize;
     Ok(handle_idx)
 }
 
@@ -387,8 +378,8 @@ fn process_input(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
-                ptr::null_mut(),
-                &mut qpc_position,
+                None,
+                Some(&mut qpc_position),
             );
 
             match result {
@@ -500,7 +491,7 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
     unsafe {
         stream
             .audio_clock
-            .GetPosition(&mut position, &mut qpc_position)
+            .GetPosition(&mut position, Some(&mut qpc_position))
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.

@@ -2,7 +2,6 @@
 
 use super::IoError;
 use std::marker::PhantomData;
-use std::ptr;
 
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
@@ -15,7 +14,7 @@ thread_local!(static COM_INITIALIZED: ComInitialized = {
         // This call can fail with RPC_E_CHANGED_MODE if another library initialized COM with MTA.
         // That's OK though since COM ensures thread-safety/compatibility through marshalling when
         // necessary.
-        let result = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED);
+        let result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         match result.clone().map_err(|e| e.code()) {
             Ok(_) |
             Err(RPC_E_CHANGED_MODE) => {
