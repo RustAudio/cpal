@@ -18,7 +18,6 @@ use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use std::ffi::c_void;
 use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
@@ -26,8 +25,7 @@ use windows::Win32::Foundation;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::StructuredStorage;
-use windows::Win32::System::Ole;
+use windows::Win32::System::Com::{StructuredStorage, STGM_READ, VT_LPWSTR};
 use windows::Win32::System::Threading;
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
@@ -136,7 +134,7 @@ struct WaveFormatExPtr(*mut Audio::WAVEFORMATEX);
 impl Drop for WaveFormatExPtr {
     fn drop(&mut self) {
         unsafe {
-            Com::CoTaskMemFree(self.0 as *mut _);
+            Com::CoTaskMemFree(None);
         }
     }
 }
@@ -201,11 +199,11 @@ pub unsafe fn is_format_supported(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
     // Check if the given format is supported.
-    let is_supported = |waveformatex_ptr, mut closest_waveformatex_ptr| {
+    let is_supported = |waveformatex_ptr, closest_waveformatex_ptr| {
         let result = client.IsFormatSupported(
             Audio::AUDCLNT_SHAREMODE_SHARED,
             waveformatex_ptr,
-            &mut closest_waveformatex_ptr,
+            Some(closest_waveformatex_ptr),
         );
         // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
         // has been found, but not an exact match) so we also treat this as unsupported.
@@ -226,16 +224,16 @@ pub unsafe fn is_format_supported(
     match (*waveformatex_ptr).wFormatTag as u32 {
         Audio::WAVE_FORMAT_PCM | Multimedia::WAVE_FORMAT_IEEE_FLOAT => {
             let mut closest_waveformatex = *waveformatex_ptr;
-            let closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
-            is_supported(waveformatex_ptr, closest_waveformatex_ptr)
+            let mut closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
+            is_supported(waveformatex_ptr, &mut closest_waveformatex_ptr as *mut _)
         }
         KernelStreaming::WAVE_FORMAT_EXTENSIBLE => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let mut closest_waveformatextensible = *waveformatextensible_ptr;
             let closest_waveformatextensible_ptr = &mut closest_waveformatextensible as *mut _;
-            let closest_waveformatex_ptr =
+            let mut closest_waveformatex_ptr =
                 closest_waveformatextensible_ptr as *mut Audio::WAVEFORMATEX;
-            is_supported(waveformatex_ptr, closest_waveformatex_ptr)
+            is_supported(waveformatex_ptr, &mut closest_waveformatex_ptr as *mut _)
         }
         _ => Ok(false),
     }
@@ -325,7 +323,7 @@ impl Device {
             // Open the device's property store.
             let property_store = self
                 .device
-                .OpenPropertyStore(StructuredStorage::STGM_READ)
+                .OpenPropertyStore(STGM_READ)
                 .expect("could not open property store");
 
             // Get the endpoint's friendly-name property.
@@ -341,7 +339,7 @@ impl Device {
             let prop_variant = &property_value.Anonymous.Anonymous;
 
             // Read the friendly-name from the union data field, expecting a *const u16.
-            if prop_variant.vt != Ole::VT_LPWSTR.0 as _ {
+            if prop_variant.vt != VT_LPWSTR {
                 let description = format!(
                     "property store produced invalid data: {:?}",
                     prop_variant.vt
@@ -390,21 +388,9 @@ impl Device {
         }
 
         let audio_client: Audio::IAudioClient = unsafe {
-            let mut audio_client = ptr::null_mut();
-            self.device.Activate(
-                &Audio::IAudioClient::IID,
-                Com::CLSCTX_ALL,
-                ptr::null_mut(),
-                &mut audio_client,
-            )?;
-
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
-            assert!(!audio_client.is_null());
-            // doing a transmute here is super nasty but the windows
-            // crate doesn't seem to have a native method for getting
-            // an interface struct from a pointer
-            mem::transmute::<_, Audio::IAudioClient>(audio_client as *mut _)
+            self.device.Activate(Com::CLSCTX_ALL, None)?
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
@@ -647,7 +633,7 @@ impl Device {
                     buffer_duration,
                     0,
                     &format_attempt.Format,
-                    ptr::null(),
+                    None,
                 );
                 match hresult {
                     Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
@@ -671,17 +657,13 @@ impl Device {
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
-                let event = Threading::CreateEventA(
-                    ptr::null_mut(),
-                    false,
-                    false,
-                    windows::core::PCSTR(ptr::null()),
-                )
-                .map_err(|e| {
-                    let description = format!("failed to create event: {}", e);
-                    let err = BackendSpecificError { description };
-                    BuildStreamError::from(err)
-                })?;
+                let event =
+                    Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
+                        .map_err(|e| {
+                            let description = format!("failed to create event: {}", e);
+                            let err = BackendSpecificError { description };
+                            BuildStreamError::from(err)
+                        })?;
 
                 if let Err(e) = audio_client.SetEventHandle(event) {
                     let description = format!("failed to call SetEventHandle: {}", e);
@@ -761,7 +743,7 @@ impl Device {
                         buffer_duration,
                         0,
                         &format_attempt.Format,
-                        ptr::null(),
+                        None,
                     )
                     .map_err(windows_err_to_cpal_err::<BuildStreamError>)?;
 
@@ -770,17 +752,13 @@ impl Device {
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
-                let event = Threading::CreateEventA(
-                    ptr::null_mut(),
-                    false,
-                    false,
-                    windows::core::PCSTR(ptr::null()),
-                )
-                .map_err(|e| {
-                    let description = format!("failed to create event: {}", e);
-                    let err = BackendSpecificError { description };
-                    BuildStreamError::from(err)
-                })?;
+                let event =
+                    Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
+                        .map_err(|e| {
+                            let description = format!("failed to create event: {}", e);
+                            let err = BackendSpecificError { description };
+                            BuildStreamError::from(err)
+                        })?;
 
                 if let Err(e) = audio_client.SetEventHandle(event) {
                     let description = format!("failed to call SetEventHandle: {}", e);
@@ -845,7 +823,7 @@ impl PartialEq for Device {
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(self.0 .0 as *mut c_void) }
+                    unsafe { Com::CoTaskMemFree(None) }
                 }
             }
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
