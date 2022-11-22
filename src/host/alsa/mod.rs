@@ -743,7 +743,12 @@ fn poll_descriptors_and_prepare_buffer(
         return Ok(PollDescriptorsFlow::Return);
     }
 
-    let stream_type = match stream.channel.revents(&descriptors[1..])? {
+    let revents = stream.channel.revents(&descriptors[1..])?;
+    if revents.contains(alsa::poll::Flags::ERR) {
+        let description = String::from("`alsa::poll()` returned POLLERR");
+        return Err(BackendSpecificError { description });
+    }
+    let stream_type = match revents {
         alsa::poll::Flags::OUT => StreamType::Output,
         alsa::poll::Flags::IN => StreamType::Input,
         _ => {
