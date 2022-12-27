@@ -209,13 +209,8 @@ pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat
         sys::AsioSampleType::ASIOSTInt16LSB => SampleFormat::I16,
         sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
         sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,
-        // NOTE: While ASIO does not support these formats directly, the stream callback created by
-        // CPAL supports converting back and forth between the following. This is because many ASIO
-        // drivers only support `Int32` formats, while CPAL does not support this format at all. We
-        // allow for this implicit conversion temporarily until CPAL gets support for an `I32`
-        // format.
-        sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I16,
-        sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I16,
+        sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I32,
+        sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I32,
         _ => return None,
     };
     Some(fmt)
