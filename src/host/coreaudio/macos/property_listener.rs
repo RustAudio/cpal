@@ -20,7 +20,7 @@ pub struct AudioObjectPropertyListener {
 }
 
 impl AudioObjectPropertyListener {
-    /// Attach the provieded callback as a audio object property listener.
+    /// Attach the provided callback as a audio object property listener.
     pub fn new<F: FnMut() -> () + 'static>(
         audio_object_id: AudioObjectID,
         property_address: AudioObjectPropertyAddress,

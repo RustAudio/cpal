@@ -433,7 +433,7 @@ impl fmt::Debug for Device {
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
-    /// Manage the lifetime of the closure that handles device diconnection.
+    /// Manage the lifetime of the closure that handles device disconnection.
     _disconnect_listener: Option<AudioObjectPropertyListener>,
     // Track the device with which the audio unit was spawned.
     //
