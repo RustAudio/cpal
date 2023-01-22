@@ -134,7 +134,7 @@ struct WaveFormatExPtr(*mut Audio::WAVEFORMATEX);
 impl Drop for WaveFormatExPtr {
     fn drop(&mut self) {
         unsafe {
-            Com::CoTaskMemFree(None);
+            Com::CoTaskMemFree(Some(self.0 as *mut _));
         }
     }
 }
@@ -823,7 +823,7 @@ impl PartialEq for Device {
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(None) }
+                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
                 }
             }
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
