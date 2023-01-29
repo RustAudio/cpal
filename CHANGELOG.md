@@ -1,5 +1,10 @@
-# Unreleased
-- Update `windows-rs` dependency
+# Version 0.15.0 (2022-01-29)
+
+- Update `windows-rs`, `jack`, `coreaudio-sys`, `oboe`, `alsa` dependencies
+- Switch to the `dasp_sample` crate for the sample trait
+- Switch to `web-sys` on the emscripten target
+- Adopt edition 2021
+- Add disconnection detection on Mac OS
 
 # Version 0.14.1 (2022-10-23)
 
