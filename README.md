@@ -38,6 +38,10 @@ Some audio backends are optional and will only be compiled with a [feature flag]
 - JACK (on Linux): `jack`
 - ASIO (on Windows): `asio`
 
+Oboe can either use a shared or static runtime. The static runtime is used by default, but activating the
+`oboe-shared-stdcxx` feature makes it use the shared runtime, which requires `libc++_shared.so` from the Android NDK to
+be present during execution.
+
 ## ASIO on Windows
 
 [ASIO](https://en.wikipedia.org/wiki/Audio_Stream_Input/Output) is an audio

@@ -10,6 +10,7 @@ edition = "2021"
 
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
+oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
 
 [dependencies]
 thiserror = "1.0"
