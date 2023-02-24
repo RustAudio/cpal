@@ -13,21 +13,23 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use windows::core::{Interface, PCWSTR, implement, IUnknown, HRESULT, Result as WinResult};
 use windows::core::GUID;
+use windows::core::{implement, IUnknown, Interface, Result as WinResult, HRESULT, PCWSTR};
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
-use windows::Win32::Media::Audio::{ActivateAudioInterfaceAsync, DEVINTERFACE_AUDIO_CAPTURE, DEVINTERFACE_AUDIO_RENDER, IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl, IAudioRenderClient};
+use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::{StructuredStorage, STGM_READ, VT_LPWSTR, StringFromIID, CoTaskMemFree};
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+use windows::Win32::System::Com::{
+    CoTaskMemFree, StringFromIID, StructuredStorage, STGM_READ, VT_LPWSTR,
+};
 use windows::Win32::System::Threading;
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
@@ -46,7 +48,7 @@ unsafe impl Sync for IAudioClientWrapper {}
 enum DeviceType {
     DefaultOutput,
     DefaultInput,
-    Specific(Audio::IMMDevice)
+    Specific(Audio::IMMDevice),
 }
 
 /// An opaque type that identifies an end point.
@@ -323,32 +325,50 @@ unsafe fn format_from_waveformatex_ptr(
     Some(format)
 }
 
-#[implement(IActivateAudioInterfaceCompletionHandler)]
+#[implement(Audio::IActivateAudioInterfaceCompletionHandler)]
 struct CompletionHandler(Sender<WinResult<IUnknown>>);
 
-fn retrieve_result(operation: &IActivateAudioInterfaceAsyncOperation) -> WinResult<IUnknown> {
+fn retrieve_result(
+    operation: &Audio::IActivateAudioInterfaceAsyncOperation,
+) -> WinResult<IUnknown> {
     let mut result = HRESULT::default();
     let mut interface: Option<IUnknown> = None;
-    unsafe { operation.GetActivateResult(&mut result, &mut interface)?; }
+    unsafe {
+        operation.GetActivateResult(&mut result, &mut interface)?;
+    }
     result.ok()?;
     Ok(interface.unwrap())
 }
 
-impl IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler {
-    fn ActivateCompleted(&self, operation: &Option<IActivateAudioInterfaceAsyncOperation>) -> WinResult<()> {
+impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler {
+    fn ActivateCompleted(
+        &self,
+        operation: &Option<Audio::IActivateAudioInterfaceAsyncOperation>,
+    ) -> WinResult<()> {
         let result = retrieve_result(operation.as_ref().unwrap());
-        let _  = self.0.send(result);
+        let _ = self.0.send(result);
         Ok(())
     }
 }
 
 #[allow(non_snake_case)]
-unsafe fn ActivateAudioInterfaceSync<P0, T>(deviceinterfacepath: P0, activationparams: Option<*const PROPVARIANT>) -> WinResult<T> where
+unsafe fn ActivateAudioInterfaceSync<P0, T>(
+    deviceinterfacepath: P0,
+    activationparams: Option<*const PROPVARIANT>,
+) -> WinResult<T>
+where
     P0: Into<::windows::core::InParam<PCWSTR>>,
-    T: Interface {
+    T: Interface,
+{
     let (sender, receiver) = std::sync::mpsc::channel();
-    let completion: IActivateAudioInterfaceCompletionHandler = CompletionHandler(sender).into();
-    ActivateAudioInterfaceAsync(deviceinterfacepath, &T::IID, activationparams, &completion)?;
+    let completion: Audio::IActivateAudioInterfaceCompletionHandler =
+        CompletionHandler(sender).into();
+    Audio::ActivateAudioInterfaceAsync(
+        deviceinterfacepath,
+        &T::IID,
+        activationparams,
+        &completion,
+    )?;
     let result = receiver.recv_timeout(Duration::from_secs(2)).unwrap()?;
     result.cast()
 }
@@ -408,7 +428,7 @@ impl Device {
                 StructuredStorage::PropVariantClear(&mut property_value).ok();
 
                 Ok(name_string)
-            }
+            },
         }
     }
 
@@ -448,13 +468,13 @@ impl Device {
         let audio_client: Audio::IAudioClient = unsafe {
             match &self.device {
                 DeviceType::DefaultOutput => {
-                    let default_audio = StringFromIID(&DEVINTERFACE_AUDIO_RENDER)?;
+                    let default_audio = StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?;
                     let result = ActivateAudioInterfaceSync(PCWSTR(default_audio.as_ptr()), None);
-                    CoTaskMemFree(Some(default_audio.as_ptr()as _));
+                    CoTaskMemFree(Some(default_audio.as_ptr() as _));
                     result?
                 }
                 DeviceType::DefaultInput => {
-                    let default_audio = StringFromIID(&DEVINTERFACE_AUDIO_CAPTURE)?;
+                    let default_audio = StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?;
                     let result = ActivateAudioInterfaceSync(PCWSTR(default_audio.as_ptr()), None);
                     CoTaskMemFree(Some(default_audio.as_ptr() as _));
                     result?
@@ -465,7 +485,6 @@ impl Device {
                     device.Activate(Com::CLSCTX_ALL, None)?
                 }
             }
-
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
@@ -931,7 +950,7 @@ impl PartialEq for Device {
                         offset += 1;
                     }
                 }
-            },
+            }
             _ => false,
         }
     }
