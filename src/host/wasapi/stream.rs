@@ -6,7 +6,7 @@ use crate::{
 };
 use std::mem;
 use std::ptr;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender, SendError};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
@@ -147,34 +147,37 @@ impl Stream {
     }
 
     #[inline]
-    fn push_command(&self, command: Command) {
-        // Sender generally outlives receiver, unless the device gets unplugged.
-        let _ = self.commands.send(command);
+    fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
+        self.commands.send(command)?;
         unsafe {
             let result = Threading::SetEvent(self.pending_scheduled_event);
             assert_ne!(result, false);
         }
+        Ok(())
     }
 }
 
 impl Drop for Stream {
     #[inline]
     fn drop(&mut self) {
-        self.push_command(Command::Terminate);
-        self.thread.take().unwrap().join().unwrap();
-        unsafe {
-            Foundation::CloseHandle(self.pending_scheduled_event);
+        if let Ok(_) = self.push_command(Command::Terminate) {
+            self.thread.take().unwrap().join().unwrap();
+            unsafe {
+                Foundation::CloseHandle(self.pending_scheduled_event);
+            }
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.push_command(Command::PlayStream);
+        self.push_command(Command::PlayStream)
+            .map_err(|_| crate::error::PlayStreamError::DeviceNotAvailable)?;
         Ok(())
     }
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.push_command(Command::PauseStream);
+        self.push_command(Command::PauseStream)
+            .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
         Ok(())
     }
 }
