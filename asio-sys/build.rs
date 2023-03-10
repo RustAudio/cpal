@@ -13,6 +13,8 @@ const ASIO_SYS_HEADER: &str = "asiosys.h";
 const ASIO_DRIVERS_HEADER: &str = "asiodrivers.h";
 
 fn main() {
+    println!("cargo:rerun-if-env-changed={}", CPAL_ASIO_DIR);
+
     // If ASIO directory isn't set silently return early
     let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
         Err(_) => return,
@@ -21,6 +23,7 @@ fn main() {
 
     // Asio directory
     let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+    println!("cargo:rerun-if-changed={}", cpal_asio_dir.display());
 
     // Directory where bindings and library are created
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
