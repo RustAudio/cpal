@@ -72,8 +72,8 @@ fn asbd_from_config(
 fn host_time_to_stream_instant(
     m_host_time: u64,
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
-    let mut info: mach::mach_time::mach_timebase_info = Default::default();
-    let res = unsafe { mach::mach_time::mach_timebase_info(&mut info) };
+    let mut info: mach2::mach_time::mach_timebase_info = Default::default();
+    let res = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     check_os_status(res)?;
     let nanos = m_host_time * info.numer as u64 / info.denom as u64;
     let secs = nanos / 1_000_000_000;
