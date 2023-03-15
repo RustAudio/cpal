@@ -6,7 +6,7 @@ use crate::{
 };
 use std::mem;
 use std::ptr;
-use std::sync::mpsc::{channel, Receiver, Sender, SendError};
+use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
