@@ -220,15 +220,24 @@ impl DeviceTrait for Device {
         // Create the WebAudio stream.
         let mut stream_opts = AudioContextOptions::new();
         stream_opts.sample_rate(config.sample_rate.0 as f32);
-        let ctx = Arc::new(
-            AudioContext::new_with_context_options(&stream_opts).map_err(
-                |err| -> BuildStreamError {
-                    let description = format!("{:?}", err);
-                    let err = BackendSpecificError { description };
-                    err.into()
-                },
-            )?,
-        );
+        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
+            |err| -> BuildStreamError {
+                let description = format!("{:?}", err);
+                let err = BackendSpecificError { description };
+                err.into()
+            },
+        )?;
+
+        let destination = ctx.destination();
+
+        // If possible, set the destination's channel_count to the given config.channel.
+        // If not, fallback on the default destination channel_count to keep previous behavior
+        // and do not return an error.
+        if config.channels as u32 <= destination.max_channel_count() {
+            destination.set_channel_count(config.channels as u32);
+        }
+
+        let ctx = Arc::new(ctx);
 
         // A container for managing the lifecycle of the audio callbacks.
         let mut on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>> = Vec::new();
