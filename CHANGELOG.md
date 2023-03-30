@@ -1,3 +1,9 @@
+# Version 0.15.2 (2023-03-30)
+
+- webaudio: support multichannel output streams
+- Update `windows` dependency
+- wasapi: fix some thread panics
+
 # Version 0.15.1 (2023-03-14)
 
 - Add feature `oboe-shared-stdcxx` to enable `shared-stdcxx` on `oboe` for Android support
