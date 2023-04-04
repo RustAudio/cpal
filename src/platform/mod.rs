@@ -68,7 +68,7 @@ macro_rules! impl_platform_host {
         // functions within the callback.
         //
         // TODO: Confirm this and add more specific detail and references.
-        #[must_use = "If the stream is not used it will not play."]
+        #[must_use = "If the stream is not stored it will not play."]
         pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
 
         /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
