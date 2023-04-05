@@ -288,6 +288,7 @@ impl StreamTrait for Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        let _ = self.pause();
         let _ = self.ctx.close();
     }
 }
