@@ -440,6 +440,14 @@ impl StreamCallbackState {
             let mut temporary_buffer = vec![0f32; self.buffer_size_samples];
             let mut temporary_channel_buffer = vec![0f32; self.buffer_size_frames];
 
+            #[allow(unused_variables)]
+            let temporary_channel_array_view: js_sys::Float32Array;
+            #[cfg(target_feature = "atomics")]
+            {
+                let temporary_channel_array = js_sys::ArrayBuffer::new((std::mem::size_of::<f32>() * self.buffer_size_frames) as u32);
+                temporary_channel_array_view = js_sys::Float32Array::new(&temporary_channel_array);
+            }
+
             // Create a webaudio buffer which will be reused to avoid allocations.
             let ctx_buffer = self.ctx
                 .create_buffer(
@@ -521,9 +529,20 @@ impl StreamCallbackState {
                             temporary_channel_buffer[i] =
                                 temporary_buffer[n_channels * i + channel];
                         }
-                        ctx_buffer
-                            .copy_to_channel(&mut temporary_channel_buffer, channel as i32)
-                            .expect("Unable to write sample data into the audio context buffer");
+
+                        #[cfg(target_feature = "atomics")]
+                        {
+                            temporary_channel_array_view.copy_from(&mut temporary_channel_buffer);
+                            ctx_buffer.unchecked_ref::<ExternalArrayAudioBuffer>()
+                                .copy_to_channel(&temporary_channel_array_view, channel as i32)
+                                .expect("Unable to write sample data into the audio context buffer");
+                        }
+                        #[cfg(not(target_feature = "atomics"))]
+                        {
+                            ctx_buffer
+                                .copy_to_channel(&mut temporary_channel_buffer, channel as i32)
+                                .expect("Unable to write sample data into the audio context buffer");
+                        }
                     }
 
                     if timing.context_played {
@@ -630,4 +649,17 @@ impl CallbackTimings {
             self.cancelled = true;
         }
     }
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = AudioBuffer)]
+    type ExternalArrayAudioBuffer;
+
+    # [wasm_bindgen(catch, method, structural, js_class = "AudioBuffer", js_name = copyToChannel)]
+    pub fn copy_to_channel(
+        this: &ExternalArrayAudioBuffer,
+        source: &js_sys::Float32Array,
+        channel_number: i32,
+    ) -> Result<(), JsValue>;
 }
