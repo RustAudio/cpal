@@ -248,7 +248,7 @@ impl DeviceTrait for Device {
                 buffer_size_frames,
                 sample_format,
                 buffer_size_samples,
-                buffer_time_step_secs
+                buffer_time_step_secs,
             }),
         })
     }
@@ -268,8 +268,7 @@ impl StreamTrait for Stream {
 
         if state.playing {
             Ok(())
-        }
-        else {
+        } else {
             state.play()
         }
     }
@@ -279,8 +278,7 @@ impl StreamTrait for Stream {
 
         if state.playing {
             state.pause()
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -371,22 +369,27 @@ struct StreamCallbackState {
     /// The number of samples in the buffer.
     buffer_size_samples: usize,
     /// The timestep by which buffers should advance.
-    buffer_time_step_secs: f64
+    buffer_time_step_secs: f64,
 }
 
 impl StreamCallbackState {
     /// Attempts to resume the audio stream.
     pub fn play(&mut self) -> Result<(), PlayStreamError> {
         assert!(!self.playing, "Stream was already playing.");
-        
+
         match self.ctx.resume() {
             Ok(_) => {
-                if !self.timings.read().expect("Could not get read lock on stream timings.").context_played {
+                if !self
+                    .timings
+                    .read()
+                    .expect("Could not get read lock on stream timings.")
+                    .context_played
+                {
                     if let Err(x) = self.create_ended_closures() {
                         drop(self.ctx.suspend());
                         return Err(x);
                     }
-    
+
                     self.start_closures();
                 }
 
@@ -405,13 +408,16 @@ impl StreamCallbackState {
     pub fn pause(&mut self) -> Result<(), PauseStreamError> {
         assert!(self.playing, "Stream was not playing.");
 
-        self.timings.write().expect("Could not get write lock on stream timings.").cancel_if_unplayed();
+        self.timings
+            .write()
+            .expect("Could not get write lock on stream timings.")
+            .cancel_if_unplayed();
 
         match self.ctx.suspend() {
             Ok(_) => {
                 self.playing = false;
                 Ok(())
-            },
+            }
             Err(err) => {
                 let description = format!("{:?}", err);
                 let err = BackendSpecificError { description };
@@ -444,12 +450,15 @@ impl StreamCallbackState {
             let temporary_channel_array_view: js_sys::Float32Array;
             #[cfg(target_feature = "atomics")]
             {
-                let temporary_channel_array = js_sys::ArrayBuffer::new((std::mem::size_of::<f32>() * self.buffer_size_frames) as u32);
+                let temporary_channel_array = js_sys::ArrayBuffer::new(
+                    (std::mem::size_of::<f32>() * self.buffer_size_frames) as u32,
+                );
                 temporary_channel_array_view = js_sys::Float32Array::new(&temporary_channel_array);
             }
 
             // Create a webaudio buffer which will be reused to avoid allocations.
-            let ctx_buffer = self.ctx
+            let ctx_buffer = self
+                .ctx
                 .create_buffer(
                     self.config.channels as u32,
                     self.buffer_size_frames as u32,
@@ -566,7 +575,7 @@ impl StreamCallbackState {
                                 .as_ref()
                                 .unchecked_ref(),
                         ));
-    
+
                         source
                             .start_with_when(time_at_start_of_buffer)
                             .expect("Unable to start the webaudio buffer source");
@@ -639,7 +648,7 @@ struct CallbackTimings {
     /// Whether audio playback was paused or stopped.
     pub cancelled: bool,
     /// Whether the browser has allowed the context to begin playing yet.
-    pub context_played: bool
+    pub context_played: bool,
 }
 
 impl CallbackTimings {
