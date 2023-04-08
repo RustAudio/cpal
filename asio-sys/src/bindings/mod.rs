@@ -169,7 +169,6 @@ pub struct AsioBufferInfo {
 }
 
 /// Callbacks that ASIO calls
-#[derive(Debug)]
 #[repr(C)]
 struct AsioCallbacks {
     buffer_switch: extern "C" fn(double_buffer_index: c_long, direct_process: c_long) -> (),
@@ -739,7 +738,7 @@ impl Driver {
     ///
     /// Returns `Err` if some switching driver states failed or if ASIO returned an error on exit.
     pub fn destroy(self) -> Result<bool, AsioError> {
-        let Driver { inner, .. } = self;
+        let Driver { inner } = self;
         match Arc::try_unwrap(inner) {
             Err(_) => Ok(false),
             Ok(mut inner) => {

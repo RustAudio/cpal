@@ -12,7 +12,7 @@ build = "build.rs"
 [target.'cfg(any(target_os = "windows"))'.build-dependencies]
 bindgen = "0.64"
 walkdir = "2"
-cc = "1.0"
+cc = "1.0.25"
 
 [dependencies]
 once_cell = "1.12"
