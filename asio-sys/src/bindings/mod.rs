@@ -186,18 +186,19 @@ struct AsioCallbacks {
     ) -> *mut ai::ASIOTime,
 }
 
-static ASIO_CALLBACKS: Lazy<Mutex<AsioCallbacks>> = Lazy::new(|| Mutex::new(
-    AsioCallbacks {
+static ASIO_CALLBACKS: Lazy<Mutex<AsioCallbacks>> = Lazy::new(|| {
+    Mutex::new(AsioCallbacks {
         buffer_switch,
         sample_rate_did_change,
         asio_message,
         buffer_switch_time_info,
-    }
-));
+    })
+});
 
 /// All the possible types from ASIO.
 /// This is a direct copy of the asioMessage selectors
 /// inside ASIO SDK.
+#[rustfmt::skip]
 #[derive(Debug, FromPrimitive)]
 #[repr(C)]
 pub enum AsioMessageSelectors {
