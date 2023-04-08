@@ -169,6 +169,7 @@ pub struct AsioBufferInfo {
 }
 
 /// Callbacks that ASIO calls
+#[derive(Debug)]
 #[repr(C)]
 struct AsioCallbacks {
     buffer_switch: extern "C" fn(double_buffer_index: c_long, direct_process: c_long) -> (),
@@ -184,6 +185,61 @@ struct AsioCallbacks {
         double_buffer_index: c_long,
         direct_process: c_long,
     ) -> *mut ai::ASIOTime,
+}
+
+static ASIO_CALLBACKS: Lazy<Mutex<AsioCallbacks>> = Lazy::new(|| Mutex::new(
+    AsioCallbacks {
+        buffer_switch,
+        sample_rate_did_change,
+        asio_message,
+        buffer_switch_time_info,
+    }
+));
+
+/// All the possible types from ASIO.
+/// This is a direct copy of the asioMessage selectors
+/// inside ASIO SDK.
+#[derive(Debug, FromPrimitive)]
+#[repr(C)]
+pub enum AsioMessageSelectors {
+    kAsioSelectorSupported = 1, // selector in <value>, returns 1L if supported,
+                                // 0 otherwise
+    kAsioEngineVersion,         // returns engine (host) asio implementation version,
+                                // 2 or higher
+    kAsioResetRequest,          // request driver reset. if accepted, this
+                                // will close the driver (ASIO_Exit() ) and
+                                // re-open it again (ASIO_Init() etc). some
+                                // drivers need to reconfigure for instance
+                                // when the sample rate changes, or some basic
+                                // changes have been made in ASIO_ControlPanel().
+                                // returns 1L; note the request is merely passed
+                                // to the application, there is no way to determine
+                                // if it gets accepted at this time (but it usually
+                                // will be).
+    kAsioBufferSizeChange,      // not yet supported, will currently always return 0L.
+                                // for now, use kAsioResetRequest instead.
+                                // once implemented, the new buffer size is expected
+                                // in <value>, and on success returns 1L
+    kAsioResyncRequest,         // the driver went out of sync, such that
+                                // the timestamp is no longer valid. this
+                                // is a request to re-start the engine and
+                                // slave devices (sequencer). returns 1 for ok,
+                                // 0 if not supported.
+    kAsioLatenciesChanged,      // the drivers latencies have changed. The engine
+                                // will refetch the latencies.
+    kAsioSupportsTimeInfo,      // if host returns true here, it will expect the
+                                // callback bufferSwitchTimeInfo to be called instead
+                                // of bufferSwitch
+    kAsioSupportsTimeCode,      // 
+    kAsioMMCCommand,            // unused - value: number of commands, message points to mmc commands
+    kAsioSupportsInputMonitor,  // kAsioSupportsXXX return 1 if host supports this
+    kAsioSupportsInputGain,     // unused and undefined
+    kAsioSupportsInputMeter,    // unused and undefined
+    kAsioSupportsOutputGain,    // unused and undefined
+    kAsioSupportsOutputMeter,   // unused and undefined
+    kAsioOverload,              // driver detected an overload
+
+    kAsioNumMessageSelectors
 }
 
 /// A rust-usable version of the `ASIOTime` type that does not contain a binary blob for fields.
@@ -449,9 +505,6 @@ impl Driver {
     ) -> Result<c_long, AsioError> {
         let num_channels = buffer_infos.len();
 
-        // To pass as ai::ASIOCallbacks
-        let mut callbacks = create_asio_callbacks();
-
         let mut state = self.inner.lock_state();
 
         // Retrieve the available buffer sizes.
@@ -481,12 +534,16 @@ impl Driver {
         if let DriverState::Prepared = *state {
             state.dispose_buffers()?;
         }
+
+        // To pass as ai::ASIOCallbacks
+        let callbacks = &mut (*ASIO_CALLBACKS.lock().unwrap());
+
         unsafe {
             asio_result!(ai::ASIOCreateBuffers(
                 buffer_infos.as_mut_ptr() as *mut _,
                 num_channels as i32,
                 buffer_size,
-                &mut callbacks as *mut _ as *mut _,
+                callbacks as *mut _ as *mut _,
             ))?;
         }
         *state = DriverState::Prepared;
@@ -682,7 +739,7 @@ impl Driver {
     ///
     /// Returns `Err` if some switching driver states failed or if ASIO returned an error on exit.
     pub fn destroy(self) -> Result<bool, AsioError> {
-        let Driver { inner } = self;
+        let Driver { inner, .. } = self;
         match Arc::try_unwrap(inner) {
             Err(_) => Ok(false),
             Ok(mut inner) => {
@@ -795,16 +852,6 @@ fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo
         .collect()
 }
 
-/// The set of callbacks passed to `ASIOCreateBuffers`.
-fn create_asio_callbacks() -> AsioCallbacks {
-    AsioCallbacks {
-        buffer_switch: buffer_switch,
-        sample_rate_did_change: sample_rate_did_change,
-        asio_message: asio_message,
-        buffer_switch_time_info: buffer_switch_time_info,
-    }
-}
-
 /// Retrieve the minimum, maximum and preferred buffer sizes along with the available
 /// buffer size granularity.
 fn asio_get_buffer_sizes() -> Result<BufferSizes, AsioError> {
@@ -873,23 +920,23 @@ extern "C" fn asio_message(
     _message: *mut (),
     _opt: *mut c_double,
 ) -> c_long {
-    match selector {
-        ai::kAsioSelectorSupported => {
+    match AsioMessageSelectors::from_i64(selector as i64) {
+        Some(AsioMessageSelectors::kAsioSelectorSupported) => {
             // Indicate what message selectors are supported.
-            match value {
-                | ai::kAsioResetRequest
-                | ai::kAsioEngineVersion
-                | ai::kAsioResyncRequest
-                | ai::kAsioLatenciesChanged
+            match AsioMessageSelectors::from_i64(value as i64) {
+                | Some(AsioMessageSelectors::kAsioResetRequest)
+                | Some(AsioMessageSelectors::kAsioEngineVersion)
+                | Some(AsioMessageSelectors::kAsioResyncRequest)
+                | Some(AsioMessageSelectors::kAsioLatenciesChanged)
                 // Following added in ASIO 2.0.
-                | ai::kAsioSupportsTimeInfo
-                | ai::kAsioSupportsTimeCode
-                | ai::kAsioSupportsInputMonitor => 1,
+                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo)
+                | Some(AsioMessageSelectors::kAsioSupportsTimeCode)
+                | Some(AsioMessageSelectors::kAsioSupportsInputMonitor) => 1,
                 _ => 0,
             }
         }
 
-        ai::kAsioResetRequest => {
+        Some(AsioMessageSelectors::kAsioResetRequest) => {
             // Defer the task and perform the reset of the driver during the next "safe" situation
             // You cannot reset the driver right now, as this code is called from the driver. Reset
             // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
@@ -898,7 +945,7 @@ extern "C" fn asio_message(
             1
         }
 
-        ai::kAsioResyncRequest => {
+        Some(AsioMessageSelectors::kAsioResyncRequest) => {
             // This informs the application, that the driver encountered some non fatal data loss.
             // It is used for synchronization purposes of different media. Added mainly to work
             // around the Win16Mutex problems in Windows 95/98 with the Windows Multimedia system,
@@ -908,7 +955,7 @@ extern "C" fn asio_message(
             1
         }
 
-        ai::kAsioLatenciesChanged => {
+        Some(AsioMessageSelectors::kAsioLatenciesChanged) => {
             // This will inform the host application that the drivers were latencies changed.
             // Beware, it this does not mean that the buffer sizes have changed! You might need to
             // update internal delay data.
@@ -916,20 +963,20 @@ extern "C" fn asio_message(
             1
         }
 
-        ai::kAsioEngineVersion => {
+        Some(AsioMessageSelectors::kAsioEngineVersion) => {
             // Return the supported ASIO version of the host application If a host applications
             // does not implement this selector, ASIO 1.0 is assumed by the driver
             2
         }
 
-        ai::kAsioSupportsTimeInfo => {
+        Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => {
             // Informs the driver whether the asioCallbacks.bufferSwitchTimeInfo() callback is
             // supported. For compatibility with ASIO 1.0 drivers the host application should
             // always support the "old" bufferSwitch method, too, which we do.
             1
         }
 
-        ai::kAsioSupportsTimeCode => {
+        Some(AsioMessageSelectors::kAsioSupportsTimeCode) => {
             // Informs the driver whether the application is interested in time code info. If an
             // application does not need to know about time code, the driver has less work to do.
             // TODO: Provide an option for this?
