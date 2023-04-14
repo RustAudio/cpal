@@ -186,14 +186,12 @@ struct AsioCallbacks {
     ) -> *mut ai::ASIOTime,
 }
 
-static ASIO_CALLBACKS: Lazy<Mutex<AsioCallbacks>> = Lazy::new(|| {
-    Mutex::new(AsioCallbacks {
-        buffer_switch,
-        sample_rate_did_change,
-        asio_message,
-        buffer_switch_time_info,
-    })
-});
+static ASIO_CALLBACKS: AsioCallbacks = AsioCallbacks {
+    buffer_switch,
+    sample_rate_did_change,
+    asio_message,
+    buffer_switch_time_info,
+};
 
 /// All the possible types from ASIO.
 /// This is a direct copy of the asioMessage selectors
@@ -534,16 +532,12 @@ impl Driver {
         if let DriverState::Prepared = *state {
             state.dispose_buffers()?;
         }
-
-        // To pass as ai::ASIOCallbacks
-        let callbacks = &mut (*ASIO_CALLBACKS.lock().unwrap());
-
         unsafe {
             asio_result!(ai::ASIOCreateBuffers(
                 buffer_infos.as_mut_ptr() as *mut _,
                 num_channels as i32,
                 buffer_size,
-                callbacks as *mut _ as *mut _,
+                &ASIO_CALLBACKS as *const _ as *mut _,
             ))?;
         }
         *state = DriverState::Prepared;
