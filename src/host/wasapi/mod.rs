@@ -7,7 +7,6 @@ use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
 use std::io::Error as IoError;
-use windows::Win32::Media::Audio;
 
 mod com;
 mod device;
@@ -49,10 +48,10 @@ impl HostTrait for Host {
     }
 }
 
-impl From<windows::core::Error> for BackendSpecificError {
-    fn from(error: windows::core::Error) -> Self {
+impl From<i32> for BackendSpecificError {
+    fn from(error: i32) -> Self {
         BackendSpecificError {
-            description: format!("{}", IoError::from(error)),
+            description: format!("{}", IoError::from_raw_os_error(error)),
         }
     }
 }
@@ -85,20 +84,18 @@ impl ErrDeviceNotAvailable for crate::StreamError {
     }
 }
 
-fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
-    windows_err_to_cpal_err_message::<E>(e, "")
+#[inline]
+fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: i32) -> E {
+    windows_err_to_cpal_err_message(e, "")
 }
 
-fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
-    e: windows::core::Error,
-    message: &str,
-) -> E {
-    match e.code() {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED => E::device_not_available(),
-        _ => {
-            let description = format!("{}{}", message, e);
-            let err = BackendSpecificError { description };
-            err.into()
-        }
+#[inline]
+fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(e: i32, message: &str) -> E {
+    if let windows_sys::Win32::Media::Audio::AUDCLNT_E_DEVICE_INVALIDATED = e {
+        E::device_not_available()
+    } else {
+        let description = format!("{}{}", message, com::get_error_message(e));
+        let err = BackendSpecificError { description };
+        err.into()
     }
 }

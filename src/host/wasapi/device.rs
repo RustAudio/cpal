@@ -11,22 +11,21 @@ use std::fmt;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
-use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::com;
+use super::com::audio;
+use super::com::threading;
+use super::com::ComResult;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use windows::core::ComInterface;
-use windows::core::GUID;
-use windows::Win32::Devices::Properties;
-use windows::Win32::Foundation;
-use windows::Win32::Media::Audio::IAudioRenderClient;
-use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
-use windows::Win32::System::Com;
-use windows::Win32::System::Com::{StructuredStorage, STGM_READ, VT_LPWSTR};
-use windows::Win32::System::Threading;
+use windows_sys::core::GUID;
+use windows_sys::Win32::Devices::Properties;
+use windows_sys::Win32::Foundation;
+use windows_sys::Win32::Media::{Audio, KernelStreaming, Multimedia};
+use windows_sys::Win32::System::Com;
+use windows_sys::Win32::System::Com::{StructuredStorage, STGM_READ, VT_LPWSTR};
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
 use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
@@ -36,14 +35,14 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
-struct IAudioClientWrapper(Audio::IAudioClient);
+struct IAudioClientWrapper(audio::IAudioClient);
 unsafe impl Send for IAudioClientWrapper {}
 unsafe impl Sync for IAudioClientWrapper {}
 
 /// An opaque type that identifies an end point.
 #[derive(Clone)]
 pub struct Device {
-    device: Audio::IMMDevice,
+    device: audio::IMMDevice,
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
     future_audio_client: Arc<Mutex<Option<IAudioClientWrapper>>>, // TODO: add NonZero around the ptr
@@ -120,7 +119,7 @@ impl DeviceTrait for Device {
 }
 
 struct Endpoint {
-    endpoint: Audio::IMMEndpoint,
+    endpoint: audio::IMMEndpoint,
 }
 
 enum WaveFormat {
@@ -134,7 +133,7 @@ struct WaveFormatExPtr(*mut Audio::WAVEFORMATEX);
 impl Drop for WaveFormatExPtr {
     fn drop(&mut self) {
         unsafe {
-            Com::CoTaskMemFree(Some(self.0 as *mut _));
+            Com::CoTaskMemFree(self.0.cast());
         }
     }
 }
@@ -181,13 +180,15 @@ impl DerefMut for WaveFormat {
     }
 }
 
-unsafe fn immendpoint_from_immdevice(device: Audio::IMMDevice) -> Audio::IMMEndpoint {
+#[inline]
+unsafe fn immendpoint_from_immdevice(device: audio::IMMDevice) -> audio::IMMEndpoint {
     device
-        .cast::<Audio::IMMEndpoint>()
+        .cast::<audio::IMMEndpoint>()
         .expect("could not query IMMDevice interface for IMMEndpoint")
 }
 
-unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::EDataFlow {
+#[inline]
+unsafe fn data_flow_from_immendpoint(endpoint: &audio::IMMEndpoint) -> Audio::EDataFlow {
     endpoint
         .GetDataFlow()
         .expect("could not get endpoint data_flow")
@@ -195,7 +196,7 @@ unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::ED
 
 // Given the audio client and format, returns whether or not the format is supported.
 pub unsafe fn is_format_supported(
-    client: &Audio::IAudioClient,
+    client: &audio::IAudioClient,
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
     // Check if the given format is supported.
@@ -211,8 +212,7 @@ pub unsafe fn is_format_supported(
             Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
                 Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
-            r if r.is_err() => Ok(false),
-            Foundation::S_FALSE => Ok(false),
+            r if r == Foundation::S_FALSE || r < 0 => Ok(false),
             _ => Ok(true),
         }
     };
@@ -242,7 +242,7 @@ pub unsafe fn is_format_supported(
 // Get a cpal Format from a WAVEFORMATEX.
 unsafe fn format_from_waveformatex_ptr(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
-    audio_client: &Audio::IAudioClient,
+    audio_client: &audio::IAudioClient,
 ) -> Option<SupportedStreamConfig> {
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
         (a.data1, a.data2, a.data3, a.data4) == (b.data1, b.data2, b.data3, b.data4)
@@ -283,7 +283,7 @@ unsafe fn format_from_waveformatex_ptr(
     // https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/hardware-offloaded-audio-processing
     let (mut min_buffer_duration, mut max_buffer_duration) = (0, 0);
     let buffer_size_is_limited = audio_client
-        .cast::<Audio::IAudioClient2>()
+        .cast::<audio::IAudioClient2>()
         .and_then(|audio_client| {
             audio_client.GetBufferSizeLimits(
                 waveformatex_ptr,
@@ -364,14 +364,14 @@ impl Device {
             };
 
             // Clean up the property.
-            StructuredStorage::PropVariantClear(&mut property_value).ok();
+            StructuredStorage::PropVariantClear(&mut property_value);
 
             Ok(name_string)
         }
     }
 
     #[inline]
-    fn from_immdevice(device: Audio::IMMDevice) -> Self {
+    fn from_immdevice(device: audio::IMMDevice) -> Self {
         Device {
             device,
             future_audio_client: Arc::new(Mutex::new(None)),
@@ -379,15 +379,13 @@ impl Device {
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
-    fn ensure_future_audio_client(
-        &self,
-    ) -> Result<MutexGuard<Option<IAudioClientWrapper>>, windows::core::Error> {
+    fn ensure_future_audio_client(&self) -> ComResult<MutexGuard<Option<IAudioClientWrapper>>> {
         let mut lock = self.future_audio_client.lock().unwrap();
         if lock.is_some() {
             return Ok(lock);
         }
 
-        let audio_client: Audio::IAudioClient = unsafe {
+        let audio_client: audio::IAudioClient = unsafe {
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
             self.device.Activate(Com::CLSCTX_ALL, None)?
@@ -399,7 +397,7 @@ impl Device {
 
     /// Returns an uninitialized `IAudioClient`.
     #[inline]
-    pub(crate) fn build_audioclient(&self) -> Result<Audio::IAudioClient, windows::core::Error> {
+    pub(crate) fn build_audioclient(&self) -> ComResult<audio::IAudioClient> {
         let mut lock = self.ensure_future_audio_client()?;
         Ok(lock.take().unwrap().0)
     }
@@ -422,13 +420,8 @@ impl Device {
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
-            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
             Err(e) => {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
+                return Err(windows_err_to_cpal_err(e));
             }
         };
         let client = &lock.as_ref().unwrap().0;
@@ -537,13 +530,8 @@ impl Device {
 
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
-            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                return Err(DefaultStreamConfigError::DeviceNotAvailable)
-            }
             Err(e) => {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
+                return Err(windows_err_to_cpal_err(e));
             }
         };
         let client = &lock.as_ref().unwrap().0;
@@ -594,13 +582,8 @@ impl Device {
             // Obtaining a `IAudioClient`.
             let audio_client = match self.build_audioclient() {
                 Ok(client) => client,
-                Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                    return Err(BuildStreamError::DeviceNotAvailable)
-                }
                 Err(e) => {
-                    let description = format!("{}", e);
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
+                    return Err(windows_err_to_cpal_err(e));
                 }
             };
 
@@ -627,25 +610,16 @@ impl Device {
                 }
 
                 // Finally, initializing the audio client
-                let hresult = audio_client.Initialize(
+                if let Err(err) = audio_client.Initialize(
                     share_mode,
                     stream_flags,
                     buffer_duration,
                     0,
                     &format_attempt.Format,
                     None,
-                );
-                match hresult {
-                    Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                        return Err(BuildStreamError::DeviceNotAvailable);
-                    }
-                    Err(e) => {
-                        let description = format!("{}", e);
-                        let err = BackendSpecificError { description };
-                        return Err(err.into());
-                    }
-                    Ok(()) => (),
-                };
+                ) {
+                    return Err(windows_err_to_cpal_err(err));
+                }
 
                 format_attempt.Format
             };
@@ -657,13 +631,11 @@ impl Device {
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
-                let event =
-                    Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-                        .map_err(|e| {
-                            let description = format!("failed to create event: {}", e);
-                            let err = BackendSpecificError { description };
-                            BuildStreamError::from(err)
-                        })?;
+                let event = threading::CreateEventA(None, false, false, None).map_err(|e| {
+                    let description = format!("failed to create event: {}", e);
+                    let err = BackendSpecificError { description };
+                    BuildStreamError::from(err)
+                })?;
 
                 if let Err(e) = audio_client.SetEventHandle(event) {
                     let description = format!("failed to call SetEventHandle: {}", e);
@@ -676,7 +648,7 @@ impl Device {
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = audio_client
-                .GetService::<Audio::IAudioCaptureClient>()
+                .GetService::<audio::IAudioCaptureClient>()
                 .map_err(|e| {
                     windows_err_to_cpal_err_message::<BuildStreamError>(
                         e,
@@ -752,13 +724,11 @@ impl Device {
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event = {
-                let event =
-                    Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-                        .map_err(|e| {
-                            let description = format!("failed to create event: {}", e);
-                            let err = BackendSpecificError { description };
-                            BuildStreamError::from(err)
-                        })?;
+                let event = threading::CreateEventA(None, false, false, None).map_err(|e| {
+                    let description = format!("failed to create event: {}", e);
+                    let err = BackendSpecificError { description };
+                    BuildStreamError::from(err)
+                })?;
 
                 if let Err(e) = audio_client.SetEventHandle(event) {
                     let description = format!("failed to call SetEventHandle: {}", e);
@@ -779,7 +749,7 @@ impl Device {
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = audio_client
-                .GetService::<IAudioRenderClient>()
+                .GetService::<audio::IAudioRenderClient>()
                 .map_err(|e| {
                     windows_err_to_cpal_err_message::<BuildStreamError>(
                         e,
@@ -819,11 +789,11 @@ impl PartialEq for Device {
         // In this code section we're trying to use the GetId method for the device comparison, cf.
         // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
         unsafe {
-            struct IdRAII(windows::core::PWSTR);
+            struct IdRAII(windows_sys::core::PWSTR);
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+                    unsafe { Com::CoTaskMemFree(self.0.cast()) }
                 }
             }
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
@@ -835,8 +805,8 @@ impl PartialEq for Device {
             // 16-bit null-terminated comparison.
             let mut offset = 0;
             loop {
-                let w1: u16 = *(id1.0).0.offset(offset);
-                let w2: u16 = *(id2.0).0.offset(offset);
+                let w1: u16 = *(id1.0).offset(offset);
+                let w2: u16 = *(id2.0).offset(offset);
                 if w1 == 0 && w2 == 0 {
                     return true;
                 }
@@ -860,8 +830,8 @@ impl fmt::Debug for Device {
     }
 }
 
-impl From<Audio::IMMDevice> for Endpoint {
-    fn from(device: Audio::IMMDevice) -> Self {
+impl From<audio::IMMDevice> for Endpoint {
+    fn from(device: audio::IMMDevice) -> Self {
         unsafe {
             let endpoint = immendpoint_from_immdevice(device);
             Endpoint { endpoint }
@@ -881,27 +851,18 @@ static ENUMERATOR: Lazy<Enumerator> = Lazy::new(|| {
     com::com_initialized();
 
     // building the devices enumerator object
-    unsafe {
-        let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
-            &Audio::MMDeviceEnumerator,
-            None,
-            Com::CLSCTX_ALL,
-        )
-        .unwrap();
-
-        Enumerator(enumerator)
-    }
+    unsafe { Enumerator(audio::IMMDeviceEnumerator::new().unwrap()) }
 });
 
 /// Send/Sync wrapper around `IMMDeviceEnumerator`.
-struct Enumerator(Audio::IMMDeviceEnumerator);
+struct Enumerator(audio::IMMDeviceEnumerator);
 
 unsafe impl Send for Enumerator {}
 unsafe impl Sync for Enumerator {}
 
 /// WASAPI implementation for `Devices`.
 pub struct Devices {
-    collection: Audio::IMMDeviceCollection,
+    collection: audio::IMMDeviceCollection,
     total_count: u32,
     next_item: u32,
 }
@@ -973,10 +934,10 @@ pub fn default_output_device() -> Option<Device> {
 
 /// Get the audio clock used to produce `StreamInstant`s.
 unsafe fn get_audio_clock(
-    audio_client: &Audio::IAudioClient,
-) -> Result<Audio::IAudioClock, BuildStreamError> {
+    audio_client: &audio::IAudioClient,
+) -> Result<audio::IAudioClock, BuildStreamError> {
     audio_client
-        .GetService::<Audio::IAudioClock>()
+        .GetService::<audio::IAudioClock>()
         .map_err(|e| {
             windows_err_to_cpal_err_message::<BuildStreamError>(e, "failed to build audio clock: ")
         })

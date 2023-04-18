@@ -1,3 +1,5 @@
+use super::com::audio;
+use super::com::threading;
 use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
@@ -8,12 +10,10 @@ use std::mem;
 use std::ptr;
 use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle};
-use windows::Win32::Foundation;
-use windows::Win32::Foundation::WAIT_OBJECT_0;
-use windows::Win32::Media::Audio;
-use windows::Win32::System::SystemServices;
-use windows::Win32::System::Threading;
-use windows::Win32::System::WindowsProgramming;
+use windows_sys::Win32::Foundation;
+use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+use windows_sys::Win32::Media::Audio;
+use windows_sys::Win32::System::Threading;
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -54,16 +54,16 @@ pub enum Command {
 
 pub enum AudioClientFlow {
     Render {
-        render_client: Audio::IAudioRenderClient,
+        render_client: audio::IAudioRenderClient,
     },
     Capture {
-        capture_client: Audio::IAudioCaptureClient,
+        capture_client: audio::IAudioCaptureClient,
     },
 }
 
 pub struct StreamInner {
-    pub audio_client: Audio::IAudioClient,
-    pub audio_clock: Audio::IAudioClock,
+    pub audio_client: audio::IAudioClient,
+    pub audio_clock: audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
@@ -89,10 +89,8 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event = unsafe {
-            Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-        }
-        .expect("cpal: could not create input stream event");
+        let pending_scheduled_event = unsafe { threading::CreateEventA(None, false, false, None) }
+            .expect("cpal: could not create input stream event");
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -122,10 +120,8 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let pending_scheduled_event = unsafe {
-            Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-        }
-        .expect("cpal: could not create output stream event");
+        let pending_scheduled_event = unsafe { threading::CreateEventA(None, false, false, None) }
+            .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
 
         let run_context = RunContext {
@@ -151,7 +147,7 @@ impl Stream {
         self.commands.send(command)?;
         unsafe {
             let result = Threading::SetEvent(self.pending_scheduled_event);
-            assert_ne!(result, false);
+            assert_ne!(result, 0);
         }
         Ok(())
     }
@@ -234,23 +230,29 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
 // next event might be some command submitted by the user (the first handle) or
 // might indicate that one of the streams is ready to deliver or receive audio.
 fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, BackendSpecificError> {
-    debug_assert!(handles.len() <= SystemServices::MAXIMUM_WAIT_OBJECTS as usize);
+    debug_assert!(handles.len() <= 64 /*SystemServices::MAXIMUM_WAIT_OBJECTS as usize*/);
     let result = unsafe {
         Threading::WaitForMultipleObjectsEx(
-            handles,
-            false,                        // Don't wait for all, just wait for the first
-            WindowsProgramming::INFINITE, // TODO: allow setting a timeout
-            false,                        // irrelevant parameter here
+            handles.len() as _,
+            handles.as_ptr(),
+            0,                   // Don't wait for all, just wait for the first
+            Threading::INFINITE, // TODO: allow setting a timeout
+            0,                   // irrelevant parameter here
         )
     };
     if result == Foundation::WAIT_FAILED {
         let err = unsafe { Foundation::GetLastError() };
-        let description = format!("`WaitForMultipleObjectsEx failed: {}", err.0);
+        // Convert from win32 error to HRESULT
+        let err = ((err & 0x0000_FFFF) | (7 << 16) | 0x8000_0000) as i32;
+        let description = format!(
+            "`WaitForMultipleObjectsEx failed: {}",
+            super::com::get_error_message(err)
+        );
         let err = BackendSpecificError { description };
         return Err(err);
     }
     // Notifying the corresponding task handler.
-    let handle_idx = (result.0 - WAIT_OBJECT_0.0) as usize;
+    let handle_idx = (result - WAIT_OBJECT_0) as usize;
     Ok(handle_idx)
 }
 
@@ -359,7 +361,7 @@ fn process_commands_and_await_signal(
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
-    capture_client: Audio::IAudioCaptureClient,
+    capture_client: &audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
@@ -387,7 +389,7 @@ fn process_input(
 
             match result {
                 // TODO: Can this happen?
-                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
+                Err(e) if e == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
                 Err(e) => {
                     error_callback(windows_err_to_cpal_err(e));
                     return ControlFlow::Break;
@@ -428,7 +430,7 @@ fn process_input(
 // The loop for writing output data.
 fn process_output(
     stream: &StreamInner,
-    render_client: Audio::IAudioRenderClient,
+    render_client: &audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> ControlFlow {
