@@ -26,6 +26,7 @@ pub struct Stream {
     playing: Arc<AtomicBool>,
     // Ensure the `Driver` does not terminate until the last stream is dropped.
     driver: Arc<sys::Driver>,
+    #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::CallbackId,
 }
