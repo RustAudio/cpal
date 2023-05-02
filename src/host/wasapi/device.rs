@@ -344,9 +344,9 @@ fn retrieve_result(
 impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler {
     fn ActivateCompleted(
         &self,
-        operation: &Option<Audio::IActivateAudioInterfaceAsyncOperation>,
+        operation: Option<&Audio::IActivateAudioInterfaceAsyncOperation>,
     ) -> WinResult<()> {
-        let result = retrieve_result(operation.as_ref().unwrap());
+        let result = retrieve_result(operation.unwrap());
         let _ = self.0.send(result);
         Ok(())
     }
@@ -358,8 +358,8 @@ unsafe fn ActivateAudioInterfaceSync<P0, T>(
     activationparams: Option<*const PROPVARIANT>,
 ) -> WinResult<T>
 where
-    P0: Into<::windows::core::InParam<PCWSTR>>,
-    T: Interface,
+    P0: windows::core::IntoParam<PCWSTR>,
+    T: Interface + ComInterface,
 {
     let (sender, receiver) = std::sync::mpsc::channel();
     let completion: Audio::IActivateAudioInterfaceCompletionHandler =
