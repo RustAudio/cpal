@@ -1,4 +1,16 @@
-# Version 0.15.0 (2022-01-29)
+# Version 0.15.2 (2023-03-30)
+
+- webaudio: support multichannel output streams
+- Update `windows` dependency
+- wasapi: fix some thread panics
+
+# Version 0.15.1 (2023-03-14)
+
+- Add feature `oboe-shared-stdcxx` to enable `shared-stdcxx` on `oboe` for Android support
+- Remove `thiserror` dependency
+- Swith `mach` dependency to `mach2`
+
+# Version 0.15.0 (2023-01-29)
 
 - Update `windows-rs`, `jack`, `coreaudio-sys`, `oboe`, `alsa` dependencies
 - Switch to the `dasp_sample` crate for the sample trait

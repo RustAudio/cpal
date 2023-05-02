@@ -161,7 +161,6 @@
 extern crate wasm_bindgen;
 #[cfg(target_os = "emscripten")]
 extern crate js_sys;
-extern crate thiserror;
 #[cfg(target_os = "emscripten")]
 extern crate web_sys;
 

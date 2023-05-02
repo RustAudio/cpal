@@ -1,9 +1,17 @@
-use thiserror::Error;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 /// The requested host, although supported on this platform, is unavailable.
-#[derive(Clone, Debug, Error)]
-#[error("the requested host is unavailable")]
+#[derive(Copy, Clone, Debug)]
 pub struct HostUnavailable;
+
+impl Display for HostUnavailable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the requested host is unavailable")
+    }
+}
+
+impl Error for HostUnavailable {}
 
 /// Some error has occurred that is specific to the backend from which it was produced.
 ///
@@ -17,97 +25,177 @@ pub struct HostUnavailable;
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
 /// cross-platform manner, please create an issue or submit a pull request with a patch that adds
 /// the necessary error variant to the appropriate error enum.
-#[derive(Clone, Debug, Error)]
-#[error("A backend-specific error has occurred: {description}")]
+#[derive(Clone, Debug)]
 pub struct BackendSpecificError {
     pub description: String,
 }
 
+impl Display for BackendSpecificError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "A backend-specific error has occurred: {}",
+            self.description
+        )
+    }
+}
+
+impl Error for BackendSpecificError {}
+
 /// An error that might occur while attempting to enumerate the available devices on a system.
-#[derive(Debug, Error)]
+#[derive(Clone, Debug)]
 pub enum DevicesError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for DevicesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+        }
+    }
+}
+
+impl Error for DevicesError {}
+
+impl From<BackendSpecificError> for DevicesError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// An error that may occur while attempting to retrieve a device name.
-#[derive(Debug, Error)]
+#[derive(Clone, Debug)]
 pub enum DeviceNameError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for DeviceNameError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+        }
+    }
+}
+
+impl Error for DeviceNameError {}
+
+impl From<BackendSpecificError> for DeviceNameError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// Error that can happen when enumerating the list of supported formats.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum SupportedStreamConfigsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// We called something the C-Layer did not understand
-    #[error(
-        "Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it."
-    )]
     InvalidArgument,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for SupportedStreamConfigsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            Self::DeviceNotAvailable => f.write_str("The requested device is no longer available. For example, it has been unplugged."),
+            Self::InvalidArgument => f.write_str("Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")
+        }
+    }
+}
+
+impl Error for SupportedStreamConfigsError {}
+
+impl From<BackendSpecificError> for SupportedStreamConfigsError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// May occur when attempting to request the default input or output stream format from a [`Device`](crate::Device).
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// Returned if e.g. the default input format was requested on an output-only audio device.
-    #[error("The requested stream type is not supported by the device.")]
     StreamTypeNotSupported,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
 }
 
+impl Display for DefaultStreamConfigError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            DefaultStreamConfigError::DeviceNotAvailable => f.write_str(
+                "The requested device is no longer available. For example, it has been unplugged.",
+            ),
+            DefaultStreamConfigError::StreamTypeNotSupported => {
+                f.write_str("The requested stream type is not supported by the device.")
+            }
+        }
+    }
+}
+
+impl Error for DefaultStreamConfigError {}
+
+impl From<BackendSpecificError> for DefaultStreamConfigError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
+}
 /// Error that can happen when creating a [`Stream`](crate::Stream).
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// The specified stream configuration is not supported.
-    #[error("The requested stream configuration is not supported by the device.")]
     StreamConfigNotSupported,
     /// We called something the C-Layer did not understand
     ///
     /// On ALSA device functions called with a feature they do not support will yield this. E.g.
     /// Trying to use capture capabilities on an output only format yields this.
-    #[error("The requested device does not support this capability (invalid argument)")]
     InvalidArgument,
     /// Occurs if adding a new Stream ID would cause an integer overflow.
-    #[error("Adding a new stream ID would cause an overflow")]
     StreamIdOverflow,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for BuildStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            BuildStreamError::DeviceNotAvailable => f.write_str(
+                "The requested device is no longer available. For example, it has been unplugged.",
+            ),
+            BuildStreamError::StreamConfigNotSupported => {
+                f.write_str("The requested stream configuration is not supported by the device.")
+            }
+            BuildStreamError::InvalidArgument => f.write_str(
+                "The requested device does not support this capability (invalid argument)",
+            ),
+            BuildStreamError::StreamIdOverflow => {
+                f.write_str("Adding a new stream ID would cause an overflow")
+            }
+        }
+    }
+}
+
+impl Error for BuildStreamError {}
+
+impl From<BackendSpecificError> for BuildStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// Errors that might occur when calling [`Stream::play()`](crate::traits::StreamTrait::play).
@@ -115,17 +203,31 @@ pub enum BuildStreamError {
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum PlayStreamError {
     /// The device associated with the stream is no longer available.
-    #[error("the device associated with the stream is no longer available")]
     DeviceNotAvailable,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for PlayStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            PlayStreamError::DeviceNotAvailable => {
+                f.write_str("the device associated with the stream is no longer available")
+            }
+        }
+    }
+}
+
+impl Error for PlayStreamError {}
+
+impl From<BackendSpecificError> for PlayStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// Errors that might occur when calling [`Stream::pause()`](crate::traits::StreamTrait::pause).
@@ -133,30 +235,58 @@ pub enum PlayStreamError {
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum PauseStreamError {
     /// The device associated with the stream is no longer available.
-    #[error("the device associated with the stream is no longer available")]
     DeviceNotAvailable,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for PauseStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            PauseStreamError::DeviceNotAvailable => {
+                f.write_str("the device associated with the stream is no longer available")
+            }
+        }
+    }
+}
+
+impl Error for PauseStreamError {}
+
+impl From<BackendSpecificError> for PauseStreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }
 
 /// Errors that might occur while a stream is running.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
-    #[error("The requested device is no longer available. For example, it has been unplugged.")]
     DeviceNotAvailable,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    #[error("{err}")]
-    BackendSpecific {
-        #[from]
-        err: BackendSpecificError,
-    },
+    BackendSpecific { err: BackendSpecificError },
+}
+
+impl Display for StreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            StreamError::DeviceNotAvailable => f.write_str(
+                "The requested device is no longer available. For example, it has been unplugged.",
+            ),
+        }
+    }
+}
+
+impl Error for StreamError {}
+
+impl From<BackendSpecificError> for StreamError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
 }

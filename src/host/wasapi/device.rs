@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
+use windows::core::ComInterface;
 use windows::core::GUID;
 use windows::core::{implement, IUnknown, Interface, Result as WinResult, HRESULT, PCWSTR};
 use windows::Win32::Devices::Properties;

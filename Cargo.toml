@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.15.0"
+version = "0.15.2"
 description = "Low-level cross-platform audio I/O library in pure Rust."
 repository = "https://github.com/rustaudio/cpal"
 documentation = "https://docs.rs/cpal"
@@ -13,7 +13,6 @@ asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for se
 oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
 
 [dependencies]
-thiserror = "1.0"
 dasp_sample = "0.11"
 
 [dev-dependencies]
@@ -26,7 +25,7 @@ clap = { version = "4.0", features = ["derive"] }
 ndk-glue = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.44.0", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_System_Com", "Win32_Devices_Properties", "Win32_Media_KernelStreaming", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Threading", "Win32_Security", "Win32_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_Media_Multimedia", "Win32_UI_Shell_PropertiesSystem", "implement"]}
+windows = { version = "0.46.0", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_System_Com", "Win32_Devices_Properties", "Win32_Media_KernelStreaming", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Threading", "Win32_Security", "Win32_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_Media_Multimedia", "Win32_UI_Shell_PropertiesSystem", "implement"]}
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 parking_lot = "0.12"
@@ -40,7 +39,7 @@ jack = { version = "0.11", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
-mach = "0.3" # For access to mach_timebase type.
+mach2 = "0.4" # For access to mach_timebase type.
 parking_lot = "0.12"
 
 [target.'cfg(target_os = "macos")'.dependencies]
