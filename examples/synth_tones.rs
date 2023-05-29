@@ -58,7 +58,7 @@ impl Oscillator {
 
     fn generative_waveform(&mut self, harmonic_index_increment: i32, gain_exponent: f32) -> f32 {
         self.advance_sample();
-        let mut output = 0.;
+        let mut output = 0.0;
         let mut i = 1;
         while !self.is_multiple_of_freq_above_nyquist(i as f32) {
             let gain = 1. / (i as f32).powf(gain_exponent);
@@ -139,8 +139,8 @@ where
     let mut oscillator = Oscillator {
         waveform: Waveform::Sine,
         sample_rate: config.sample_rate.0 as f32,
-        current_sample_index: 0.,
-        frequency_hz: 440.,
+        current_sample_index: 0.0,
+        frequency_hz: 440.0,
     };
     let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
 
