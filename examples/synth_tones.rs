@@ -151,7 +151,9 @@ where
         config,
         move |output: &mut [T], _: &cpal::OutputCallbackInfo| {
             // for 0-1s play sine, 1-2s play square, 2-3s play saw, 3-4s play triangle_wave
-            let time_since_start = std::time::Instant::now().duration_since(time_at_start).as_secs_f32();
+            let time_since_start = std::time::Instant::now()
+                .duration_since(time_at_start)
+                .as_secs_f32();
             if time_since_start < 1. {
                 oscillator.set_waveform(Waveform::Sine);
             } else if time_since_start < 2. {
