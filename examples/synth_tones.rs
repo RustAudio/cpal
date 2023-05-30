@@ -61,7 +61,7 @@ impl Oscillator {
         let mut output = 0.0;
         let mut i = 1;
         while !self.is_multiple_of_freq_above_nyquist(i as f32) {
-            let gain = 1. / (i as f32).powf(gain_exponent);
+            let gain = 1.0 / (i as f32).powf(gain_exponent);
             output += gain * self.calculate_sine_output_from_freq(self.frequency_hz * i as f32);
             i += harmonic_index_increment;
         }
@@ -69,15 +69,15 @@ impl Oscillator {
     }
 
     fn square_wave(&mut self) -> f32 {
-        self.generative_waveform(2, 1.)
+        self.generative_waveform(2, 1.0)
     }
 
     fn saw_wave(&mut self) -> f32 {
-        self.generative_waveform(1, 1.)
+        self.generative_waveform(1, 1.0)
     }
 
     fn triangle_wave(&mut self) -> f32 {
-        self.generative_waveform(2, 2.)
+        self.generative_waveform(2, 2.0)
     }
 
     fn tick(&mut self) -> f32 {
@@ -154,13 +154,13 @@ where
             let time_since_start = std::time::Instant::now()
                 .duration_since(time_at_start)
                 .as_secs_f32();
-            if time_since_start < 1. {
+            if time_since_start < 1.0 {
                 oscillator.set_waveform(Waveform::Sine);
-            } else if time_since_start < 2. {
+            } else if time_since_start < 2.0 {
                 oscillator.set_waveform(Waveform::Triangle);
-            } else if time_since_start < 3. {
+            } else if time_since_start < 3.0 {
                 oscillator.set_waveform(Waveform::Square);
-            } else if time_since_start < 4. {
+            } else if time_since_start < 4.0 {
                 oscillator.set_waveform(Waveform::Saw);
             } else {
                 oscillator.set_waveform(Waveform::Sine);
