@@ -44,7 +44,7 @@ impl Drop for ComInitialized {
     fn drop(&mut self) {
         // Need to avoid calling CoUninitialize() if CoInitializeEx failed since it may have
         // returned RPC_E_MODE_CHANGED - which is OK, see above.
-        if self.result >= 0 {
+        if self.result.is_ok() {
             unsafe { CoUninitialize() };
         }
     }

@@ -42,7 +42,8 @@ binds = [
     "AUDCLNT_STREAMFLAGS_EVENTCALLBACK",
     "AUDCLNT_STREAMFLAGS_LOOPBACK",
     "DEVICE_STATE_ACTIVE",
-    "eAll",
+    # there is another enum variant with same name, hence the full qualification
+    "Windows.Win32.Media.Audio.eAll",
     "eCapture",
     "eConsole",
     "eRender",

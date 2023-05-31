@@ -235,11 +235,10 @@ pub struct DEVPROPKEY {
     pub fmtid: ::windows_core::GUID,
     pub pid: u32,
 }
-pub type EApiCategories = i32;
-pub const eAll: EApiCategories = 511;
 pub type EDataFlow = i32;
 pub const eRender: EDataFlow = 0;
 pub const eCapture: EDataFlow = 1;
+pub const eAll: EDataFlow = 2;
 pub type ERole = i32;
 pub const eConsole: ERole = 0;
 #[repr(C)]
@@ -276,8 +275,8 @@ impl IAudioCaptureClient {
         ppData: *mut *mut u8,
         pNumFramesToRead: *mut u32,
         pdwFlags: *mut u32,
-        pu64DevicePosition: ::core::option::Option<*mut u64>,
-        pu64QPCPosition: ::core::option::Option<*mut u64>,
+        pu64DevicePosition: ::core::option::Option<::core::ptr::NonNull<u64>>,
+        pu64QPCPosition: ::core::option::Option<::core::ptr::NonNull<u64>>,
     ) -> ::windows_core::Result<()> {
         (::windows_core::Interface::vtable(self)
             .GetBuffer)(
@@ -285,10 +284,9 @@ impl IAudioCaptureClient {
                 ppData,
                 pNumFramesToRead,
                 pdwFlags,
-                ::core::mem::transmute(
-                    pu64DevicePosition.unwrap_or(::std::ptr::null_mut()),
-                ),
-                ::core::mem::transmute(pu64QPCPosition.unwrap_or(::std::ptr::null_mut())),
+                pu64DevicePosition
+                    .map_or(::std::ptr::null_mut(), std::ptr::NonNull::as_ptr),
+                pu64QPCPosition.map_or(::std::ptr::null_mut(), std::ptr::NonNull::as_ptr),
             )
             .ok()
     }
@@ -301,10 +299,15 @@ impl IAudioCaptureClient {
             .ok()
     }
     pub unsafe fn GetNextPacketSize(&self) -> ::windows_core::Result<u32> {
-        let mut result__ = ::windows_core::zeroed::<u32>();
-        (::windows_core::Interface::vtable(self)
-            .GetNextPacketSize)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<u32>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetNextPacketSize)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IAudioCaptureClient {
@@ -426,7 +429,9 @@ impl IAudioClient {
         hnsBufferDuration: i64,
         hnsPeriodicity: i64,
         pFormat: *const WAVEFORMATEX,
-        AudioSessionGuid: ::core::option::Option<*const ::windows_core::GUID>,
+        AudioSessionGuid: ::core::option::Option<
+            ::core::ptr::NonNull<::windows_core::GUID>,
+        >,
     ) -> ::windows_core::Result<()> {
         (::windows_core::Interface::vtable(self)
             .Initialize)(
@@ -436,41 +441,56 @@ impl IAudioClient {
                 hnsBufferDuration,
                 hnsPeriodicity,
                 pFormat,
-                ::core::mem::transmute(AudioSessionGuid.unwrap_or(::std::ptr::null())),
+                AudioSessionGuid.map_or(::std::ptr::null(), |p| p.as_ptr() as *const _),
             )
             .ok()
     }
     pub unsafe fn GetBufferSize(&self) -> ::windows_core::Result<u32> {
-        let mut result__ = ::windows_core::zeroed::<u32>();
-        (::windows_core::Interface::vtable(self)
-            .GetBufferSize)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<u32>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetBufferSize)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn GetCurrentPadding(&self) -> ::windows_core::Result<u32> {
-        let mut result__ = ::windows_core::zeroed::<u32>();
-        (::windows_core::Interface::vtable(self)
-            .GetCurrentPadding)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<u32>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetCurrentPadding)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn IsFormatSupported(
         &self,
         ShareMode: AUDCLNT_SHAREMODE,
         pFormat: *const WAVEFORMATEX,
-        ppClosestMatch: ::core::option::Option<*mut *mut WAVEFORMATEX>,
+        ppClosestMatch: ::core::option::Option<::core::ptr::NonNull<*mut WAVEFORMATEX>>,
     ) -> ::windows_core::HRESULT {
         (::windows_core::Interface::vtable(self)
             .IsFormatSupported)(
             ::windows_core::Interface::as_raw(self),
             ShareMode,
             pFormat,
-            ::core::mem::transmute(ppClosestMatch.unwrap_or(::std::ptr::null_mut())),
+            ppClosestMatch.map_or(::std::ptr::null_mut(), std::ptr::NonNull::as_ptr),
         )
     }
     pub unsafe fn GetMixFormat(&self) -> ::windows_core::Result<*mut WAVEFORMATEX> {
-        let mut result__ = ::windows_core::zeroed::<*mut WAVEFORMATEX>();
-        (::windows_core::Interface::vtable(self)
-            .GetMixFormat)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<*mut WAVEFORMATEX>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetMixFormat)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn Start(&self) -> ::windows_core::Result<()> {
         (::windows_core::Interface::vtable(self)
@@ -494,14 +514,16 @@ impl IAudioClient {
     where
         T: ::windows_core::ComInterface,
     {
-        let mut result__ = ::std::ptr::null_mut();
-        (::windows_core::Interface::vtable(self)
-            .GetService)(
+        let mut result__ = ::std::mem::MaybeUninit::uninit();
+        wrap_interface_result(
+            (::windows_core::Interface::vtable(self)
+                .GetService)(
                 ::windows_core::Interface::as_raw(self),
                 &<T as ::windows_core::ComInterface>::IID,
-                &mut result__,
-            )
-            .from_abi(result__)
+                result__.as_mut_ptr(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IAudioClient {
@@ -534,13 +556,13 @@ impl IAudioClock {
     pub unsafe fn GetPosition(
         &self,
         pu64Position: *mut u64,
-        pu64QPCPosition: ::core::option::Option<*mut u64>,
+        pu64QPCPosition: ::core::option::Option<::core::ptr::NonNull<u64>>,
     ) -> ::windows_core::Result<()> {
         (::windows_core::Interface::vtable(self)
             .GetPosition)(
                 ::windows_core::Interface::as_raw(self),
                 pu64Position,
-                ::core::mem::transmute(pu64QPCPosition.unwrap_or(::std::ptr::null_mut())),
+                pu64QPCPosition.map_or(::std::ptr::null_mut(), std::ptr::NonNull::as_ptr),
             )
             .ok()
     }
@@ -579,14 +601,16 @@ impl IAudioRenderClient {
         &self,
         NumFramesRequested: u32,
     ) -> ::windows_core::Result<*mut u8> {
-        let mut result__ = ::windows_core::zeroed::<*mut u8>();
-        (::windows_core::Interface::vtable(self)
-            .GetBuffer)(
+        let mut result__ = ::std::mem::MaybeUninit::<*mut u8>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetBuffer)(
                 ::windows_core::Interface::as_raw(self),
                 NumFramesRequested,
-                &mut result__,
-            )
-            .from_abi(result__)
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn ReleaseBuffer(
         &self,
@@ -634,16 +658,27 @@ pub struct IMMDeviceCollection_Vtbl {
 pub struct IMMDeviceCollection(::windows_core::IUnknown);
 impl IMMDeviceCollection {
     pub unsafe fn GetCount(&self) -> ::windows_core::Result<u32> {
-        let mut result__ = ::windows_core::zeroed::<u32>();
-        (::windows_core::Interface::vtable(self)
-            .GetCount)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<u32>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetCount)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn Item(&self, nDevice: u32) -> ::windows_core::Result<IMMDevice> {
-        let mut result__ = ::windows_core::zeroed::<IMMDevice>();
-        (::windows_core::Interface::vtable(self)
-            .Item)(::windows_core::Interface::as_raw(self), nDevice, &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<IMMDevice>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .Item)(
+                ::windows_core::Interface::as_raw(self),
+                nDevice,
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IMMDeviceCollection {
@@ -686,30 +721,34 @@ impl IMMDeviceEnumerator {
         dataFlow: EDataFlow,
         dwStateMask: u32,
     ) -> ::windows_core::Result<IMMDeviceCollection> {
-        let mut result__ = ::windows_core::zeroed::<IMMDeviceCollection>();
-        (::windows_core::Interface::vtable(self)
-            .EnumAudioEndpoints)(
+        let mut result__ = ::std::mem::MaybeUninit::<IMMDeviceCollection>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .EnumAudioEndpoints)(
                 ::windows_core::Interface::as_raw(self),
                 dataFlow,
                 dwStateMask,
-                &mut result__,
-            )
-            .from_abi(result__)
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn GetDefaultAudioEndpoint(
         &self,
         dataFlow: EDataFlow,
         role: ERole,
     ) -> ::windows_core::Result<IMMDevice> {
-        let mut result__ = ::windows_core::zeroed::<IMMDevice>();
-        (::windows_core::Interface::vtable(self)
-            .GetDefaultAudioEndpoint)(
+        let mut result__ = ::std::mem::MaybeUninit::<IMMDevice>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetDefaultAudioEndpoint)(
                 ::windows_core::Interface::as_raw(self),
                 dataFlow,
                 role,
-                &mut result__,
-            )
-            .from_abi(result__)
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IMMDeviceEnumerator {
@@ -752,40 +791,49 @@ impl IMMDevice {
     pub unsafe fn Activate<T>(
         &self,
         dwClsCtx: CLSCTX,
-        pActivationParams: ::core::option::Option<*const PROPVARIANT>,
+        pActivationParams: ::core::option::Option<::core::ptr::NonNull<PROPVARIANT>>,
     ) -> ::windows_core::Result<T>
     where
         T: ::windows_core::ComInterface,
     {
-        let mut result__ = ::std::ptr::null_mut();
-        (::windows_core::Interface::vtable(self)
-            .Activate)(
+        let mut result__ = ::std::mem::MaybeUninit::uninit();
+        wrap_interface_result(
+            (::windows_core::Interface::vtable(self)
+                .Activate)(
                 ::windows_core::Interface::as_raw(self),
                 &<T as ::windows_core::ComInterface>::IID,
                 dwClsCtx,
-                ::core::mem::transmute(pActivationParams.unwrap_or(::std::ptr::null())),
-                &mut result__,
-            )
-            .from_abi(result__)
+                pActivationParams.map_or(::std::ptr::null(), |p| p.as_ptr() as *const _),
+                result__.as_mut_ptr(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn OpenPropertyStore(
         &self,
         stgmAccess: STGM,
     ) -> ::windows_core::Result<IPropertyStore> {
-        let mut result__ = ::windows_core::zeroed::<IPropertyStore>();
-        (::windows_core::Interface::vtable(self)
-            .OpenPropertyStore)(
+        let mut result__ = ::std::mem::MaybeUninit::<IPropertyStore>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .OpenPropertyStore)(
                 ::windows_core::Interface::as_raw(self),
                 stgmAccess,
-                &mut result__,
-            )
-            .from_abi(result__)
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
     pub unsafe fn GetId(&self) -> ::windows_core::Result<::windows_core::PWSTR> {
-        let mut result__ = ::windows_core::zeroed::<::windows_core::PWSTR>();
-        (::windows_core::Interface::vtable(self)
-            .GetId)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<::windows_core::PWSTR>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetId)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IMMDevice {
@@ -813,10 +861,15 @@ pub struct IMMEndpoint_Vtbl {
 pub struct IMMEndpoint(::windows_core::IUnknown);
 impl IMMEndpoint {
     pub unsafe fn GetDataFlow(&self) -> ::windows_core::Result<EDataFlow> {
-        let mut result__ = ::windows_core::zeroed::<EDataFlow>();
-        (::windows_core::Interface::vtable(self)
-            .GetDataFlow)(::windows_core::Interface::as_raw(self), &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<EDataFlow>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetDataFlow)(
+                ::windows_core::Interface::as_raw(self),
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IMMEndpoint {
@@ -852,10 +905,16 @@ impl IPropertyStore {
         &self,
         key: *const PROPERTYKEY,
     ) -> ::windows_core::Result<PROPVARIANT> {
-        let mut result__ = ::windows_core::zeroed::<PROPVARIANT>();
-        (::windows_core::Interface::vtable(self)
-            .GetValue)(::windows_core::Interface::as_raw(self), key, &mut result__)
-            .from_abi(result__)
+        let mut result__ = ::std::mem::MaybeUninit::<PROPVARIANT>::uninit();
+        wrap_value_result(
+            (::windows_core::Interface::vtable(self)
+                .GetValue)(
+                ::windows_core::Interface::as_raw(self),
+                key,
+                result__.as_mut_ptr().cast(),
+            ),
+            result__,
+        )
     }
 }
 impl ::core::clone::Clone for IPropertyStore {
@@ -1038,3 +1097,25 @@ pub union WAVEFORMATEXTENSIBLE_0 {
 pub type WIN32_ERROR = u32;
 pub const WAIT_OBJECT_0: WIN32_ERROR = 0;
 pub const WAIT_FAILED: WIN32_ERROR = 4294967295;
+#[inline]
+unsafe fn wrap_interface_result<T>(
+    hresult: ::windows_core::HRESULT,
+    res: ::std::mem::MaybeUninit<*mut ::std::ffi::c_void>,
+) -> ::windows_core::Result<T> {
+    if hresult.is_ok() {
+        Ok(std::mem::transmute_copy(&res.assume_init()))
+    } else {
+        Err(::windows_core::Error::from(hresult))
+    }
+}
+#[inline]
+unsafe fn wrap_value_result<T>(
+    hresult: ::windows_core::HRESULT,
+    res: ::std::mem::MaybeUninit<T>,
+) -> ::windows_core::Result<T> {
+    if hresult.is_ok() {
+        Ok(res.assume_init())
+    } else {
+        Err(::windows_core::Error::from(hresult))
+    }
+}

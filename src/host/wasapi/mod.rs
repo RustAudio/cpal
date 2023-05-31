@@ -48,10 +48,10 @@ impl HostTrait for Host {
     }
 }
 
-impl From<i32> for BackendSpecificError {
-    fn from(error: i32) -> Self {
+impl From<::windows_core::Error> for BackendSpecificError {
+    fn from(error: ::windows_core::Error) -> Self {
         BackendSpecificError {
-            description: format!("{}", IoError::from_raw_os_error(error)),
+            description: format!("{}", IoError::from(error)),
         }
     }
 }

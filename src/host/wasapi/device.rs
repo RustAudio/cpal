@@ -131,15 +131,27 @@ impl Drop for WaveFormatExPtr {
     }
 }
 
+// By default windows/windows-sys makes _all_ structs/unions Copy, the
+// embedded bindings could have Copy implemented for specific structs, but it's
+// really unnecessary for the limited number of cases in this file
+#[inline]
+unsafe fn memcpy<T>(src: *const T) -> T {
+    let mut dst = std::mem::zeroed();
+    std::ptr::copy_nonoverlapping(src, &mut dst, 1);
+    dst
+}
+
 impl WaveFormat {
     // Given a pointer to some format, returns a valid copy of the format.
     pub fn copy_from_waveformatex_ptr(ptr: *const wb::WAVEFORMATEX) -> Option<Self> {
         unsafe {
             match (*ptr).wFormatTag as u32 {
-                wb::WAVE_FORMAT_PCM | wb::WAVE_FORMAT_IEEE_FLOAT => Some(WaveFormat::Ex(*ptr)),
+                wb::WAVE_FORMAT_PCM | wb::WAVE_FORMAT_IEEE_FLOAT => {
+                    Some(WaveFormat::Ex(memcpy(ptr)))
+                }
                 wb::WAVE_FORMAT_EXTENSIBLE => {
                     let extensible_ptr = ptr as *const wb::WAVEFORMATEXTENSIBLE;
-                    Some(WaveFormat::Extensible(*extensible_ptr))
+                    Some(WaveFormat::Extensible(memcpy(extensible_ptr)))
                 }
                 _ => None,
             }
@@ -195,7 +207,7 @@ pub unsafe fn is_format_supported(
         let result = client.IsFormatSupported(
             wb::AUDCLNT_SHAREMODE_SHARED,
             waveformatex_ptr,
-            Some(closest_waveformatex_ptr),
+            std::ptr::NonNull::new(closest_waveformatex_ptr),
         );
         // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
         // has been found, but not an exact match) so we also treat this as unsupported.
@@ -214,13 +226,13 @@ pub unsafe fn is_format_supported(
     // We check the wFormatTag to determine this and get a pointer to the correct type.
     match (*waveformatex_ptr).wFormatTag as u32 {
         wb::WAVE_FORMAT_PCM | wb::WAVE_FORMAT_IEEE_FLOAT => {
-            let mut closest_waveformatex = *waveformatex_ptr;
+            let mut closest_waveformatex = memcpy(waveformatex_ptr);
             let mut closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
             is_supported(waveformatex_ptr, &mut closest_waveformatex_ptr as *mut _)
         }
         wb::WAVE_FORMAT_EXTENSIBLE => {
             let waveformatextensible_ptr = waveformatex_ptr as *const wb::WAVEFORMATEXTENSIBLE;
-            let mut closest_waveformatextensible = *waveformatextensible_ptr;
+            let mut closest_waveformatextensible = memcpy(waveformatextensible_ptr);
             let closest_waveformatextensible_ptr = &mut closest_waveformatextensible as *mut _;
             let mut closest_waveformatex_ptr =
                 closest_waveformatextensible_ptr as *mut wb::WAVEFORMATEX;
@@ -278,7 +290,7 @@ unsafe fn format_from_waveformatex_ptr(
         .and_then(|audio_client| {
             audio_client.GetBufferSizeLimits(
                 waveformatex_ptr,
-                true,
+                1,
                 &mut min_buffer_duration,
                 &mut max_buffer_duration,
             )
@@ -319,7 +331,7 @@ impl Device {
 
             // Get the endpoint's friendly-name property.
             let mut property_value = property_store
-                .GetValue((&wb::DEVPKEY_Device_FriendlyName as *const _).cast())
+                .GetValue(((&wb::DEVPKEY_Device_FriendlyName) as *const wb::DEVPROPKEY).cast())
                 .map_err(|err| {
                     let description =
                         format!("failed to retrieve name from property store: {}", err);
@@ -339,7 +351,7 @@ impl Device {
                 return Err(err.into());
             }
 
-            let name_slice = prop_variant.pwszVal.as_wide();
+            let name_slice = prop_variant.Anonymous.pwszVal.as_wide();
             let name_os_string: OsString = OsStringExt::from_wide(name_slice);
             let name_string = match name_os_string.into_string() {
                 Ok(string) => string,
@@ -347,7 +359,7 @@ impl Device {
             };
 
             // Clean up the property.
-            wb::PropVariantClear(&mut property_value);
+            let _ = wb::PropVariantClear(&mut property_value);
 
             Ok(name_string)
         }
@@ -778,28 +790,15 @@ impl PartialEq for Device {
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { wb::CoTaskMemFree(self.0.cast()) }
+                    unsafe { wb::CoTaskMemFree(self.0 .0.cast()) }
                 }
             }
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
             // Plus it won't do to change the device comparison logic unexpectedly.
-            let id1 = self.device.GetId().expect("cpal: GetId failure");
-            let id1 = IdRAII(id1);
-            let id2 = other.device.GetId().expect("cpal: GetId failure");
-            let id2 = IdRAII(id2);
-            // 16-bit null-terminated comparison.
-            let mut offset = 0;
-            loop {
-                let w1: u16 = *(id1.0).offset(offset);
-                let w2: u16 = *(id2.0).offset(offset);
-                if w1 == 0 && w2 == 0 {
-                    return true;
-                }
-                if w1 != w2 {
-                    return false;
-                }
-                offset += 1;
-            }
+            let id1 = IdRAII(self.device.GetId().expect("cpal: GetId failure"));
+            let id2 = IdRAII(other.device.GetId().expect("cpal: GetId failure"));
+
+            id1.0.as_wide() == id2.0.as_wide()
         }
     }
 }

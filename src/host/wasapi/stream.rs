@@ -226,7 +226,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, StreamError> {
 // next event might be some command submitted by the user (the first handle) or
 // might indicate that one of the streams is ready to deliver or receive audio.
 fn wait_for_handle_signal(handles: &[wb::HANDLE]) -> Result<usize, BackendSpecificError> {
-    debug_assert!(handles.len() <= 64 /*SystemServices::MAXIMUM_WAIT_OBJECTS as usize*/);
+    debug_assert!(handles.len() <= wb::MAXIMUM_WAIT_OBJECTS as usize);
     let result = unsafe {
         wb::WaitForMultipleObjectsEx(
             handles.len() as _,
@@ -373,7 +373,7 @@ fn process_input(
                 &mut frames_available,
                 flags.as_mut_ptr(),
                 None,
-                Some(&mut qpc_position),
+                ptr::NonNull::new(&mut qpc_position),
             );
 
             match result {
@@ -485,7 +485,7 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
     unsafe {
         stream
             .audio_clock
-            .GetPosition(&mut position, Some(&mut qpc_position))
+            .GetPosition(&mut position, ptr::NonNull::new(&mut qpc_position))
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
