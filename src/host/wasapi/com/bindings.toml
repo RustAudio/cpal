@@ -1,0 +1,72 @@
+output = "bindings.rs"
+binds = [
+    # Events
+    "CloseHandle",
+    "CreateEventA",
+    "SetEvent",
+    "WaitForMultipleObjectsEx",
+    "INFINITE",
+    "MAXIMUM_WAIT_OBJECTS",
+    "WAIT_FAILED",
+    "WAIT_OBJECT_0",
+
+    # COM
+    "CoCreateInstance",
+    "CoInitializeEx",
+    "CoTaskMemFree",
+    "CoUninitialize",
+    "CLSCTX_ALL",
+    "COINIT_APARTMENTTHREADED",
+    "RPC_E_CHANGED_MODE",
+    "S_FALSE",
+
+    # Properties
+    "PropVariantClear",
+    "DEVPKEY_Device_FriendlyName",
+    "STGM_READ",
+    "VT_LPWSTR",
+
+    # Wave format inspection
+    "KSAUDIO_SPEAKER_DIRECTOUT",
+    "KSDATAFORMAT_SUBTYPE_IEEE_FLOAT",
+    "KSDATAFORMAT_SUBTYPE_PCM",
+    "WAVE_FORMAT_EXTENSIBLE",
+    "WAVE_FORMAT_IEEE_FLOAT",
+    "WAVE_FORMAT_PCM",
+    "WAVEFORMATEXTENSIBLE",
+
+    # General audio stuff
+    "AUDCLNT_E_DEVICE_INVALIDATED",
+    "AUDCLNT_S_BUFFER_EMPTY",
+    "AUDCLNT_SHAREMODE_SHARED",
+    "AUDCLNT_STREAMFLAGS_EVENTCALLBACK",
+    "AUDCLNT_STREAMFLAGS_LOOPBACK",
+    "DEVICE_STATE_ACTIVE",
+    "eAll",
+    "eCapture",
+    "eConsole",
+    "eRender",
+    "MMDeviceEnumerator",
+]
+
+[interfaces]
+IAudioCaptureClient = ["GetNextPacketSize", "GetBuffer", "ReleaseBuffer"]
+IAudioClient = [
+    "Initialize",
+    "GetBufferSize",
+    "GetCurrentPadding",
+    "IsFormatSupported",
+    "GetMixFormat",
+    "Start",
+    "Stop",
+    "SetEventHandle",
+    "GetService",
+]
+IAudioClient2 = ["GetBufferSizeLimits"]
+IAudioClock = ["GetPosition"]
+IAudioRenderClient = ["GetBuffer", "ReleaseBuffer"]
+IMMDevice = ["Activate", "OpenPropertyStore", "GetId"]
+IMMDeviceCollection = ["GetCount", "Item"]
+IMMDeviceEnumerator = ["EnumAudioEndpoints", "GetDefaultAudioEndpoint"]
+IMMEndpoint = ["GetDataFlow"]
+IPropertyStore = ["GetValue"]

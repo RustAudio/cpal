@@ -85,16 +85,19 @@ impl ErrDeviceNotAvailable for crate::StreamError {
 }
 
 #[inline]
-fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: i32) -> E {
+fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: ::windows_core::Error) -> E {
     windows_err_to_cpal_err_message(e, "")
 }
 
 #[inline]
-fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(e: i32, message: &str) -> E {
-    if let windows_sys::Win32::Media::Audio::AUDCLNT_E_DEVICE_INVALIDATED = e {
+fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
+    e: ::windows_core::Error,
+    message: &str,
+) -> E {
+    if let com::bindings::AUDCLNT_E_DEVICE_INVALIDATED = e.code() {
         E::device_not_available()
     } else {
-        let description = format!("{}{}", message, com::get_error_message(e));
+        let description = format!("{}{}", message, e);
         let err = BackendSpecificError { description };
         err.into()
     }
