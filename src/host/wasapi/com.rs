@@ -1,6 +1,6 @@
 //! Handles COM initialization and cleanup.
 
-// pub(super) mod audio;
+#[rustfmt::skip]
 pub(super) mod bindings;
 pub(super) mod threading;
 
