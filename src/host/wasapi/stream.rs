@@ -13,7 +13,6 @@ use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::SystemServices;
 use windows::Win32::System::Threading;
-use windows::Win32::System::WindowsProgramming;
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -160,7 +159,7 @@ impl Stream {
 impl Drop for Stream {
     #[inline]
     fn drop(&mut self) {
-        if let Ok(_) = self.push_command(Command::Terminate) {
+        if self.push_command(Command::Terminate).is_ok() {
             self.thread.take().unwrap().join().unwrap();
             unsafe {
                 Foundation::CloseHandle(self.pending_scheduled_event);
@@ -238,9 +237,9 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
     let result = unsafe {
         Threading::WaitForMultipleObjectsEx(
             handles,
-            false,                        // Don't wait for all, just wait for the first
-            WindowsProgramming::INFINITE, // TODO: allow setting a timeout
-            false,                        // irrelevant parameter here
+            false,               // Don't wait for all, just wait for the first
+            Threading::INFINITE, // TODO: allow setting a timeout
+            false,               // irrelevant parameter here
         )
     };
     if result == Foundation::WAIT_FAILED {

@@ -457,7 +457,7 @@ impl StreamInstant {
     fn from_nanos(nanos: i64) -> Self {
         let secs = nanos / 1_000_000_000;
         let subsec_nanos = nanos - secs * 1_000_000_000;
-        Self::new(secs as i64, subsec_nanos as u32)
+        Self::new(secs, subsec_nanos as u32)
     }
 
     #[allow(dead_code)]

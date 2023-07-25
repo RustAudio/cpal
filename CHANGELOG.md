@@ -1,3 +1,7 @@
+# Unreleased
+
+- Update `windows` dependency to v0.48
+
 # Version 0.15.2 (2023-03-30)
 
 - webaudio: support multichannel output streams
