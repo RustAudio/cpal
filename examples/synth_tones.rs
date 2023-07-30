@@ -35,7 +35,7 @@ pub struct Oscillator {
 
 impl Oscillator {
     fn advance_sample(&mut self) {
-        self.current_sample_index = (self.current_sample_index + 1.0) % self.sample_rate;
+        self.current_sample_index = self.current_sample_index + 1.0;
     }
 
     fn set_waveform(&mut self, waveform: Waveform) {
