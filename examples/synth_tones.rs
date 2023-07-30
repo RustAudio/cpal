@@ -76,6 +76,8 @@ impl Oscillator {
         self.generative_waveform(1, 1.0)
     }
 
+    // DO NOT SUBMIT: PR discussion to be had on generative_waveform(), and
+    // triangle_wave() is not producing anything triangular.
     fn triangle_wave(&mut self) -> f32 {
         self.generative_waveform(2, 2.0)
     }
