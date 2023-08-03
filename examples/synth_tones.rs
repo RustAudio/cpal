@@ -81,7 +81,6 @@ impl Oscillator {
     }
 
     fn tick(&mut self) -> f32 {
-        self.advance_sample();
         match self.waveform {
             Waveform::Sine => self.sine_wave(),
             Waveform::Square => self.square_wave(),
