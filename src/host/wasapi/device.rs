@@ -442,7 +442,7 @@ impl Device {
 
             // If the default format can't succeed we have no hope of finding other formats.
             if !is_format_supported(client, default_waveformatex_ptr.0)? {
-                let description = 
+                let description =
                     "Could not determine support for default `WAVEFORMATEX`".to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
