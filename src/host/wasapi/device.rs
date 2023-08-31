@@ -441,7 +441,12 @@ impl Device {
                 .map_err(windows_err_to_cpal_err::<SupportedStreamConfigsError>)?;
 
             // If the default format can't succeed we have no hope of finding other formats.
-            assert!(is_format_supported(client, default_waveformatex_ptr.0)?);
+            if !is_format_supported(client, default_waveformatex_ptr.0)? {
+                let description =
+                    "Could not determine support for default `WAVEFORMATEX`".to_string();
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
 
             // Copy the format to use as a test format (as to avoid mutating the original format).
             let mut test_format = {
