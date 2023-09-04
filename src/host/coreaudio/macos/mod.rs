@@ -297,7 +297,7 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
-            let audio_unit = audio_unit_from_device(self, true)?;
+            let audio_unit = audio_unit_from_device(self, scope == kAudioObjectPropertyScopeInput)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
