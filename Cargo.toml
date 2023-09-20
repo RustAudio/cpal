@@ -7,6 +7,7 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
+rust-version = "1.70"
 
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
