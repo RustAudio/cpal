@@ -5,7 +5,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
-use once_cell::sync::Lazy;
+use std::sync::OnceLock;
 use std::ffi::OsString;
 use std::fmt;
 use std::mem;
@@ -880,23 +880,27 @@ impl Endpoint {
     }
 }
 
-static ENUMERATOR: Lazy<Enumerator> = Lazy::new(|| {
-    // COM initialization is thread local, but we only need to have COM initialized in the
-    // thread we create the objects in
-    com::com_initialized();
+static ENUMERATOR: OnceLock<Enumerator> = OnceLock::new();
 
-    // building the devices enumerator object
-    unsafe {
-        let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
-            &Audio::MMDeviceEnumerator,
-            None,
-            Com::CLSCTX_ALL,
-        )
-        .unwrap();
+fn get_enumerator() -> &'static Enumerator {
+    ENUMERATOR.get_or_init(|| {
+        // COM initialization is thread local, but we only need to have COM initialized in the
+        // thread we create the objects in
+        com::com_initialized();
 
-        Enumerator(enumerator)
-    }
-});
+        // building the devices enumerator object
+        unsafe {
+            let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
+                &Audio::MMDeviceEnumerator,
+                None,
+                Com::CLSCTX_ALL,
+            )
+            .unwrap();
+
+            Enumerator(enumerator)
+        }
+    })
+}
 
 /// Send/Sync wrapper around `IMMDeviceEnumerator`.
 struct Enumerator(Audio::IMMDeviceEnumerator);
@@ -915,7 +919,7 @@ impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         unsafe {
             // can fail because of wrong parameters (should never happen) or out of memory
-            let collection = ENUMERATOR
+            let collection = get_enumerator()
                 .0
                 .EnumAudioEndpoints(Audio::eAll, Audio::DEVICE_STATE_ACTIVE)
                 .map_err(BackendSpecificError::from)?;
@@ -959,7 +963,7 @@ impl Iterator for Devices {
 
 fn default_device(data_flow: Audio::EDataFlow) -> Option<Device> {
     unsafe {
-        let device = ENUMERATOR
+        let device = get_enumerator()
             .0
             .GetDefaultAudioEndpoint(data_flow, Audio::eConsole)
             .ok()?;
