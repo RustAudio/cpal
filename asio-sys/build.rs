@@ -14,32 +14,26 @@ use reqwest::blocking::Client;
 use zip::read::ZipArchive;
 
 const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
-
+const ASIO_SDK_URL: &str = "https://www.steinberg.net/asiosdk";
 const ASIO_HEADER: &str = "asio.h";
 const ASIO_SYS_HEADER: &str = "asiosys.h";
 const ASIO_DRIVERS_HEADER: &str = "asiodrivers.h";
 
-
-
-
-
-
-
-
 fn main() {
     println!("cargo:rerun-if-env-changed={}", CPAL_ASIO_DIR);
 
-    invoke_vcvars();
-
     // If ASIO directory isn't set silently return early
-    let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
-        Err(_) => return,
-        Ok(var) => var,
-    };
+    // let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
+    //     Err(_) => return,
+    //     Ok(var) => var,
+    // };
 
     // Asio directory
-    let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+    // let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+    let cpal_asio_dir = get_asio_dir();
     println!("cargo:rerun-if-changed={}", cpal_asio_dir.display());
+
+    panic!("cpal_asio_dir: {}", cpal_asio_dir.display());
 
     // Directory where bindings and library are created
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
@@ -225,8 +219,49 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
 }
 
 
+fn get_asio_dir() -> PathBuf {
+    // Check if CPAL_ASIO_DIR env var is set
+    if let Ok(path) = env::var(CPAL_ASIO_DIR) {
+        return PathBuf::from(path);
+    }
 
+    // If not set, check temp directory for ASIO SDK, maybe it is previously downloaded
+    let temp_dir = env::temp_dir();
+    let asio_dir = temp_dir.join("asio_sdk");
+    if asio_dir.exists() {
+        return asio_dir;
+    }
 
+    // If not found, download ASIO SDK
+    let response = Client::new().get(ASIO_SDK_URL).send();
+
+    match response {
+        Ok(mut resp) => {
+            if resp.status().is_success() {
+                // Unzip the archive
+                let mut archive_bytes = Vec::new();
+                resp.read_to_end(&mut archive_bytes).unwrap();
+
+                let cursor = Cursor::new(archive_bytes);
+                let mut archive = ZipArchive::new(cursor).expect("Failed to read zip contents");
+                archive.extract(&temp_dir).expect("Failed to extract zip");
+
+                // Move the contents of the inner directory to asio_dir
+                for entry in walkdir::WalkDir::new(&temp_dir).min_depth(1).max_depth(1) {
+                    let entry = entry.unwrap();
+                    if entry.file_type().is_dir() && entry.file_name().to_string_lossy().starts_with("asio") {
+                        fs::rename(entry.path(), &asio_dir).expect("Failed to rename directory");
+                        break;
+                    }
+                }
+                asio_dir
+            } else {
+                panic!("Failed to download ASIO SDK")
+            }
+        }
+        Err(_) => panic!("Failed to download ASIO SDK"),
+    }
+}
 
 fn invoke_vcvars() {
     println!("Determining system architecture...");
