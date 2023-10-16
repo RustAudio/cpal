@@ -1,10 +1,17 @@
 extern crate bindgen;
 extern crate cc;
 extern crate walkdir;
+extern crate reqwest;
+extern crate zip;
 
-use std::env;
-use std::path::PathBuf;
 use walkdir::WalkDir;
+use std::path::PathBuf;
+use std::process::{Command, exit};
+use std::env;
+use std::fs;
+use std::io::{Cursor, Read};
+use reqwest::blocking::Client;
+use zip::read::ZipArchive;
 
 const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
 
@@ -12,8 +19,17 @@ const ASIO_HEADER: &str = "asio.h";
 const ASIO_SYS_HEADER: &str = "asiosys.h";
 const ASIO_DRIVERS_HEADER: &str = "asiodrivers.h";
 
+
+
+
+
+
+
+
 fn main() {
     println!("cargo:rerun-if-env-changed={}", CPAL_ASIO_DIR);
+
+    invoke_vcvars();
 
     // If ASIO directory isn't set silently return early
     let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
@@ -206,4 +222,66 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
     bindings
         .write_to_file(out_path.join("asio_bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+
+
+
+
+fn invoke_vcvars() {
+    println!("Determining system architecture...");
+
+    // Determine the system architecture to be used as an argument to vcvarsall.bat
+    let arch = if cfg!(target_arch = "x86_64") {
+        "amd64"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        panic!("Unsupported architecture");
+    };
+
+    println!("Architecture detected as {}.", arch);
+
+    // Define search paths for vcvarsall.bat based on architecture
+    let paths = if arch == "amd64" {
+        vec![
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\",
+            "C:\\Program Files\\Microsoft Visual Studio\\",
+        ]
+    } else {
+        vec!["C:\\Program Files\\Microsoft Visual Studio\\"]
+    };
+
+    // Search for vcvarsall.bat using walkdir
+    println!("Searching for vcvarsall.bat..");
+    for path in paths.iter() {
+        for entry in WalkDir::new(path).into_iter().filter_map(Result::ok).filter(|e| !e.file_type().is_dir()) {
+            if entry.path().ends_with("vcvarsall.bat") {
+                println!("Found vcvarsall.bat at {}. Initializing environment...", entry.path().display());
+                
+                // Invoke vcvarsall.bat 
+                let output = Command::new("cmd")
+                    .args(&["/c", entry.path().to_str().unwrap(), &arch, "&&", "set"])
+                    .output()
+                    .expect("Failed to execute command");
+
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    // Filters the output of vcvarsall.bat to only include lines of the form "VARNAME=VALUE"
+                    let parts: Vec<&str> = line.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        env::set_var(parts[0], parts[1]);
+                    }
+                }
+                panic!();
+                return;
+            }
+        }
+    }
+
+    eprintln!("Error: Could not find vcvarsall.bat. Please install the latest version of Visual Studio.");
+    exit(1);
 }
