@@ -4,9 +4,11 @@ extern crate walkdir;
 
 use std::env;
 use std::path::PathBuf;
+use std::process::Command;
 use walkdir::WalkDir;
 
 const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
+const ASIO_SDK_URL: &str = "https://www.steinberg.net/asiosdk";
 
 const ASIO_HEADER: &str = "asio.h";
 const ASIO_SYS_HEADER: &str = "asiosys.h";
@@ -15,24 +17,22 @@ const ASIO_DRIVERS_HEADER: &str = "asiodrivers.h";
 fn main() {
     println!("cargo:rerun-if-env-changed={}", CPAL_ASIO_DIR);
 
-    // If ASIO directory isn't set silently return early
-    let cpal_asio_dir_var = match env::var(CPAL_ASIO_DIR) {
-        Err(_) => return,
-        Ok(var) => var,
-    };
-
-    // Asio directory
-    let cpal_asio_dir = PathBuf::from(cpal_asio_dir_var);
+    // ASIO SDK directory
+    let cpal_asio_dir = get_asio_dir();
     println!("cargo:rerun-if-changed={}", cpal_asio_dir.display());
 
     // Directory where bindings and library are created
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
 
-    // Check if library exists
-    // If it doesn't create it
+    // Check if library exists,
+    // if it doesn't create it
     let mut lib_path = out_dir.clone();
     lib_path.push("libasio.a");
     if !lib_path.exists() {
+        if !vcvars_set() {
+            println!("VCINSTALLDIR is not set. Attempting to invoke vcvarsall.bat..");
+            invoke_vcvars();
+        }
         create_lib(&cpal_asio_dir);
     }
 
@@ -48,6 +48,10 @@ fn main() {
     let mut binding_path = out_dir.clone();
     binding_path.push("asio_bindings.rs");
     if !binding_path.exists() {
+        if !vcvars_set() {
+            println!("VCINSTALLDIR is not set. Attempting to invoke vcvarsall.bat..");
+            invoke_vcvars();
+        }
         create_bindings(&cpal_asio_dir);
     }
 }
@@ -206,4 +210,141 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
     bindings
         .write_to_file(out_path.join("asio_bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn get_asio_dir() -> PathBuf {
+    // Check if CPAL_ASIO_DIR env var is set
+    if let Ok(path) = env::var(CPAL_ASIO_DIR) {
+        println!("CPAL_ASIO_DIR is set at {path}");
+        return PathBuf::from(path);
+    }
+
+    // If not set, check temp directory for ASIO SDK, maybe it is previously downloaded
+    let temp_dir = env::temp_dir();
+    let asio_dir = temp_dir.join("asio_sdk");
+    if asio_dir.exists() {
+        println!("CPAL_ASIO_DIR is set at {}", asio_dir.display());
+        return asio_dir;
+    }
+
+    // If not found, download ASIO SDK using PowerShell's Invoke-WebRequest
+    println!("CPAL_ASIO_DIR is not set or contents are cached downloading from {ASIO_SDK_URL}",);
+
+    let asio_zip_path = temp_dir.join("asio_sdk.zip");
+    let status = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Invoke-WebRequest -Uri {ASIO_SDK_URL} -OutFile {}",
+                asio_zip_path.display()
+            ),
+        ])
+        .status()
+        .expect("Failed to execute PowerShell command");
+
+    if !status.success() {
+        panic!("Failed to download ASIO SDK");
+    }
+    println!("Downloaded ASIO SDK successfully");
+
+    // Unzip using PowerShell's Expand-Archive
+    println!("Extracting ASIO SDK..");
+    let status = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Expand-Archive -Path {} -DestinationPath {} -Force",
+                asio_zip_path.display(),
+                temp_dir.display()
+            ),
+        ])
+        .status()
+        .expect("Failed to execute PowerShell command for extracting ASIO SDK");
+
+    if !status.success() {
+        panic!("Failed to extract ASIO SDK");
+    }
+
+    // Move the contents of the inner directory to asio_dir
+    for entry in walkdir::WalkDir::new(&temp_dir).min_depth(1).max_depth(1) {
+        let entry = entry.unwrap();
+        if entry.file_type().is_dir() && entry.file_name().to_string_lossy().starts_with("asio") {
+            std::fs::rename(entry.path(), &asio_dir).expect("Failed to rename directory");
+            break;
+        }
+    }
+    println!("CPAL_ASIO_DIR is set at {}", asio_dir.display());
+    asio_dir
+}
+
+fn invoke_vcvars() {
+    println!("Invoking vcvarsall.bat..");
+    println!("Determining system architecture..");
+
+    // Determine the system architecture to be used as an argument to vcvarsall.bat
+    let arch = if cfg!(target_arch = "x86_64") {
+        "amd64"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        panic!("Unsupported architecture");
+    };
+
+    println!("Architecture detected as {arch}.");
+
+    // Define search paths for vcvarsall.bat based on architecture
+    let paths = if arch == "amd64" {
+        vec![
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\",
+            "C:\\Program Files\\Microsoft Visual Studio\\",
+        ]
+    } else {
+        vec!["C:\\Program Files\\Microsoft Visual Studio\\"]
+    };
+
+    // Search for vcvarsall.bat using walkdir
+    println!("Searching for vcvarsall.bat in {paths:?}");
+    for path in paths.iter() {
+        for entry in WalkDir::new(path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| !e.file_type().is_dir())
+        {
+            if entry.path().ends_with("vcvarsall.bat") {
+                println!(
+                    "Found vcvarsall.bat at {}. Initializing environment..",
+                    entry.path().display()
+                );
+
+                // Invoke vcvarsall.bat
+                let output = Command::new("cmd")
+                    .args(&["/c", entry.path().to_str().unwrap(), &arch, "&&", "set"])
+                    .output()
+                    .expect("Failed to execute command");
+
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    // Filters the output of vcvarsall.bat to only include lines of the form "VARNAME=VALUE"
+                    let parts: Vec<&str> = line.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        env::set_var(parts[0], parts[1]);
+                        println!("{}={}", parts[0], parts[1]);
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    panic!("Could not find vcvarsall.bat. Please install the latest version of Visual Studio.");
+}
+// Checks if vcvarsall.bat has been invoked
+// Assumes that it is very unlikely that the user would set VCINSTALLDIR manually
+fn vcvars_set() -> bool {
+    env::var("VCINSTALLDIR").is_ok()
 }
