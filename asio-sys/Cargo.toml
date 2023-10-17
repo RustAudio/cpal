@@ -13,8 +13,6 @@ build = "build.rs"
 bindgen = "0.68"
 walkdir = "2"
 cc = "1.0.83"
-reqwest = { version = "0.11" , features = ["blocking"] }
-zip = "0.6"
 
 [dependencies]
 once_cell = "1.12"

@@ -1,17 +1,11 @@
 extern crate bindgen;
 extern crate cc;
-extern crate reqwest;
 extern crate walkdir;
-extern crate zip;
 
-use reqwest::blocking::Client;
 use std::env;
-use std::fs;
-use std::io::{Cursor, Read};
 use std::path::PathBuf;
-use std::process::{exit, Command};
+use std::process::Command;
 use walkdir::WalkDir;
-use zip::read::ZipArchive;
 
 const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";
 const ASIO_SDK_URL: &str = "https://www.steinberg.net/asiosdk";
@@ -222,7 +216,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
 fn get_asio_dir() -> PathBuf {
     // Check if CPAL_ASIO_DIR env var is set
     if let Ok(path) = env::var(CPAL_ASIO_DIR) {
-        println!("CPAL_ASIO_DIR is set at {CPAL_ASIO_DIR}");
+        println!("CPAL_ASIO_DIR is set at {}", path);
         return PathBuf::from(path);
     }
 
@@ -234,41 +228,57 @@ fn get_asio_dir() -> PathBuf {
         return asio_dir;
     }
 
-    // If not found, download ASIO SDK
-    println!("CPAL_ASIO_DIR is not set or contents are cached downloading from {ASIO_SDK_URL}");
-    let response = Client::new().get(ASIO_SDK_URL).send();
+    // If not found, download ASIO SDK using PowerShell's Invoke-WebRequest
+    println!("CPAL_ASIO_DIR is not set or contents are cached downloading from {}", ASIO_SDK_URL);
 
-    match response {
-        Ok(mut resp) => {
-            if resp.status().is_success() {
-                println!("Downloaded ASIO SDK successfully");
-                println!("Extracting ASIO SDK..");
-                // Unzip the archive
-                let mut archive_bytes = Vec::new();
-                resp.read_to_end(&mut archive_bytes).unwrap();
+    let asio_zip_path = temp_dir.join("asio_sdk.zip");
+    let status = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Invoke-WebRequest -Uri {} -OutFile {}",
+                ASIO_SDK_URL,
+                asio_zip_path.display()
+            ),
+        ])
+        .status()
+        .expect("Failed to execute PowerShell command");
 
-                let cursor = Cursor::new(archive_bytes);
-                let mut archive = ZipArchive::new(cursor).expect("Failed to read zip contents");
-                archive.extract(&temp_dir).expect("Failed to extract zip");
-
-                // Move the contents of the inner directory to asio_dir
-                for entry in walkdir::WalkDir::new(&temp_dir).min_depth(1).max_depth(1) {
-                    let entry = entry.unwrap();
-                    if entry.file_type().is_dir()
-                        && entry.file_name().to_string_lossy().starts_with("asio")
-                    {
-                        fs::rename(entry.path(), &asio_dir).expect("Failed to rename directory");
-                        break;
-                    }
-                }
-                println!("CPAL_ASIO_DIR is set at {}", asio_dir.display());
-                asio_dir
-            } else {
-                panic!("Failed to download ASIO SDK")
-            }
-        }
-        Err(_) => panic!("Failed to download ASIO SDK"),
+    if !status.success() {
+        panic!("Failed to download ASIO SDK");
     }
+    println!("Downloaded ASIO SDK successfully");
+
+    // Unzip using PowerShell's Expand-Archive
+    println!("Extracting ASIO SDK..");
+    let status = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Expand-Archive -Path {} -DestinationPath {} -Force",
+                asio_zip_path.display(),
+                temp_dir.display()
+            ),
+        ])
+        .status()
+        .expect("Failed to execute PowerShell command for extracting ASIO SDK");
+
+    if !status.success() {
+        panic!("Failed to extract ASIO SDK");
+    }
+
+    // Move the contents of the inner directory to asio_dir
+    for entry in walkdir::WalkDir::new(&temp_dir).min_depth(1).max_depth(1) {
+        let entry = entry.unwrap();
+        if entry.file_type().is_dir() && entry.file_name().to_string_lossy().starts_with("asio") {
+            std::fs::rename(entry.path(), &asio_dir).expect("Failed to rename directory");
+            break;
+        }
+    }
+    println!("CPAL_ASIO_DIR is set at {}", asio_dir.display());
+    asio_dir
 }
 
 fn invoke_vcvars() {
@@ -333,8 +343,7 @@ fn invoke_vcvars() {
         }
     }
 
-    eprintln!(
-        "Error: Could not find vcvarsall.bat. Please install the latest version of Visual Studio."
+    panic!(
+        "Could not find vcvarsall.bat. Please install the latest version of Visual Studio."
     );
-    exit(1);
 }
