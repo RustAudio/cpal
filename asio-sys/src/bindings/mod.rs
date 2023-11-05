@@ -1022,7 +1022,26 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
         if let Ok(()) = asio_result!(res) {
             time.time_info.flags = (ai::AsioTimeInfoFlags::kSystemTimeValid
                 | ai::AsioTimeInfoFlags::kSamplePositionValid)
-                .0;
+                // Context about the cast:
+                //
+                // Cast was required to successfully compile with MinGW-w64.
+                //
+                // The flags defined will not create a value that exceeds the maximum value of an i32.
+                // The flags are intended to be non-negative, so the sign bit will not be used.
+                // The c_uint (flags) is being cast to i32 which is safe as long as the actual value fits within the i32 range, which is true in this case.
+                //
+                // The actual flags in asio sdk are defined as:
+                // typedef enum AsioTimeInfoFlags
+                // {
+                //	kSystemTimeValid        = 1,            // must always be valid
+                //	kSamplePositionValid    = 1 << 1,       // must always be valid
+                //	kSampleRateValid        = 1 << 2,
+                //	kSpeedValid             = 1 << 3,
+                //
+                //	kSampleRateChanged      = 1 << 4,
+                //	kClockSourceChanged     = 1 << 5
+                // } AsioTimeInfoFlags;
+                .0 as i32;
         }
         time
     };
