@@ -421,7 +421,7 @@ fn search_vcvars_all_bat() -> PathBuf {
     }
 
     // Define search paths for vcvarsall.bat based on architecture
-    let paths = vec![
+    let paths = &[
         // Visual Studio 2022+
         "C:\\Program Files\\Microsoft Visual Studio\\",
         // <= Visual Studio 2019
@@ -533,8 +533,9 @@ fn guess_vcvars_all_bat() -> Option<PathBuf> {
 /// Because of this there is no native or cross compilation is supported for 32 bit arm processors.
 fn determine_vcvarsall_bat_arch_arg() -> String {
     let host_architecture = std::env::consts::ARCH;
+    let target_architecture = std::env::var("CARGO_CFG_TARGET_ARCH").expect("Target not set.");
 
-    let arch_arg = if cfg!(target_arch = "x86_64") {
+    let arch_arg = if target_architecture == "x86_64" {
         if host_architecture == "x86" {
             // Arg for cross compilation from x86 to x64
             "x86_amd64"
@@ -547,7 +548,7 @@ fn determine_vcvarsall_bat_arch_arg() -> String {
         } else {
             panic!("Unsupported host architecture {}", host_architecture);
         }
-    } else if cfg!(target_arch = "x86") {
+    } else if target_architecture == "x86" {
         if host_architecture == "x86" {
             // Arg for native compilation from x86 to x86
             "x86"
@@ -560,7 +561,7 @@ fn determine_vcvarsall_bat_arch_arg() -> String {
         } else {
             panic!("Unsupported host architecture {}", host_architecture);
         }
-    } else if cfg!(target_arch = "arm") {
+    } else if target_architecture == "arm" {
         if host_architecture == "x86" {
             // Arg for cross compilation from x86 to arm
             "x86_arm"
@@ -573,7 +574,7 @@ fn determine_vcvarsall_bat_arch_arg() -> String {
         } else {
             panic!("Unsupported host architecture {}", host_architecture);
         }
-    } else if cfg!(target_arch = "aarch64") {
+    } else if target_architecture == "aarch64" {
         if host_architecture == "x86" {
             // Arg for cross compilation from x86 to arm
             "x86_arm64"
