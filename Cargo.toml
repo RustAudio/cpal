@@ -26,7 +26,7 @@ clap = { version = "4.0", features = ["derive"] }
 ndk-glue = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.48.0", features = [
+windows = { version = "0.52.0", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
@@ -35,6 +35,7 @@ windows = { version = "0.48.0", features = [
     "Win32_System_Threading",
     "Win32_Security",
     "Win32_System_SystemServices",
+    "Win32_System_Variant",
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
@@ -43,7 +44,7 @@ num-traits = { version = "0.2.6", optional = true }
 parking_lot = "0.12"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.7"
+alsa = "0.8"
 libc = "0.2"
 parking_lot = "0.12"
 jack = { version = "0.11", optional = true }

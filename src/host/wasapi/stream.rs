@@ -149,8 +149,7 @@ impl Stream {
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
         self.commands.send(command)?;
         unsafe {
-            let result = Threading::SetEvent(self.pending_scheduled_event);
-            assert_ne!(result, false);
+            Threading::SetEvent(self.pending_scheduled_event).unwrap();
         }
         Ok(())
     }
@@ -162,7 +161,7 @@ impl Drop for Stream {
         if self.push_command(Command::Terminate).is_ok() {
             self.thread.take().unwrap().join().unwrap();
             unsafe {
-                Foundation::CloseHandle(self.pending_scheduled_event);
+                let _ = Foundation::CloseHandle(self.pending_scheduled_event);
             }
         }
     }
@@ -185,7 +184,7 @@ impl Drop for StreamInner {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            Foundation::CloseHandle(self.event);
+            let _ = Foundation::CloseHandle(self.event);
         }
     }
 }
@@ -243,8 +242,11 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
         )
     };
     if result == Foundation::WAIT_FAILED {
-        let err = unsafe { Foundation::GetLastError() };
-        let description = format!("`WaitForMultipleObjectsEx failed: {}", err.0);
+        let err = match unsafe { Foundation::GetLastError() } {
+            Ok(()) => windows::core::Error::OK,
+            Err(err) => err,
+        };
+        let description = format!("`WaitForMultipleObjectsEx failed: {}", err);
         let err = BackendSpecificError { description };
         return Err(err);
     }
