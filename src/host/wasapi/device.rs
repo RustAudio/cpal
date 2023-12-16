@@ -5,7 +5,6 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
-use std::sync::OnceLock;
 use std::ffi::OsString;
 use std::fmt;
 use std::mem;
@@ -13,6 +12,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
