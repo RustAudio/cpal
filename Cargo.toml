@@ -7,6 +7,7 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
+rust-version = "1.70"
 
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
@@ -41,7 +42,6 @@ windows = { version = "0.52.0", features = [
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 parking_lot = "0.12"
-once_cell = "1.12"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.8"
