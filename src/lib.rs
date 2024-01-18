@@ -265,7 +265,7 @@ pub struct StreamConfig {
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
     Range {
         min: FrameCount,
@@ -278,7 +278,7 @@ pub enum SupportedBufferSize {
 
 /// Describes a range of supported stream configurations, retrieved via the
 /// [`Device::supported_input/output_configs`](traits::DeviceTrait#required-methods) method.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedStreamConfigRange {
     pub(crate) channels: ChannelCount,
     /// Minimum value for the samples rate of the supported formats.
