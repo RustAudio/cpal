@@ -289,6 +289,9 @@ jobs:
         rustup target add aarch64-linux-android
         rustup target add i686-linux-android
         rustup target add x86_64-linux-android
+    - name: Set Up Android tools
+      run: |
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "platforms;android-30"
     - name: Install Cargo APK
       run: cargo install cargo-apk
     - name: Build APK
