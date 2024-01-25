@@ -20,15 +20,9 @@ jobs:
         components: clippy
         target: armv7-linux-androideabi
     - name: Run clippy
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --all-features
+      run: cargo clippy --all --all-features
     - name: Run clippy for Android target
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
+      run: cargo clippy --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
