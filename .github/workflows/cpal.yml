@@ -7,7 +7,7 @@ jobs:
   clippy-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Update apt
       run: sudo apt update
     - name: Install alsa
@@ -36,7 +36,7 @@ jobs:
   rustfmt-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -54,7 +54,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install rust
       uses: actions-rs/toolchain@v1
       with:
@@ -79,7 +79,7 @@ jobs:
   ubuntu-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Update apt
       run: sudo apt update
     - name: Install alsa
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -154,7 +154,7 @@ jobs:
         target: [asmjs-unknown-emscripten, wasm32-unknown-emscripten]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup Emscripten toolchain
       uses: mymindstorm/setup-emsdk@v10
       with:
@@ -177,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - name: Install stable
         uses: actions-rs/toolchain@v1
         with:
@@ -196,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - name: Install stable
         uses: actions-rs/toolchain@v1
         with:
@@ -212,7 +212,7 @@ jobs:
         version: [x86_64, i686]
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install ASIO SDK
       env:
         LINK: https://www.steinberg.net/asiosdk
@@ -241,7 +241,7 @@ jobs:
   macos-test:
     runs-on: macOS-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable
@@ -260,7 +260,7 @@ jobs:
   android-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install stable
       uses: actions-rs/toolchain@v1
       with:
@@ -282,7 +282,7 @@ jobs:
   android-apk-build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Android targets
       run: |
         rustup target add armv7-linux-androideabi
@@ -300,7 +300,7 @@ jobs:
   ios-build:
     runs-on: macOS-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable
@@ -323,7 +323,7 @@ jobs:
     # It does not test the javascript/web integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Target
         run: rustup target add wasm32-unknown-unknown
       - name: Cargo Build
