@@ -111,9 +111,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Setup Emscripten toolchain
-      uses: mymindstorm/setup-emsdk@v10
-      with:
-        version: 2.0.9 # https://github.com/rust-lang/rust/issues/85821
+      uses: mymindstorm/setup-emsdk@v14
     - name: Install stable
       uses: dtolnay/rust-toolchain@stable
       with:
