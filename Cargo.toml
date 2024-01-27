@@ -73,7 +73,7 @@ web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOption
 
 [target.'cfg(target_os = "android")'.dependencies]
 oboe = { version = "0.5", features = [ "java-interface" ] }
-ndk = "0.8"
+ndk = { version = "0.8", default-features = false }
 ndk-context = "0.1"
 jni = "0.19"
 
