@@ -10,8 +10,13 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
-asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
-oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
+asio = [
+    "asio-sys",
+    "num-traits",
+] # Only available on Windows. See README for setup instructions.
+oboe-shared-stdcxx = [
+    "oboe/shared-stdcxx",
+] # Only available on Android. See README for what it does.
 
 [dependencies]
 dasp_sample = "0.11"
@@ -37,8 +42,8 @@ windows = { version = "0.52.0", features = [
     "Win32_System_SystemServices",
     "Win32_System_Variant",
     "Win32_Media_Multimedia",
-    "Win32_UI_Shell_PropertiesSystem"
-]}
+    "Win32_UI_Shell_PropertiesSystem",
+] }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 parking_lot = "0.12"
@@ -51,28 +56,61 @@ jack = { version = "0.11", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
-mach2 = "0.4" # For access to mach_timebase type.
+mach2 = "0.4"                 # For access to mach_timebase type.
 parking_lot = "0.12"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio"] }
+coreaudio-rs = { version = "0.11", default-features = false, features = [
+    "audio_unit",
+    "core_audio",
+] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
+coreaudio-rs = { version = "0.11", default-features = false, features = [
+    "audio_unit",
+    "core_audio",
+    "audio_toolbox",
+] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 wasm-bindgen = { version = "0.2.58" }
 wasm-bindgen-futures = "0.4.33"
 js-sys = { version = "0.3.35" }
-web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
+web-sys = { version = "0.3.35", features = [
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioNode",
+    "AudioDestinationNode",
+    "Window",
+    "AudioContextState",
+] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }
 js-sys = { version = "0.3.35" }
-web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
+web-sys = { version = "0.3.35", features = [
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioWorklet",
+    "AudioWorkletNode",
+    "MessagePort",
+    "MessageEvent",
+    "AudioNode",
+    "AudioDestinationNode",
+    "Window",
+    "AudioContextState",
+    "MediaDevices",
+    "MediaStreamConstraints",
+] }
+wasm-bindgen-futures = { version = "0.4.40" }
+futures-lite="2.2.0"
+async-executor="1.8.0"
+log= "*"
 
 [target.'cfg(target_os = "android")'.dependencies]
-oboe = { version = "0.5", features = [ "java-interface" ] }
+oboe = { version = "0.5", features = ["java-interface"] }
 ndk = { version = "0.8", default-features = false }
 ndk-context = "0.1"
 jni = "0.19"
