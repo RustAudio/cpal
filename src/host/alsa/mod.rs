@@ -178,7 +178,7 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct DeviceHandles {
     playback: Option<alsa::PCM>,
     capture: Option<alsa::PCM>,
@@ -236,9 +236,10 @@ impl DeviceHandles {
     }
 }
 
+#[derive(Clone)]
 pub struct Device {
     name: String,
-    handles: Mutex<DeviceHandles>,
+    handles: Arc<Mutex<DeviceHandles>>,
 }
 
 impl Device {

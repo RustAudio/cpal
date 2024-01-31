@@ -55,6 +55,7 @@ macro_rules! impl_platform_host {
 
         /// The `Device` implementation associated with the platform's dynamically dispatched
         /// [`Host`] type.
+        #[derive(Clone)]
         pub struct Device(DeviceInner);
 
         /// The `Devices` iterator associated with the platform's dynamically dispatched [`Host`]
@@ -89,6 +90,7 @@ macro_rules! impl_platform_host {
         }
 
         /// Contains a platform specific [`Device`] implementation.
+        #[derive(Clone)]
         pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?
