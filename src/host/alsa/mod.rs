@@ -178,7 +178,7 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 struct DeviceHandles {
     playback: Option<alsa::PCM>,
     capture: Option<alsa::PCM>,
