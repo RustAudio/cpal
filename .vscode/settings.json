@@ -1,8 +1,0 @@
-{
-  "rust-analyzer.linkedProjects": [
-    "./Cargo.toml"
-  ],
-  "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
-  "rust-analyzer.cargo.features": ["wasm-bindgen"],
-  "rust-analyzer.showUnlinkedFileNotification": false
-}
