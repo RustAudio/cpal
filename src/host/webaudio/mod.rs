@@ -11,7 +11,7 @@ use self::js_sys::eval;
 use self::wasm_bindgen::prelude::*;
 use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
-use crate::host::webaudio::bridge::CpalBridge;
+use crate::host::webaudio::bridge::WebAudioBridge;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
@@ -33,8 +33,7 @@ pub struct Host;
 
 pub struct Stream {
     ctx: Arc<AudioContext>,
-    js_bridge: Arc<CpalBridge>,
-    producer: Closure<dyn FnMut() -> JsValue>,
+    bridge: Arc<WebAudioBridge>,
     config: StreamConfig,
 }
 
@@ -235,11 +234,11 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        log::info!("building output");
-
         if !valid_config(config, sample_format) {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
+
+        // Create the WebAudio stream.
 
         let mut stream_opts = AudioContextOptions::new();
         stream_opts.sample_rate(config.sample_rate.0 as f32);
@@ -248,13 +247,9 @@ impl DeviceTrait for Device {
 
         let ctx = Arc::new(ctx);
 
-        log::info!("created ctx");
-
-        let js_bridge = CpalBridge::new(ctx.as_ref(), config.channels, DEFAULT_BUFFER_SIZE);
+        let mut bridge = WebAudioBridge::new(ctx.clone(), config.channels, DEFAULT_BUFFER_SIZE)?;
 
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
-
-        // Create the WebAudio stream.
 
         let destination = ctx.destination();
 
@@ -265,9 +260,7 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
-        _ = js_bridge
-            .connect_with_audio_node(&destination)
-            .map_err(map_js_err::<BuildStreamError>)?;
+        _ = bridge.connect_with_audio_node(Arc::new(destination.into()));
 
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
@@ -284,16 +277,13 @@ impl DeviceTrait for Device {
             BufferSize::Default => DEFAULT_BUFFER_SIZE as usize,
         };
         let buffer_size_samples = buffer_size_frames * n_channels;
-        let buffer_time_step_msecs = buffer_time_step_msecs(buffer_size_frames, config.sample_rate);
+        let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
         let mut temporary_buffer = vec![0f32; buffer_size_samples];
-        let temporary_channel_buffers = (0..n_channels)
-            .map(|_| Float32Array::new(&buffer_size_frames.into()))
-            .collect::<Array>();
-        // let mut temporary_channel_buffer = vec![0f32; buffer_size_frames];
 
         let ctx_handle = ctx.clone();
         let time_handle = time.clone();
-        let producer = Closure::wrap(Box::new(move || {
+        let producer = Box::new(move |floats: &Float32Array| {
+            log::debug!("produce output cb tick");
             let now = ctx_handle.current_time();
             let time_at_start_of_buffer = {
                 let time_at_start_of_buffer = time_handle
@@ -320,29 +310,23 @@ impl DeviceTrait for Device {
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
             let info = OutputCallbackInfo { timestamp };
 
+            // call the data callback
             (data_callback.deref_mut())(&mut data, &info);
 
-            for (fr, frame) in temporary_buffer.windows(n_channels).enumerate() {
-                for (ch, channel_temp_buffer) in temporary_channel_buffers.iter().enumerate() {
-                    Float32Array::from(channel_temp_buffer)
-                        .set_index(fr.try_into().unwrap(), frame[ch]);
-                }
-            }
+            // tick the clock
+            *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
 
-            JsValue::from(&temporary_channel_buffers)
-        }) as Box<dyn FnMut() -> JsValue>);
+            // update bridge buffer
+            floats.copy_from(temporary_buffer.as_slice());
+        }) as Box<dyn FnMut(&Float32Array)>;
 
-        log::info!("created callback {buffer_time_step_msecs}ms");
+        bridge.register_output_callback(producer)?;
 
-        js_bridge
-            .register_output_callback(producer.as_ref().unchecked_ref(), buffer_time_step_msecs);
-
-        let js_bridge = Arc::new(js_bridge);
+        let js_bridge = Arc::new(bridge);
 
         Ok(Stream {
             ctx,
-            js_bridge,
-            producer,
+            bridge: js_bridge,
             config: config.clone(),
         })
     }
@@ -351,9 +335,8 @@ impl DeviceTrait for Device {
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         let window = web_sys::window().unwrap();
-        self.js_bridge.resume();
         match self.ctx.resume() {
-            Ok(_) => Ok(()),
+            Ok(_) => self.bridge.schedule_next_tick(),
             Err(err) => {
                 let description = format!("{:?}", err);
                 let err = BackendSpecificError { description };
@@ -364,10 +347,7 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         match self.ctx.suspend() {
-            Ok(_) => {
-                self.js_bridge.stop();
-                Ok(())
-            }
+            Ok(_) => self.bridge.cancel_next_tick(),
             Err(err) => {
                 let description = format!("{:?}", err);
                 let err = BackendSpecificError { description };
@@ -379,7 +359,7 @@ impl StreamTrait for Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.js_bridge.stop();
+        _ = self.bridge.cancel_next_tick();
         let _ = self.ctx.close();
     }
 }
@@ -451,8 +431,8 @@ fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
         && sample_format == SUPPORTED_SAMPLE_FORMAT
 }
 
-fn buffer_time_step_msecs(buffer_size_frames: usize, sample_rate: SampleRate) -> usize {
-    ((buffer_size_frames as f64 / sample_rate.0 as f64) / 1000_f64) as usize
+fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {
+    buffer_size_frames as f64 / sample_rate.0 as f64
 }
 
 fn map_js_err<E>(err: JsValue) -> E

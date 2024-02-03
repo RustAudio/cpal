@@ -103,11 +103,12 @@ web-sys = { version = "0.3.35", features = [
     "AudioContextState",
     "MediaDevices",
     "MediaStreamConstraints",
+    "Worker",
 ] }
 wasm-bindgen-futures = { version = "0.4.40" }
-futures-lite="2.2.0"
-async-executor="1.8.0"
-log= "*"
+futures-lite = "2.2.0"
+async-executor = "1.8.0"
+log = "*"
 
 [target.'cfg(target_os = "android")'.dependencies]
 oboe = { version = "0.5", features = ["java-interface"] }
