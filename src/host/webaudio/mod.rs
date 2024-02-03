@@ -4,12 +4,10 @@ extern crate web_sys;
 
 mod bridge;
 
-use js_sys::Array;
 use js_sys::Float32Array;
 
 use self::js_sys::eval;
 use self::wasm_bindgen::prelude::*;
-use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::host::webaudio::bridge::WebAudioBridge;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -247,7 +245,8 @@ impl DeviceTrait for Device {
 
         let ctx = Arc::new(ctx);
 
-        let mut bridge = WebAudioBridge::new(ctx.clone(), config.channels, DEFAULT_BUFFER_SIZE)?;
+        let mut bridge =
+            WebAudioBridge::new(ctx.clone(), config.channels, DEFAULT_BUFFER_SIZE, false)?;
 
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 

@@ -103,7 +103,8 @@ web-sys = { version = "0.3.35", features = [
     "AudioContextState",
     "MediaDevices",
     "MediaStreamConstraints",
-    "Worker",
+    "AbortController",
+    "AbortSignal",
 ] }
 wasm-bindgen-futures = { version = "0.4.40" }
 futures-lite = "2.2.0"

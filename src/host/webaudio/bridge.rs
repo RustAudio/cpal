@@ -1,26 +1,22 @@
-use std::{
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use js_sys::{
-    encode_uri_component, Atomics, DataView, Float32Array, Function, Int32Array, JsString, Object,
-    Reflect, SharedArrayBuffer,
+    encode_uri_component, Atomics, DataView, Float32Array, Int32Array, Object, Promise, Reflect,
+    SharedArrayBuffer,
 };
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{
-    AudioContext, AudioDestinationNode, AudioNode, AudioWorkletNode, MessageEvent, Worker,
+    AbortController, AbortSignal, AudioContext, AudioNode, AudioWorkletNode, MessageEvent,
 };
 
 use wasm_bindgen::prelude::*;
 
-use crate::{BuildStreamError, PauseStreamError, PlayStreamError};
+use crate::{BackendSpecificError, BuildStreamError, PauseStreamError, PlayStreamError};
 
 use super::map_js_err;
 
 // TODO: minify etc
 const AUDIO_WORKLET: &str = include_str!("worklet.js");
-const SCHEDULING_WORKER: &str = include_str!("worker.js");
 
 // Float32Array.BYTES_PER_ELEMENT = 4
 // Int32Array.BYTES_PER_ELEMENT = 4
@@ -28,26 +24,10 @@ const BYTE_SIZE: u32 = 4;
 
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) enum BridgePhase {
-    /// audio input callback have read the data
-    Input = 0,
-    /// audio output callback produced the data
-    Output = 1,
-    /// worklet have read the data and written input
-    ReadWrite = 2,
-    /// waiter have sent message to main thread to produce new data
-    Demand = 3,
-}
-
-impl From<i32> for BridgePhase {
-    fn from(value: i32) -> Self {
-        match value {
-            0 => BridgePhase::Input,
-            1 => BridgePhase::Output,
-            2 => BridgePhase::ReadWrite,
-            3 => BridgePhase::Demand,
-            _ => panic!(),
-        }
-    }
+    /// audio worklet done processing buffer
+    WorkletDone = 0,
+    /// main completed calls to its input or output callbacks
+    MainDone = 1,
 }
 
 pub(crate) struct WebAudioBridge {
@@ -55,10 +35,8 @@ pub(crate) struct WebAudioBridge {
     worklet: Arc<Mutex<Option<AudioWorkletNode>>>,
     /// once module is added these are connected to worklet
     dst_fut: Arc<Mutex<Vec<Arc<AudioNode>>>>,
-    /// worker allows wait on Atomics
-    /// TODO: consider refactoring to waitAsync once this issue is resolved
-    /// https://bugzilla.mozilla.org/show_bug.cgi?id=1467846
-    waiter: Arc<Worker>,
+    /// once module is added register message listener
+    message_fut: Arc<Mutex<bool>>,
     /// store the shared buffer for all channels and one place to wait on
     buffer: Arc<SharedArrayBuffer>,
     /// data view over floats for converting them into ints and back
@@ -69,10 +47,12 @@ pub(crate) struct WebAudioBridge {
     floats: Arc<Float32Array>,
     /// keep audio context
     ctx: Arc<AudioContext>,
-    /// store input callback
-    input_cb: Option<Closure<dyn FnMut(JsValue)>>,
-    /// store output callback
-    output_cb: Option<Closure<dyn FnMut(JsValue)>>,
+    /// store callback
+    callback: Arc<Mutex<Option<Box<dyn FnMut()>>>>,
+    /// store closure for message_based fallback
+    on_message: Arc<Closure<dyn FnMut(JsValue)>>,
+    /// signal to abort next tick
+    abort: Arc<Mutex<AbortController>>,
 }
 
 impl WebAudioBridge {
@@ -80,6 +60,7 @@ impl WebAudioBridge {
         ctx: Arc<AudioContext>,
         channels: u16,
         frames: u32,
+        input: bool,
     ) -> Result<Self, BuildStreamError> {
         let floats = Float32Array::new_with_length(channels as u32 * frames);
 
@@ -99,10 +80,30 @@ impl WebAudioBridge {
         let floats = Arc::new(floats);
 
         let dst_fut: Arc<Mutex<Vec<Arc<AudioNode>>>> = Arc::new(Mutex::new(vec![]));
+
+        let callback: Arc<Mutex<Option<Box<dyn FnMut()>>>> = Arc::new(Mutex::new(None));
+
+        let on_message_cb = callback.clone();
+        let on_message = Arc::new(Closure::wrap(Box::new(move |e: JsValue| {
+            let ev = MessageEvent::from(e);
+            let t = Reflect::get(&ev.data(), &"type".into()).ok();
+            if Some("worklet_done".to_string()) == t.map(|v| v.as_string()).flatten() {
+                let mut cb_mtx = on_message_cb.lock().unwrap();
+                let cb = cb_mtx.as_mut().unwrap();
+                cb()
+            }
+        }) as Box<dyn FnMut(JsValue)>));
+
+        let abort = Arc::new(Mutex::new(
+            AbortController::new().map_err(map_js_err::<BuildStreamError>)?,
+        ));
+
+        let message_fut = Arc::new(Mutex::new(false));
+
         // try creating new worklet or add module and reattempt otherwise
         let worklet = match AudioWorkletNode::new(&ctx, "cpal-worklet") {
             Ok(w) => {
-                Self::send_buffer(&w, &buffer)?;
+                Self::send_buffer(&w, &buffer, input)?;
 
                 Arc::new(Mutex::new(Some(w)))
             }
@@ -112,6 +113,8 @@ impl WebAudioBridge {
                 let ctx_worklet = ctx
                     .audio_worklet()
                     .map_err(map_js_err::<BuildStreamError>)?;
+                let message_fut = message_fut.clone();
+                let on_message = on_message.clone();
 
                 // load module from included js.file
                 let module_url = format!(
@@ -125,6 +128,7 @@ impl WebAudioBridge {
                 let fut_w_arc = w_arc.clone();
                 let fut_ctx = ctx.clone();
                 let fut_buffer = buffer.clone();
+
                 spawn_local(async move {
                     match JsFuture::from(promise).await {
                         Ok(_) => {
@@ -132,12 +136,21 @@ impl WebAudioBridge {
 
                             // attempt creating the node or fail
                             let node = AudioWorkletNode::new(&fut_ctx, "cpal-worklet").unwrap();
-                            Self::send_buffer(&node, &fut_buffer).expect("send buffer to worklet");
+                            Self::send_buffer(&node, &fut_buffer, input)
+                                .expect("send buffer to worklet");
 
                             // connect to destinations if any were stored
                             let mut dst_mtx = dst_fut.lock().unwrap();
                             for dst in dst_mtx.drain(0..) {
                                 _ = node.connect_with_audio_node(&dst).unwrap();
+                            }
+
+                            // set message listener if necessary
+                            if *message_fut.lock().unwrap() {
+                                let port = node.port().unwrap();
+                                port.set_onmessage(Some(
+                                    Closure::as_ref(&on_message).unchecked_ref(),
+                                ));
                             }
 
                             _ = opt_mtx.insert(node);
@@ -153,36 +166,32 @@ impl WebAudioBridge {
             }
         };
 
-        // load worker from the included js.file
-        let script_url = format!(
-            "data:application/javascript,{}",
-            encode_uri_component(SCHEDULING_WORKER)
-        );
-        let waiter =
-            Arc::new(Worker::new(script_url.as_str()).map_err(map_js_err::<BuildStreamError>)?);
-
         Ok(Self {
             worklet,
-            waiter,
             buffer,
             view,
             ints,
             floats,
             ctx,
             dst_fut,
-            input_cb: None,
-            output_cb: None,
+            callback,
+            on_message,
+            abort,
+            message_fut,
         })
     }
 
     fn send_buffer(
         node: &AudioWorkletNode,
         buffer: &SharedArrayBuffer,
+        input: bool,
     ) -> Result<(), BuildStreamError> {
         let message = Object::new();
         Reflect::set(&message, &"type".into(), &"buffer".into())
             .map_err(map_js_err::<BuildStreamError>)?;
         Reflect::set(&message, &"buffer".into(), buffer).map_err(map_js_err::<BuildStreamError>)?;
+        Reflect::set(&message, &"isInput".into(), &input.into())
+            .map_err(map_js_err::<BuildStreamError>)?;
         let port = node.port().map_err(map_js_err::<BuildStreamError>)?;
         port.post_message(&message.into())
             .map_err(map_js_err::<BuildStreamError>)?;
@@ -197,37 +206,31 @@ impl WebAudioBridge {
         let floats = self.floats.clone();
         let view = self.view.clone();
         let ints = self.ints.clone();
+        let callback = Box::new(move || {
+            log::debug!("output callback");
+            // update the values from callback
+            cb(&floats);
 
-        let listener = Closure::wrap(Box::new(move |msg: JsValue| {
-            let message = MessageEvent::from(msg);
-
-            if let Ok(t) = Reflect::get(&message.data(), &"type".into()) {
-                if Some("output_data".to_string()) == JsString::from(t).as_string() {
-                    log::debug!("output callback");
-                    // update the values from callback
-                    cb(&floats);
-
-                    // store new values from the data view
-                    for i in 0..floats.length() {
-                        let int = view.get_int32((BYTE_SIZE * i).try_into().unwrap());
-                        _ = Atomics::store(&ints, i, int).expect("store");
-                    }
-
-                    // tick the phase
-                    let p: u32 = floats.length();
-                    _ = Atomics::store(&ints, p, BridgePhase::Output as i32).expect("store");
-                    Atomics::notify(&ints, p).unwrap();
-                }
+            // store new values from the data view
+            for i in 0..floats.length() {
+                let int = view.get_int32((BYTE_SIZE * i).try_into().unwrap());
+                _ = Atomics::store(&ints, i, int).expect("store");
             }
-        }) as Box<dyn FnMut(JsValue)>);
 
-        self.waiter
-            .add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
-            .map_err(map_js_err::<BuildStreamError>)?;
+            // tick the phase
+            let p: u32 = floats.length();
+            _ = Atomics::store(&ints, p, BridgePhase::MainDone as i32).expect("store");
+            Atomics::notify(&ints, p).unwrap();
+        }) as Box<dyn FnMut()>;
 
-        _ = self.output_cb.insert(listener);
-
-        Ok(())
+        if let Some(_) = self.callback.lock().unwrap().replace(callback) {
+            Err(BackendSpecificError {
+                description: "callback already registered".to_string(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn register_input_callback(
@@ -237,66 +240,127 @@ impl WebAudioBridge {
         let floats = self.floats.clone();
         let view = self.view.clone();
         let ints = self.ints.clone();
-        let listener = Closure::wrap(Box::new(move |msg: JsValue| {
-            let message = MessageEvent::from(msg);
-
-            if let Ok(t) = Reflect::get(&message.data(), &"type".into()) {
-                if Some("input_data".to_string()) == JsString::from(t).as_string() {
-                    log::debug!("input callback");
-                    // load the values on the data view
-                    for i in 0..floats.length() {
-                        let int = Atomics::load(&ints, i).expect("value");
-                        view.set_int32((BYTE_SIZE * i).try_into().unwrap(), int);
-                    }
-
-                    // call the input callback with updated floats
-                    cb(&floats);
-
-                    // tick the phase
-                    let p: u32 = floats.length();
-                    _ = Atomics::store(&ints, p, BridgePhase::Input as i32).expect("store");
-                    Atomics::notify(&ints, p).unwrap();
-                }
+        let callback = Box::new(move || {
+            log::debug!("input callback");
+            // load the values on the data view
+            for i in 0..floats.length() {
+                let int = Atomics::load(&ints, i).expect("value");
+                view.set_int32((BYTE_SIZE * i).try_into().unwrap(), int);
             }
-        }) as Box<dyn FnMut(JsValue)>);
 
-        self.waiter
-            .add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
-            .map_err(map_js_err::<BuildStreamError>)?;
+            // call the input callback with updated floats
+            cb(&floats);
 
-        _ = self.input_cb.insert(listener);
+            // tick the phase
+            let p: u32 = floats.length();
+            _ = Atomics::store(&ints, p, BridgePhase::MainDone as i32).expect("store");
+            Atomics::notify(&ints, p).unwrap();
+        }) as Box<dyn FnMut()>;
 
-        Ok(())
+        if let Some(_) = self.callback.lock().unwrap().replace(callback) {
+            Err(BackendSpecificError {
+                description: "callback already registered".to_string(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn cancel_next_tick(&self) -> Result<(), PauseStreamError> {
-        let message = Object::new();
-        Reflect::set(&message, &"type".into(), &"cancel_tick".into())
-            .map_err(map_js_err::<PauseStreamError>)?;
+        let mut abort_mtx = self.abort.lock().unwrap();
+        abort_mtx.abort();
+        *abort_mtx = AbortController::new().map_err(map_js_err::<PauseStreamError>)?;
 
-        self.waiter
-            .post_message(&message)
-            .map_err(map_js_err::<PauseStreamError>)
+        if let Some(node) = self.worklet.lock().unwrap().as_ref() {
+            let port = node.port().map_err(map_js_err::<PauseStreamError>)?;
+            port.set_onmessage(None);
+            Ok(())
+        } else {
+            log::error!("DeviceNotAvailable yet in cancel_next_tick");
+            Err(PauseStreamError::DeviceNotAvailable)
+        }
     }
 
     pub fn schedule_next_tick(&self) -> Result<(), PlayStreamError> {
-        let message = Object::new();
-        Reflect::set(&message, &"type".into(), &"schedule_tick".into())
-            .map_err(map_js_err::<PlayStreamError>)?;
-        Reflect::set(&message, &"buffer".into(), &self.buffer)
-            .map_err(map_js_err::<PlayStreamError>)?;
-        Reflect::set(&message, &"input".into(), &self.input_cb.is_some().into())
-            .map_err(map_js_err::<PlayStreamError>)?;
-        Reflect::set(&message, &"output".into(), &self.output_cb.is_some().into())
-            .map_err(map_js_err::<PlayStreamError>)?;
-
-        self.waiter
-            .post_message(&message)
-            .map_err(map_js_err::<PlayStreamError>)
+        let ints = self.ints.clone();
+        let floats = self.floats.clone();
+        let callback = self.callback.clone();
+        let signal = self.abort.lock().unwrap().signal();
+        match Self::schedule_next(ints, floats, callback.clone(), signal) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                // https://bugzilla.mozilla.org/show_bug.cgi?id=1467846
+                // fallback to events
+                if let Some(node) = self.worklet.lock().unwrap().as_ref() {
+                    let port = node.port().map_err(map_js_err::<PlayStreamError>)?;
+                    let on_message = self.on_message.clone();
+                    port.set_onmessage(Some(Closure::as_ref(&on_message).unchecked_ref()));
+                } else {
+                    let mut set_listener = self.message_fut.lock().unwrap();
+                    *set_listener = true;
+                }
+                Ok(())
+            }
+        }
     }
 
-    /// connect with AudioWorkletNode if it is already initialized
-    /// store the destination node and connect later otherwise
+    fn schedule_next(
+        ints: Arc<Int32Array>,
+        floats: Arc<Float32Array>,
+        callback: Arc<Mutex<Option<Box<dyn FnMut()>>>>,
+        signal: AbortSignal,
+    ) -> Result<(), PlayStreamError> {
+        let obj = Atomics::wait_async(&ints, floats.length(), BridgePhase::MainDone as i32)
+            .map_err(map_js_err::<PlayStreamError>)?;
+
+        if signal.aborted() {
+            return Ok(());
+        }
+
+        if Reflect::get(&obj, &"async".into())
+            .map(|v| v.as_bool().unwrap_or_default())
+            .ok()
+            .unwrap_or_default()
+        {
+            let value =
+                Reflect::get(&obj, &"value".into()).map_err(map_js_err::<PlayStreamError>)?;
+            let promise = Promise::from(value);
+            let cb_mtx = callback.clone();
+            spawn_local(async move {
+                JsFuture::from(promise).await.unwrap();
+                {
+                    let mut cb_opt = cb_mtx.lock().unwrap();
+                    let cb = cb_opt.as_mut().unwrap();
+                    cb();
+                }
+
+                Self::schedule_next(ints, floats, cb_mtx, signal).unwrap();
+            });
+            Ok(())
+        } else if Some("not-equal".to_string())
+            == Reflect::get(&obj, &"value".into())
+                .map(|v| v.as_string())
+                .ok()
+                .flatten()
+        {
+            if let Some(cb) = callback.lock().unwrap().as_mut() {
+                cb();
+            } else {
+                return Err(BackendSpecificError {
+                    description: "no callback".to_string(),
+                }
+                .into());
+            }
+            Self::schedule_next(ints, floats, callback, signal)
+        } else {
+            log::error!("DeviceNotAvailable yet in Self::schedule_next");
+            Err(PlayStreamError::DeviceNotAvailable)
+        }
+    }
+
+    /// connect with AudioWorkletNode if it's already initialized
+    /// otherwise store the destination node and connect later
     pub fn connect_with_audio_node(&mut self, dst: Arc<AudioNode>) -> Result<(), BuildStreamError> {
         if let Some(w) = self.worklet.lock().unwrap().as_ref() {
             w.connect_with_audio_node(&dst)
