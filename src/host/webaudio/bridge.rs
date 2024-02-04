@@ -13,22 +13,12 @@ use wasm_bindgen::prelude::*;
 
 use crate::{BackendSpecificError, BuildStreamError, PauseStreamError, PlayStreamError};
 
-use super::map_js_err;
+use super::{atomic_buffer::AtomicBuffer, map_js_err};
 
 // TODO: minify etc
 const AUDIO_WORKLET: &str = include_str!("worklet.js");
 
-// Float32Array.BYTES_PER_ELEMENT = 4
-// Int32Array.BYTES_PER_ELEMENT = 4
-const BYTE_SIZE: u32 = 4;
 
-#[derive(PartialEq, Eq, Debug)]
-pub(crate) enum BridgePhase {
-    /// audio worklet done processing buffer
-    WorkletDone = 0,
-    /// main completed calls to its input or output callbacks
-    MainDone = 1,
-}
 
 pub(crate) struct WebAudioBridge {
     /// plays the shared buffer
@@ -38,13 +28,9 @@ pub(crate) struct WebAudioBridge {
     /// once module is added register message listener
     message_fut: Arc<Mutex<bool>>,
     /// store the shared buffer for all channels and one place to wait on
-    buffer: Arc<SharedArrayBuffer>,
-    /// data view over floats for converting them into ints and back
-    view: Arc<DataView>,
-    /// using Int32Array over the given buffer for use with Atomics
-    ints: Arc<Int32Array>,
+    buffer: Arc<AtomicBuffer>,
     /// bridge owned buffer with f32
-    floats: Arc<Float32Array>,
+    floats: Arc<Mutex<Vec<f32>>>,
     /// keep audio context
     ctx: Arc<AudioContext>,
     /// store callback
@@ -62,22 +48,13 @@ impl WebAudioBridge {
         frames: u32,
         input: bool,
     ) -> Result<Self, BuildStreamError> {
-        let floats = Float32Array::new_with_length(channels as u32 * frames);
+        let size = channels as u32 * frames;
+        let floats = vec![0_f32; size as usize];
 
-        let view = Arc::new(DataView::new(
-            &floats.buffer(),
-            0,
-            floats.byte_length() as usize,
-        ));
 
-        // + the place for BridgePhase
-        let bl = floats.byte_length() + BYTE_SIZE;
-        let buffer = SharedArrayBuffer::new(bl);
+        let buffer = Arc::new(AtomicBuffer::new(8, size));
 
-        let ints = Arc::new(Int32Array::new(&buffer));
-
-        let buffer = Arc::new(buffer);
-        let floats = Arc::new(floats);
+        let floats = Arc::new(Mutex::new(floats));
 
         let dst_fut: Arc<Mutex<Vec<Arc<AudioNode>>>> = Arc::new(Mutex::new(vec![]));
 
@@ -103,7 +80,7 @@ impl WebAudioBridge {
         // try creating new worklet or add module and reattempt otherwise
         let worklet = match AudioWorkletNode::new(&ctx, "cpal-worklet") {
             Ok(w) => {
-                Self::send_buffer(&w, &buffer, input)?;
+                Self::send_buffer(&w, &buffer.shared(), input)?;
 
                 Arc::new(Mutex::new(Some(w)))
             }
@@ -127,7 +104,7 @@ impl WebAudioBridge {
 
                 let fut_w_arc = w_arc.clone();
                 let fut_ctx = ctx.clone();
-                let fut_buffer = buffer.clone();
+                let fut_buffer = buffer.shared();
 
                 spawn_local(async move {
                     match JsFuture::from(promise).await {
@@ -169,8 +146,6 @@ impl WebAudioBridge {
         Ok(Self {
             worklet,
             buffer,
-            view,
-            ints,
             floats,
             ctx,
             dst_fut,
@@ -201,26 +176,18 @@ impl WebAudioBridge {
 
     pub fn register_output_callback(
         &mut self,
-        mut cb: Box<dyn FnMut(&Float32Array)>,
+        mut cb: Box<dyn FnMut(&mut Vec<f32>)>,
     ) -> Result<(), BuildStreamError> {
         let floats = self.floats.clone();
-        let view = self.view.clone();
-        let ints = self.ints.clone();
+        let buffer = self.buffer.clone();
         let callback = Box::new(move || {
             log::debug!("output callback");
+            let mut floats = floats.lock().unwrap();
+
             // update the values from callback
-            cb(&floats);
+            cb(&mut floats);
 
-            // store new values from the data view
-            for i in 0..floats.length() {
-                let int = view.get_int32((BYTE_SIZE * i).try_into().unwrap());
-                _ = Atomics::store(&ints, i, int).expect("store");
-            }
-
-            // tick the phase
-            let p: u32 = floats.length();
-            _ = Atomics::store(&ints, p, BridgePhase::MainDone as i32).expect("store");
-            Atomics::notify(&ints, p).unwrap();
+            buffer.write(floats.as_slice()).unwrap();
         }) as Box<dyn FnMut()>;
 
         if let Some(_) = self.callback.lock().unwrap().replace(callback) {
@@ -237,34 +204,35 @@ impl WebAudioBridge {
         &mut self,
         mut cb: Box<dyn FnMut(&Float32Array)>,
     ) -> Result<(), BuildStreamError> {
-        let floats = self.floats.clone();
-        let view = self.view.clone();
-        let ints = self.ints.clone();
-        let callback = Box::new(move || {
-            log::debug!("input callback");
-            // load the values on the data view
-            for i in 0..floats.length() {
-                let int = Atomics::load(&ints, i).expect("value");
-                view.set_int32((BYTE_SIZE * i).try_into().unwrap(), int);
-            }
+        todo!()
+    //     let floats = self.floats.clone();
+    //     let view = self.view.clone();
+    //     let ints = self.ints.clone();
+    //     let callback = Box::new(move || {
+    //         log::debug!("input callback");
+    //         // load the values on the data view
+    //         for i in 0..floats.length() {
+    //             let int = Atomics::load(&ints, i).expect("value");
+    //             view.set_int32((BYTE_SIZE * i).try_into().unwrap(), int);
+    //         }
 
-            // call the input callback with updated floats
-            cb(&floats);
+    //         // call the input callback with updated floats
+    //         cb(&floats);
 
-            // tick the phase
-            let p: u32 = floats.length();
-            _ = Atomics::store(&ints, p, BridgePhase::MainDone as i32).expect("store");
-            Atomics::notify(&ints, p).unwrap();
-        }) as Box<dyn FnMut()>;
+    //         // tick the phase
+    //         let p: u32 = floats.length();
+    //         _ = Atomics::store(&ints, p, BridgePhase::MainDone as i32).expect("store");
+    //         Atomics::notify(&ints, p).unwrap();
+    //     }) as Box<dyn FnMut()>;
 
-        if let Some(_) = self.callback.lock().unwrap().replace(callback) {
-            Err(BackendSpecificError {
-                description: "callback already registered".to_string(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
+    //     if let Some(_) = self.callback.lock().unwrap().replace(callback) {
+    //         Err(BackendSpecificError {
+    //             description: "callback already registered".to_string(),
+    //         }
+    //         .into())
+    //     } else {
+    //         Ok(())
+    //     }
     }
 
     pub fn cancel_next_tick(&self) -> Result<(), PauseStreamError> {
@@ -283,26 +251,27 @@ impl WebAudioBridge {
     }
 
     pub fn schedule_next_tick(&self) -> Result<(), PlayStreamError> {
-        let ints = self.ints.clone();
-        let floats = self.floats.clone();
+        // let ints = self.ints.clone();
+        // let floats = self.floats.clone();
         let callback = self.callback.clone();
         let signal = self.abort.lock().unwrap().signal();
-        match Self::schedule_next(ints, floats, callback.clone(), signal) {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                // https://bugzilla.mozilla.org/show_bug.cgi?id=1467846
-                // fallback to events
-                if let Some(node) = self.worklet.lock().unwrap().as_ref() {
-                    let port = node.port().map_err(map_js_err::<PlayStreamError>)?;
-                    let on_message = self.on_message.clone();
-                    port.set_onmessage(Some(Closure::as_ref(&on_message).unchecked_ref()));
-                } else {
-                    let mut set_listener = self.message_fut.lock().unwrap();
-                    *set_listener = true;
-                }
-                Ok(())
-            }
-        }
+        todo!()
+        // match Self::schedule_next(ints, floats, callback.clone(), signal) {
+        //     Ok(_) => Ok(()),
+        //     Err(_) => {
+        //         // https://bugzilla.mozilla.org/show_bug.cgi?id=1467846
+        //         // fallback to events
+        //         if let Some(node) = self.worklet.lock().unwrap().as_ref() {
+        //             let port = node.port().map_err(map_js_err::<PlayStreamError>)?;
+        //             let on_message = self.on_message.clone();
+        //             port.set_onmessage(Some(Closure::as_ref(&on_message).unchecked_ref()));
+        //         } else {
+        //             let mut set_listener = self.message_fut.lock().unwrap();
+        //             *set_listener = true;
+        //         }
+        //         Ok(())
+        //     }
+        // }
     }
 
     fn schedule_next(
@@ -311,52 +280,53 @@ impl WebAudioBridge {
         callback: Arc<Mutex<Option<Box<dyn FnMut()>>>>,
         signal: AbortSignal,
     ) -> Result<(), PlayStreamError> {
-        let obj = Atomics::wait_async(&ints, floats.length(), BridgePhase::MainDone as i32)
-            .map_err(map_js_err::<PlayStreamError>)?;
+        todo!()
+        // let obj = Atomics::wait_async(&ints, floats.length(), BridgePhase::MainDone as i32)
+        //     .map_err(map_js_err::<PlayStreamError>)?;
 
-        if signal.aborted() {
-            return Ok(());
-        }
+        // if signal.aborted() {
+        //     return Ok(());
+        // }
 
-        if Reflect::get(&obj, &"async".into())
-            .map(|v| v.as_bool().unwrap_or_default())
-            .ok()
-            .unwrap_or_default()
-        {
-            let value =
-                Reflect::get(&obj, &"value".into()).map_err(map_js_err::<PlayStreamError>)?;
-            let promise = Promise::from(value);
-            let cb_mtx = callback.clone();
-            spawn_local(async move {
-                JsFuture::from(promise).await.unwrap();
-                {
-                    let mut cb_opt = cb_mtx.lock().unwrap();
-                    let cb = cb_opt.as_mut().unwrap();
-                    cb();
-                }
+        // if Reflect::get(&obj, &"async".into())
+        //     .map(|v| v.as_bool().unwrap_or_default())
+        //     .ok()
+        //     .unwrap_or_default()
+        // {
+        //     let value =
+        //         Reflect::get(&obj, &"value".into()).map_err(map_js_err::<PlayStreamError>)?;
+        //     let promise = Promise::from(value);
+        //     let cb_mtx = callback.clone();
+        //     spawn_local(async move {
+        //         JsFuture::from(promise).await.unwrap();
+        //         {
+        //             let mut cb_opt = cb_mtx.lock().unwrap();
+        //             let cb = cb_opt.as_mut().unwrap();
+        //             cb();
+        //         }
 
-                Self::schedule_next(ints, floats, cb_mtx, signal).unwrap();
-            });
-            Ok(())
-        } else if Some("not-equal".to_string())
-            == Reflect::get(&obj, &"value".into())
-                .map(|v| v.as_string())
-                .ok()
-                .flatten()
-        {
-            if let Some(cb) = callback.lock().unwrap().as_mut() {
-                cb();
-            } else {
-                return Err(BackendSpecificError {
-                    description: "no callback".to_string(),
-                }
-                .into());
-            }
-            Self::schedule_next(ints, floats, callback, signal)
-        } else {
-            log::error!("DeviceNotAvailable yet in Self::schedule_next");
-            Err(PlayStreamError::DeviceNotAvailable)
-        }
+        //         Self::schedule_next(ints, floats, cb_mtx, signal).unwrap();
+        //     });
+        //     Ok(())
+        // } else if Some("not-equal".to_string())
+        //     == Reflect::get(&obj, &"value".into())
+        //         .map(|v| v.as_string())
+        //         .ok()
+        //         .flatten()
+        // {
+        //     if let Some(cb) = callback.lock().unwrap().as_mut() {
+        //         cb();
+        //     } else {
+        //         return Err(BackendSpecificError {
+        //             description: "no callback".to_string(),
+        //         }
+        //         .into());
+        //     }
+        //     Self::schedule_next(ints, floats, callback, signal)
+        // } else {
+        //     log::error!("DeviceNotAvailable yet in Self::schedule_next");
+        //     Err(PlayStreamError::DeviceNotAvailable)
+        // }
     }
 
     /// connect with AudioWorkletNode if it's already initialized

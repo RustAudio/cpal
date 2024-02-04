@@ -2,7 +2,10 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-mod bridge;
+pub mod bridge;
+pub mod atomic_buffer;
+
+
 
 use js_sys::Float32Array;
 
@@ -275,13 +278,12 @@ impl DeviceTrait for Device {
             }
             BufferSize::Default => DEFAULT_BUFFER_SIZE as usize,
         };
-        let buffer_size_samples = buffer_size_frames * n_channels;
+        
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
-        let mut temporary_buffer = vec![0f32; buffer_size_samples];
 
         let ctx_handle = ctx.clone();
         let time_handle = time.clone();
-        let producer = Box::new(move |floats: &Float32Array| {
+        let producer = Box::new(move |temporary_buffer: &mut Vec<f32>| {
             log::debug!("produce output cb tick");
             let now = ctx_handle.current_time();
             let time_at_start_of_buffer = {
@@ -314,10 +316,7 @@ impl DeviceTrait for Device {
 
             // tick the clock
             *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
-
-            // update bridge buffer
-            floats.copy_from(temporary_buffer.as_slice());
-        }) as Box<dyn FnMut(&Float32Array)>;
+        }) as Box<dyn FnMut(&mut Vec<f32>)>;
 
         bridge.register_output_callback(producer)?;
 

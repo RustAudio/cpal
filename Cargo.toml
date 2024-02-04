@@ -30,6 +30,12 @@ clap = { version = "4.0", features = ["derive"] }
 [target.'cfg(target_os = "android")'.dev-dependencies]
 ndk-glue = "0.7"
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3.4"
+console_log = "*"
+rand = "0.8.5"
+getrandom = {version = "*", features = ["js"]}
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.52.0", features = [
     "Win32_Media_Audio",
@@ -107,8 +113,6 @@ web-sys = { version = "0.3.35", features = [
     "AbortSignal",
 ] }
 wasm-bindgen-futures = { version = "0.4.40" }
-futures-lite = "2.2.0"
-async-executor = "1.8.0"
 log = "*"
 
 [target.'cfg(target_os = "android")'.dependencies]

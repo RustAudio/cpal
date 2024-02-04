@@ -641,7 +641,14 @@ mod platform_impl {
     pub use crate::host::webaudio::{
         Device as WebAudioDevice, Devices as WebAudioDevices, Host as WebAudioHost,
         Stream as WebAudioStream, SupportedInputConfigs as WebAudioSupportedInputConfigs,
-        SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
+        SupportedOutputConfigs as WebAudioSupportedOutputConfigs, 
+    };
+
+    // exposed for wasm-test only
+    // #[cfg(test)]
+    pub use crate::host::webaudio::{
+        atomic_buffer, 
+        bridge
     };
 
     impl_platform_host!(WebAudio webaudio "WebAudio");
