@@ -633,15 +633,28 @@ impl SupportedStreamConfigRange {
     ///
     /// # Panics
     ///
-    /// Panics if the given `sample_rate` is outside the range specified within this
-    /// [`SupportedStreamConfigRange`] instance.
+    /// Panics if the given `sample_rate` is outside the range specified within
+    /// this [`SupportedStreamConfigRange`] instance. For a non-panicking
+    /// variant, use [`try_with_sample_rate`](#method.try_with_sample_rate).
     pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {
-        assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
-        SupportedStreamConfig {
-            channels: self.channels,
-            sample_rate,
-            sample_format: self.sample_format,
-            buffer_size: self.buffer_size,
+        self.try_with_sample_rate(sample_rate)
+            .expect("sample rate out of range")
+    }
+
+    /// Retrieve a [`SupportedStreamConfig`] with the given sample rate and buffer size.
+    ///
+    /// Returns `None` if the given sample rate is outside the range specified
+    /// within this [`SupportedStreamConfigRange`] instance.
+    pub fn try_with_sample_rate(self, sample_rate: SampleRate) -> Option<SupportedStreamConfig> {
+        if self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate {
+            Some(SupportedStreamConfig {
+                channels: self.channels,
+                sample_rate,
+                sample_format: self.sample_format,
+                buffer_size: self.buffer_size,
+            })
+        } else {
+            None
         }
     }
 
