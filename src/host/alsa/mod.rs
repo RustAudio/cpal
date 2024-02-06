@@ -236,9 +236,10 @@ impl DeviceHandles {
     }
 }
 
+#[derive(Clone)]
 pub struct Device {
     name: String,
-    handles: Mutex<DeviceHandles>,
+    handles: Arc<Mutex<DeviceHandles>>,
 }
 
 impl Device {

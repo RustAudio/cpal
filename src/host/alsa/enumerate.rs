@@ -2,6 +2,7 @@ use super::alsa;
 use super::parking_lot::Mutex;
 use super::{Device, DeviceHandles};
 use crate::{BackendSpecificError, DevicesError};
+use std::sync::Arc;
 
 /// ALSA's implementation for `Devices`.
 pub struct Devices {
@@ -37,7 +38,7 @@ impl Iterator for Devices {
                     if let Ok(handles) = DeviceHandles::open(&name) {
                         return Some(Device {
                             name,
-                            handles: Mutex::new(handles),
+                            handles: Arc::new(Mutex::new(handles)),
                         });
                     }
                 }
@@ -50,7 +51,7 @@ impl Iterator for Devices {
 pub fn default_input_device() -> Option<Device> {
     Some(Device {
         name: "default".to_owned(),
-        handles: Mutex::new(Default::default()),
+        handles: Arc::new(Mutex::new(Default::default())),
     })
 }
 
@@ -58,7 +59,7 @@ pub fn default_input_device() -> Option<Device> {
 pub fn default_output_device() -> Option<Device> {
     Some(Device {
         name: "default".to_owned(),
-        handles: Mutex::new(Default::default()),
+        handles: Arc::new(Mutex::new(Default::default())),
     })
 }
 

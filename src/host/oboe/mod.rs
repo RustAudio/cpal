@@ -37,6 +37,7 @@ const SAMPLE_RATES: [i32; 13] = [
 ];
 
 pub struct Host;
+#[derive(Clone)]
 pub struct Device(Option<oboe::AudioDeviceInfo>);
 pub enum Stream {
     Input(Box<RefCell<dyn AudioInputStream>>),
