@@ -91,7 +91,7 @@ fn create_lib(cpal_asio_dir: &Path) {
 
     // Gathers cpp files from directories
     let walk_a_dir = |dir_to_walk, paths: &mut Vec<PathBuf>| {
-        for entry in WalkDir::new(&dir_to_walk).max_depth(1) {
+        for entry in WalkDir::new(dir_to_walk).max_depth(1) {
             let entry = match entry {
                 Err(e) => {
                     println!("error: {}", e);
@@ -209,6 +209,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .allowlist_function("ASIOGetChannelInfo")
         .allowlist_function("ASIOGetBufferSize")
         .allowlist_function("ASIOGetSamplePosition")
+        .allowlist_function("ASIOOutputReady")
         .allowlist_function("get_sample_rate")
         .allowlist_function("set_sample_rate")
         .allowlist_function("can_sample_rate")

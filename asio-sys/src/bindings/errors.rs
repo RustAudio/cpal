@@ -43,15 +43,14 @@ impl fmt::Display for LoadDriverError {
             LoadDriverError::LoadDriverFailed => {
                 write!(
                     f,
-                    "{}",
                     "ASIO `loadDriver` function returned `false` indicating failure"
                 )
             }
             LoadDriverError::InitializationFailed(ref err) => {
-                write!(f, "{}", err)
+                write!(f, "{err}")
             }
             LoadDriverError::DriverAlreadyExists => {
-                write!(f, "{}", "ASIO only supports loading one driver at a time")
+                write!(f, "ASIO only supports loading one driver at a time")
             }
         }
     }
