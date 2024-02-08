@@ -645,7 +645,7 @@ mod platform_impl {
     };
 
     // exposed for wasm-test only
-    // #[cfg(test)]
+    #[cfg(feature="wasm-bindgen-test")]
     pub use crate::host::webaudio::{
         atomic_buffer, 
         bridge

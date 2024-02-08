@@ -17,6 +17,9 @@ asio = [
 oboe-shared-stdcxx = [
     "oboe/shared-stdcxx",
 ] # Only available on Android. See README for what it does.
+wasm-bindgen-test = [
+    "wasm-bindgen"
+]
 
 [dependencies]
 dasp_sample = "0.11"
