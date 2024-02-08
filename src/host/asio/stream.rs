@@ -1,7 +1,6 @@
 extern crate asio_sys as sys;
 extern crate num_traits;
 
-use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
@@ -9,18 +8,11 @@ use crate::{
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
     StreamError,
 };
-use std;
-use std::sync::atomic::{AtomicBool, Ordering};
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use std::mem::size_of;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-
-// Used to keep track of whether or not the current asio stream buffer requires
-// being silencing before summing audio.
-#[derive(Default)]
-struct SilenceAsioBuffer {
-    first: bool,
-    second: bool,
-}
 
 pub struct Stream {
     playing: Arc<AtomicBool>,
@@ -65,7 +57,7 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let num_channels = config.channels.clone();
+        let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
@@ -88,7 +80,7 @@ impl Device {
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
             let stream_lock = asio_streams.lock();
-            let ref asio_stream = match stream_lock.input {
+            let asio_stream = match stream_lock.input {
                 Some(ref asio_stream) => asio_stream,
                 None => return,
             };
@@ -101,11 +93,11 @@ impl Device {
                 asio_stream: &sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
                 sample_rate: crate::SampleRate,
-                from_endianness: F,
+                read_sample: F,
             ) where
                 A: SizedSample,
                 D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-                F: Fn(A) -> A,
+                F: Fn(&[u8]) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
@@ -113,9 +105,16 @@ impl Device {
                 let n_channels = interleaved.len() / n_frames;
                 let buffer_index = asio_info.buffer_index as usize;
                 for ch_ix in 0..n_channels {
-                    let asio_channel = asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix);
-                    for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
-                        frame[ch_ix] = from_endianness(*s_asio);
+                    let asio_channel =
+                        asio_channel_slice(asio_stream, buffer_index, ch_ix, size_of::<A>());
+
+                    for (sample, s_asio) in interleaved
+                        .iter_mut()
+                        .skip(ch_ix)
+                        .step_by(n_channels)
+                        .zip(asio_channel.chunks_exact(size_of::<A>()))
+                    {
+                        *sample = read_sample(s_asio);
                     }
                 }
 
@@ -141,7 +140,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        from_le,
+                        LittleEndian::read_i16,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -151,21 +150,28 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        from_be,
+                        BigEndian::read_i16,
                     );
                 }
 
-                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
-                // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32)
-                | (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
+                (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32) => {
                     process_input_callback::<f32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        std::convert::identity::<f32>,
+                        LittleEndian::read_f32,
+                    );
+                }
+                (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
+                    process_input_callback::<f32, _, _>(
+                        &mut data_callback,
+                        &mut interleaved,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        BigEndian::read_f32,
                     );
                 }
 
@@ -176,7 +182,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        from_le,
+                        LittleEndian::read_i32,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -186,21 +192,28 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        from_be,
+                        BigEndian::read_i32,
                     );
                 }
 
-                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
-                // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F64)
-                | (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
+                (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F64) => {
                     process_input_callback::<f64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        std::convert::identity::<f64>,
+                        LittleEndian::read_f64,
+                    );
+                }
+                (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
+                    process_input_callback::<f64, _, _>(
+                        &mut data_callback,
+                        &mut interleaved,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        BigEndian::read_f64,
                     );
                 }
 
@@ -247,14 +260,14 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let num_channels = config.channels.clone();
+        let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
         // Create buffers depending on data type.
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
-        let mut silence_asio_buffer = SilenceAsioBuffer::default();
+        let current_buffer_index = Arc::new(AtomicI32::new(-1));
 
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
@@ -268,9 +281,9 @@ impl Device {
             }
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
-            let stream_lock = asio_streams.lock();
-            let ref asio_stream = match stream_lock.output {
-                Some(ref asio_stream) => asio_stream,
+            let mut stream_lock = asio_streams.lock();
+            let asio_stream = match stream_lock.output {
+                Some(ref mut asio_stream) => asio_stream,
                 None => return,
             };
 
@@ -278,23 +291,12 @@ impl Device {
             //
             // This checks if any other callbacks have already silenced the buffer associated with
             // the current `buffer_index`.
-            //
-            // If not, we will silence it and set the opposite buffer half to unsilenced.
-            let silence = match callback_info.buffer_index {
-                0 if !silence_asio_buffer.first => {
-                    silence_asio_buffer.first = true;
-                    silence_asio_buffer.second = false;
-                    true
-                }
-                0 => false,
-                1 if !silence_asio_buffer.second => {
-                    silence_asio_buffer.second = true;
-                    silence_asio_buffer.first = false;
-                    true
-                }
-                1 => false,
-                _ => unreachable!("ASIO uses a double-buffer so there should only be 2"),
-            };
+            let silence =
+                current_buffer_index.load(Ordering::Acquire) != callback_info.buffer_index;
+
+            if silence {
+                current_buffer_index.store(callback_info.buffer_index, Ordering::Release);
+            }
 
             /// 1. Render the given callback to the given buffer of interleaved samples.
             /// 2. If required, silence the ASIO buffer.
@@ -304,14 +306,14 @@ impl Device {
                 data_callback: &mut D,
                 interleaved: &mut [u8],
                 silence_asio_buffer: bool,
-                asio_stream: &sys::AsioStream,
+                asio_stream: &mut sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
                 sample_rate: crate::SampleRate,
-                to_endianness: F,
+                write_sample: F,
             ) where
-                A: SizedSample + std::ops::Add<Output = A>,
+                A: SizedSample,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-                F: Fn(A) -> A,
+                F: Fn(&mut [u8], A),
             {
                 // 1. Render interleaved buffer from callback.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
@@ -333,60 +335,91 @@ impl Device {
                 let buffer_index = asio_info.buffer_index as usize;
                 if silence_asio_buffer {
                     for ch_ix in 0..n_channels {
-                        let asio_channel =
-                            asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix);
-                        asio_channel
-                            .iter_mut()
-                            .for_each(|s| *s = to_endianness(A::EQUILIBRIUM));
+                        let asio_channel = asio_channel_slice_mut(
+                            asio_stream,
+                            buffer_index,
+                            ch_ix,
+                            size_of::<A>(),
+                        );
+
+                        asio_channel.fill(0);
                     }
                 }
 
                 // 3. Write interleaved samples to ASIO channels, one channel at a time.
                 for ch_ix in 0..n_channels {
                     let asio_channel =
-                        asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix);
-                    for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
-                        *s_asio = *s_asio + to_endianness(A::from_sample(frame[ch_ix]));
+                        asio_channel_slice_mut(asio_stream, buffer_index, ch_ix, size_of::<A>());
+
+                    for (sample, s_asio) in interleaved
+                        .iter()
+                        .skip(ch_ix)
+                        .step_by(n_channels)
+                        .zip(asio_channel.chunks_exact_mut(size_of::<A>()))
+                    {
+                        write_sample(s_asio, *sample);
                     }
                 }
             }
 
             match (sample_format, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
-                    process_output_callback::<i16, _, _>(
+                    process_output_callback(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        to_le,
+                        |buffer, sample: i16| {
+                            LittleEndian::write_i16(
+                                buffer,
+                                sample.saturating_add(LittleEndian::read_i16(buffer)),
+                            )
+                        },
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
-                    process_output_callback::<i16, _, _>(
+                    process_output_callback(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        to_be,
+                        |buffer, sample: i16| {
+                            BigEndian::write_i16(
+                                buffer,
+                                sample.saturating_add(BigEndian::read_i16(buffer)),
+                            )
+                        },
+                    );
+                }
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
+                    process_output_callback(
+                        &mut data_callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        |buffer, sample: f32| {
+                            LittleEndian::write_f32(buffer, sample + LittleEndian::read_f32(buffer))
+                        },
                     );
                 }
 
-                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
-                // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB)
-                | (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
-                    process_output_callback::<f32, _, _>(
+                (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
+                    process_output_callback(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        std::convert::identity::<f32>,
+                        |buffer, sample: f32| {
+                            BigEndian::write_f32(buffer, sample + BigEndian::read_f32(buffer))
+                        },
                     );
                 }
 
@@ -398,7 +431,12 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        to_le,
+                        |buffer, sample: i32| {
+                            LittleEndian::write_i32(
+                                buffer,
+                                sample.saturating_add(LittleEndian::read_i32(buffer)),
+                            )
+                        },
                     );
                 }
                 (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
@@ -409,14 +447,16 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        to_be,
+                        |buffer, sample: i32| {
+                            BigEndian::write_i32(
+                                buffer,
+                                sample.saturating_add(BigEndian::read_i32(buffer)),
+                            )
+                        },
                     );
                 }
 
-                // TODO: Handle endianness conversion for floats? We currently use the `PrimInt`
-                // trait for the `to_le` and `to_be` methods, but this does not support floats.
-                (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64LSB)
-                | (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
+                (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64LSB) => {
                     process_output_callback::<f64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
@@ -424,7 +464,23 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        std::convert::identity::<f64>,
+                        |buffer, sample: f64| {
+                            LittleEndian::write_f64(buffer, sample + LittleEndian::read_f64(buffer))
+                        },
+                    );
+                }
+
+                (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
+                    process_output_callback::<f64, _, _>(
+                        &mut data_callback,
+                        &mut interleaved,
+                        silence,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        |buffer, sample: f64| {
+                            BigEndian::write_f64(buffer, sample + BigEndian::read_f64(buffer))
+                        },
                     );
                 }
 
@@ -468,7 +524,7 @@ impl Device {
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
-        let ref mut streams = *self.asio_streams.lock();
+        let mut streams = self.asio_streams.lock();
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
@@ -515,7 +571,7 @@ impl Device {
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
-        let ref mut streams = *self.asio_streams.lock();
+        let mut streams = self.asio_streams.lock();
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
@@ -623,50 +679,26 @@ unsafe fn cast_slice_mut<T>(v: &mut [u8]) -> &mut [T] {
     std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }
 
-/// Helper function to convert to little endianness.
-fn to_le<T: PrimInt>(t: T) -> T {
-    t.to_le()
-}
-
-/// Helper function to convert to big endianness.
-fn to_be<T: PrimInt>(t: T) -> T {
-    t.to_be()
-}
-
-/// Helper function to convert from little endianness.
-fn from_le<T: PrimInt>(t: T) -> T {
-    T::from_le(t)
-}
-
-/// Helper function to convert from little endianness.
-fn from_be<T: PrimInt>(t: T) -> T {
-    T::from_be(t)
-}
-
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
-///
-/// Safety: it's up to the user to ensure that this function is not called multiple times for the
-/// same channel.
-unsafe fn asio_channel_slice<T>(
+unsafe fn asio_channel_slice(
     asio_stream: &sys::AsioStream,
     buffer_index: usize,
     channel_index: usize,
-) -> &[T] {
-    asio_channel_slice_mut(asio_stream, buffer_index, channel_index)
+    sample_size: usize,
+) -> &[u8] {
+    let buff_ptr = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *const u8;
+    std::slice::from_raw_parts(buff_ptr, sample_size * asio_stream.buffer_size as usize)
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
-///
-/// Safety: it's up to the user to ensure that this function is not called multiple times for the
-/// same channel.
-unsafe fn asio_channel_slice_mut<T>(
-    asio_stream: &sys::AsioStream,
+unsafe fn asio_channel_slice_mut(
+    asio_stream: &mut sys::AsioStream,
     buffer_index: usize,
     channel_index: usize,
-) -> &mut [T] {
-    let buff_ptr: *mut T =
-        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *mut _;
-    std::slice::from_raw_parts_mut(buff_ptr, asio_stream.buffer_size as usize)
+    sample_size: usize,
+) -> &mut [u8] {
+    let buff_ptr = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut u8;
+    std::slice::from_raw_parts_mut(buff_ptr, sample_size * asio_stream.buffer_size as usize)
 }
 
 fn build_stream_err(e: sys::AsioError) -> BuildStreamError {

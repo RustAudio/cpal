@@ -1,4 +1,3 @@
-use std;
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 
@@ -83,8 +82,8 @@ impl Device {
                     channels,
                     min_sample_rate: rate,
                     max_sample_rate: rate,
-                    buffer_size: f.buffer_size.clone(),
-                    sample_format: f.sample_format.clone(),
+                    buffer_size: f.buffer_size,
+                    sample_format: f.sample_format,
                 })
             }
         }
@@ -120,8 +119,8 @@ impl Device {
                     channels,
                     min_sample_rate: rate,
                     max_sample_rate: rate,
-                    buffer_size: f.buffer_size.clone(),
-                    sample_format: f.sample_format.clone(),
+                    buffer_size: f.buffer_size,
+                    sample_format: f.sample_format,
                 })
             }
         }
