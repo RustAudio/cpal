@@ -14,6 +14,7 @@ use crate::SupportedStreamConfig;
 use crate::SupportedStreamConfigRange;
 use crate::SupportedStreamConfigsError;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::AtomicI32;
 use std::sync::Arc;
 
 /// A ASIO Device
@@ -26,6 +27,7 @@ pub struct Device {
     // A driver can only have one of each.
     // They need to be created at the same time.
     pub asio_streams: Arc<Mutex<sys::AsioStreams>>,
+    pub current_buffer_index: Arc<AtomicI32>,
 }
 
 /// All available devices.
@@ -193,6 +195,7 @@ impl Iterator for Devices {
                         return Some(Device {
                             driver,
                             asio_streams,
+                            current_buffer_index: Arc::new(AtomicI32::new(-1)),
                         });
                     }
                     Err(_) => continue,

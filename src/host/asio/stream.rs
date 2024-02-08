@@ -10,7 +10,7 @@ use crate::{
 };
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use std::mem::size_of;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -267,7 +267,7 @@ impl Device {
         // Create buffers depending on data type.
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
-        let current_buffer_index = Arc::new(AtomicI32::new(-1));
+        let current_buffer_index = self.current_buffer_index.clone();
 
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
