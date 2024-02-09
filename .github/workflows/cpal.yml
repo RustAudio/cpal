@@ -7,7 +7,7 @@ jobs:
   clippy-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Update apt
       run: sudo apt update
     - name: Install alsa
@@ -15,63 +15,44 @@ jobs:
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
     - name: Install stable
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
-        override: true
         components: clippy
         target: armv7-linux-androideabi
     - name: Run clippy
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --all-features
+      run: cargo clippy --all --all-features
     - name: Run clippy for Android target
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
+      run: cargo clippy --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install stable
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
-        override: true
         components: rustfmt
     - name: Run rustfmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      run: cargo fmt --all -- --check
 
   cargo-publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Update apt
       run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
     - name: Verify publish crate
-      uses: katyo/publish-crates@v1
+      uses: katyo/publish-crates@v2
       with:
         dry-run: true
         ignore-unpublished-changes: true
     - name: Publish crate
-      uses: katyo/publish-crates@v1
+      uses: katyo/publish-crates@v2
       with:
         ignore-unpublished-changes: true
         registry-token: ${{ secrets.CRATESIO_TOKEN }}
@@ -79,7 +60,7 @@ jobs:
   ubuntu-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Update apt
       run: sudo apt update
     - name: Install alsa
@@ -87,66 +68,40 @@ jobs:
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
     - name: Install stable
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Run without features
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all --no-default-features --verbose
+      run: cargo test --all --no-default-features --verbose
     - name: Run all features
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all --all-features --verbose
+      run: cargo test --all --all-features --verbose
 
   linux-check-and-test-armv7:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           target: armv7-unknown-linux-gnueabihf
-          override: true
 
       - name: Build image
         run: docker build -t cross/cpal_armv7:v1 ./
 
+      - name: Install cross
+        run: cargo install cross
+
       - name: Check without features for armv7
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
 
       - name: Test without features for armv7
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
 
       - name: Check all features for armv7
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
       - name: Test all features for armv7
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          use-cross: true
-          args: --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
   asmjs-wasm32-test:
     strategy:
@@ -154,16 +109,12 @@ jobs:
         target: [asmjs-unknown-emscripten, wasm32-unknown-emscripten]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup Emscripten toolchain
-      uses: mymindstorm/setup-emsdk@v10
-      with:
-        version: 2.0.9 # https://github.com/rust-lang/rust/issues/85821
+      uses: mymindstorm/setup-emsdk@v14
     - name: Install stable
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
         target: ${{ matrix.target }}
     - name: Build beep example
       run: cargo build --example beep --release --target ${{ matrix.target }}
@@ -177,12 +128,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - name: Install stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           target: ${{ matrix.target }}
       - name: Build beep example
         run: cargo build --example beep --target ${{ matrix.target }} --features=wasm-bindgen
@@ -196,12 +145,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - name: Install stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           target: ${{ matrix.target }}
       - name: Build beep example
         run: cargo build --example beep --target ${{ matrix.target }}
@@ -212,7 +159,7 @@ jobs:
         version: [x86_64, i686]
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install ASIO SDK
       env:
         LINK: https://www.steinberg.net/asiosdk
@@ -225,12 +172,9 @@ jobs:
     - name: Install llvm and clang
       run: choco install llvm
     - name: Install stable
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
         target: ${{ matrix.version }}-pc-windows-msvc
-        override: true
     - name: Run without features
       run: cargo test --all --no-default-features --verbose
     - name: Run all features
@@ -241,15 +185,11 @@ jobs:
   macos-test:
     runs-on: macOS-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install llvm and clang
       run: brew install llvm
     - name: Install stable
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build beep example
       run: cargo build --example beep
     - name: Run without features
@@ -260,13 +200,10 @@ jobs:
   android-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Install stable
-      uses: actions-rs/toolchain@v1
+    - uses: actions/checkout@v4
+    - name: Install stable (Android target)
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
-        override: true
         target: armv7-linux-androideabi
     - name: Check android
       run: cargo check --example android --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
@@ -282,13 +219,11 @@ jobs:
   android-apk-build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Install Android targets
-      run: |
-        rustup target add armv7-linux-androideabi
-        rustup target add aarch64-linux-android
-        rustup target add i686-linux-android
-        rustup target add x86_64-linux-android
+    - uses: actions/checkout@v4
+    - name: Install stable (Android targets)
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
     - name: Set Up Android tools
       run: |
         ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "platforms;android-30"
@@ -300,17 +235,13 @@ jobs:
   ios-build:
     runs-on: macOS-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install llvm and clang
       run: brew install llvm
-    - name: Install stable
-      uses: actions-rs/toolchain@v1
+    - name: Install stable (iOS targets)
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: stable
-        override: true
-    - name: Add iOS targets
-      run: rustup target add aarch64-apple-ios x86_64-apple-ios
+        targets: aarch64-apple-ios,x86_64-apple-ios
     - name: Install cargo lipo
       run: cargo install cargo-lipo
     - name: Build iphonesimulator feedback example
@@ -323,9 +254,11 @@ jobs:
     # It does not test the javascript/web integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Target
-        run: rustup target add wasm32-unknown-unknown
+      - uses: actions/checkout@v4
+      - name: Install stable (wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - name: Cargo Build
         working-directory: ./examples/wasm-beep
         run: cargo build --target wasm32-unknown-unknown

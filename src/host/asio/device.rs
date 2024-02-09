@@ -18,6 +18,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// A ASIO Device
+#[derive(Clone)]
 pub struct Device {
     /// The driver represented by this device.
     pub driver: Arc<sys::Driver>,
