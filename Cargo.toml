@@ -94,6 +94,7 @@ web-sys = { version = "0.3.35", features = [
     "AudioDestinationNode",
     "Window",
     "AudioContextState",
+    "ChannelCountMode"
 ] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

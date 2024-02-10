@@ -266,25 +266,14 @@ impl DeviceTrait for Device {
 
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
-        let n_channels = config.channels as usize;
 
-        let buffer_size_frames = match config.buffer_size {
-            BufferSize::Fixed(v) => {
-                if v == 0 {
-                    return Err(BuildStreamError::StreamConfigNotSupported);
-                } else {
-                    v as usize
-                }
-            }
-            BufferSize::Default => DEFAULT_BUFFER_SIZE as usize,
-        };
+        let buffer_size_frames = DEFAULT_BUFFER_SIZE;
         
-        let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
+        let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames as usize, config.sample_rate);
 
         let ctx_handle = ctx.clone();
         let time_handle = time.clone();
-        let producer = Box::new(move |temporary_buffer: &mut Vec<f32>| {
-            log::debug!("produce output cb tick");
+        let chunk_output_cb = Box::new(move |temporary_buffer: &mut Vec<f32>| {
             let now = ctx_handle.current_time();
             let time_at_start_of_buffer = {
                 let time_at_start_of_buffer = time_handle
@@ -318,7 +307,7 @@ impl DeviceTrait for Device {
             *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
         }) as Box<dyn FnMut(&mut Vec<f32>)>;
 
-        bridge.register_output_callback(producer)?;
+        bridge.register_output_callback(chunk_output_cb)?;
 
         let js_bridge = Arc::new(bridge);
 

@@ -33,7 +33,7 @@ pub mod tests {
         }
 
         let mut data_from_buffer = (0..8).map(|_| vec![0_f32; 256]).collect::<Vec<_>>();
-        for (i, chunk) in data_from_buffer.iter_mut().enumerate() {
+        for (_, chunk) in data_from_buffer.iter_mut().enumerate() {
             buffer.read(chunk.as_mut_slice()).expect("read buffer")
         }
 
@@ -67,7 +67,7 @@ pub mod tests {
 
         let mut data_from_buffer = (0..12).map(|_| vec![0_f32; 128]).collect::<Vec<_>>();
 
-        // +3
+        // +4
         buffer
             .write(chunked_data[0].as_slice())
             .expect("write chunk");
@@ -77,8 +77,12 @@ pub mod tests {
         buffer
             .write(chunked_data[2].as_slice())
             .expect("write chunk");
+        buffer
+            .write(chunked_data[3].as_slice())
+            .expect("write chunk");
 
-        assert_eq!(buffer.chunks_to_read_count(), 3);
+        assert_eq!(buffer.chunks_to_read_count(), 4);
+        assert_eq!(buffer.chunks_to_write_count(), 0);
 
         // -2
         buffer
@@ -88,19 +92,21 @@ pub mod tests {
             .read(data_from_buffer[1].as_mut_slice())
             .expect("read chunk");
 
-        assert_eq!(buffer.chunks_to_read_count(), 1);
+        assert_eq!(buffer.chunks_to_read_count(), 2);
+        assert_eq!(buffer.chunks_to_write_count(), 2);
 
         // +2
         buffer
-            .write(chunked_data[3].as_slice())
-            .expect("write chunk");
-        buffer
             .write(chunked_data[4].as_slice())
             .expect("write chunk");
+        buffer
+            .write(chunked_data[5].as_slice())
+            .expect("write chunk");
 
-        assert_eq!(buffer.chunks_to_read_count(), 3);
+        assert_eq!(buffer.chunks_to_read_count(), 4);
+        assert_eq!(buffer.chunks_to_write_count(), 0);
 
-        // -3
+        // -4
         buffer
             .read(data_from_buffer[2].as_mut_slice())
             .expect("read chunk");
@@ -110,82 +116,79 @@ pub mod tests {
         buffer
             .read(data_from_buffer[4].as_mut_slice())
             .expect("read chunk");
-
-        assert_eq!(buffer.chunks_to_read_count(), 0);
-
-        // +2
-        buffer
-            .write(chunked_data[5].as_slice())
-            .expect("write chunk");
-        buffer
-            .write(chunked_data[6].as_slice())
-            .expect("write chunk");
-
-        assert_eq!(buffer.chunks_to_read_count(), 2);
-
-        // -2
         buffer
             .read(data_from_buffer[5].as_mut_slice())
             .expect("read chunk");
-        buffer
-            .read(data_from_buffer[6].as_mut_slice())
-            .expect("read chunk");
 
         assert_eq!(buffer.chunks_to_read_count(), 0);
+        assert_eq!(buffer.chunks_to_write_count(), 4);
 
-        // +3
+        // +2
+        buffer
+            .write(chunked_data[6].as_slice())
+            .expect("write chunk");
         buffer
             .write(chunked_data[7].as_slice())
             .expect("write chunk");
+
+        assert_eq!(buffer.chunks_to_read_count(), 2);
+        assert_eq!(buffer.chunks_to_write_count(), 2);
+
+        // -2
+        buffer
+            .read(data_from_buffer[6].as_mut_slice())
+            .expect("read chunk");
+        buffer
+            .read(data_from_buffer[7].as_mut_slice())
+            .expect("read chunk");
+
+        assert_eq!(buffer.chunks_to_read_count(), 0);
+        assert_eq!(buffer.chunks_to_write_count(), 4);
+
+        // +3
         buffer
             .write(chunked_data[8].as_slice())
             .expect("write chunk");
         buffer
             .write(chunked_data[9].as_slice())
             .expect("write chunk");
-
-        assert_eq!(buffer.chunks_to_read_count(), 3);
-
-        // -1
-        buffer
-            .read(data_from_buffer[7].as_mut_slice())
-            .expect("read chunk");
-
-        assert_eq!(buffer.chunks_to_read_count(), 2);
-
-        // +1
         buffer
             .write(chunked_data[10].as_slice())
             .expect("write chunk");
 
         assert_eq!(buffer.chunks_to_read_count(), 3);
+        assert_eq!(buffer.chunks_to_write_count(), 1);
 
-        // -3
+        // -1
         buffer
             .read(data_from_buffer[8].as_mut_slice())
             .expect("read chunk");
-        buffer
-            .read(data_from_buffer[9].as_mut_slice())
-            .expect("read chunk");
-        buffer
-            .read(data_from_buffer[10].as_mut_slice())
-            .expect("read chunk");
 
-        assert_eq!(buffer.chunks_to_read_count(), 0);
+        assert_eq!(buffer.chunks_to_read_count(), 2);
+        assert_eq!(buffer.chunks_to_write_count(), 2);
 
         // +1
         buffer
             .write(chunked_data[11].as_slice())
             .expect("write chunk");
 
-        assert_eq!(buffer.chunks_to_read_count(), 1);
+        assert_eq!(buffer.chunks_to_read_count(), 3);
+        assert_eq!(buffer.chunks_to_write_count(), 1);
 
-        // -1
+        // -4
+        buffer
+            .read(data_from_buffer[9].as_mut_slice())
+            .expect("read chunk");
+        buffer
+            .read(data_from_buffer[10].as_mut_slice())
+            .expect("read chunk");
         buffer
             .read(data_from_buffer[11].as_mut_slice())
             .expect("read chunk");
 
         assert_eq!(buffer.chunks_to_read_count(), 0);
+        assert_eq!(buffer.chunks_to_write_count(), 4);
+
 
         assert_eq!(
             chunked_data, data_from_buffer,

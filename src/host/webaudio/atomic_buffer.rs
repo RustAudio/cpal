@@ -1,9 +1,16 @@
 use std::{
+    future::Future,
     ops::{Range, RangeInclusive},
     sync::Arc,
 };
 
-use js_sys::{Atomics, DataView, Float32Array, Int32Array, SharedArrayBuffer};
+use js_sys::{
+    Array, ArrayBuffer, Atomics, DataView, Float32Array, Function, Int32Array, Object, Promise,
+    Reflect, SharedArrayBuffer,
+};
+use wasm_bindgen::{closure::Closure, JsValue};
+use wasm_bindgen_futures::{spawn_local, JsFuture};
+use web_sys::AbortSignal;
 
 use crate::BackendSpecificError;
 
@@ -38,6 +45,7 @@ impl TryFrom<i32> for BufferState {
 
 #[derive(Debug)]
 pub enum BufferError {
+    NotSupported,
     InvalidData,
     OutOfRange,
     BufferFull,
@@ -60,14 +68,14 @@ impl From<BackendSpecificError> for BufferError {
 /// ```
 ///
 pub struct AtomicBuffer {
+    /// size of a chunk
+    pub chunk_size: u32,
+    /// total chunks
+    pub chunks: u32,
     /// memory shared between main thread and worklet
     shared: Arc<SharedArrayBuffer>,
     /// integer array over the shared memory to work with Atomics
     ints: Arc<Int32Array>,
-    /// size of a chunk
-    chunk_size: u32,
-    /// total chunks
-    chunks: u32,
     /// index of the read order
     read_order_index: u32,
     /// hold one place for floats conversion
@@ -92,6 +100,8 @@ impl AtomicBuffer {
         let float = Float32Array::new_with_length(1);
         let view = DataView::new(&float.buffer(), 0, float.byte_length() as usize);
 
+        // todo: check crossOriginIsolated and fallback to messaging
+
         Self {
             chunk_size,
             chunks,
@@ -102,6 +112,26 @@ impl AtomicBuffer {
             ints: Arc::new(ints),
         }
     }
+
+    // fn from_shared_with_size(shared: SharedArrayBuffer, chunk_size: u32) -> Self {
+    //     let ints = Int32Array::new(&shared.into());
+
+    //     let float = Float32Array::new_with_length(1);
+    //     let view = DataView::new(&float.buffer(), 0, float.byte_length() as usize);
+
+    //     let chunks = ints.length() / chunk_size;
+    //     let read_order_index = ints.length() - chunks;
+
+    //     Self {
+    //         chunk_size,
+    //         chunks,
+    //         read_order_index,
+    //         _float: float,
+    //         view,
+    //         shared: Arc::new(shared),
+    //         ints: Arc::new(ints),
+    //     }
+    // }
 
     fn read_chunks_iter(&self) -> impl Iterator<Item = (u32, RangeInclusive<u32>)> + '_ {
         (0..self.chunks)
@@ -174,8 +204,6 @@ impl AtomicBuffer {
                 .map_err(map_js_err::<BufferError>)?;
 
                 return Ok(());
-            } else if idx as u32 == write_idx {
-                return Err(BufferError::InvalidData);
             }
         }
 
@@ -235,5 +263,112 @@ impl AtomicBuffer {
 
     pub fn shared(&self) -> Arc<SharedArrayBuffer> {
         self.shared.clone()
+    }
+
+    pub fn await_read(&self) -> Result<Promise, BufferError> {
+        let value =
+            Atomics::load(&self.ints, self.read_order_index).map_err(map_js_err::<BufferError>)?;
+        let obj = Atomics::wait_async(&self.ints, self.read_order_index, value)
+            .map_err(map_js_err::<BufferError>)?;
+
+        if Reflect::get(&obj, &"async".into())
+            .map(|v| v.as_bool().unwrap_or_default())
+            .ok()
+            .unwrap_or_default()
+        {
+            let ints = self.ints.clone();
+            let read_order_index = self.read_order_index;
+            let value = Reflect::get(&obj, &"value".into()).map_err(map_js_err::<BufferError>)?;
+            let promise = Promise::from(value);
+            Ok(promise)
+        } else if Some("not-equal".to_string())
+            == Reflect::get(&obj, &"value".into())
+                .map(|v| v.as_string())
+                .ok()
+                .flatten()
+        {
+            let promise = Promise::resolve(&JsValue::NULL);
+            Ok(promise)
+        } else {
+            Err(BufferError::NotSupported)
+        }
+    }
+
+    // pub fn js_value() -> Result<Arc<Object>, BufferError> {
+    //     let obj = Arc::new(Object::new());
+
+    //     let load_self = obj.clone();
+    //     let load =
+    //         Closure::wrap(Box::new(move |shared: JsValue| {
+    //             match SharedArrayBuffer::try_from(shared.clone()) {
+    //                 Ok(shared) => {
+    //                     Reflect::set(&load_self, &"buffer".into(), &shared)
+    //                         .map_err(map_js_err::<BufferError>)
+    //                         .unwrap();
+    //                 }
+    //                 Err(_) => {
+    //                     let fallback = ArrayBuffer::from(shared);
+    //                     Reflect::set(&load_self, &"fallback_buffer".into(), &fallback)
+    //                         .map_err(map_js_err::<BufferError>)
+    //                         .unwrap();
+    //                 }
+    //             }
+    //         }) as Box<dyn FnMut(JsValue)>);
+
+    //     let read_self = obj.clone();
+    //     let read = Closure::wrap(Box::new(move |src: JsValue| {
+    //         let src = Array::from(&src);
+    //         let channels = src.length();
+    //         let frames = Float32Array::from(src.get(0)).length();
+    //         let buffer = match Reflect::get(&read_self, &"buffer".into()) {
+    //             Ok(shared) => {
+    //                 let shared = SharedArrayBuffer::from(shared);
+    //                 AtomicBuffer::from_shared_with_size(shared, channels * frames)
+    //             }
+    //             Err(_) => todo!(),
+    //         };
+
+    //         let worklet_buffer = Reflect::get(&read_self, &"worklet_buffer".into()).unwrap();
+    //         let worklet_buffer = Array::from(worklet_buffer);
+    //         buffer.read(worklet_buffer.it).unwrap();
+    //         for ch in 0..channels {
+    //             let channel = Float32Array::from(src.get(ch));
+    //             for fr in 0..frames {
+    //                 let i = fr * channels + ch;
+    //                 channel.set(, offset)
+    //             }
+    //         }
+
+    //         // const frames = output[0].length;
+    //         // const channels = output.length;
+    //         // // read last output from buffer
+    //         // for (let fr = 0; fr < frames; fr++) {
+    //         //   for (let ch = 0; ch < channels; ch++) {
+    //         //     // frame index
+    //         //     const i = fr * channels + ch;
+    //         //     // load stored frame
+    //         //     const f_int = Atomics.load(this.ints, i);
+    //         //     // set on view
+    //         //     this.view.setInt32(i * Int32Array.BYTES_PER_ELEMENT, f_int);
+    //         //     // get as float
+    //         //     const f = this.view.getFloat32(
+    //         //       i * Float32Array.BYTES_PER_ELEMENT
+    //         //     );
+    //         //     // write sample
+    //         //     output[ch][fr] = f;
+    //         //   }
+    //         // }
+    //     }) as Box<dyn FnMut(JsValue)>);
+
+    //     Reflect::set(&obj, &"load".into(), load.as_ref()).map_err(map_js_err::<BufferError>)?;
+    //     Reflect::set(&obj, &"read".into(), read.as_ref()).map_err(map_js_err::<BufferError>)?;
+
+    //     Ok(obj)
+    // }
+}
+
+impl Into<JsValue> for &AtomicBuffer {
+    fn into(self) -> JsValue {
+        todo!()
     }
 }
