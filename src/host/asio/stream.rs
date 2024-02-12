@@ -6,8 +6,7 @@ use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
-    StreamError,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -313,7 +312,7 @@ impl Device {
                 format: SampleFormat,
                 mix_samples: F,
             ) where
-                A: SizedSample,
+                A: Copy,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(A, A) -> A,
             {
@@ -348,7 +347,7 @@ impl Device {
                     let asio_channel =
                         asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix);
                     for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
-                        *s_asio = mix_samples(*s_asio, A::from_sample(frame[ch_ix]));
+                        *s_asio = mix_samples(*s_asio, frame[ch_ix]);
                     }
                 }
             }
