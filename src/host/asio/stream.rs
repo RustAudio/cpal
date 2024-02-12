@@ -1,6 +1,7 @@
 extern crate asio_sys as sys;
 extern crate num_traits;
 
+use self::num_traits::PrimInt;
 use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
@@ -8,8 +9,6 @@ use crate::{
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
     StreamError,
 };
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -93,11 +92,12 @@ impl Device {
                 asio_stream: &sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
                 sample_rate: crate::SampleRate,
-                read_sample: F,
+                format: SampleFormat,
+                from_endianness: F,
             ) where
-                A: SizedSample,
+                A: Copy,
                 D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-                F: Fn(&[u8]) -> A,
+                F: Fn(A) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
@@ -105,23 +105,16 @@ impl Device {
                 let n_channels = interleaved.len() / n_frames;
                 let buffer_index = asio_info.buffer_index as usize;
                 for ch_ix in 0..n_channels {
-                    let asio_channel =
-                        asio_channel_slice(asio_stream, buffer_index, ch_ix, size_of::<A>());
-
-                    for (sample, s_asio) in interleaved
-                        .iter_mut()
-                        .skip(ch_ix)
-                        .step_by(n_channels)
-                        .zip(asio_channel.chunks_exact(size_of::<A>()))
-                    {
-                        *sample = read_sample(s_asio);
+                    let asio_channel = asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix);
+                    for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
+                        frame[ch_ix] = from_endianness(*s_asio);
                     }
                 }
 
                 // 2. Deliver the interleaved buffer to the callback.
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
-                let data = Data::from_parts(data, len, A::FORMAT);
+                let data = Data::from_parts(data, len, format);
                 let callback = system_time_to_stream_instant(asio_info.system_time);
                 let delay = frames_to_duration(n_frames, sample_rate);
                 let capture = callback
@@ -140,7 +133,8 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        LittleEndian::read_i16,
+                        SampleFormat::I16,
+                        from_le,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -150,28 +144,31 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        BigEndian::read_i16,
+                        SampleFormat::I16,
+                        from_be,
                     );
                 }
 
                 (&sys::AsioSampleType::ASIOSTFloat32LSB, SampleFormat::F32) => {
-                    process_input_callback::<f32, _, _>(
+                    process_input_callback::<u32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        LittleEndian::read_f32,
+                        SampleFormat::F32,
+                        from_le,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
-                    process_input_callback::<f32, _, _>(
+                    process_input_callback::<u32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        BigEndian::read_f32,
+                        SampleFormat::F32,
+                        from_be,
                     );
                 }
 
@@ -182,7 +179,8 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        LittleEndian::read_i32,
+                        SampleFormat::I32,
+                        from_le,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -192,28 +190,31 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        BigEndian::read_i32,
+                        SampleFormat::I32,
+                        from_be,
                     );
                 }
 
                 (&sys::AsioSampleType::ASIOSTFloat64LSB, SampleFormat::F64) => {
-                    process_input_callback::<f64, _, _>(
+                    process_input_callback::<u64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        LittleEndian::read_f64,
+                        SampleFormat::F64,
+                        from_le,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
-                    process_input_callback::<f64, _, _>(
+                    process_input_callback::<u64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        BigEndian::read_f64,
+                        SampleFormat::F64,
+                        from_be,
                     );
                 }
 
@@ -309,17 +310,18 @@ impl Device {
                 asio_stream: &mut sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
                 sample_rate: crate::SampleRate,
-                write_sample: F,
+                format: SampleFormat,
+                mix_samples: F,
             ) where
                 A: SizedSample,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-                F: Fn(&mut [u8], A),
+                F: Fn(A, A) -> A,
             {
                 // 1. Render interleaved buffer from callback.
                 let interleaved: &mut [A] = cast_slice_mut(interleaved);
                 let data = interleaved.as_mut_ptr() as *mut ();
                 let len = interleaved.len();
-                let mut data = Data::from_parts(data, len, A::FORMAT);
+                let mut data = Data::from_parts(data, len, format);
                 let callback = system_time_to_stream_instant(asio_info.system_time);
                 let n_frames = asio_stream.buffer_size as usize;
                 let delay = frames_to_duration(n_frames, sample_rate);
@@ -335,90 +337,81 @@ impl Device {
                 let buffer_index = asio_info.buffer_index as usize;
                 if silence_asio_buffer {
                     for ch_ix in 0..n_channels {
-                        let asio_channel = asio_channel_slice_mut(
-                            asio_stream,
-                            buffer_index,
-                            ch_ix,
-                            size_of::<A>(),
-                        );
-
-                        asio_channel.fill(0);
+                        let asio_channel =
+                            asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix);
+                        asio_channel.align_to_mut::<u8>().1.fill(0);
                     }
                 }
 
                 // 3. Write interleaved samples to ASIO channels, one channel at a time.
                 for ch_ix in 0..n_channels {
                     let asio_channel =
-                        asio_channel_slice_mut(asio_stream, buffer_index, ch_ix, size_of::<A>());
-
-                    for (sample, s_asio) in interleaved
-                        .iter()
-                        .skip(ch_ix)
-                        .step_by(n_channels)
-                        .zip(asio_channel.chunks_exact_mut(size_of::<A>()))
-                    {
-                        write_sample(s_asio, *sample);
+                        asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix);
+                    for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
+                        *s_asio = mix_samples(*s_asio, A::from_sample(frame[ch_ix]));
                     }
                 }
             }
 
             match (sample_format, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
-                    process_output_callback(
+                    process_output_callback::<i16, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: i16| {
-                            LittleEndian::write_i16(
-                                buffer,
-                                sample.saturating_add(LittleEndian::read_i16(buffer)),
-                            )
+                        SampleFormat::I16,
+                        |old_sample, new_sample| {
+                            from_le(old_sample).saturating_add(new_sample).to_le()
                         },
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
-                    process_output_callback(
+                    process_output_callback::<i16, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: i16| {
-                            BigEndian::write_i16(
-                                buffer,
-                                sample.saturating_add(BigEndian::read_i16(buffer)),
-                            )
+                        SampleFormat::I16,
+                        |old_sample, new_sample| {
+                            from_be(old_sample).saturating_add(new_sample).to_be()
                         },
                     );
                 }
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
-                    process_output_callback(
+                    process_output_callback::<u32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: f32| {
-                            LittleEndian::write_f32(buffer, sample + LittleEndian::read_f32(buffer))
+                        SampleFormat::F32,
+                        |old_sample, new_sample| {
+                            (f32::from_bits(from_le(old_sample)) + f32::from_bits(new_sample))
+                                .to_bits()
+                                .to_le()
                         },
                     );
                 }
 
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32MSB) => {
-                    process_output_callback(
+                    process_output_callback::<u32, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: f32| {
-                            BigEndian::write_f32(buffer, sample + BigEndian::read_f32(buffer))
+                        SampleFormat::F32,
+                        |old_sample, new_sample| {
+                            (f32::from_bits(from_be(old_sample)) + f32::from_bits(new_sample))
+                                .to_bits()
+                                .to_be()
                         },
                     );
                 }
@@ -431,11 +424,9 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: i32| {
-                            LittleEndian::write_i32(
-                                buffer,
-                                sample.saturating_add(LittleEndian::read_i32(buffer)),
-                            )
+                        SampleFormat::I32,
+                        |old_sample, new_sample| {
+                            from_le(old_sample).saturating_add(new_sample).to_le()
                         },
                     );
                 }
@@ -447,39 +438,43 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: i32| {
-                            BigEndian::write_i32(
-                                buffer,
-                                sample.saturating_add(BigEndian::read_i32(buffer)),
-                            )
+                        SampleFormat::I32,
+                        |old_sample, new_sample| {
+                            from_be(old_sample).saturating_add(new_sample).to_be()
                         },
                     );
                 }
 
                 (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64LSB) => {
-                    process_output_callback::<f64, _, _>(
+                    process_output_callback::<u64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: f64| {
-                            LittleEndian::write_f64(buffer, sample + LittleEndian::read_f64(buffer))
+                        SampleFormat::F64,
+                        |old_sample, new_sample| {
+                            (f64::from_bits(from_le(old_sample)) + f64::from_bits(new_sample))
+                                .to_bits()
+                                .to_le()
                         },
                     );
                 }
 
                 (SampleFormat::F64, &sys::AsioSampleType::ASIOSTFloat64MSB) => {
-                    process_output_callback::<f64, _, _>(
+                    process_output_callback::<u64, _, _>(
                         &mut data_callback,
                         &mut interleaved,
                         silence,
                         asio_stream,
                         callback_info,
                         config.sample_rate,
-                        |buffer, sample: f64| {
-                            BigEndian::write_f64(buffer, sample + BigEndian::read_f64(buffer))
+                        SampleFormat::F64,
+                        |old_sample, new_sample| {
+                            (f64::from_bits(from_be(old_sample)) + f64::from_bits(new_sample))
+                                .to_bits()
+                                .to_be()
                         },
                     );
                 }
@@ -679,26 +674,36 @@ unsafe fn cast_slice_mut<T>(v: &mut [u8]) -> &mut [T] {
     std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }
 
-/// Shorthand for retrieving the asio buffer slice associated with a channel.
-unsafe fn asio_channel_slice(
-    asio_stream: &sys::AsioStream,
-    buffer_index: usize,
-    channel_index: usize,
-    sample_size: usize,
-) -> &[u8] {
-    let buff_ptr = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *const u8;
-    std::slice::from_raw_parts(buff_ptr, sample_size * asio_stream.buffer_size as usize)
+/// Helper function to convert from little endianness.
+fn from_le<T: PrimInt>(t: T) -> T {
+    T::from_le(t)
+}
+
+/// Helper function to convert from little endianness.
+fn from_be<T: PrimInt>(t: T) -> T {
+    T::from_be(t)
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
-unsafe fn asio_channel_slice_mut(
+unsafe fn asio_channel_slice<T>(
+    asio_stream: &sys::AsioStream,
+    buffer_index: usize,
+    channel_index: usize,
+) -> &[T] {
+    let buff_ptr: *const T =
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *const _;
+    std::slice::from_raw_parts(buff_ptr, asio_stream.buffer_size as usize)
+}
+
+/// Shorthand for retrieving the asio buffer slice associated with a channel.
+unsafe fn asio_channel_slice_mut<T>(
     asio_stream: &mut sys::AsioStream,
     buffer_index: usize,
     channel_index: usize,
-    sample_size: usize,
-) -> &mut [u8] {
-    let buff_ptr = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut u8;
-    std::slice::from_raw_parts_mut(buff_ptr, sample_size * asio_stream.buffer_size as usize)
+) -> &mut [T] {
+    let buff_ptr: *mut T =
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *mut _;
+    std::slice::from_raw_parts_mut(buff_ptr, asio_stream.buffer_size as usize)
 }
 
 fn build_stream_err(e: sys::AsioError) -> BuildStreamError {
