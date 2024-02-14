@@ -9,6 +9,7 @@ use std::ptr;
 use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation;
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::SystemServices;
@@ -271,6 +272,8 @@ fn run_input(
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
+    boost_current_thread_priority();
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -298,6 +301,8 @@ fn run_output(
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
+    boost_current_thread_priority();
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             Some(ControlFlow::Break) => break,
@@ -317,6 +322,17 @@ fn run_output(
             ControlFlow::Break => break,
             ControlFlow::Continue => continue,
         }
+    }
+}
+
+fn boost_current_thread_priority() {
+    unsafe {
+        let thread_id = Threading::GetCurrentThreadId();
+
+        let _ = Threading::SetThreadPriority(
+            HANDLE(thread_id as isize),
+            Threading::THREAD_PRIORITY_TIME_CRITICAL,
+        );
     }
 }
 
