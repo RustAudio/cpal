@@ -8,7 +8,6 @@ use crate::{
 use std::ffi::OsString;
 use std::fmt;
 use std::mem;
-use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
@@ -124,11 +123,6 @@ struct Endpoint {
     endpoint: Audio::IMMEndpoint,
 }
 
-enum WaveFormat {
-    Ex(Audio::WAVEFORMATEX),
-    Extensible(Audio::WAVEFORMATEXTENSIBLE),
-}
-
 // Use RAII to make sure CoTaskMemFree is called when we are responsible for freeing.
 struct WaveFormatExPtr(*mut Audio::WAVEFORMATEX);
 
@@ -136,48 +130,6 @@ impl Drop for WaveFormatExPtr {
     fn drop(&mut self) {
         unsafe {
             Com::CoTaskMemFree(Some(self.0 as *mut _));
-        }
-    }
-}
-
-impl WaveFormat {
-    // Given a pointer to some format, returns a valid copy of the format.
-    pub fn copy_from_waveformatex_ptr(ptr: *const Audio::WAVEFORMATEX) -> Option<Self> {
-        unsafe {
-            match (*ptr).wFormatTag as u32 {
-                Audio::WAVE_FORMAT_PCM | Multimedia::WAVE_FORMAT_IEEE_FLOAT => {
-                    Some(WaveFormat::Ex(*ptr))
-                }
-                KernelStreaming::WAVE_FORMAT_EXTENSIBLE => {
-                    let extensible_ptr = ptr as *const Audio::WAVEFORMATEXTENSIBLE;
-                    Some(WaveFormat::Extensible(*extensible_ptr))
-                }
-                _ => None,
-            }
-        }
-    }
-
-    // Get the pointer to the WAVEFORMATEX struct.
-    pub fn as_ptr(&self) -> *const Audio::WAVEFORMATEX {
-        self.deref() as *const _
-    }
-}
-
-impl Deref for WaveFormat {
-    type Target = Audio::WAVEFORMATEX;
-    fn deref(&self) -> &Self::Target {
-        match *self {
-            WaveFormat::Ex(ref f) => f,
-            WaveFormat::Extensible(ref f) => &f.Format,
-        }
-    }
-}
-
-impl DerefMut for WaveFormat {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match *self {
-            WaveFormat::Ex(ref mut f) => f,
-            WaveFormat::Extensible(ref mut f) => &mut f.Format,
         }
     }
 }
@@ -252,13 +204,21 @@ unsafe fn format_from_waveformatex_ptr(
         (*waveformatex_ptr).wBitsPerSample,
         (*waveformatex_ptr).wFormatTag as u32,
     ) {
+        (8, Audio::WAVE_FORMAT_PCM) => SampleFormat::U8,
         (16, Audio::WAVE_FORMAT_PCM) => SampleFormat::I16,
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = (*waveformatextensible_ptr).SubFormat;
-            if n_bits == 16 && cmp_guid(&sub, &KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM) {
-                SampleFormat::I16
+
+            if cmp_guid(&sub, &KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM) {
+                match n_bits {
+                    8 => SampleFormat::U8,
+                    16 => SampleFormat::I16,
+                    32 => SampleFormat::I32,
+                    64 => SampleFormat::I64,
+                    _ => return None,
+                }
             } else if n_bits == 32 && cmp_guid(&sub, &Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
                 SampleFormat::F32
             } else {
@@ -449,44 +409,6 @@ impl Device {
                 return Err(err.into());
             }
 
-            // Copy the format to use as a test format (as to avoid mutating the original format).
-            let mut test_format = {
-                match WaveFormat::copy_from_waveformatex_ptr(default_waveformatex_ptr.0) {
-                    Some(f) => f,
-                    // If the format is neither EX nor EXTENSIBLE we don't know how to work with it.
-                    None => return Ok(vec![].into_iter()),
-                }
-            };
-
-            // Begin testing common sample rates.
-            //
-            // NOTE: We should really be testing for whole ranges here, but it is infeasible to
-            // test every sample rate up to the overflow limit as the `IsFormatSupported` method is
-            // quite slow.
-            let mut supported_sample_rates: Vec<u32> = Vec::new();
-            for &rate in COMMON_SAMPLE_RATES {
-                let rate = rate.0;
-                test_format.nSamplesPerSec = rate;
-                test_format.nAvgBytesPerSec =
-                    rate * u32::from((*default_waveformatex_ptr.0).nBlockAlign);
-                if is_format_supported(client, test_format.as_ptr())? {
-                    supported_sample_rates.push(rate);
-                }
-            }
-
-            // If the common rates don't include the default one, add the default.
-            let default_sr = (*default_waveformatex_ptr.0).nSamplesPerSec as _;
-            if !supported_sample_rates.iter().any(|&r| r == default_sr) {
-                supported_sample_rates.push(default_sr);
-            }
-
-            // Reset the sample rate on the test format now that we're done.
-            test_format.nSamplesPerSec = (*default_waveformatex_ptr.0).nSamplesPerSec;
-            test_format.nAvgBytesPerSec = (*default_waveformatex_ptr.0).nAvgBytesPerSec;
-
-            // TODO: Test the different sample formats?
-
-            // Create the supported formats.
             let format = match format_from_waveformatex_ptr(default_waveformatex_ptr.0, client) {
                 Some(fmt) => fmt,
                 None => {
@@ -497,15 +419,45 @@ impl Device {
                     return Err(err.into());
                 }
             };
-            let mut supported_formats = Vec::with_capacity(supported_sample_rates.len());
-            for rate in supported_sample_rates {
-                supported_formats.push(SupportedStreamConfigRange {
-                    channels: format.channels,
-                    min_sample_rate: SampleRate(rate as _),
-                    max_sample_rate: SampleRate(rate as _),
-                    buffer_size: format.buffer_size.clone(),
-                    sample_format: format.sample_format,
-                })
+
+            let mut sample_rates: Vec<SampleRate> = COMMON_SAMPLE_RATES.to_vec();
+
+            if !sample_rates.contains(&format.sample_rate) {
+                sample_rates.push(format.sample_rate)
+            }
+
+            let mut supported_formats = Vec::new();
+
+            for sample_rate in sample_rates {
+                for sample_format in [
+                    SampleFormat::U8,
+                    SampleFormat::I16,
+                    SampleFormat::I32,
+                    SampleFormat::I64,
+                    SampleFormat::F32,
+                ] {
+                    if let Some(waveformat) = config_to_waveformatextensible(
+                        &StreamConfig {
+                            channels: format.channels,
+                            sample_rate,
+                            buffer_size: BufferSize::Default,
+                        },
+                        sample_format,
+                    ) {
+                        if is_format_supported(
+                            client,
+                            &waveformat.Format as *const Audio::WAVEFORMATEX,
+                        )? {
+                            supported_formats.push(SupportedStreamConfigRange {
+                                channels: format.channels,
+                                min_sample_rate: sample_rate,
+                                max_sample_rate: sample_rate,
+                                buffer_size: format.buffer_size.clone(),
+                                sample_format,
+                            })
+                        }
+                    }
+                }
             }
             Ok(supported_formats.into_iter())
         }
@@ -1000,27 +952,31 @@ fn config_to_waveformatextensible(
     sample_format: SampleFormat,
 ) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
     let format_tag = match sample_format {
-        SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
-        SampleFormat::F32 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
+        SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
+
+        SampleFormat::I32 | SampleFormat::I64 | SampleFormat::F32 => {
+            KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+        }
+
         _ => return None,
-    } as u16;
+    };
     let channels = config.channels;
     let sample_rate = config.sample_rate.0;
     let sample_bytes = sample_format.sample_size() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = 8 * sample_bytes;
-    let cb_size = match sample_format {
-        SampleFormat::I16 => 0,
-        SampleFormat::F32 => {
-            let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
-            let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
-            (extensible_size - ex_size) as u16
-        }
-        _ => return None,
+
+    let cb_size = if format_tag == Audio::WAVE_FORMAT_PCM {
+        0
+    } else {
+        let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
+        let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
+        (extensible_size - ex_size) as u16
     };
+
     let waveformatex = Audio::WAVEFORMATEX {
-        wFormatTag: format_tag,
+        wFormatTag: format_tag as u16,
         nChannels: channels,
         nSamplesPerSec: sample_rate,
         nAvgBytesPerSec: avg_bytes_per_sec,
@@ -1029,14 +985,18 @@ fn config_to_waveformatextensible(
         cbSize: cb_size,
     };
 
-    // CPAL does not care about speaker positions, so pass audio ight through.
+    // CPAL does not care about speaker positions, so pass audio right through.
     let channel_mask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
 
     let sub_format = match sample_format {
-        SampleFormat::I16 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
+        SampleFormat::U8 | SampleFormat::I16 | SampleFormat::I32 | SampleFormat::I64 => {
+            KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
+        }
+
         SampleFormat::F32 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
         _ => return None,
     };
+
     let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,
         Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
