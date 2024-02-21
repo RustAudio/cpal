@@ -10,8 +10,14 @@ use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
 mod com;
-mod device;
+pub(crate) mod device;
 mod stream;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShareMode {
+    Shared,
+    Exclusive,
+}
 
 /// The WASAPI host, the default windows host type.
 ///
@@ -37,15 +43,15 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+        Devices::new(ShareMode::Shared)
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        default_input_device()
+        default_input_device(ShareMode::Shared)
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        default_output_device()
+        default_output_device(ShareMode::Shared)
     }
 }
 

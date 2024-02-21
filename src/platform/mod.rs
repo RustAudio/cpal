@@ -667,8 +667,9 @@ mod platform_impl {
         Stream as WasapiStream, SupportedInputConfigs as WasapiSupportedInputConfigs,
         SupportedOutputConfigs as WasapiSupportedOutputConfigs,
     };
+    pub use crate::host::wasapi_exclusive::Host as WasapiExclusiveHost;
 
-    impl_platform_host!(#[cfg(feature = "asio")] Asio asio "ASIO", Wasapi wasapi "WASAPI");
+    impl_platform_host!(#[cfg(feature = "asio")] Asio asio "ASIO", Wasapi wasapi "WASAPI", WasapiExclusive wasapi_exclusive "WASAPI_exclusive");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {

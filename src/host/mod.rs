@@ -26,5 +26,7 @@ pub(crate) mod null;
 pub(crate) mod oboe;
 #[cfg(windows)]
 pub(crate) mod wasapi;
+#[cfg(windows)]
+pub(crate) mod wasapi_exclusive;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 pub(crate) mod webaudio;
