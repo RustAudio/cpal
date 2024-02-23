@@ -1,3 +1,9 @@
+use std::{cell::Cell, rc::Rc};
+
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Stream,
+};
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
@@ -17,29 +23,51 @@ pub fn main_js() -> Result<(), JsValue> {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
 
+    let document = gloo::utils::document();
+    let play_button = document.get_element_by_id("play").unwrap();
+    let stop_button = document.get_element_by_id("stop").unwrap();
+
+    // stream needs to be referenced from the "play" and "stop" closures
+    let stream = Rc::new(Cell::new(None));
+
+    // set up play button
+    {
+        let stream = stream.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            stream.set(Some(beep()));
+        });
+        play_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
+    // set up stop button
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            // stop the stream by dropping it
+            stream.take();
+        });
+        stop_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
     Ok(())
 }
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::Stream;
-
-#[wasm_bindgen]
-pub struct Handle(Stream);
-
-#[wasm_bindgen]
-pub fn beep() -> Handle {
+fn beep() -> Stream {
     let host = cpal::default_host();
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
     let config = device.default_output_config().unwrap();
 
-    Handle(match config.sample_format() {
+    match config.sample_format() {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
         _ => panic!("unsupported sample format"),
-    })
+    }
 }
 
 fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Stream
