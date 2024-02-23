@@ -18,6 +18,7 @@ lto = true
 
 [dependencies]
 cpal = { path = "../..", features = ["wasm-bindgen"] }
+# `gloo` is a utility crate which improves ergonomics over direct `web-sys` usage.
 gloo = "0.11.0"
 # The `wasm-bindgen` crate provides the bare minimum functionality needed
 # to interact with JavaScript.
