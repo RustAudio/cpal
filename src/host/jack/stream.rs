@@ -386,7 +386,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
             self.temp_input_buffer = vec![0.0; self.in_ports.len() * new_size];
             self.temp_output_buffer = vec![0.0; self.out_ports.len() * new_size];
             let description = format!("buffer size changed to: {}", new_size);
-            if let Ok(mut mutex_guard) = self.error_callback_ptr.lock() {
+            if let Ok(mut mutex_guard) = self.error_callback_ptr.lock().unwrap() {
                 let err = &mut *mutex_guard;
                 err(BackendSpecificError { description }.into());
             }
@@ -428,7 +428,7 @@ impl JackNotificationHandler {
 
     fn send_error(&mut self, description: String) {
         // This thread isn't the audio thread, it's fine to block
-        if let Ok(mut mutex_guard) = self.error_callback_ptr.lock() {
+        if let Ok(mut mutex_guard) = self.error_callback_ptr.lock().unwrap() {
             let err = &mut *mutex_guard;
             err(BackendSpecificError { description }.into());
         }
