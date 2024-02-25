@@ -1,7 +1,6 @@
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 
-use super::parking_lot::Mutex;
 use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
@@ -15,7 +14,7 @@ use crate::SupportedStreamConfigRange;
 use crate::SupportedStreamConfigsError;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::AtomicI32;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// A ASIO Device
 #[derive(Clone)]

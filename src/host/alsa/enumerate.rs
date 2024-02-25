@@ -1,8 +1,7 @@
 use super::alsa;
-use super::parking_lot::Mutex;
 use super::{Device, DeviceHandles};
 use crate::{BackendSpecificError, DevicesError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// ALSA's implementation for `Devices`.
 pub struct Devices {

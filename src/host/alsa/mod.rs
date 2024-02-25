@@ -1,9 +1,7 @@
 extern crate alsa;
 extern crate libc;
-extern crate parking_lot;
 
 use self::alsa::poll::Descriptors;
-use self::parking_lot::Mutex;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -14,7 +12,7 @@ use crate::{
 };
 use std::cmp;
 use std::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::vec::IntoIter as VecIntoIter;
@@ -252,6 +250,7 @@ impl Device {
         let handle_result = self
             .handles
             .lock()
+            .unwrap()
             .take(&self.name, stream_type)
             .map_err(|e| (e, e.errno()));
 
@@ -311,7 +310,7 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        let mut guard = self.handles.lock();
+        let mut guard = self.handles.lock().unwrap();
         let handle_result = guard
             .get_mut(&self.name, stream_t)
             .map_err(|e| (e, e.errno()));

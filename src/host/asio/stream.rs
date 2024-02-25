@@ -2,14 +2,13 @@ extern crate asio_sys as sys;
 extern crate num_traits;
 
 use self::num_traits::PrimInt;
-use super::parking_lot::Mutex;
 use super::Device;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub struct Stream {
@@ -77,7 +76,7 @@ impl Device {
             }
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
-            let stream_lock = asio_streams.lock();
+            let stream_lock = asio_streams.lock().unwrap();
             let asio_stream = match stream_lock.input {
                 Some(ref asio_stream) => asio_stream,
                 None => return,
@@ -281,7 +280,7 @@ impl Device {
             }
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
-            let mut stream_lock = asio_streams.lock();
+            let mut stream_lock = asio_streams.lock().unwrap();
             let asio_stream = match stream_lock.output {
                 Some(ref mut asio_stream) => asio_stream,
                 None => return,
@@ -518,7 +517,7 @@ impl Device {
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock();
+        let mut streams = self.asio_streams.lock().unwrap();
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
@@ -565,7 +564,7 @@ impl Device {
             Err(_) => Err(BuildStreamError::StreamConfigNotSupported),
         }?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock();
+        let mut streams = self.asio_streams.lock().unwrap();
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
