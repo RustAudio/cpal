@@ -33,6 +33,7 @@ use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
+use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -306,7 +307,7 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format,
                 };
                 fmts.push(fmt);
@@ -568,7 +569,7 @@ impl Device {
         let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
+            let ptr = (*args.data.data).mBuffers.as_ptr();
             let len = (*args.data.data).mNumberBuffers as usize;
             let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
 
@@ -580,7 +581,7 @@ impl Device {
             } = buffers[0];
 
             let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let len = data_byte_size as usize / bytes_per_channel;
             let data = Data::from_parts(data, len, sample_format);
 
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
@@ -685,7 +686,7 @@ impl Device {
             } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let len = data_byte_size as usize / bytes_per_channel;
             let mut data = Data::from_parts(data, len, sample_format);
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
@@ -882,13 +883,13 @@ fn set_sample_rate(
 
 #[derive(Clone)]
 pub struct Stream {
-    inner: Arc<Mutex<StreamInner>>,
+    inner: Rc<Mutex<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Rc::new(Mutex::new(inner)),
         }
     }
 }
