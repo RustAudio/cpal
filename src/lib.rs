@@ -742,7 +742,7 @@ impl SupportedStreamConfigRange {
 
 #[test]
 fn test_cmp_default_heuristics() {
-    let mut formats = vec![
+    let mut formats = [
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
