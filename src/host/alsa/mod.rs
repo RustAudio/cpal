@@ -255,12 +255,8 @@ impl Device {
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, alsa::nix::errno::Errno::EBUSY)) => {
-                return Err(BuildStreamError::DeviceNotAvailable)
-            }
-            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-                return Err(BuildStreamError::InvalidArgument)
-            }
+            Err((_, libc::EBUSY)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
@@ -316,13 +312,10 @@ impl Device {
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, alsa::nix::errno::Errno::ENOENT))
-            | Err((_, alsa::nix::errno::Errno::EBUSY)) => {
+            Err((_, libc::ENOENT)) | Err((_, libc::EBUSY)) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
-            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-                return Err(SupportedStreamConfigsError::InvalidArgument)
-            }
+            Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
@@ -759,9 +752,7 @@ fn poll_descriptors_and_prepare_buffer(
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
-            return Ok(PollDescriptorsFlow::XRun)
-        }
+        Err(err) if err.errno() == libc::EPIPE => return Ok(PollDescriptorsFlow::XRun),
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
@@ -842,7 +833,7 @@ fn process_output(
     }
     loop {
         match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
+            Err(err) if err.errno() == libc::EPIPE => {
                 // buffer underrun
                 // TODO: Notify the user of this.
                 let _ = stream.channel.try_recover(err, false);
