@@ -883,13 +883,13 @@ fn set_sample_rate(
 
 #[derive(Clone)]
 pub struct Stream {
-    inner: Rc<Mutex<StreamInner>>,
+    inner: Arc<Mutex<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: Rc::new(Mutex::new(inner)),
+            inner: Arc::new(Mutex::new(inner)),
         }
     }
 }
