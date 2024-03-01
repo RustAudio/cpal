@@ -43,7 +43,7 @@ asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.8"
+alsa = "0.9"
 libc = "0.2"
 jack = { version = "0.11", optional = true }
 
