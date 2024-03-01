@@ -874,7 +874,7 @@ fn stream_timestamp(
             if nanos < 0 {
                 panic!(
                     "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
-                    ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, ts.tv_nsec
+                    ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
                 );
             }
             Ok(crate::StreamInstant::from_nanos(nanos))
