@@ -72,7 +72,7 @@ web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOption
 oboe = { version = "0.6", features = [ "java-interface" ] }
 ndk = { version = "0.8", default-features = false }
 ndk-context = "0.1"
-jni = "0.19"
+jni = "0.21"
 
 [[example]]
 name = "android"
