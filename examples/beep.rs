@@ -1,4 +1,3 @@
-use anyhow;
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},

@@ -8,7 +8,7 @@ use crate::BuildStreamError;
 
 /// A double-indirection to be able to pass a closure (a fat pointer)
 /// via a single c_void.
-struct PropertyListenerCallbackWrapper(Box<dyn FnMut() -> ()>);
+struct PropertyListenerCallbackWrapper(Box<dyn FnMut()>);
 
 /// Maintain an audio object property listener.
 /// The listener will be removed when this type is dropped.
@@ -21,7 +21,7 @@ pub struct AudioObjectPropertyListener {
 
 impl AudioObjectPropertyListener {
     /// Attach the provided callback as a audio object property listener.
-    pub fn new<F: FnMut() -> () + 'static>(
+    pub fn new<F: FnMut() + 'static>(
         audio_object_id: AudioObjectID,
         property_address: AudioObjectPropertyAddress,
         callback: F,
