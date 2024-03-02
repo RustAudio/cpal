@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use windows::core::ComInterface;
+use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
@@ -297,10 +297,10 @@ impl Device {
                     DeviceNameError::from(err)
                 })?;
 
-            let prop_variant = &property_value.Anonymous.Anonymous;
+            let prop_variant = &property_value.as_raw().Anonymous.Anonymous;
 
             // Read the friendly-name from the union data field, expecting a *const u16.
-            if prop_variant.vt != VT_LPWSTR {
+            if prop_variant.vt != VT_LPWSTR.0 {
                 let description = format!(
                     "property store produced invalid data: {:?}",
                     prop_variant.vt
