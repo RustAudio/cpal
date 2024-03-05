@@ -1,6 +1,21 @@
 # Unreleased
 
-- Update `windows` dependency to v0.48
+# Version 0.15.3 (2024-03-04)
+
+- Add `try_with_sample_rate`, a non-panicking variant of `with_sample_rate`.
+- struct `platform::Stream` is now #[must_use].
+- enum `SupportedBufferSize` and struct `SupportedStreamConfigRange` are now `Copy`.
+- `platform::Device` is now `Clone`.
+- Remove `parking_lot` dependency in favor of the std library.
+- Fix crash on web/wasm when `atomics` flag is enabled.
+- Improve Examples: Migrate wasm example to `trunk`, Improve syth-thones example.
+- Improve CI: Update actions, Use Android 30 API level in CI, Remove `asmjs-unknown-emscripten` target.
+- Update `windows` dependency to v0.54
+- Update `jni` dependency to 0.21
+- Update `alsa` dependency to 0.9
+- Update `oboe` dependency to 0.6
+- Update `ndk` dependency to 0.8 and disable `default-features`.
+- Update `wasm-bindgen` to 0.2.89
 
 # Version 0.15.2 (2023-03-30)
 
@@ -73,16 +88,16 @@
 
 - Large refactor removing the blocking EventLoop API.
 - Rename many `Format` types to `StreamConfig`:
-    - `Format` type's `data_type` field renamed to `sample_format`.
-    - `Shape` -> `StreamConfig` - The configuration input required to build a stream.
-    - `Format` -> `SupportedStreamConfig` - Describes a single supported stream configuration.
-    - `SupportedFormat` -> `SupportedStreamConfigRange` - Describes a range of supported configurations.
-    - `Device::default_input/output_format` -> `Device::default_input/output_config`.
-    - `Device::supported_input/output_formats` -> `Device::supported_input/output_configs`.
-    - `Device::SupportedInput/OutputFormats` -> `Device::SupportedInput/OutputConfigs`.
-    - `SupportedFormatsError` -> `SupportedStreamConfigsError`
-    - `DefaultFormatError` -> `DefaultStreamConfigError`
-    - `BuildStreamError::FormatNotSupported` -> `BuildStreamError::StreamConfigNotSupported`
+  - `Format` type's `data_type` field renamed to `sample_format`.
+  - `Shape` -> `StreamConfig` - The configuration input required to build a stream.
+  - `Format` -> `SupportedStreamConfig` - Describes a single supported stream configuration.
+  - `SupportedFormat` -> `SupportedStreamConfigRange` - Describes a range of supported configurations.
+  - `Device::default_input/output_format` -> `Device::default_input/output_config`.
+  - `Device::supported_input/output_formats` -> `Device::supported_input/output_configs`.
+  - `Device::SupportedInput/OutputFormats` -> `Device::SupportedInput/OutputConfigs`.
+  - `SupportedFormatsError` -> `SupportedStreamConfigsError`
+  - `DefaultFormatError` -> `DefaultStreamConfigError`
+  - `BuildStreamError::FormatNotSupported` -> `BuildStreamError::StreamConfigNotSupported`
 - Address deprecated use of `mem::uninitialized` in WASAPI.
 - Removed `UnknownTypeBuffer` in favour of specifying sample type.
 - Added `build_input/output_stream_raw` methods allowing for dynamically
