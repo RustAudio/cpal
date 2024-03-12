@@ -85,9 +85,6 @@ jobs:
         with:
           target: armv7-unknown-linux-gnueabihf
 
-      - name: Build image
-        run: docker build -t cross/cpal_armv7:v1 ./
-
       - name: Install cross
         run: cargo install cross
 

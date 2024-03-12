@@ -1,5 +1,5 @@
 [target.armv7-unknown-linux-gnueabihf]
-image = "cross/cpal_armv7:v1"
+dockerfile = "Dockerfile"
 
 [target.armv7-unknown-linux-gnueabihf.env]
 passthrough = [
