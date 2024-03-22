@@ -939,3 +939,11 @@ fn get_io_buffer_frame_size_range(
         max: buffer_size_range.mMaximum as u32,
     })
 }
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        let _ = self.pause();
+        let mut stream_inner = self.inner.lock().unwrap();
+        stream_inner._disconnect_listener = None;
+    }
+}
