@@ -452,7 +452,7 @@ impl Device {
                                 channels: format.channels,
                                 min_sample_rate: sample_rate,
                                 max_sample_rate: sample_rate,
-                                buffer_size: format.buffer_size.clone(),
+                                buffer_size: format.buffer_size,
                                 sample_format,
                             })
                         }
