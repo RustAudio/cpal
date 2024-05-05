@@ -1047,7 +1047,7 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
                 //	kSampleRateChanged      = 1 << 4,
                 //	kClockSourceChanged     = 1 << 5
                 // } AsioTimeInfoFlags;
-                .0;
+                .0 as _;
         }
         time
     };
