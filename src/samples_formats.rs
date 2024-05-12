@@ -9,42 +9,42 @@ pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SampleFormat {
-    /// `i8` with a valid range of 'u8::MIN..=u8::MAX' with `0` being the origin
+    /// `i8` with a valid range of `i8::MIN..=i8::MAX` with `0` being the origin.
     I8,
 
-    /// `i16` with a valid range of 'u16::MIN..=u16::MAX' with `0` being the origin
+    /// `i16` with a valid range of `i16::MIN..=i16::MAX` with `0` being the origin.
     I16,
 
     // /// `I24` with a valid range of '-(1 << 23)..(1 << 23)' with `0` being the origin
     // I24,
-    /// `i32` with a valid range of 'u32::MIN..=u32::MAX' with `0` being the origin
+    /// `i32` with a valid range of `i32::MIN..=i32::MAX` with `0` being the origin.
     I32,
 
     // /// `I24` with a valid range of '-(1 << 47)..(1 << 47)' with `0` being the origin
     // I48,
-    /// `i64` with a valid range of 'u64::MIN..=u64::MAX' with `0` being the origin
+    /// `i64` with a valid range of `i64::MIN..=i64::MAX` with `0` being the origin.
     I64,
 
-    /// `u8` with a valid range of 'u8::MIN..=u8::MAX' with `1 << 7 == 128` being the origin
+    /// `u8` with a valid range of `u8::MIN..=u8::MAX` with `1 << 7 == 128` being the origin.
     U8,
 
-    /// `u16` with a valid range of 'u16::MIN..=u16::MAX' with `1 << 15 == 32768` being the origin
+    /// `u16` with a valid range of `u16::MIN..=u16::MAX` with `1 << 15 == 32768` being the origin.
     U16,
 
     // /// `U24` with a valid range of '0..16777216' with `1 << 23 == 8388608` being the origin
     // U24,
-    /// `u32` with a valid range of 'u32::MIN..=u32::MAX' with `1 << 31` being the origin
+    /// `u32` with a valid range of `u32::MIN..=u32::MAX` with `1 << 31` being the origin.
     U32,
 
     // /// `U48` with a valid range of '0..(1 << 48)' with `1 << 47` being the origin
     // U48,
-    /// `u64` with a valid range of 'u64::MIN..=u64::MAX' with `1 << 63` being the origin
+    /// `u64` with a valid range of `u64::MIN..=u64::MAX` with `1 << 63` being the origin.
     U64,
 
-    /// `f32` with a valid range of `-1.0..1.0` with `0.0` being the origin
+    /// `f32` with a valid range of `-1.0..1.0` with `0.0` being the origin.
     F32,
 
-    /// `f64` with a valid range of -1.0..1.0 with 0.0 being the origin
+    /// `f64` with a valid range of `-1.0..1.0` with `0.0` being the origin.
     F64,
 }
 
