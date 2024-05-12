@@ -872,19 +872,23 @@ fn stream_timestamp(
             let ts = status.get_htstamp();
             let nanos = timespec_diff_nanos(ts, trigger_ts);
             if nanos < 0 {
-                panic!(
+                let description = format!(
                     "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
                     ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
                 );
+                return Err(BackendSpecificError { description });
             }
             Ok(crate::StreamInstant::from_nanos(nanos))
         }
         Some(creation) => {
             let now = std::time::Instant::now();
             let duration = now.duration_since(creation);
-            let instant = crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128)
-                .expect("stream duration has exceeded `StreamInstant` representation");
-            Ok(instant)
+            crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(
+                BackendSpecificError {
+                    description: "stream duration has exceeded `StreamInstant` representation"
+                        .to_string(),
+                },
+            )
         }
     }
 }
