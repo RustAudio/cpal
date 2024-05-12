@@ -4,7 +4,21 @@ use wasm_bindgen::prelude::*;
 
 pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 
-/// Format that each sample has.
+/// Format that each sample has. Usually, this corresponds to the sampling
+/// depth of the audio source. For example, 16 bit quantized samples can be
+/// encoded in `i16` or `u16`. Note that the sampling depth is not directly
+/// visible for formats where [`is_float`] is true.
+///
+/// Also note that the backend must support the encoding of the quantized
+/// samples in the given format, as there is no generic transformation from one
+/// format into the other done inside the frontend-library code. You can query
+/// the supported formats by using [`supported_input_configs`].
+///
+/// A good rule of thumb is to use [`SampleFormat::I16`] as this covers typical
+/// music (WAV, MP3) as well as typical audio input devices on most platforms,
+///
+/// [`is_float`]: SampleFormat::is_float
+/// [`supported_input_configs`]: crate::Device::supported_input_configs
 #[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
