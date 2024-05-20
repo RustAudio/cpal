@@ -181,7 +181,7 @@ fn process_frame<SampleType>(
     SampleType: Sample + FromSample<f32>,
 {
     for frame in output.chunks_mut(num_channels) {
-        let value: SampleType = SampleType::from_sample(oscillator.tick());
+        let value: SampleType = SampleType::from_sample(oscillator.tick() * 0.01);
 
         // copy the same value to all channels
         for sample in frame.iter_mut() {
