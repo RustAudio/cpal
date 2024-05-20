@@ -46,6 +46,7 @@ num-traits = { version = "0.2.6", optional = true }
 alsa = "0.9"
 libc = "0.2"
 jack = { version = "0.11", optional = true }
+pipewire = { version = "0.8" }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
