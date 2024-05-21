@@ -259,6 +259,7 @@ where
 {
     let builder = configure_for_device(builder, device, config);
     let stream = builder
+        .set_input_preset(oboe::InputPreset::Unprocessed)
         .set_callback(CpalOutputCallback::<T, C>::new(
             data_callback,
             error_callback,
