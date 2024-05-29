@@ -28,15 +28,15 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use parking_lot::Mutex;
 use std::ffi::CStr;
 use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
+use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use self::enumerate::{
@@ -307,7 +307,7 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as _),
                     max_sample_rate: SampleRate(range.mMaximum as _),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format,
                 };
                 fmts.push(fmt);
@@ -454,7 +454,7 @@ where
     E: FnMut(StreamError) + Send + 'static,
 {
     let stream_copy = stream.clone();
-    let mut stream_inner = stream.inner.lock();
+    let mut stream_inner = stream.inner.lock().unwrap();
     stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
         stream_inner.device_id,
         AudioObjectPropertyAddress {
@@ -464,7 +464,7 @@ where
         },
         move || {
             let _ = stream_copy.pause();
-            (error_callback.lock())(StreamError::DeviceNotAvailable);
+            (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
         },
     )?);
     Ok(())
@@ -569,7 +569,7 @@ impl Device {
         let sample_rate = config.sample_rate;
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
+            let ptr = (*args.data.data).mBuffers.as_ptr();
             let len = (*args.data.data).mNumberBuffers as usize;
             let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
 
@@ -581,13 +581,13 @@ impl Device {
             } = buffers[0];
 
             let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let len = data_byte_size as usize / bytes_per_channel;
             let data = Data::from_parts(data, len, sample_format);
 
             // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock())(err.into());
+                    (error_callback.lock().unwrap())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -617,7 +617,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().audio_unit.start()?;
+        stream.inner.lock().unwrap().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -686,12 +686,12 @@ impl Device {
             } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
+            let len = data_byte_size as usize / bytes_per_channel;
             let mut data = Data::from_parts(data, len, sample_format);
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock())(err.into());
+                    (error_callback.lock().unwrap())(err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -722,7 +722,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().audio_unit.start()?;
+        stream.inner.lock().unwrap().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -896,7 +896,7 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.lock();
+        let mut stream = self.inner.lock().unwrap();
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -910,7 +910,7 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.lock();
+        let mut stream = self.inner.lock().unwrap();
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {

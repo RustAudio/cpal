@@ -1,8 +1,6 @@
-use std;
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 
-use super::parking_lot::Mutex;
 use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
@@ -15,9 +13,11 @@ use crate::SupportedStreamConfig;
 use crate::SupportedStreamConfigRange;
 use crate::SupportedStreamConfigsError;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::atomic::AtomicI32;
+use std::sync::{Arc, Mutex};
 
 /// A ASIO Device
+#[derive(Clone)]
 pub struct Device {
     /// The driver represented by this device.
     pub driver: Arc<sys::Driver>,
@@ -26,6 +26,7 @@ pub struct Device {
     // A driver can only have one of each.
     // They need to be created at the same time.
     pub asio_streams: Arc<Mutex<sys::AsioStreams>>,
+    pub current_buffer_index: Arc<AtomicI32>,
 }
 
 /// All available devices.
@@ -82,8 +83,8 @@ impl Device {
                     channels,
                     min_sample_rate: rate,
                     max_sample_rate: rate,
-                    buffer_size: f.buffer_size.clone(),
-                    sample_format: f.sample_format.clone(),
+                    buffer_size: f.buffer_size,
+                    sample_format: f.sample_format,
                 })
             }
         }
@@ -119,8 +120,8 @@ impl Device {
                     channels,
                     min_sample_rate: rate,
                     max_sample_rate: rate,
-                    buffer_size: f.buffer_size.clone(),
-                    sample_format: f.sample_format.clone(),
+                    buffer_size: f.buffer_size,
+                    sample_format: f.sample_format,
                 })
             }
         }
@@ -193,6 +194,7 @@ impl Iterator for Devices {
                         return Some(Device {
                             driver,
                             asio_streams,
+                            current_buffer_index: Arc::new(AtomicI32::new(-1)),
                         });
                     }
                     Err(_) => continue,

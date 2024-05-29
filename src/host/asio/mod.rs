@@ -1,5 +1,4 @@
 extern crate asio_sys as sys;
-extern crate parking_lot;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{

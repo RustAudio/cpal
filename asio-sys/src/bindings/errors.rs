@@ -39,7 +39,20 @@ pub enum AsioErrorWrapper {
 
 impl fmt::Display for LoadDriverError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description())
+        match *self {
+            LoadDriverError::LoadDriverFailed => {
+                write!(
+                    f,
+                    "ASIO `loadDriver` function returned `false` indicating failure"
+                )
+            }
+            LoadDriverError::InitializationFailed(ref err) => {
+                write!(f, "{err}")
+            }
+            LoadDriverError::DriverAlreadyExists => {
+                write!(f, "ASIO only supports loading one driver at a time")
+            }
+        }
     }
 }
 
@@ -70,37 +83,8 @@ impl fmt::Display for AsioError {
     }
 }
 
-impl Error for LoadDriverError {
-    fn description(&self) -> &str {
-        match *self {
-            LoadDriverError::LoadDriverFailed => {
-                "ASIO `loadDriver` function returned `false` indicating failure"
-            }
-            LoadDriverError::InitializationFailed(ref err) => err.description(),
-            LoadDriverError::DriverAlreadyExists => {
-                "ASIO only supports loading one driver at a time"
-            }
-        }
-    }
-}
-
-impl Error for AsioError {
-    fn description(&self) -> &str {
-        match *self {
-            AsioError::NoDrivers => "hardware input or output is not present or available",
-            AsioError::HardwareMalfunction => {
-                "hardware is malfunctioning (can be returned by any ASIO function)"
-            }
-            AsioError::InvalidInput => "input parameter invalid",
-            AsioError::BadMode => "hardware is in a bad mode or used in a bad mode",
-            AsioError::HardwareStuck => "hardware is not running when sample position is inquired",
-            AsioError::NoRate => "sample clock or rate cannot be determined or is not present",
-            AsioError::ASE_NoMemory => "not enough memory for completing the request",
-            AsioError::InvalidBufferSize => "buffersize out of range for device",
-            AsioError::UnknownError => "Error not in SDK",
-        }
-    }
-}
+impl Error for LoadDriverError {}
+impl Error for AsioError {}
 
 impl From<AsioError> for LoadDriverError {
     fn from(err: AsioError) -> Self {

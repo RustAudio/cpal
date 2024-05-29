@@ -4,11 +4,14 @@ pub mod errors;
 
 use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use num_traits::FromPrimitive;
-use once_cell::sync::Lazy;
-use std::ffi::CStr;
-use std::ffi::CString;
+
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_long, c_void};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::ptr::null_mut;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, MutexGuard, Weak,
+};
 
 // Bindings import
 use self::asio_import as ai;
@@ -16,7 +19,7 @@ use self::asio_import as ai;
 /// A handle to the ASIO API.
 ///
 /// There should only be one instance of this type at any point in time.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Asio {
     // Keeps track of whether or not a driver is already loaded.
     //
@@ -307,18 +310,15 @@ pub struct CallbackId(usize);
 ///
 /// This is required because of how ASIO calls the `buffer_switch` function with no data
 /// parameters.
-///
-/// Options are used so that when a callback is removed we don't change the Vec indices.
-///
-/// The indices are how we match a callback with a stream.
-static BUFFER_CALLBACK: Lazy<Mutex<Vec<(CallbackId, BufferCallback)>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
+
+/// Indicates that ASIOOutputReady should be called
+static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
 
 impl Asio {
     /// Initialise the ASIO API.
     pub fn new() -> Self {
-        let loaded_driver = Mutex::new(Weak::new());
-        Asio { loaded_driver }
+        Self::default()
     }
 
     /// Returns the name for each available driver.
@@ -334,7 +334,7 @@ impl Asio {
         let mut driver_names: [[c_char; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS] =
             [[0; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS];
         // Pointer to each driver name.
-        let mut driver_name_ptrs: [*mut i8; MAX_DRIVERS] = [0 as *mut i8; MAX_DRIVERS];
+        let mut driver_name_ptrs: [*mut i8; MAX_DRIVERS] = [null_mut(); MAX_DRIVERS];
         for (ptr, name) in driver_name_ptrs.iter_mut().zip(&mut driver_names[..]) {
             *ptr = (*name).as_mut_ptr();
         }
@@ -525,6 +525,11 @@ impl Driver {
             None => buffer_sizes.pref,
         };
 
+        CALL_OUTPUT_READY.store(
+            asio_result!(unsafe { ai::ASIOOutputReady() }).is_ok(),
+            Ordering::Release,
+        );
+
         // Ensure the driver is in the `Initialized` state.
         if let DriverState::Running = *state {
             state.stop()?;
@@ -628,9 +633,7 @@ impl Driver {
         buffer_size: Option<i32>,
     ) -> Result<AsioStreams, AsioError> {
         let input_buffer_infos = prepare_buffer_infos(true, num_channels);
-        let output_buffer_infos = output
-            .map(|output| output.buffer_infos)
-            .unwrap_or_else(Vec::new);
+        let output_buffer_infos = output.map(|output| output.buffer_infos).unwrap_or_default();
         self.create_streams(input_buffer_infos, output_buffer_infos, buffer_size)
     }
 
@@ -653,9 +656,7 @@ impl Driver {
         num_channels: usize,
         buffer_size: Option<i32>,
     ) -> Result<AsioStreams, AsioError> {
-        let input_buffer_infos = input
-            .map(|input| input.buffer_infos)
-            .unwrap_or_else(Vec::new);
+        let input_buffer_infos = input.map(|input| input.buffer_infos).unwrap_or_default();
         let output_buffer_infos = prepare_buffer_infos(false, num_channels);
         self.create_streams(input_buffer_infos, output_buffer_infos, buffer_size)
     }
@@ -903,7 +904,7 @@ fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
 /// Indicates the stream sample rate has changed.
 ///
 /// TODO: Provide some way of allowing CPAL to handle this.
-extern "C" fn sample_rate_did_change(s_rate: c_double) -> () {
+extern "C" fn sample_rate_did_change(s_rate: c_double) {
     eprintln!("unhandled sample rate change to {}", s_rate);
 }
 
@@ -1002,6 +1003,11 @@ extern "C" fn buffer_switch_time_info(
     for &mut (_, ref mut bc) in bcs.iter_mut() {
         bc.run(&callback_info);
     }
+
+    if CALL_OUTPUT_READY.load(Ordering::Acquire) {
+        unsafe { ai::ASIOOutputReady() };
+    }
+
     time
 }
 
@@ -1010,7 +1016,7 @@ extern "C" fn buffer_switch_time_info(
 /// Here we run the callback for each stream.
 ///
 /// `double_buffer_index` is either `0` or `1`  indicating which buffer to fill.
-extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long) -> () {
+extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long) {
     // Emulate the time info provided by the `buffer_switch_time_info` callback.
     // This is an attempt at matching the behaviour in `hostsample.cpp` from the SDK.
     let mut time = unsafe {
@@ -1022,7 +1028,26 @@ extern "C" fn buffer_switch(double_buffer_index: c_long, direct_process: c_long)
         if let Ok(()) = asio_result!(res) {
             time.time_info.flags = (ai::AsioTimeInfoFlags::kSystemTimeValid
                 | ai::AsioTimeInfoFlags::kSamplePositionValid)
-                .0;
+                // Context about the cast:
+                //
+                // Cast was required to successfully compile with MinGW-w64.
+                //
+                // The flags defined will not create a value that exceeds the maximum value of an i32.
+                // The flags are intended to be non-negative, so the sign bit will not be used.
+                // The c_uint (flags) is being cast to i32 which is safe as long as the actual value fits within the i32 range, which is true in this case.
+                //
+                // The actual flags in asio sdk are defined as:
+                // typedef enum AsioTimeInfoFlags
+                // {
+                //	kSystemTimeValid        = 1,            // must always be valid
+                //	kSamplePositionValid    = 1 << 1,       // must always be valid
+                //	kSampleRateValid        = 1 << 2,
+                //	kSpeedValid             = 1 << 3,
+                //
+                //	kSampleRateChanged      = 1 << 4,
+                //	kClockSourceChanged     = 1 << 5
+                // } AsioTimeInfoFlags;
+                .0 as _;
         }
         time
     };

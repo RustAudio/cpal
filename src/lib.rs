@@ -243,7 +243,7 @@ impl wasm_bindgen::describe::WasmDescribe for BufferSize {
 
 #[cfg(target_os = "emscripten")]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
-    type Abi = wasm_bindgen::convert::WasmOption<u32>;
+    type Abi = Option<u32>;
     fn into_abi(self) -> Self::Abi {
         match self {
             Self::Default => None,
@@ -265,7 +265,7 @@ pub struct StreamConfig {
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
     Range {
         min: FrameCount,
@@ -278,7 +278,7 @@ pub enum SupportedBufferSize {
 
 /// Describes a range of supported stream configurations, retrieved via the
 /// [`Device::supported_input/output_configs`](traits::DeviceTrait#required-methods) method.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedStreamConfigRange {
     pub(crate) channels: ChannelCount,
     /// Minimum value for the samples rate of the supported formats.
@@ -457,7 +457,7 @@ impl StreamInstant {
     fn from_nanos(nanos: i64) -> Self {
         let secs = nanos / 1_000_000_000;
         let subsec_nanos = nanos - secs * 1_000_000_000;
-        Self::new(secs as i64, subsec_nanos as u32)
+        Self::new(secs, subsec_nanos as u32)
     }
 
     #[allow(dead_code)]
@@ -633,15 +633,28 @@ impl SupportedStreamConfigRange {
     ///
     /// # Panics
     ///
-    /// Panics if the given `sample_rate` is outside the range specified within this
-    /// [`SupportedStreamConfigRange`] instance.
+    /// Panics if the given `sample_rate` is outside the range specified within
+    /// this [`SupportedStreamConfigRange`] instance. For a non-panicking
+    /// variant, use [`try_with_sample_rate`](#method.try_with_sample_rate).
     pub fn with_sample_rate(self, sample_rate: SampleRate) -> SupportedStreamConfig {
-        assert!(self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate);
-        SupportedStreamConfig {
-            channels: self.channels,
-            sample_rate,
-            sample_format: self.sample_format,
-            buffer_size: self.buffer_size,
+        self.try_with_sample_rate(sample_rate)
+            .expect("sample rate out of range")
+    }
+
+    /// Retrieve a [`SupportedStreamConfig`] with the given sample rate and buffer size.
+    ///
+    /// Returns `None` if the given sample rate is outside the range specified
+    /// within this [`SupportedStreamConfigRange`] instance.
+    pub fn try_with_sample_rate(self, sample_rate: SampleRate) -> Option<SupportedStreamConfig> {
+        if self.min_sample_rate <= sample_rate && sample_rate <= self.max_sample_rate {
+            Some(SupportedStreamConfig {
+                channels: self.channels,
+                sample_rate,
+                sample_format: self.sample_format,
+                buffer_size: self.buffer_size,
+            })
+        } else {
+            None
         }
     }
 
@@ -729,7 +742,7 @@ impl SupportedStreamConfigRange {
 
 #[test]
 fn test_cmp_default_heuristics() {
-    let mut formats = vec![
+    let mut formats = [
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,

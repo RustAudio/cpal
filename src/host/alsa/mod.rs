@@ -1,9 +1,7 @@
 extern crate alsa;
 extern crate libc;
-extern crate parking_lot;
 
 use self::alsa::poll::Descriptors;
-use self::parking_lot::Mutex;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -14,7 +12,7 @@ use crate::{
 };
 use std::cmp;
 use std::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::vec::IntoIter as VecIntoIter;
@@ -236,9 +234,10 @@ impl DeviceHandles {
     }
 }
 
+#[derive(Clone)]
 pub struct Device {
     name: String,
-    handles: Mutex<DeviceHandles>,
+    handles: Arc<Mutex<DeviceHandles>>,
 }
 
 impl Device {
@@ -251,16 +250,13 @@ impl Device {
         let handle_result = self
             .handles
             .lock()
+            .unwrap()
             .take(&self.name, stream_type)
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, alsa::nix::errno::Errno::EBUSY)) => {
-                return Err(BuildStreamError::DeviceNotAvailable)
-            }
-            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-                return Err(BuildStreamError::InvalidArgument)
-            }
+            Err((_, libc::EBUSY)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
@@ -310,19 +306,16 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        let mut guard = self.handles.lock();
+        let mut guard = self.handles.lock().unwrap();
         let handle_result = guard
             .get_mut(&self.name, stream_t)
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, alsa::nix::errno::Errno::ENOENT))
-            | Err((_, alsa::nix::errno::Errno::EBUSY)) => {
+            Err((_, libc::ENOENT)) | Err((_, libc::EBUSY)) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
-            Err((_, alsa::nix::errno::Errno::EINVAL)) => {
-                return Err(SupportedStreamConfigsError::InvalidArgument)
-            }
+            Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
@@ -743,7 +736,12 @@ fn poll_descriptors_and_prepare_buffer(
         return Ok(PollDescriptorsFlow::Return);
     }
 
-    let stream_type = match stream.channel.revents(&descriptors[1..])? {
+    let revents = stream.channel.revents(&descriptors[1..])?;
+    if revents.contains(alsa::poll::Flags::ERR) {
+        let description = String::from("`alsa::poll()` returned POLLERR");
+        return Err(BackendSpecificError { description });
+    }
+    let stream_type = match revents {
         alsa::poll::Flags::OUT => StreamType::Output,
         alsa::poll::Flags::IN => StreamType::Input,
         _ => {
@@ -754,9 +752,7 @@ fn poll_descriptors_and_prepare_buffer(
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
-            return Ok(PollDescriptorsFlow::XRun)
-        }
+        Err(err) if err.errno() == libc::EPIPE => return Ok(PollDescriptorsFlow::XRun),
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
@@ -837,7 +833,7 @@ fn process_output(
     }
     loop {
         match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == alsa::nix::errno::Errno::EPIPE => {
+            Err(err) if err.errno() == libc::EPIPE => {
                 // buffer underrun
                 // TODO: Notify the user of this.
                 let _ = stream.channel.try_recover(err, false);
@@ -876,19 +872,23 @@ fn stream_timestamp(
             let ts = status.get_htstamp();
             let nanos = timespec_diff_nanos(ts, trigger_ts);
             if nanos < 0 {
-                panic!(
-                    "get_htstamp `{:?}` was earlier than get_trigger_htstamp `{:?}`",
-                    ts, trigger_ts
+                let description = format!(
+                    "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
+                    ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
                 );
+                return Err(BackendSpecificError { description });
             }
             Ok(crate::StreamInstant::from_nanos(nanos))
         }
         Some(creation) => {
             let now = std::time::Instant::now();
             let duration = now.duration_since(creation);
-            let instant = crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128)
-                .expect("stream duration has exceeded `StreamInstant` representation");
-            Ok(instant)
+            crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(
+                BackendSpecificError {
+                    description: "stream duration has exceeded `StreamInstant` representation"
+                        .to_string(),
+                },
+            )
         }
     }
 }

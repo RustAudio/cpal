@@ -1,5 +1,4 @@
 extern crate coreaudio;
-extern crate parking_lot;
 
 use self::coreaudio::sys::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
@@ -53,8 +52,8 @@ fn asbd_from_config(
     let frames_per_packet = 1;
     let bytes_per_packet = frames_per_packet * bytes_per_frame;
     let format_flags = match sample_format {
-        SampleFormat::F32 => (kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked) as u32,
-        _ => kAudioFormatFlagIsPacked as u32,
+        SampleFormat::F32 => kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+        _ => kAudioFormatFlagIsPacked,
     };
     AudioStreamBasicDescription {
         mBitsPerChannel: bits_per_channel as _,
