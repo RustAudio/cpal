@@ -11,21 +11,21 @@ use std::mem;
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use windows::core::Interface;
 use windows::core::GUID;
+use windows::core::{implement, IUnknown, Interface, HRESULT, PCWSTR, PROPVARIANT};
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
+use windows::Win32::System::Com::{CoTaskMemFree, StringFromIID, StructuredStorage, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_LPWSTR;
 
@@ -284,11 +284,11 @@ unsafe fn format_from_waveformatex_ptr(
 }
 
 #[implement(Audio::IActivateAudioInterfaceCompletionHandler)]
-struct CompletionHandler(Sender<WinResult<IUnknown>>);
+struct CompletionHandler(Sender<windows::core::Result<IUnknown>>);
 
 fn retrieve_result(
     operation: &Audio::IActivateAudioInterfaceAsyncOperation,
-) -> WinResult<IUnknown> {
+) -> windows::core::Result<IUnknown> {
     let mut result = HRESULT::default();
     let mut interface: Option<IUnknown> = None;
     unsafe {
@@ -302,7 +302,7 @@ impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler 
     fn ActivateCompleted(
         &self,
         operation: Option<&Audio::IActivateAudioInterfaceAsyncOperation>,
-    ) -> WinResult<()> {
+    ) -> windows::core::Result<()> {
         let result = retrieve_result(operation.unwrap());
         let _ = self.0.send(result);
         Ok(())
@@ -313,10 +313,10 @@ impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler 
 unsafe fn ActivateAudioInterfaceSync<P0, T>(
     deviceinterfacepath: P0,
     activationparams: Option<*const PROPVARIANT>,
-) -> WinResult<T>
+) -> windows::core::Result<T>
 where
     P0: windows::core::IntoParam<PCWSTR>,
-    T: Interface + ComInterface,
+    T: Interface,
 {
     let (sender, receiver) = std::sync::mpsc::channel();
     let completion: Audio::IActivateAudioInterfaceCompletionHandler =
@@ -357,16 +357,16 @@ impl Device {
 
                 let prop_variant = &property_value.as_raw().Anonymous.Anonymous;
 
-            // Read the friendly-name from the union data field, expecting a *const u16.
-            if prop_variant.vt != VT_LPWSTR.0 {
-                let description = format!(
-                    "property store produced invalid data: {:?}",
-                    prop_variant.vt
-                );
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
+                // Read the friendly-name from the union data field, expecting a *const u16.
+                if prop_variant.vt != VT_LPWSTR.0 {
+                    let description = format!(
+                        "property store produced invalid data: {:?}",
+                        prop_variant.vt
+                    );
+                    let err = BackendSpecificError { description };
+                    return Err(err.into());
+                }
+                let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
 
                 // Find the length of the friendly name.
                 let mut len = 0;
@@ -1028,7 +1028,6 @@ impl Iterator for Devices {
 //        Some(Device::from_immdevice(device))
 //    }
 //}
-
 
 pub fn default_input_device() -> Option<Device> {
     //default_device(Audio::eCapture)
