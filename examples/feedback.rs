@@ -8,7 +8,10 @@
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::HeapRb;
+use ringbuf::{
+    traits::{Consumer, Producer, Split},
+    HeapRb,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "CPAL feedback example", long_about = None)]
@@ -112,13 +115,13 @@ fn main() -> anyhow::Result<()> {
     for _ in 0..latency_samples {
         // The ring buffer has twice as much space as necessary to add latency here,
         // so this should never fail
-        producer.push(0.0).unwrap();
+        producer.try_push(0.0).unwrap();
     }
 
     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
-            if producer.push(sample).is_err() {
+            if producer.try_push(sample).is_err() {
                 output_fell_behind = true;
             }
         }
@@ -130,7 +133,7 @@ fn main() -> anyhow::Result<()> {
     let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for sample in data {
-            *sample = match consumer.pop() {
+            *sample = match consumer.try_pop() {
                 Some(s) => s,
                 None => {
                     input_fell_behind = true;
