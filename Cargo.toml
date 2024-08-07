@@ -27,6 +27,7 @@ ndk-glue = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.54.0", features = [
+    "implement",
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
