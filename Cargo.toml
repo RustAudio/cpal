@@ -53,6 +53,8 @@ mach2 = "0.4" # For access to mach_timebase type.
 
 [target.'cfg(target_os = "macos")'.dependencies]
 coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio"] }
+screencapturekit = "0.2.8"
+screencapturekit-sys = "0.2.8"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
