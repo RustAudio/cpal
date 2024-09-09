@@ -273,8 +273,9 @@ impl LocalProcessHandler {
 
 fn temp_buffer_to_data(temp_input_buffer: &mut [f32], total_buffer_size: usize) -> Data {
     let slice = &mut temp_input_buffer[0..total_buffer_size];
+    let data: *mut () = slice.as_mut_ptr().cast();
     let len = total_buffer_size;
-    unsafe { Data::from_parts(slice.as_mut_ptr().cast(), len, JACK_SAMPLE_FORMAT) }
+    unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) }
 }
 
 impl jack::ProcessHandler for LocalProcessHandler {
