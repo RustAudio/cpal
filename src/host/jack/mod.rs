@@ -170,11 +170,8 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
             } else if status.intersects(jack::ClientStatus::INVALID_OPTION) {
                 return Err(String::from("Error connecting to JACK server: The operation contained an invalid or unsupported option!"));
             }
-
-            return Ok(client);
+            Ok(client)
         }
-        Err(e) => {
-            return Err(format!("Failed to open client because of error: {:?}", e));
-        }
+        Err(e) => Err(format!("Failed to open client because of error: {:?}", e)),
     }
 }
