@@ -37,7 +37,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn);
+            let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -102,7 +102,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         // Create ports
         for i in 0..channels {
-            let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut);
+            let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut::default());
             match port_try {
                 Ok(port) => {
                     // Get the port name in order to later connect it automatically
@@ -437,7 +437,7 @@ impl JackNotificationHandler {
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
-    fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
+    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
         self.send_error(format!("JACK was shut down for reason: {}", reason));
     }
 
