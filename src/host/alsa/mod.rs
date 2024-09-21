@@ -1061,18 +1061,19 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    match config.buffer_size {
-        BufferSize::Fixed(v) => {
-            hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
-        }
+    let period_size = match config.buffer_size {
+        BufferSize::Fixed(v) => v as alsa::pcm::Frames,
         BufferSize::Default => {
-            // These values together represent a moderate latency and wakeup interval.
-            // Without them, we are at the mercy of the device
-            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
+            // This value represent a moderate latency and wakeup interval.
+            1024 as alsa::pcm::Frames
         }
-    }
+    };
+    hw_params.set_period_size_near(period_size, alsa::ValueOr::Nearest)?;
+
+    // We shouldn't fail if the driver isn't happy here.
+    // `default` pcm sometimes fails here, but there no reason to as we
+    // provide a direction and 2 is strictly the minimum number of periods.
+    let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
 
     pcm_handle.hw_params(&hw_params)?;
 
