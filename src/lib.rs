@@ -33,7 +33,7 @@
 //! ```
 //!
 //! Before we can create a stream, we must decide what the configuration of the audio stream is
-//! going to be.    
+//! going to be.
 //! You can query all the supported configurations with the
 //! [`supported_input_configs()`] and [`supported_output_configs()`] methods.
 //! These produce a list of [`SupportedStreamConfigRange`] structs which can later be turned into
@@ -225,7 +225,7 @@ pub type FrameCount = u32;
 /// behavior of the given host. Note, the default buffer size may be surprisingly
 /// large, leading to latency issues. If low latency is desired, [`Fixed(FrameCount)`]
 /// should be used in accordance with the [`SupportedBufferSize`] range produced by
-/// the [`SupportedStreamConfig`] API.  
+/// the [`SupportedStreamConfig`] API.
 ///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
@@ -695,7 +695,7 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::{F32, I16, U16};
+        use SampleFormat::{F32, I16, I24, I32, U16, U24, U32};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -716,6 +716,36 @@ impl SupportedStreamConfigRange {
         if cmp_f32 != Equal {
             return cmp_f32;
         }
+
+        let cmp_i32 = (self.sample_format == I32).cmp(&(other.sample_format == I32));
+        if cmp_i32 != Equal {
+            return cmp_i32;
+        }
+
+        let cmp_u32 = (self.sample_format == U32).cmp(&(other.sample_format == U32));
+        if cmp_u32 != Equal {
+            return cmp_u32;
+        }
+
+        let cmp_i24 = (self.sample_format == I24).cmp(&(other.sample_format == I24));
+        if cmp_i24 != Equal {
+            return cmp_i24;
+        }
+
+        let cmp_u24 = (self.sample_format == U24).cmp(&(other.sample_format == U24));
+        if cmp_u24 != Equal {
+            return cmp_u24;
+        }
+
+        // let cmp_i24_3 = (self.sample_format == I24_3).cmp(&(other.sample_format == I24_3));
+        // if cmp_i24_3 != Equal {
+        //     return cmp_i24_3;
+        // }
+
+        // let cmp_u24_3 = (self.sample_format == U24_3).cmp(&(other.sample_format == U24_3));
+        // if cmp_u24_3 != Equal {
+        //     return cmp_u24_3;
+        // }
 
         let cmp_i16 = (self.sample_format == I16).cmp(&(other.sample_format == I16));
         if cmp_i16 != Equal {
