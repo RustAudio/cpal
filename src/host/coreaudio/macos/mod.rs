@@ -33,7 +33,6 @@ use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
-use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
