@@ -58,6 +58,14 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn supports_input(&self) -> bool {
+        self.data_flow() == Audio::eCapture
+    }
+
+    fn supports_output(&self) -> bool {
+        self.data_flow() == Audio::eRender
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
