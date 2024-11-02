@@ -1,5 +1,7 @@
 # Unreleased
 
+- All error enums are now `Clone`.
+
 # Version 0.15.3 (2024-03-04)
 
 - Add `try_with_sample_rate`, a non-panicking variant of `with_sample_rate`.
