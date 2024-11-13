@@ -717,6 +717,9 @@ fn from_be<T: PrimInt>(t: T) -> T {
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
+///
+/// The channel length is automatically inferred from the buffer size or some
+/// value can be passed to enforce a certain length (for odd sized sample formats)
 unsafe fn asio_channel_slice<T>(
     asio_stream: &sys::AsioStream,
     buffer_index: usize,
@@ -730,6 +733,9 @@ unsafe fn asio_channel_slice<T>(
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
+///
+/// The channel length is automatically inferred from the buffer size or some
+/// value can be passed to enforce a certain length (for odd sized sample formats)
 unsafe fn asio_channel_slice_mut<T>(
     asio_stream: &mut sys::AsioStream,
     buffer_index: usize,
@@ -769,7 +775,6 @@ fn i24_bytes_to_i32(i24_bytes: &[u8; 3], little_endian: bool) -> i32 {
     }
 }
 
-/// Only for i24 formats
 unsafe fn process_output_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
@@ -839,8 +844,6 @@ unsafe fn process_output_callback_i24<D>(
     }
 }
 
-/// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
-/// 2. Deliver the CPAL buffer to the user callback.
 unsafe fn process_input_callback_i24<A, D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
@@ -905,12 +908,13 @@ unsafe fn apply_output_callback_to_data<A, D>(
     A: Copy,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
-    let data = interleaved.as_mut_ptr() as *mut ();
-    let len = interleaved.len();
-    let mut data = Data::from_parts(data, len, sample_format);
+    let mut data = Data::from_parts(
+        interleaved.as_mut_ptr() as *mut (),
+        interleaved.len(),
+        sample_format,
+    );
     let callback = system_time_to_stream_instant(asio_info.system_time);
-    let n_frames = asio_stream.buffer_size as usize;
-    let delay = frames_to_duration(n_frames, sample_rate);
+    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
     let playback = callback
         .add(delay)
         .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -931,9 +935,11 @@ unsafe fn apply_input_callback_to_data<A, D>(
     A: Copy,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
-    let data = interleaved.as_mut_ptr() as *mut ();
-    let len = interleaved.len();
-    let data = Data::from_parts(data, len, format);
+    let data = Data::from_parts(
+        interleaved.as_mut_ptr() as *mut (),
+        interleaved.len(),
+        format,
+    );
     let callback = system_time_to_stream_instant(asio_info.system_time);
     let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
     let capture = callback
