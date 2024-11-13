@@ -817,18 +817,19 @@ unsafe fn process_output_callback_i24<D>(
         }
 
         // Fill in every channel from the interleaved vector
-        let frame: Vec<&I24> = interleaved.iter().skip(ch_ix).step_by(n_channels).collect();
-
-        for (index, channel_sample) in asio_channel.chunks_mut(asio_sample_size_bytes).enumerate() {
+        for (channel_sample, sample_in_buffer) in asio_channel
+            .chunks_mut(asio_sample_size_bytes)
+            .zip(interleaved.iter().skip(ch_ix).step_by(n_channels))
+        {
             // Add samples from buffer if no silence was applied, otherwise just overwrite
             let result = if silence_asio_buffer {
-                frame[index].inner()
+                sample_in_buffer.inner()
             } else {
                 let sample = i24_bytes_to_i32(
                     &[channel_sample[0], channel_sample[1], channel_sample[2]],
                     little_endian,
                 );
-                (frame[index].inner() + sample).clamp(-8388608, 8388607)
+                (sample_in_buffer.inner() + sample).clamp(-8388608, 8388607)
             };
             let bytes = result.to_le_bytes();
             if little_endian {
@@ -871,17 +872,15 @@ unsafe fn process_input_callback_i24<A, D>(
             ch_ix,
             Some(n_frames * asio_sample_size_bytes),
         );
-        let mut frame: Vec<&mut I24> = interleaved
-            .iter_mut()
-            .skip(ch_ix)
-            .step_by(n_channels)
-            .collect();
-        for (index, channel_sample) in asio_channel.chunks(asio_sample_size_bytes).enumerate() {
+        for (channel_sample, sample_in_buffer) in asio_channel
+            .chunks(asio_sample_size_bytes)
+            .zip(interleaved.iter_mut().skip(ch_ix).step_by(n_channels))
+        {
             let sample = i24_bytes_to_i32(
                 &[channel_sample[0], channel_sample[1], channel_sample[2]],
                 little_endian,
             );
-            *frame[index] = I24::new(sample).unwrap();
+            *sample_in_buffer = I24::new(sample).unwrap();
         }
     }
 
