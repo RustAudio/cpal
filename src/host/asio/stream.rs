@@ -105,24 +105,22 @@ impl Device {
                 let n_channels = interleaved.len() / n_frames;
                 let buffer_index = asio_info.buffer_index as usize;
                 for ch_ix in 0..n_channels {
-                    let asio_channel = asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix);
+                    let asio_channel =
+                        asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix, None);
                     for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
                         frame[ch_ix] = from_endianness(*s_asio);
                     }
                 }
 
                 // 2. Deliver the interleaved buffer to the callback.
-                let data = interleaved.as_mut_ptr() as *mut ();
-                let len = interleaved.len();
-                let data = Data::from_parts(data, len, format);
-                let callback = system_time_to_stream_instant(asio_info.system_time);
-                let delay = frames_to_duration(n_frames, sample_rate);
-                let capture = callback
-                    .sub(delay)
-                    .expect("`capture` occurs before origin of alsa `StreamInstant`");
-                let timestamp = crate::InputStreamTimestamp { callback, capture };
-                let info = InputCallbackInfo { timestamp };
-                data_callback(&data, &info);
+                apply_input_callback_to_data::<A, _>(
+                    data_callback,
+                    interleaved,
+                    asio_stream,
+                    asio_info,
+                    sample_rate,
+                    format,
+                );
             }
 
             match (&stream_type, sample_format) {
@@ -215,6 +213,27 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F64,
                         from_be,
+                    );
+                }
+
+                (&sys::AsioSampleType::ASIOSTInt24LSB, SampleFormat::I24) => {
+                    process_input_callback_i24::<I24, _>(
+                        &mut data_callback,
+                        &mut interleaved,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        true,
+                    );
+                }
+                (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
+                    process_input_callback_i24::<I24, _>(
+                        &mut data_callback,
+                        &mut interleaved,
+                        asio_stream,
+                        callback_info,
+                        config.sample_rate,
+                        false,
                     );
                 }
 
@@ -702,10 +721,12 @@ unsafe fn asio_channel_slice<T>(
     asio_stream: &sys::AsioStream,
     buffer_index: usize,
     channel_index: usize,
+    requested_channel_length: Option<usize>,
 ) -> &[T] {
+    let channel_length = requested_channel_length.unwrap_or(asio_stream.buffer_size as usize);
     let buff_ptr: *const T =
         asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *const _;
-    std::slice::from_raw_parts(buff_ptr, asio_stream.buffer_size as usize)
+    std::slice::from_raw_parts(buff_ptr, channel_length)
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
@@ -817,6 +838,61 @@ unsafe fn process_output_callback_i24<D>(
         }
     }
 }
+
+/// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
+/// 2. Deliver the CPAL buffer to the user callback.
+unsafe fn process_input_callback_i24<A, D>(
+    data_callback: &mut D,
+    interleaved: &mut [u8],
+    asio_stream: &sys::AsioStream,
+    asio_info: &sys::CallbackInfo,
+    sample_rate: crate::SampleRate,
+    little_endian: bool,
+) where
+    A: Copy,
+    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+{
+    let format = SampleFormat::I24;
+
+    // 1. Write the ASIO channels to the CPAL buffer.
+    let interleaved: &mut [I24] = cast_slice_mut(interleaved);
+    let n_frames = asio_stream.buffer_size as usize;
+    let n_channels = interleaved.len() / n_frames;
+    let buffer_index = asio_info.buffer_index as usize;
+    let asio_sample_size_bytes = 3;
+
+    for ch_ix in 0..n_channels {
+        let asio_channel = asio_channel_slice::<u8>(
+            asio_stream,
+            buffer_index,
+            ch_ix,
+            Some(n_frames * asio_sample_size_bytes),
+        );
+        let mut frame: Vec<&mut I24> = interleaved
+            .iter_mut()
+            .skip(ch_ix)
+            .step_by(n_channels)
+            .collect();
+        for (index, channel_sample) in asio_channel.chunks(asio_sample_size_bytes).enumerate() {
+            let sample = i24_bytes_to_i32(
+                &[channel_sample[0], channel_sample[1], channel_sample[2]],
+                little_endian,
+            );
+            *frame[index] = I24::new(sample).unwrap();
+        }
+    }
+
+    // 2. Deliver the interleaved buffer to the callback.
+    apply_input_callback_to_data::<I24, _>(
+        data_callback,
+        interleaved,
+        asio_stream,
+        asio_info,
+        sample_rate,
+        format,
+    );
+}
+
 /// Apply the output callback to the interleaved buffer.
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
@@ -841,4 +917,29 @@ unsafe fn apply_output_callback_to_data<A, D>(
     let timestamp = crate::OutputStreamTimestamp { callback, playback };
     let info = OutputCallbackInfo { timestamp };
     data_callback(&mut data, &info);
+}
+
+/// Apply the input callback to the interleaved buffer.
+unsafe fn apply_input_callback_to_data<A, D>(
+    data_callback: &mut D,
+    interleaved: &mut [A],
+    asio_stream: &sys::AsioStream,
+    asio_info: &sys::CallbackInfo,
+    sample_rate: crate::SampleRate,
+    format: SampleFormat,
+) where
+    A: Copy,
+    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+{
+    let data = interleaved.as_mut_ptr() as *mut ();
+    let len = interleaved.len();
+    let data = Data::from_parts(data, len, format);
+    let callback = system_time_to_stream_instant(asio_info.system_time);
+    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
+    let capture = callback
+        .sub(delay)
+        .expect("`capture` occurs before origin of alsa `StreamInstant`");
+    let timestamp = crate::InputStreamTimestamp { callback, capture };
+    let info = InputCallbackInfo { timestamp };
+    data_callback(&data, &info);
 }
