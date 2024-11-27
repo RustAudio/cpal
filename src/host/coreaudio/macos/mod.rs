@@ -33,7 +33,6 @@ use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
-use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -443,6 +442,32 @@ struct StreamInner {
     device_id: AudioDeviceID,
 }
 
+impl StreamInner {
+    fn play(&mut self) -> Result<(), PlayStreamError> {
+        if !self.playing {
+            if let Err(e) = self.audio_unit.start() {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            self.playing = true;
+        }
+        Ok(())
+    }
+
+    fn pause(&mut self) -> Result<(), PauseStreamError> {
+        if self.playing {
+            if let Err(e) = self.audio_unit.stop() {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            self.playing = false;
+        }
+        Ok(())
+    }
+}
+
 /// Register the on-disconnect callback.
 /// This will both stop the stream and call the error callback with DeviceNotAvailable.
 /// This function should only be called once per stream.
@@ -453,7 +478,7 @@ fn add_disconnect_listener<E>(
 where
     E: FnMut(StreamError) + Send + 'static,
 {
-    let stream_copy = stream.clone();
+    let stream_inner_weak = Arc::downgrade(&stream.inner);
     let mut stream_inner = stream.inner.lock().unwrap();
     stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
         stream_inner.device_id,
@@ -463,8 +488,11 @@ where
             mElement: kAudioObjectPropertyElementMaster,
         },
         move || {
-            let _ = stream_copy.pause();
-            (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
+            if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
+                let mut stream_inner = stream_inner_strong.lock().unwrap();
+                let _ = stream_inner.pause();
+                (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
+            }
         },
     )?);
     Ok(())
@@ -898,30 +926,13 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         let mut stream = self.inner.lock().unwrap();
 
-        if !stream.playing {
-            if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            stream.playing = true;
-        }
-        Ok(())
+        stream.play()
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         let mut stream = self.inner.lock().unwrap();
 
-        if stream.playing {
-            if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-
-            stream.playing = false;
-        }
-        Ok(())
+        stream.pause()
     }
 }
 

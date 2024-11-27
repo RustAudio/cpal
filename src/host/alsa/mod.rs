@@ -185,10 +185,10 @@ struct DeviceHandles {
 impl DeviceHandles {
     /// Create `DeviceHandles` for `name` and try to open a handle for both
     /// directions. Returns `Ok` if either direction is opened successfully.
-    fn open(name: &str) -> Result<Self, alsa::Error> {
+    fn open(pcm_id: &str) -> Result<Self, alsa::Error> {
         let mut handles = Self::default();
-        let playback_err = handles.try_open(name, alsa::Direction::Playback).err();
-        let capture_err = handles.try_open(name, alsa::Direction::Capture).err();
+        let playback_err = handles.try_open(pcm_id, alsa::Direction::Playback).err();
+        let capture_err = handles.try_open(pcm_id, alsa::Direction::Capture).err();
         if let Some(err) = capture_err.and(playback_err) {
             Err(err)
         } else {
@@ -202,7 +202,7 @@ impl DeviceHandles {
     /// `Option` is guaranteed to be `Some(..)`.
     fn try_open(
         &mut self,
-        name: &str,
+        pcm_id: &str,
         stream_type: alsa::Direction,
     ) -> Result<&mut Option<alsa::PCM>, alsa::Error> {
         let handle = match stream_type {
@@ -211,7 +211,7 @@ impl DeviceHandles {
         };
 
         if handle.is_none() {
-            *handle = Some(alsa::pcm::PCM::new(name, stream_type, true)?);
+            *handle = Some(alsa::pcm::PCM::new(pcm_id, stream_type, true)?);
         }
 
         Ok(handle)
@@ -221,10 +221,10 @@ impl DeviceHandles {
     /// If the handle is not yet opened, it will be opened and stored in `self`.
     fn get_mut(
         &mut self,
-        name: &str,
+        pcm_id: &str,
         stream_type: alsa::Direction,
     ) -> Result<&mut alsa::PCM, alsa::Error> {
-        Ok(self.try_open(name, stream_type)?.as_mut().unwrap())
+        Ok(self.try_open(pcm_id, stream_type)?.as_mut().unwrap())
     }
 
     /// Take ownership of the `alsa::PCM` handle for a specific `stream_type`.
@@ -237,6 +237,7 @@ impl DeviceHandles {
 #[derive(Clone)]
 pub struct Device {
     name: String,
+    pcm_id: String,
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
@@ -251,7 +252,7 @@ impl Device {
             .handles
             .lock()
             .unwrap()
-            .take(&self.name, stream_type)
+            .take(&self.pcm_id, stream_type)
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
@@ -308,7 +309,7 @@ impl Device {
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
         let mut guard = self.handles.lock().unwrap();
         let handle_result = guard
-            .get_mut(&self.name, stream_t)
+            .get_mut(&self.pcm_id, stream_t)
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {

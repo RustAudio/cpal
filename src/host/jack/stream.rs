@@ -218,6 +218,9 @@ impl StreamTrait for Stream {
     }
 }
 
+type InputDataCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
+type OutputDataCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
+
 struct LocalProcessHandler {
     /// No new ports are allowed to be created after the creation of the LocalProcessHandler as that would invalidate the buffer sizes
     out_ports: Vec<jack::Port<jack::AudioOut>>,
@@ -225,8 +228,8 @@ struct LocalProcessHandler {
 
     sample_rate: SampleRate,
     buffer_size: usize,
-    input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
-    output_data_callback: Option<Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>>,
+    input_data_callback: Option<InputDataCallback>,
+    output_data_callback: Option<OutputDataCallback>,
 
     // JACK audio samples are 32-bit float (unless you do some custom dark magic)
     temp_input_buffer: Vec<f32>,
@@ -238,15 +241,14 @@ struct LocalProcessHandler {
 }
 
 impl LocalProcessHandler {
+    #[allow(too_many_arguments)]
     fn new(
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
         sample_rate: SampleRate,
         buffer_size: usize,
-        input_data_callback: Option<Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>>,
-        output_data_callback: Option<
-            Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>,
-        >,
+        input_data_callback: Option<InputDataCallback>,
+        output_data_callback: Option<OutputDataCallback>,
         playing: Arc<AtomicBool>,
         error_callback_ptr: ErrorCallbackPtr,
     ) -> Self {
@@ -270,12 +272,11 @@ impl LocalProcessHandler {
     }
 }
 
-fn temp_buffer_to_data(temp_input_buffer: &mut Vec<f32>, total_buffer_size: usize) -> Data {
-    let slice = &temp_input_buffer[0..total_buffer_size];
-    let data = slice.as_ptr() as *mut ();
+fn temp_buffer_to_data(temp_input_buffer: &mut [f32], total_buffer_size: usize) -> Data {
+    let slice = &mut temp_input_buffer[0..total_buffer_size];
+    let data: *mut () = slice.as_mut_ptr().cast();
     let len = total_buffer_size;
-    let data = unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) };
-    data
+    unsafe { Data::from_parts(data, len, JACK_SAMPLE_FORMAT) }
 }
 
 impl jack::ProcessHandler for LocalProcessHandler {
@@ -436,7 +437,7 @@ impl JackNotificationHandler {
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
-    fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
+    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
         self.send_error(format!("JACK was shut down for reason: {}", reason));
     }
 

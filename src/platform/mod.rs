@@ -315,6 +315,24 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn supports_input(&self) -> bool {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d.supports_input(),
+                    )*
+                }
+            }
+
+            fn supports_output(&self) -> bool {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d.supports_output(),
+                    )*
+                }
+            }
+
             fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
                 match self.0 {
                     $(

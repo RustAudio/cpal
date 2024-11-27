@@ -89,7 +89,7 @@ impl From<BackendSpecificError> for DeviceNameError {
 }
 
 /// Error that can happen when enumerating the list of supported formats.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SupportedStreamConfigsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
@@ -119,7 +119,7 @@ impl From<BackendSpecificError> for SupportedStreamConfigsError {
 }
 
 /// May occur when attempting to request the default input or output stream format from a [`Device`](crate::Device).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
@@ -152,7 +152,7 @@ impl From<BackendSpecificError> for DefaultStreamConfigError {
     }
 }
 /// Error that can happen when creating a [`Stream`](crate::Stream).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
@@ -203,7 +203,7 @@ impl From<BackendSpecificError> for BuildStreamError {
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PlayStreamError {
     /// The device associated with the stream is no longer available.
     DeviceNotAvailable,
@@ -235,7 +235,7 @@ impl From<BackendSpecificError> for PlayStreamError {
 /// As of writing this, only macOS may immediately return an error while calling this method. This
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PauseStreamError {
     /// The device associated with the stream is no longer available.
     DeviceNotAvailable,
@@ -263,7 +263,7 @@ impl From<BackendSpecificError> for PauseStreamError {
 }
 
 /// Errors that might occur while a stream is running.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.

@@ -58,6 +58,14 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn supports_input(&self) -> bool {
+        self.data_flow() == Audio::eCapture
+    }
+
+    fn supports_output(&self) -> bool {
+        self.data_flow() == Audio::eRender
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -152,43 +160,25 @@ pub unsafe fn is_format_supported(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
     // Check if the given format is supported.
-    let is_supported = |waveformatex_ptr, closest_waveformatex_ptr| {
-        let result = client.IsFormatSupported(
-            Audio::AUDCLNT_SHAREMODE_SHARED,
-            waveformatex_ptr,
-            Some(closest_waveformatex_ptr),
-        );
-        // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
-        // has been found, but not an exact match) so we also treat this as unsupported.
-        match result {
-            Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
-            r if r.is_err() => Ok(false),
-            Foundation::S_FALSE => Ok(false),
-            _ => Ok(true),
-        }
-    };
+    let mut closest_waveformatex_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
 
-    // First we want to retrieve a pointer to the `WAVEFORMATEX`.
-    // Although `GetMixFormat` writes the format to a given `WAVEFORMATEX` pointer,
-    // the pointer itself may actually point to a `WAVEFORMATEXTENSIBLE` structure.
-    // We check the wFormatTag to determine this and get a pointer to the correct type.
-    match (*waveformatex_ptr).wFormatTag as u32 {
-        Audio::WAVE_FORMAT_PCM | Multimedia::WAVE_FORMAT_IEEE_FLOAT => {
-            let mut closest_waveformatex = *waveformatex_ptr;
-            let mut closest_waveformatex_ptr = &mut closest_waveformatex as *mut _;
-            is_supported(waveformatex_ptr, &mut closest_waveformatex_ptr as *mut _)
-        }
-        KernelStreaming::WAVE_FORMAT_EXTENSIBLE => {
-            let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
-            let mut closest_waveformatextensible = *waveformatextensible_ptr;
-            let closest_waveformatextensible_ptr = &mut closest_waveformatextensible as *mut _;
-            let mut closest_waveformatex_ptr =
-                closest_waveformatextensible_ptr as *mut Audio::WAVEFORMATEX;
-            is_supported(waveformatex_ptr, &mut closest_waveformatex_ptr as *mut _)
-        }
-        _ => Ok(false),
+    let result = client.IsFormatSupported(
+        Audio::AUDCLNT_SHAREMODE_SHARED,
+        waveformatex_ptr,
+        Some(&mut closest_waveformatex_ptr as *mut _),
+    );
+
+    if !closest_waveformatex_ptr.is_null() {
+        Com::CoTaskMemFree(Some(closest_waveformatex_ptr as *mut std::ffi::c_void));
+    }
+
+    // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
+    // has been found, but not an exact match) so we also treat this as unsupported.
+    match result {
+        Audio::AUDCLNT_E_DEVICE_INVALIDATED => Err(SupportedStreamConfigsError::DeviceNotAvailable),
+        r if r.is_err() => Ok(false),
+        Foundation::S_FALSE => Ok(false),
+        _ => Ok(true),
     }
 }
 
@@ -262,7 +252,7 @@ unsafe fn format_from_waveformatex_ptr(
     } else {
         SupportedBufferSize::Range {
             min: 0,
-            max: u32::max_value(),
+            max: u32::MAX,
         }
     };
 
