@@ -834,6 +834,7 @@ const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(96000),
     SampleRate(176400),
     SampleRate(192000),
+    SampleRate(384000),
 ];
 
 #[test]
