@@ -10,6 +10,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
+use std::cell::Cell;
 use std::cmp;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -286,6 +287,7 @@ impl Device {
         }
 
         let stream_inner = StreamInner {
+            dropping: Cell::new(false),
             channel: handle,
             sample_format,
             num_descriptors,
@@ -501,6 +503,10 @@ impl Device {
 }
 
 struct StreamInner {
+    // Flag used to check when to stop polling, regardless of the state of the stream
+    // (e.g. broken due to a disconnected device).
+    dropping: Cell<bool>,
+
     // The ALSA channel.
     channel: alsa::pcm::PCM,
 
@@ -696,6 +702,12 @@ fn poll_descriptors_and_prepare_buffer(
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
 ) -> Result<PollDescriptorsFlow, BackendSpecificError> {
+    if stream.dropping.get() {
+        // The stream has been requested to be destroyed.
+        rx.clear_pipe();
+        return Ok(PollDescriptorsFlow::Return);
+    }
+
     let StreamWorkerContext {
         ref mut descriptors,
         ref mut buffer,
@@ -982,6 +994,7 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        self.inner.dropping.set(true);
         self.trigger.wakeup();
         self.thread.take().unwrap().join().unwrap();
     }
