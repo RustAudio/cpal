@@ -183,9 +183,7 @@ impl Display for BuildStreamError {
             Self::InvalidArgument => f.write_str(
                 "The requested device does not support this capability (invalid argument)",
             ),
-            Self::StreamIdOverflow => {
-                f.write_str("Adding a new stream ID would cause an overflow")
-            }
+            Self::StreamIdOverflow => f.write_str("Adding a new stream ID would cause an overflow"),
         }
     }
 }
