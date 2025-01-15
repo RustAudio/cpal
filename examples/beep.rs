@@ -24,6 +24,20 @@ struct Opt {
     #[arg(short, long)]
     #[allow(dead_code)]
     jack: bool,
+
+    /// Use the PipeWire host
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
+    #[arg(short, long)]
+    #[allow(dead_code)]
+    pipewire: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -52,6 +66,29 @@ fn main() -> anyhow::Result<()> {
         cpal::default_host()
     };
 
+    // Conditionally compile with pipewire if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features pipewire -- --pipewire
+    let host = if opt.pipewire {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::PipeWire)
+            .expect(
+                "make sure --features pipewire is specified. only works on OSes where pipewire is available",
+            )).expect("pipewire host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
     #[cfg(any(
         not(any(
             target_os = "linux",
@@ -59,7 +96,10 @@ fn main() -> anyhow::Result<()> {
             target_os = "freebsd",
             target_os = "netbsd"
         )),
-        not(feature = "jack")
+        not(any(
+            feature = "jack",
+            feature = "pipewire",
+        ))
     ))]
     let host = cpal::default_host();
 
