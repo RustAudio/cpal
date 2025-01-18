@@ -506,6 +506,10 @@ impl StreamState {
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
     }
+    
+    pub fn is_connected(&self) -> bool {
+        self.is_connected
+    }
 
     pub fn connect(&mut self) -> Result<(), Error> {
         if self.is_connected {

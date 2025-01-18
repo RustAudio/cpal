@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc;
 use pipewire::proxy::ProxyT;
 use crate::constants::*;
 use crate::{AudioStreamInfo, Direction, NodeInfo};
@@ -15,7 +14,7 @@ pub(super) fn request_handler(
     core_sync: Rc<PipewireCoreSync>,
     main_loop: pipewire::main_loop::MainLoop,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) -> impl Fn(MessageRequest) + 'static
 {
     move |message_request: MessageRequest| match message_request {
@@ -120,7 +119,7 @@ pub(super) fn request_handler(
 
 fn handle_settings(
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let state = state.borrow();
@@ -129,7 +128,7 @@ fn handle_settings(
 }
 fn handle_default_audio_nodes(
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let state = state.borrow();
@@ -145,7 +144,7 @@ fn handle_create_node(
     core: Rc<pipewire::core::Core>,
     core_sync: Rc<PipewireCoreSync>,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let default_audio_position = format!(
@@ -250,7 +249,7 @@ fn handle_create_node(
 fn handle_enumerate_node(
     direction: Direction,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let state = state.borrow();
@@ -314,7 +313,7 @@ fn handle_create_stream(
     callback: StreamCallback,
     core: Rc<pipewire::core::Core>,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();
@@ -385,7 +384,7 @@ fn handle_create_stream(
 fn handle_delete_stream(
     name: String,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();
@@ -398,12 +397,14 @@ fn handle_delete_stream(
             return;
         }
     };
-    if let Err(value) = stream.disconnect() {
-        main_sender
-            .send(MessageResponse::Error(value))
-            .unwrap();
-        return;
-    };
+    if stream.is_connected() {
+        if let Err(value) = stream.disconnect() {
+            main_sender
+                .send(MessageResponse::Error(value))
+                .unwrap();
+            return;
+        };
+    }
     if let Err(value) = state.remove_stream(&name) {
         main_sender
             .send(MessageResponse::Error(value))
@@ -415,7 +416,7 @@ fn handle_delete_stream(
 fn handle_connect_stream(
     name: String,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 )
 {
     let mut state = state.borrow_mut();
@@ -439,7 +440,7 @@ fn handle_connect_stream(
 fn handle_disconnect_stream(
     name: String,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();
@@ -462,7 +463,7 @@ fn handle_disconnect_stream(
 }
 fn handle_check_session_manager_registered(
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     // Checking if session manager is registered because we need "default" metadata
@@ -521,7 +522,7 @@ fn handle_check_session_manager_registered(
 fn handle_node_state(
     id: GlobalId,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) {
     let state = state.borrow();
     let node = match state.get_node(&id) {
@@ -538,7 +539,7 @@ fn handle_node_state(
 }
 fn handle_node_states(
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let state = state.borrow_mut();

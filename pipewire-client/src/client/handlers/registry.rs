@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc;
 use pipewire::registry::GlobalObject;
 use pipewire::spa;
 use crate::constants::{APPLICATION_NAME_PROPERTY_KEY, APPLICATION_NAME_PROPERTY_VALUE_PIPEWIRE_MEDIA_SESSION, APPLICATION_NAME_PROPERTY_VALUE_WIRE_PLUMBER, MEDIA_CLASS_PROPERTY_KEY, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SINK, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SOURCE, METADATA_NAME_PROPERTY_KEY, METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
@@ -11,7 +10,7 @@ use crate::utils::debug_dict_ref;
 pub(super) fn registry_global_handler(
     state: Rc<RefCell<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) -> impl Fn(&GlobalObject<&spa::utils::dict::DictRef>) + 'static
 {
@@ -56,7 +55,7 @@ pub(super) fn registry_global_handler(
 fn handle_client(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     if global.props.is_none() {
@@ -90,7 +89,7 @@ fn handle_metadata(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
     state: Rc<RefCell<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
@@ -129,7 +128,7 @@ fn handle_node(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
     state: Rc<RefCell<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {
@@ -164,7 +163,7 @@ fn handle_port(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
     state: Rc<RefCell<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {
@@ -203,7 +202,7 @@ fn handle_link(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
     state: Rc<RefCell<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {

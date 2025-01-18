@@ -19,18 +19,18 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.client.connect_stream(self.name.clone()).unwrap();
+        self.client.stream().connect(self.name.clone()).unwrap();
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.client.disconnect_stream(self.name.clone()).unwrap();
+        self.client.stream().disconnect(self.name.clone()).unwrap();
         Ok(())
     }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.client.delete_stream(self.name.clone()).unwrap()
+        self.client.stream().delete(self.name.clone()).unwrap()
     }
 }

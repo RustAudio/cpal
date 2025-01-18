@@ -40,7 +40,7 @@ impl Device {
     }
 
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let settings = match self.client.settings() {
+        let settings = match self.client.core().get_settings() {
             Ok(value) => value,
             Err(value) => return Err(DefaultStreamConfigError::BackendSpecific {
                 err: BackendSpecificError {
@@ -91,7 +91,7 @@ impl Device {
     {
         let format: AudioStreamInfo = FromStreamConfigWithSampleFormat::from((config, sample_format));
         let channels = config.channels;
-        let stream_name = self.client.create_stream(
+        let stream_name = self.client.stream().create(
             self.id,
             direction,
             format,

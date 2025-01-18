@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc;
 use pipewire_spa_utils::audio::raw::AudioInfoRaw;
 use crate::constants::{METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
 use crate::error::Error;
@@ -11,7 +10,7 @@ use crate::states::{DefaultAudioNodesState, GlobalId, GlobalState, SettingsState
 
 pub(super) fn event_handler(
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) -> impl Fn(EventMessage) + 'static
 {    
@@ -59,7 +58,7 @@ pub(super) fn event_handler(
 fn handle_set_metadata_listeners(
     id: GlobalId,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let listener_state = state.clone();
@@ -113,7 +112,7 @@ fn handle_set_metadata_listeners(
 fn handle_remove_node(
     id: GlobalId,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();
@@ -131,7 +130,7 @@ fn handle_remove_node(
 fn handle_set_node_properties_listener(
     id: GlobalId,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
@@ -188,7 +187,7 @@ fn handle_set_node_properties_listener(
 fn handle_set_node_format_listener(
     id: GlobalId,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
@@ -227,7 +226,7 @@ fn handle_set_node_properties(
     id: GlobalId,
     properties: HashMap<String, String>,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();
@@ -246,7 +245,7 @@ fn handle_set_node_format(
     id: GlobalId,
     format: AudioInfoRaw,
     state: Rc<RefCell<GlobalState>>,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
     let mut state = state.borrow_mut();

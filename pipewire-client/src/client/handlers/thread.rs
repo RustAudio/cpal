@@ -9,11 +9,10 @@ use crate::states::GlobalState;
 use crate::utils::PipewireCoreSync;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc;
 
 pub fn pw_thread(
     client_info: PipewireClientInfo,
-    main_sender: mpsc::Sender<MessageResponse>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
     pw_receiver: pipewire::channel::Receiver<MessageRequest>,
     event_sender: pipewire::channel::Sender<EventMessage>,
     event_receiver: pipewire::channel::Receiver<EventMessage>,

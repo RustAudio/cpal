@@ -44,7 +44,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        let input_devices = match self.client.enumerate_nodes(Direction::Input) {
+        let input_devices = match self.client.node().enumerate(Direction::Input) {
             Ok(values) => values.into_iter(),
             Err(value) => return Err(DevicesError::BackendSpecific {
                 err: BackendSpecificError {
@@ -52,7 +52,7 @@ impl HostTrait for Host {
                 },
             }),
         };
-        let output_devices = match self.client.enumerate_nodes(Direction::Output) {
+        let output_devices = match self.client.node().enumerate(Direction::Output) {
             Ok(values) => values.into_iter(),
             Err(value) => return Err(DevicesError::BackendSpecific {
                 err: BackendSpecificError {
