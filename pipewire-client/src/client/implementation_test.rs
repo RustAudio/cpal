@@ -1,8 +1,8 @@
-use std::sync::atomic::Ordering;
+use crate::client::implementation::CLIENT_INDEX;
+use crate::PipewireClient;
 use rstest::rstest;
 use serial_test::serial;
-use crate::client::implementation::CLIENT_INDEX;
-use crate::{PipewireClient};
+use std::sync::atomic::Ordering;
 
 #[rstest]
 #[serial]

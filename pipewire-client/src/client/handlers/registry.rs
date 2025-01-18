@@ -1,11 +1,11 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use pipewire::registry::GlobalObject;
-use pipewire::spa;
 use crate::constants::{APPLICATION_NAME_PROPERTY_KEY, APPLICATION_NAME_PROPERTY_VALUE_PIPEWIRE_MEDIA_SESSION, APPLICATION_NAME_PROPERTY_VALUE_WIRE_PLUMBER, MEDIA_CLASS_PROPERTY_KEY, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SINK, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SOURCE, METADATA_NAME_PROPERTY_KEY, METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
 use crate::messages::{EventMessage, MessageResponse};
 use crate::states::{ClientState, GlobalId, GlobalObjectState, GlobalState, MetadataState, NodeState};
 use crate::utils::debug_dict_ref;
+use pipewire::registry::GlobalObject;
+use pipewire::spa;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub(super) fn registry_global_handler(
     state: Rc<RefCell<GlobalState>>,

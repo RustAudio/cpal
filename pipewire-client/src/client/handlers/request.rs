@@ -1,13 +1,13 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use pipewire::proxy::ProxyT;
 use crate::constants::*;
-use crate::{AudioStreamInfo, Direction, NodeInfo};
 use crate::error::Error;
 use crate::listeners::ListenerTriggerPolicy;
 use crate::messages::{MessageRequest, MessageResponse, StreamCallback};
 use crate::states::{GlobalId, GlobalObjectState, GlobalState, OrphanState, StreamState};
 use crate::utils::PipewireCoreSync;
+use crate::{AudioStreamInfo, Direction, NodeInfo};
+use pipewire::proxy::ProxyT;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub(super) fn request_handler(
     core: Rc<pipewire::core::Core>,

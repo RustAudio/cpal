@@ -2,8 +2,6 @@ use crate::client::api::internal::InternalApi;
 use crate::error::Error;
 use crate::messages::{MessageRequest, MessageResponse};
 use crate::states::{DefaultAudioNodesState, SettingsState};
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct CoreApi {

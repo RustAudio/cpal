@@ -1,4 +1,3 @@
-use std::panic::UnwindSafe;
 use crate::{Direction, NodeInfo, PipewireClient};
 use rstest::fixture;
 

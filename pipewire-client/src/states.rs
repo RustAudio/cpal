@@ -1,19 +1,19 @@
 use super::constants::*;
+use crate::error::Error;
+use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
+use crate::messages::StreamCallback;
+use crate::utils::dict_ref_to_hashmap;
+use crate::Direction;
+use pipewire::spa::utils::dict::ParsableValue;
+use pipewire_spa_utils::audio::raw::AudioInfoRaw;
+use pipewire_spa_utils::audio::AudioChannel;
+use pipewire_spa_utils::format::{MediaSubtype, MediaType};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Cursor;
 use std::rc::Rc;
 use std::str::FromStr;
-use pipewire::spa::utils::dict::ParsableValue;
-use pipewire_spa_utils::audio::AudioChannel;
-use pipewire_spa_utils::audio::raw::AudioInfoRaw;
-use pipewire_spa_utils::format::{MediaSubtype, MediaType};
-use crate::Direction;
-use crate::error::Error;
-use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
-use crate::messages::StreamCallback;
-use crate::utils::dict_ref_to_hashmap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct GlobalId(u32);
@@ -506,7 +506,7 @@ impl StreamState {
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
     }
-    
+
     pub fn is_connected(&self) -> bool {
         self.is_connected
     }

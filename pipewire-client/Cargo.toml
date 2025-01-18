@@ -18,3 +18,4 @@ crossbeam-channel = "0.5"
 [dev-dependencies]
 rstest = "0.24"
 serial_test = "3.2"
+testcontainers = "0.23"

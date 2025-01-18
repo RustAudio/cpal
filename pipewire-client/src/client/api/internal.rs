@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::messages::{MessageRequest, MessageResponse};
-use std::time::Duration;
 use crossbeam_channel::{RecvError, RecvTimeoutError};
+use std::time::Duration;
 
 pub(crate) struct InternalApi {
     sender: pipewire::channel::Sender<MessageRequest>,

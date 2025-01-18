@@ -1,4 +1,3 @@
-use std::panic;
 use crate::client::api::fixtures::{client, default_input_node, default_output_node};
 use crate::{Direction, NodeInfo, PipewireClient};
 use rstest::rstest;
@@ -73,7 +72,7 @@ where
             stream_name: None,
         }
     }
-    
+
     fn run(&mut self) {
         self.stream_name = Some((self.setup)());
         (self.test)(self.stream_name.as_ref().unwrap());

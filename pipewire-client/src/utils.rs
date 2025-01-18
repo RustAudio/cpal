@@ -1,7 +1,7 @@
+use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Direction {

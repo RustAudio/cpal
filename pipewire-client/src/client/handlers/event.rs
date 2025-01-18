@@ -1,12 +1,12 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use pipewire_spa_utils::audio::raw::AudioInfoRaw;
 use crate::constants::{METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
 use crate::error::Error;
 use crate::listeners::ListenerTriggerPolicy;
 use crate::messages::{EventMessage, MessageResponse};
 use crate::states::{DefaultAudioNodesState, GlobalId, GlobalState, SettingsState};
+use pipewire_spa_utils::audio::raw::AudioInfoRaw;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 pub(super) fn event_handler(
     state: Rc<RefCell<GlobalState>>,

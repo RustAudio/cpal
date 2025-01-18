@@ -1,11 +1,11 @@
-use pipewire_spa_utils::audio::raw::AudioInfoRaw;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex};
 use crate::error::Error;
 use crate::info::{AudioStreamInfo, NodeInfo};
 use crate::states::{DefaultAudioNodesState, GlobalId, GlobalObjectState, SettingsState};
 use crate::utils::Direction;
+use pipewire_spa_utils::audio::raw::AudioInfoRaw;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, Mutex};
 
 pub(super) struct StreamCallback {
     callback: Arc<Mutex<Box<dyn FnMut(pipewire::buffer::Buffer) + Send + 'static>>>

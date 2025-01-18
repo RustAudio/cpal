@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::constants::*;
+use std::path::PathBuf;
 
 pub(super) struct PipewireClientConnectionString;
 
