@@ -1,7 +1,7 @@
 use crate::utils::Direction;
 use pipewire_spa_utils::audio::raw::AudioInfoRaw;
-use pipewire_spa_utils::audio::AudioSampleFormat;
 use pipewire_spa_utils::audio::AudioChannelPosition;
+use pipewire_spa_utils::audio::AudioSampleFormat;
 use pipewire_spa_utils::format::{MediaSubtype, MediaType};
 
 #[derive(Debug, Clone)]
