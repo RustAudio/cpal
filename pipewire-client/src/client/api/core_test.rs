@@ -1,6 +1,6 @@
+use crate::test_utils::fixtures::{client, PipewireTestClient};
 use rstest::rstest;
 use serial_test::serial;
-use crate::test_utils::fixtures::{client, PipewireTestClient};
 
 #[rstest]
 #[serial]

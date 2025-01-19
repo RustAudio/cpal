@@ -1,8 +1,8 @@
-use crate::{Direction};
 use crate::test_utils::fixtures::client;
+use crate::test_utils::fixtures::PipewireTestClient;
+use crate::Direction;
 use rstest::rstest;
 use serial_test::serial;
-use crate::test_utils::fixtures::PipewireTestClient;
 
 fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
     let nodes = client.node().enumerate(direction).unwrap();

@@ -1,9 +1,9 @@
+use crate::test_utils::server::{server_with_default_configuration, set_socket_env_vars, Container};
+use crate::{Direction, NodeInfo, PipewireClient};
+use rstest::fixture;
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::{Direction, NodeInfo, PipewireClient};
-use rstest::fixture;
-use crate::test_utils::server::{server_with_default_configuration, set_socket_env_vars, Container};
 
 pub struct PipewireTestClient {
     server: Rc<RefCell<Container>>,

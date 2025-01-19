@@ -1,10 +1,10 @@
-use crate::{Direction, NodeInfo};
 use crate::test_utils::fixtures::client;
 use crate::test_utils::fixtures::default_input_node;
 use crate::test_utils::fixtures::default_output_node;
+use crate::test_utils::fixtures::PipewireTestClient;
+use crate::{Direction, NodeInfo};
 use rstest::rstest;
 use serial_test::serial;
-use crate::test_utils::fixtures::PipewireTestClient;
 
 fn internal_create<F: FnMut(pipewire::buffer::Buffer) + Send + 'static>(
     client: &PipewireTestClient,

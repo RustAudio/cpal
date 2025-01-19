@@ -1,10 +1,9 @@
-use crate::client::implementation::{CLIENT_INDEX, CLIENT_NAME_PREFIX};
+use crate::client::implementation::CLIENT_NAME_PREFIX;
+use crate::test_utils::fixtures::{client2, PipewireTestClient};
+use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
 use crate::PipewireClient;
 use rstest::rstest;
 use serial_test::serial;
-use std::sync::atomic::Ordering;
-use crate::test_utils::fixtures::{client, client2, PipewireTestClient};
-use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
 
 #[rstest]
 #[serial]

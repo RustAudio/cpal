@@ -1,16 +1,16 @@
-use std::path::{Path, PathBuf};
-use docker_api::Docker;
+use crate::constants::{PIPEWIRE_CORE_ENVIRONMENT_KEY, PIPEWIRE_REMOTE_ENVIRONMENT_KEY, PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY};
 use docker_api::models::ImageBuildChunk;
 use docker_api::opts::ImageBuildOpts;
+use docker_api::Docker;
 use futures::StreamExt;
 use pipewire::spa::utils::dict::ParsableValue;
 use rstest::fixture;
-use testcontainers::{ContainerAsync, GenericImage, ImageExt};
+use std::path::{Path, PathBuf};
 use testcontainers::core::{CmdWaitFor, ExecCommand, Mount};
 use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
-use crate::constants::{PIPEWIRE_CORE_ENVIRONMENT_KEY, PIPEWIRE_REMOTE_ENVIRONMENT_KEY, PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY};
 
 pub struct Container {
     name: String,
