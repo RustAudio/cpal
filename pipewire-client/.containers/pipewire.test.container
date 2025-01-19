@@ -1,0 +1,18 @@
+from fedora:41 as base
+
+run dnf update --assumeyes
+run dnf install --assumeyes \
+    procps-ng \
+    pipewire \
+    pipewire-utils \
+    pipewire-alsa \
+    pipewire-pulse \
+    pipewire-devel \
+    wireplumber \
+    pulseaudio-utils
+
+env PIPEWIRE_CORE="pipewire-0"
+env PIPEWIRE_REMOTE="pipewire-0"
+env PIPEWIRE_RUNTIME_DIR="/run"
+
+entrypoint ["bash", "-c", "sleep 999d"]

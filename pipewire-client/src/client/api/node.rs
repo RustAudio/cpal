@@ -32,6 +32,20 @@ impl NodeApi {
         self.api.send_request_without_response(&request)
     }
 
+    pub(crate) fn get_count(
+        &self,
+    ) -> Result<u32, Error> {
+        let request = MessageRequest::NodeCount;
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::NodeCount(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
+    }
+
     pub fn create(
         &self,
         name: String,

@@ -17,7 +17,22 @@ impl CoreApi {
 
     pub(crate) fn check_session_manager_registered(&self) -> Result<(), Error> {
         let request = MessageRequest::CheckSessionManagerRegistered;
-        self.api.send_request_without_response(&request)
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::CheckSessionManagerRegistered{
+                   session_manager_registered,
+                   error
+            }) => {
+                if session_manager_registered {
+                    return Ok(());
+                }
+                Err(error.unwrap())
+            },
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
     }
 
     pub fn quit(&self) {
@@ -37,6 +52,11 @@ impl CoreApi {
         }
     }
 
+    pub(crate) fn get_settings_state(&self) -> Result<(), Error> {
+        let request = MessageRequest::SettingsState;
+        self.api.send_request_without_response(&request)
+    }
+
     pub fn get_default_audio_nodes(&self) -> Result<DefaultAudioNodesState, Error> {
         let request = MessageRequest::DefaultAudioNodes;
         let response = self.api.send_request(&request);
@@ -47,5 +67,10 @@ impl CoreApi {
                 description: format!("Received unexpected response: {:?}", value),
             }),
         }
+    }
+
+    pub(crate) fn get_default_audio_nodes_state(&self) -> Result<(), Error> {
+        let request = MessageRequest::DefaultAudioNodesState;
+        self.api.send_request_without_response(&request)
     }
 }

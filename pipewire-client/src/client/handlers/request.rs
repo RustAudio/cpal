@@ -101,6 +101,18 @@ pub(super) fn request_handler(
                 main_sender.clone()
             )
         }
+        MessageRequest::SettingsState => {
+            handle_settings_state(
+                state.clone(),
+                main_sender.clone()
+            )
+        }
+        MessageRequest::DefaultAudioNodesState => {
+            handle_default_audio_nodes_state(
+                state.clone(),
+                main_sender.clone()
+            )
+        }
         MessageRequest::NodeState(id) => {
             handle_node_state(
                 id,
@@ -110,6 +122,12 @@ pub(super) fn request_handler(
         }
         MessageRequest::NodeStates => {
             handle_node_states(
+                state.clone(),
+                main_sender.clone()
+            )
+        }
+        MessageRequest::NodeCount => {
+            handle_node_count(
                 state.clone(),
                 main_sender.clone()
             )
@@ -466,9 +484,7 @@ fn handle_check_session_manager_registered(
     main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
-    // Checking if session manager is registered because we need "default" metadata
-    // object to determine default audio nodes (sink and source).
-    fn generate_error_message(session_managers: &Vec<&str>) -> String {
+    pub(crate) fn generate_error_message(session_managers: &Vec<&str>) -> String {
         let session_managers = session_managers.iter()
             .map(move |session_manager| {
                 let session_manager = match *session_manager {
@@ -486,14 +502,17 @@ fn handle_check_session_manager_registered(
         );
         message
     }
+    // Checking if session manager is registered because we need "default" metadata
+    // object to determine default audio nodes (sink and source).
     let session_managers = vec![
         APPLICATION_NAME_PROPERTY_VALUE_WIRE_PLUMBER,
         APPLICATION_NAME_PROPERTY_VALUE_PIPEWIRE_MEDIA_SESSION
     ];
+    let error_description = generate_error_message(&session_managers);
     let state = state.borrow_mut();
     let clients = state.get_clients().map_err(|_| {
         Error {
-            description: generate_error_message(&session_managers),
+            description: error_description.clone(),
         }
     });
     let clients = match clients {
@@ -509,14 +528,36 @@ fn handle_check_session_manager_registered(
         .any(|(_, client)| {
             session_managers.contains(&client.name.as_str())
         });
-    if session_manager_registered {
-        return;
-    }
-    let description = generate_error_message(&session_managers);
     main_sender
-        .send(MessageResponse::Error(Error {
-            description,
-        }))
+        .send(MessageResponse::CheckSessionManagerRegistered {
+            session_manager_registered,
+            error: match session_manager_registered {
+                true => Some(Error {
+                    description: error_description.clone()
+                }),
+                false => None
+            },
+        })
+        .unwrap();
+}
+fn handle_settings_state(
+    state: Rc<RefCell<GlobalState>>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
+)
+{
+    let state = state.borrow_mut();
+    main_sender
+        .send(MessageResponse::SettingsState(state.get_settings().state))
+        .unwrap();
+}
+fn handle_default_audio_nodes_state(
+    state: Rc<RefCell<GlobalState>>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
+)
+{
+    let state = state.borrow_mut();
+    main_sender
+        .send(MessageResponse::DefaultAudioNodesState(state.get_default_audio_nodes().state))
         .unwrap();
 }
 fn handle_node_state(
@@ -558,4 +599,23 @@ fn handle_node_states(
         })
         .collect::<Vec<_>>();
     main_sender.send(MessageResponse::NodeStates(states)).unwrap();
+}
+fn handle_node_count(
+    state: Rc<RefCell<GlobalState>>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
+)
+{
+    let state = state.borrow_mut();
+    match state.get_nodes() {
+        Ok(value) => {
+            main_sender
+                .send(MessageResponse::NodeCount(value.len() as u32))
+                .unwrap();
+        },
+        Err(_) => {
+            main_sender
+                .send(MessageResponse::NodeCount(0))
+                .unwrap();
+        }
+    };
 }

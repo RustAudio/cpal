@@ -1,13 +1,14 @@
 extern crate pipewire;
 
 use crate::client::api::{CoreApi, InternalApi, NodeApi, StreamApi};
-use crate::client::connection_string::{PipewireClientConnectionString, PipewireClientInfo};
+use crate::client::connection_string::{PipewireClientInfo, PipewireClientSocketPath};
 use crate::client::handlers::thread;
 use crate::error::Error;
 use crate::messages::{EventMessage, MessageRequest, MessageResponse};
 use crate::states::GlobalObjectState;
 use crate::utils::Backoff;
 use std::fmt::{Debug, Formatter};
+use std::path::PathBuf;
 use std::string::ToString;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -19,7 +20,7 @@ pub(super) static CLIENT_INDEX: AtomicU32 = AtomicU32::new(0);
 
 pub struct PipewireClient {
     pub(crate) name: String,
-    connection_string: String,
+    socket_path: PathBuf,
     thread_handle: Option<JoinHandle<()>>,
     internal_api: Arc<InternalApi>,
     core_api: CoreApi,
@@ -32,11 +33,12 @@ impl PipewireClient {
         let name = format!("{}-{}", CLIENT_NAME_PREFIX, CLIENT_INDEX.load(Ordering::SeqCst));
         CLIENT_INDEX.fetch_add(1, Ordering::SeqCst);
 
-        let connection_string = PipewireClientConnectionString::from_env();
+        let socket_path = PipewireClientSocketPath::from_env();
 
         let client_info = PipewireClientInfo {
             name: name.clone(),
-            connection_string: connection_string.clone(),
+            socket_location: socket_path.parent().unwrap().to_str().unwrap().to_string(),
+            socket_name: socket_path.file_name().unwrap().to_str().unwrap().to_string(),
         };
 
         let (main_sender, main_receiver) = crossbeam_channel::unbounded();
@@ -58,7 +60,7 @@ impl PipewireClient {
 
         let client = Self {
             name,
-            connection_string,
+            socket_path,
             thread_handle: Some(pw_thread),
             internal_api,
             core_api,
@@ -68,26 +70,27 @@ impl PipewireClient {
 
         match client.wait_initialization() {
             Ok(_) => {}
-            Err(value) => return Err(value)
+            Err(value) => return Err(Error {
+                description: format!("Initialization error: {}", value),
+            })
         };
         match client.wait_post_initialization() {
             Ok(_) => {}
-            Err(value) => return Err(value),
+            Err(value) => return Err(Error {
+                description: format!("Post initialization error: {}", value),
+            }),
         };
         Ok(client)
     }
 
     fn wait_initialization(&self) -> Result<(), Error> {
-        let response = self.internal_api.wait_response();
+        let timeout_duration = std::time::Duration::from_millis(10 * 1000);
+        let response = self.internal_api.wait_response_with_timeout(timeout_duration);
         let response = match response {
             Ok(value) => value,
-            Err(value) => {
-                return Err(Error {
-                    description: format!(
-                        "Failed during pipewire initialization: {:?}",
-                        value
-                    ),
-                })
+            Err(_) => {
+                // Timeout is certainly due to missing session manager
+                return self.core_api.check_session_manager_registered();
             }
         };
         match response {
@@ -102,11 +105,20 @@ impl PipewireClient {
         let mut settings_initialized = false;
         let mut default_audio_devices_initialized = false;
         let mut nodes_initialized = false;
-        #[cfg(debug_assertions)]
-        let timeout_duration = std::time::Duration::from_secs(u64::MAX);
-        #[cfg(not(debug_assertions))]
-        let timeout_duration = std::time::Duration::from_millis(500);
+        let timeout_duration = std::time::Duration::from_millis(1);
         self.core_api.check_session_manager_registered()?;
+        match self.node_api.get_count() {
+            Ok(value) => {
+                if value == 0 {
+                    return Err(Error {
+                        description: "Zero node registered".to_string(),
+                    })
+                }
+            }
+            Err(value) => return Err(value),
+        }
+        self.core_api.get_settings_state()?;
+        self.core_api.get_default_audio_nodes_state()?;
         self.node_api.get_states()?;
         let operation = move || {
             let response = self.internal_api.wait_response_with_timeout(timeout_duration);
@@ -117,9 +129,12 @@ impl PipewireClient {
                             GlobalObjectState::Initialized => {
                                 settings_initialized = true;
                             }
-                            _ => return Err(Error {
-                                description: "Settings not yet initialized".to_string(),
-                            })
+                            _ => {
+                                self.core_api.get_settings_state()?;
+                                return Err(Error {
+                                    description: "Settings not yet initialized".to_string(),
+                                })
+                            }
                         };
                     },
                     MessageResponse::DefaultAudioNodesState(state) => {
@@ -127,9 +142,12 @@ impl PipewireClient {
                             GlobalObjectState::Initialized => {
                                 default_audio_devices_initialized = true;
                             }
-                            _ => return Err(Error {
-                                description: "Default audio nodes not yet initialized".to_string(),
-                            })
+                            _ => {
+                                self.core_api.get_default_audio_nodes_state()?;
+                                return Err(Error {
+                                    description: "Default audio nodes not yet initialized".to_string(),
+                                })
+                            }
                         }
                     },
                     MessageResponse::NodeStates(states) => {
@@ -152,15 +170,30 @@ impl PipewireClient {
                         description: format!("Received unexpected response: {:?}", value),
                     }),
                 }
-                Err(value) => return Err(Error {
-                    description: format!("Failed during post initialization: {:?}", value),
+                Err(_) => return Err(Error {
+                    description: format!(
+                        r"Timeout:
+                            - settings: {}
+                            - default audio nodes: {}
+                            - nodes: {}",
+                        settings_initialized,
+                        default_audio_devices_initialized,
+                        nodes_initialized
+                    ),
                 })
             };
             if settings_initialized == false || default_audio_devices_initialized == false || nodes_initialized == false {
                 return Err(Error {
-                    description: "Post initialization not yet finalized".to_string(),
+                    description: format!(
+                        r"Conditions not yet initialized:
+                            - settings: {}
+                            - default audio nodes: {}
+                            - nodes: {}",
+                        settings_initialized,
+                        default_audio_devices_initialized,
+                        nodes_initialized
+                    ),
                 })
-
             }
             return Ok(());
         };
@@ -191,7 +224,7 @@ impl PipewireClient {
 
 impl Debug for PipewireClient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "PipewireClient: {}", self.connection_string)
+        writeln!(f, "PipewireClient: {}", self.socket_path.to_str().unwrap())
     }
 }
 

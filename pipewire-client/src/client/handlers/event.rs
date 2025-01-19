@@ -77,27 +77,13 @@ fn handle_set_metadata_listeners(
         METADATA_NAME_PROPERTY_VALUE_SETTINGS => {
             metadata.add_property_listener(
                 ListenerTriggerPolicy::Keep,
-                SettingsState::listener(
-                    listener_state,
-                    move |settings: &SettingsState| {
-                        main_sender
-                            .send(MessageResponse::SettingsState(settings.state.clone()))
-                            .unwrap();
-                    }
-                )
+                SettingsState::listener(listener_state)
             )
         },
         METADATA_NAME_PROPERTY_VALUE_DEFAULT => {
             metadata.add_property_listener(
                 ListenerTriggerPolicy::Keep,
-                DefaultAudioNodesState::listener(
-                    listener_state,
-                    move |default_audio_devices: &DefaultAudioNodesState| {
-                        main_sender
-                            .send(MessageResponse::DefaultAudioNodesState(default_audio_devices.state.clone()))
-                            .unwrap();
-                    }
-                )
+                DefaultAudioNodesState::listener(listener_state)
             )
         },
         _ => {

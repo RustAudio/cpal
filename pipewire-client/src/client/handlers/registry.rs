@@ -133,7 +133,7 @@ fn handle_node(
 )
 {
     if global.props.is_none() {
-        
+        return;
     }
     let properties = global.props.unwrap();
     let node = match properties.get(MEDIA_CLASS_PROPERTY_KEY) {

@@ -672,9 +672,7 @@ impl Default for SettingsState {
 }
 
 impl SettingsState {
-    pub(super) fn listener<F>(state: Rc<RefCell<GlobalState>>, callback: F) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
-    where
-        F: Fn(&SettingsState) + 'static
+    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 5;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
@@ -711,7 +709,6 @@ impl SettingsState {
             };
             if let (GlobalObjectState::Pending, EXPECTED_PROPERTY) = (settings.state.clone(), property_count.get()) {
                 settings.state = GlobalObjectState::Initialized;
-                callback(settings)
             }
             0
         }
@@ -736,9 +733,7 @@ impl Default for DefaultAudioNodesState {
 }
 
 impl DefaultAudioNodesState {
-    pub(super) fn listener<F>(state: Rc<RefCell<GlobalState>>, callback: F) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
-    where
-        F: Fn(&DefaultAudioNodesState) + 'static
+    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 2;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
@@ -773,7 +768,6 @@ impl DefaultAudioNodesState {
             };
             if let (GlobalObjectState::Pending, EXPECTED_PROPERTY) = (default_audio_devices.state.clone(), property_count.get()) {
                 default_audio_devices.state = GlobalObjectState::Initialized;
-                callback(default_audio_devices)
             }
             0
         }

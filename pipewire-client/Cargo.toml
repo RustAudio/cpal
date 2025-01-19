@@ -19,3 +19,7 @@ crossbeam-channel = "0.5"
 rstest = "0.24"
 serial_test = "3.2"
 testcontainers = "0.23"
+docker-api = "0.14"
+futures = "0.3"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.12", features = ["v4"] }

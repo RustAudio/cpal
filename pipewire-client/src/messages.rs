@@ -66,8 +66,11 @@ pub(super) enum MessageRequest {
     },
     // Internal requests
     CheckSessionManagerRegistered,
+    SettingsState,
+    DefaultAudioNodesState,
     NodeState(GlobalId),
     NodeStates,
+    NodeCount
 }
 
 #[derive(Debug, Clone)]
@@ -87,10 +90,15 @@ pub(super) enum MessageResponse {
     ConnectStream,
     DisconnectStream,
     // Internals responses
+    CheckSessionManagerRegistered {
+        session_manager_registered: bool,
+        error: Option<Error>,
+    },
     SettingsState(GlobalObjectState),
     DefaultAudioNodesState(GlobalObjectState),
     NodeState(GlobalObjectState),
-    NodeStates(Vec<GlobalObjectState>)
+    NodeStates(Vec<GlobalObjectState>),
+    NodeCount(u32),
 }
 
 #[derive(Debug, Clone)]

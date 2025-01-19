@@ -1,10 +1,10 @@
 use crate::constants::*;
 use std::path::PathBuf;
 
-pub(super) struct PipewireClientConnectionString;
+pub(super) struct PipewireClientSocketPath;
 
-impl PipewireClientConnectionString {
-    pub(super) fn from_env() -> String {
+impl PipewireClientSocketPath {
+    pub(super) fn from_env() -> PathBuf {
         let pipewire_runtime_dir = std::env::var(PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY);
         let xdg_runtime_dir = std::env::var(XDG_RUNTIME_DIR_ENVIRONMENT_KEY);
 
@@ -26,11 +26,12 @@ impl PipewireClientConnectionString {
         };
 
         let socket_path = PathBuf::from(socket_directory).join(pipewire_remote);
-        socket_path.to_str().unwrap().to_string()
+        socket_path
     }
 }
 
 pub(super) struct PipewireClientInfo {
     pub name: String,
-    pub connection_string: String,
+    pub socket_location: String,
+    pub socket_name: String,
 }

@@ -2,7 +2,7 @@ use crate::client::connection_string::PipewireClientInfo;
 use crate::client::handlers::event::event_handler;
 use crate::client::handlers::registry::registry_global_handler;
 use crate::client::handlers::request::request_handler;
-use crate::constants::PIPEWIRE_CORE_SYNC_INITIALIZATION_SEQ;
+use crate::constants::{PIPEWIRE_CORE_SYNC_INITIALIZATION_SEQ, PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY};
 use crate::error::Error;
 use crate::messages::{EventMessage, MessageRequest, MessageResponse};
 use crate::states::GlobalState;
@@ -18,7 +18,8 @@ pub fn pw_thread(
     event_receiver: pipewire::channel::Receiver<EventMessage>,
 ) {
     let connection_properties = Some(pipewire::properties::properties! {
-        *pipewire::keys::REMOTE_NAME => client_info.connection_string,
+        PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY => client_info.socket_location,
+        *pipewire::keys::REMOTE_NAME => client_info.socket_name,
         *pipewire::keys::APP_NAME => client_info.name,
     });
 
@@ -73,10 +74,12 @@ pub fn pw_thread(
     let registry = match core.get_registry() {
         Ok(value) => Rc::new(value),
         Err(value) => {
-            unsafe {
-                pipewire::deinit();
-            }
-            panic!("Failed to get Pipewire registry: {}", value);
+            main_sender
+                .send(MessageResponse::Error(Error {
+                    description: format!("Failed to get Pipewire registry: {}", value),
+                }))
+                .unwrap();
+            return;
         }
     };
 
