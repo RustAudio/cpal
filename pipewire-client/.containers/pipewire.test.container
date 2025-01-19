@@ -2,6 +2,7 @@ from fedora:41 as base
 
 run dnf update --assumeyes
 run dnf install --assumeyes \
+    tini \
     procps-ng \
     pipewire \
     pipewire-utils \
@@ -15,4 +16,6 @@ env PIPEWIRE_CORE="pipewire-0"
 env PIPEWIRE_REMOTE="pipewire-0"
 env PIPEWIRE_RUNTIME_DIR="/run"
 
-entrypoint ["bash", "-c", "sleep 999d"]
+# For handling signal properly. Avoid to hangout before container runtime send SIGKILL signal.
+entrypoint ["tini", "--"]
+cmd ["bash", "-c", "sleep 999d"]

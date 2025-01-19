@@ -151,6 +151,7 @@ impl Container {
         runtime.block_on(self.container.as_ref().unwrap().exec(
             ExecCommand::new(vec![
                 "kill",
+                "-s", "SIGKILL",
                 format!("{}", process_id).as_str()
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
