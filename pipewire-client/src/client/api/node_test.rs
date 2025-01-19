@@ -1,9 +1,10 @@
-use crate::client::api::fixtures::client;
-use crate::{Direction, PipewireClient};
+use crate::{Direction};
+use crate::test_utils::fixtures::client;
 use rstest::rstest;
 use serial_test::serial;
+use crate::test_utils::fixtures::PipewireTestClient;
 
-fn internal_enumerate(client: &PipewireClient, direction: Direction) {
+fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
     let nodes = client.node().enumerate(direction).unwrap();
     assert_eq!(false, nodes.is_empty());
     let default_node = nodes.iter()
@@ -12,7 +13,7 @@ fn internal_enumerate(client: &PipewireClient, direction: Direction) {
     assert_eq!(true, default_node.is_some());
 }
 
-fn internal_create(client: &PipewireClient, direction: Direction) {
+fn internal_create(client: &PipewireTestClient, direction: Direction) {
     client.node()
         .create(
             "test".to_string(),
@@ -24,35 +25,53 @@ fn internal_create(client: &PipewireClient, direction: Direction) {
 }
 
 #[rstest]
-#[case::input(Direction::Input)]
-#[case::output(Direction::Output)]
 #[serial]
-fn enumerate(
-    client: &PipewireClient,
-    #[case] direction: Direction
+fn enumerate_input(
+    client: PipewireTestClient,
 ) {
-    internal_enumerate(&client, direction);
+    internal_enumerate(&client, Direction::Input);
 }
 
 #[rstest]
-#[case::input(Direction::Input)]
-#[case::output(Direction::Output)]
 #[serial]
-fn create(
-    client: &PipewireClient,
-    #[case] direction: Direction
+fn enumerate_output(
+    client: PipewireTestClient,
 ) {
-    internal_create(&client, direction);
+    internal_enumerate(&client, Direction::Output);
 }
 
 #[rstest]
-#[case::input(Direction::Input)]
-#[case::output(Direction::Output)]
 #[serial]
-fn create_then_enumerate(
-    client: &PipewireClient,
-    #[case] direction: Direction
+fn create_input(
+    client: PipewireTestClient,
 ) {
+    internal_create(&client, Direction::Input);
+}
+
+#[rstest]
+#[serial]
+fn create_output(
+    client: PipewireTestClient,
+) {
+    internal_create(&client, Direction::Output);
+}
+
+#[rstest]
+#[serial]
+fn create_then_enumerate_input(
+    client: PipewireTestClient,
+) {
+    let direction = Direction::Input;
+    internal_create(&client, direction.clone());
+    internal_enumerate(&client, direction.clone());
+}
+
+#[rstest]
+#[serial]
+fn create_then_enumerate_output(
+    client: PipewireTestClient,
+) {
+    let direction = Direction::Output;
     internal_create(&client, direction.clone());
     internal_enumerate(&client, direction.clone());
 }

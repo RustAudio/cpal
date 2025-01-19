@@ -16,6 +16,8 @@ env PIPEWIRE_CORE="pipewire-0"
 env PIPEWIRE_REMOTE="pipewire-0"
 env PIPEWIRE_RUNTIME_DIR="/run"
 
+copy pipewire.nodes.conf /root/pipewire.nodes.conf
+
 # For handling signal properly. Avoid to hangout before container runtime send SIGKILL signal.
 entrypoint ["tini", "--"]
 cmd ["bash", "-c", "sleep 999d"]

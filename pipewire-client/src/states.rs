@@ -740,6 +740,9 @@ impl DefaultAudioNodesState {
         move |_: u32, key: Option<&str>, _: Option<&str>, value: Option<&str>| {
             let default_audio_devices = &mut state.borrow_mut().default_audio_nodes;
             let key = key.unwrap();
+            if value.is_none() {
+                return 0;
+            }
             let value = value.unwrap();
             match key {
                 DEFAULT_AUDIO_SINK_PROPERTY_KEY => {

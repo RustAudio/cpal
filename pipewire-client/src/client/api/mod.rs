@@ -18,7 +18,3 @@ mod stream_test;
 
 mod internal;
 pub(super) use internal::InternalApi;
-
-#[cfg(test)]
-#[path = "fixtures.rs"]
-mod fixtures;

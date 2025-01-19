@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
-pub(super) static CLIENT_NAME_PREFIX: &str = "cpal-client";
+pub(super) static CLIENT_NAME_PREFIX: &str = "pipewire-client";
 pub(super) static CLIENT_INDEX: AtomicU32 = AtomicU32::new(0);
 
 pub struct PipewireClient {
@@ -88,9 +88,16 @@ impl PipewireClient {
         let response = self.internal_api.wait_response_with_timeout(timeout_duration);
         let response = match response {
             Ok(value) => value,
-            Err(_) => {
+            Err(value) => {
                 // Timeout is certainly due to missing session manager
-                return self.core_api.check_session_manager_registered();
+                // We need to check if that the case. If session manager is running then we return
+                // timeout error.
+                return match self.core_api.check_session_manager_registered() {
+                    Ok(_) => Err(Error {
+                        description: value.to_string(),
+                    }),
+                    Err(value) => Err(value)
+                };
             }
         };
         match response {

@@ -12,6 +12,10 @@ pub use utils::Direction;
 mod error;
 
 mod info;
+
+#[cfg(test)]
+mod test_utils;
+
 pub use info::AudioStreamInfo;
 pub use info::NodeInfo;
 
