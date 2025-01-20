@@ -17,7 +17,6 @@ crossbeam-channel = "0.5"
 
 [dev-dependencies]
 rstest = "0.24"
-serial_test = "3.2"
 testcontainers = "0.23"
 docker-api = "0.14"
 futures = "0.3"

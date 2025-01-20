@@ -3,7 +3,6 @@ use crate::test_utils::fixtures::client;
 use crate::test_utils::fixtures::PipewireTestClient;
 use crate::Direction;
 use rstest::rstest;
-use serial_test::serial;
 use crate::states::{NodeState, StreamState};
 
 fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
@@ -37,7 +36,6 @@ fn internal_create(client: &PipewireTestClient, direction: Direction) {
 }
 
 #[rstest]
-#[serial]
 fn enumerate_input(
     client: PipewireTestClient,
 ) {
@@ -45,7 +43,6 @@ fn enumerate_input(
 }
 
 #[rstest]
-#[serial]
 fn enumerate_output(
     client: PipewireTestClient,
 ) {
@@ -53,7 +50,6 @@ fn enumerate_output(
 }
 
 #[rstest]
-#[serial]
 fn create_input(
     client: PipewireTestClient,
 ) {
@@ -61,7 +57,6 @@ fn create_input(
 }
 
 #[rstest]
-#[serial]
 fn create_output(
     client: PipewireTestClient,
 ) {
@@ -69,7 +64,6 @@ fn create_output(
 }
 
 #[rstest]
-#[serial]
 fn create_then_enumerate_input(
     client: PipewireTestClient,
 ) {
@@ -79,7 +73,6 @@ fn create_then_enumerate_input(
 }
 
 #[rstest]
-#[serial]
 fn create_then_enumerate_output(
     client: PipewireTestClient,
 ) {

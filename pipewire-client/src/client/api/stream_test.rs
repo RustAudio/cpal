@@ -4,7 +4,6 @@ use crate::test_utils::fixtures::client;
 use crate::test_utils::fixtures::PipewireTestClient;
 use crate::{Direction, NodeInfo};
 use rstest::rstest;
-use serial_test::serial;
 use std::any::TypeId;
 
 fn internal_create<F>(
@@ -84,7 +83,6 @@ fn abstract_create(
 }
 
 #[rstest]
-#[serial]
 fn create_input(
     client: PipewireTestClient,
 ) {
@@ -93,7 +91,6 @@ fn create_input(
 }
 
 #[rstest]
-#[serial]
 fn create_output(
     client: PipewireTestClient,
 ) {
@@ -102,7 +99,6 @@ fn create_output(
 }
 
 #[rstest]
-#[serial]
 fn delete_input(
     client: PipewireTestClient,
 ) {
@@ -117,7 +113,6 @@ fn delete_input(
 }
 
 #[rstest]
-#[serial]
 fn delete_output(
     client: PipewireTestClient,
 ) {
@@ -151,7 +146,6 @@ fn abstract_connect(
 }
 
 #[rstest]
-#[serial]
 fn connect_input(
     client: PipewireTestClient,
 ) {
@@ -160,7 +154,6 @@ fn connect_input(
 }
 
 #[rstest]
-#[serial]
 fn connect_output(
     client: PipewireTestClient,
 ) {
@@ -188,7 +181,6 @@ fn abstract_disconnect(
 }
 
 #[rstest]
-#[serial]
 fn disconnect_input(
     client: PipewireTestClient,
 ) {
@@ -197,7 +189,6 @@ fn disconnect_input(
 }
 
 #[rstest]
-#[serial]
 fn disconnect_output(
     client: PipewireTestClient,
 ) {

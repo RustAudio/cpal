@@ -5,12 +5,10 @@ use crate::test_utils::fixtures::{client2, PipewireTestClient};
 use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
 use crate::PipewireClient;
 use rstest::rstest;
-use serial_test::serial;
 use crate::states::{MetadataState, NodeState};
 use crate::utils::PipewireCoreSync;
 
 #[rstest]
-#[serial]
 pub fn names(
     #[from(client2)] (client_1, client_2): (PipewireTestClient, PipewireTestClient)
 ) {
@@ -22,7 +20,6 @@ pub fn names(
 }
 
 #[rstest]
-#[serial]
 pub fn with_default_configuration(server_with_default_configuration: Container) {
     set_socket_env_vars(&server_with_default_configuration);
     let client = PipewireClient::new().unwrap();
@@ -43,7 +40,6 @@ pub fn with_default_configuration(server_with_default_configuration: Container) 
 }
 
 #[rstest]
-#[serial]
 pub fn without_session_manager(server_without_session_manager: Container) {
     set_socket_env_vars(&server_without_session_manager);
     let error = PipewireClient::new().unwrap_err();
@@ -51,7 +47,6 @@ pub fn without_session_manager(server_without_session_manager: Container) {
 }
 
 #[rstest]
-#[serial]
 pub fn without_node(server_without_node: Container) {
     set_socket_env_vars(&server_without_node);
     let error = PipewireClient::new().unwrap_err();
