@@ -1,6 +1,5 @@
 use crate::constants::{METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
 use crate::error::Error;
-use crate::listeners::ListenerTriggerPolicy;
 use crate::messages::{EventMessage, MessageResponse};
 use crate::states::{DefaultAudioNodesState, GlobalId, GlobalState, SettingsState};
 use pipewire_spa_utils::audio::raw::AudioInfoRaw;
@@ -76,13 +75,11 @@ fn handle_set_metadata_listeners(
     match metadata.name.as_str() {
         METADATA_NAME_PROPERTY_VALUE_SETTINGS => {
             metadata.add_property_listener(
-                ListenerTriggerPolicy::Keep,
                 SettingsState::listener(listener_state)
             )
         },
         METADATA_NAME_PROPERTY_VALUE_DEFAULT => {
             metadata.add_property_listener(
-                ListenerTriggerPolicy::Keep,
                 DefaultAudioNodesState::listener(listener_state)
             )
         },
@@ -132,8 +129,7 @@ fn handle_set_node_properties_listener(
     };
     let event_sender = event_sender.clone();
     node.add_properties_listener(
-        ListenerTriggerPolicy::Keep,
-        move |properties| {
+        move |control_flow, properties| {
             // "object.register" property when set to "false", indicate we should not
             // register this object
             // Some bluez nodes don't have sample rate information in their
@@ -167,6 +163,7 @@ fn handle_set_node_properties_listener(
                     })
                     .unwrap();
             }
+            control_flow.release();
         }
     );
 }
@@ -190,8 +187,7 @@ fn handle_set_node_format_listener(
     let main_sender = main_sender.clone();
     let event_sender = event_sender.clone();
     node.add_format_listener(
-        ListenerTriggerPolicy::Keep,
-        move |format| {
+        move |control_flow, format| {
             match format {
                 Ok(value) => {
                     event_sender
@@ -204,7 +200,8 @@ fn handle_set_node_format_listener(
                 Err(value) => {
                     main_sender.send(MessageResponse::Error(value)).unwrap();
                 }
-            }
+            };
+            control_flow.release();
         }
     )
 }

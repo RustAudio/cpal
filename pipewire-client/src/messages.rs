@@ -6,21 +6,22 @@ use pipewire_spa_utils::audio::raw::AudioInfoRaw;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
+use crate::listeners::ListenerControlFlow;
 
 pub(super) struct StreamCallback {
-    callback: Arc<Mutex<Box<dyn FnMut(pipewire::buffer::Buffer) + Send + 'static>>>
+    callback: Arc<Mutex<Box<dyn FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static>>>
 }
 
-impl <F: FnMut(pipewire::buffer::Buffer) + Send + 'static> From<F> for StreamCallback {
+impl <F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static> From<F> for StreamCallback {
     fn from(value: F) -> Self {
         Self { callback: Arc::new(Mutex::new(Box::new(value))) }
     }
 }
 
 impl StreamCallback {
-    pub fn call(&mut self, buffer: pipewire::buffer::Buffer) {
+    pub fn call(&mut self, control_flow: &mut ListenerControlFlow, buffer: pipewire::buffer::Buffer) {
         let mut callback = self.callback.lock().unwrap();
-        callback(buffer);
+        callback(control_flow, buffer);
     }
 }
 

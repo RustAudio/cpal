@@ -5,13 +5,16 @@ use crate::test_utils::fixtures::PipewireTestClient;
 use crate::{Direction, NodeInfo};
 use rstest::rstest;
 use serial_test::serial;
+use crate::listeners::ListenerControlFlow;
 
-fn internal_create<F: FnMut(pipewire::buffer::Buffer) + Send + 'static>(
+fn internal_create<F>(
     client: &PipewireTestClient,
     node: NodeInfo,
     direction: Direction,
     callback: F,
-) -> String {
+) -> String where
+    F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static
+{
     client.stream()
         .create(
             node.id,
@@ -31,12 +34,14 @@ fn internal_delete(
         .unwrap()
 }
 
-fn internal_create_connected<F: FnMut(pipewire::buffer::Buffer) + Send + 'static>(
+fn internal_create_connected<F>(
     client: &PipewireTestClient,
     node: NodeInfo,
     direction: Direction,
     callback: F,
-) -> String {
+) -> String where
+    F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static
+{
     let stream = client.stream()
         .create(
             node.id,
@@ -62,8 +67,9 @@ fn abstract_create(
             Direction::Output => default_output_node.clone()
         },
         direction.clone(),
-        move |_| {
+        move |control_flow, _| {
             assert!(true);
+            control_flow.release();
         }
     );
     match direction {
@@ -132,11 +138,12 @@ fn abstract_connect(
             Direction::Output => default_output_node.clone()
         },
         direction.clone(),
-        move |mut buffer| {
+        move |control_flow, mut buffer| {
             let data = buffer.datas_mut();
             let data = &mut data[0];
             let data = data.data().unwrap();
             assert_eq!(true, data.len() > 0);
+            control_flow.release();
         }
     );
     client.stream().connect(stream.clone()).ok().unwrap();
@@ -179,8 +186,9 @@ fn abstract_disconnect(
             Direction::Output => default_output_node.clone()
         },
         direction.clone(),
-        move |_| {
+        move |control_flow, _| {
             assert!(true);
+            control_flow.release();
         }
     );
     client.stream().disconnect(stream.clone()).unwrap();

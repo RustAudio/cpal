@@ -1,6 +1,5 @@
 use crate::constants::*;
 use crate::error::Error;
-use crate::listeners::ListenerTriggerPolicy;
 use crate::messages::{MessageRequest, MessageResponse, StreamCallback};
 use crate::states::{GlobalId, GlobalObjectState, GlobalState, OrphanState, StreamState};
 use crate::utils::PipewireCoreSync;
@@ -216,9 +215,8 @@ fn handle_create_node(
     let listener_main_sender = main_sender.clone();
     let listener_state = state.clone();
     core_sync.register(
-        false,
         PIPEWIRE_CORE_SYNC_CREATE_DEVICE_SEQ,
-        move || {
+        move |control_flow| {
             let state = listener_state.borrow();
             let nodes = match state.get_nodes() {
                 Ok(value) => value,
@@ -226,6 +224,7 @@ fn handle_create_node(
                     listener_main_sender
                         .send(MessageResponse::Error(value))
                         .unwrap();
+                    control_flow.release();
                     return;
                 }
             };
@@ -239,14 +238,16 @@ fn handle_create_node(
                         description: "Created node not found".to_string(),
                     }))
                     .unwrap();
-                return;
-            };
-            let node_id = node.unwrap().0;
-            listener_main_sender
-                .send(MessageResponse::CreateNode {
-                    id: (*node_id).clone(),
-                })
-                .unwrap();
+            } 
+            else {
+                let node_id = node.unwrap().0;
+                listener_main_sender
+                    .send(MessageResponse::CreateNode {
+                        id: (*node_id).clone(),
+                    })
+                    .unwrap();
+            }
+            control_flow.release();
         }
     );
     let mut state = state.borrow_mut();
@@ -383,10 +384,7 @@ fn handle_create_stream(
         direction.into(),
         stream
     );
-    stream.add_process_listener(
-        ListenerTriggerPolicy::Keep,
-        callback
-    );
+    stream.add_process_listener(callback);
     if let Err(value) = state.insert_stream(stream_name.clone(), stream) {
         main_sender
             .send(MessageResponse::Error(value))

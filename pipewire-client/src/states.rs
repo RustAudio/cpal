@@ -1,6 +1,6 @@
 use super::constants::*;
 use crate::error::Error;
-use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
+use crate::listeners::{Listener, ListenerControlFlow, Listeners};
 use crate::messages::StreamCallback;
 use crate::utils::dict_ref_to_hashmap;
 use crate::Direction;
@@ -75,9 +75,9 @@ impl GlobalState {
         let index = std::ptr::addr_of!(state) as usize;
         let listener_orphans = self.orphans.clone();
         state.add_removed_listener(
-            ListenerTriggerPolicy::Remove,
-            move || {
+            move |control_flow| {
                 listener_orphans.borrow_mut().remove(&index);
+                control_flow.release()
             }
         );
         self.orphans.borrow_mut().insert(index, state);
@@ -234,21 +234,26 @@ impl OrphanState {
         }
     }
 
-    pub fn add_removed_listener<F>(&mut self, policy: ListenerTriggerPolicy, callback: F)
+    pub fn add_removed_listener<F>(&mut self, callback: F)
     where
-        F: Fn() + 'static
+        F: Fn(&mut ListenerControlFlow) + 'static
     {
         const LISTENER_NAME: &str = "removed";
         let listeners = self.listeners.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         let listener = self.proxy.add_listener_local()
             .removed(move || {
-                callback();
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
+                callback(&mut listener_control_flow.borrow_mut());
                 listeners.borrow_mut().triggered(&LISTENER_NAME.to_string());
             })
             .register();
         self.listeners.borrow_mut().add(
             LISTENER_NAME.to_string(),
-            Listener::new(listener, policy)
+            Listener::new(listener, control_flow)
         );
     }
 }
@@ -312,35 +317,39 @@ impl NodeState {
         self.properties.borrow().get(*pipewire::keys::NODE_NAME).unwrap().clone()
     }
 
-    fn add_info_listener<F>(&mut self, name: String, policy: ListenerTriggerPolicy, listener: F)
+    fn add_info_listener<F>(&mut self, name: String, listener: F)
     where
-        F: Fn(&pipewire::node::NodeInfoRef) + 'static
+        F: Fn(&mut ListenerControlFlow, &pipewire::node::NodeInfoRef) + 'static
     {
         let listeners = self.listeners.clone();
         let listener_name = name.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         let listener = self.proxy.add_listener_local()
             .info(move |info| {
-                listener(info);
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
+                listener(&mut listener_control_flow.borrow_mut(), info);
                 listeners.borrow_mut().triggered(&listener_name);
             })
             .register();
-        self.listeners.borrow_mut().add(name, Listener::new(listener, policy));
+        self.listeners.borrow_mut().add(name, Listener::new(listener, control_flow));
     }
 
-    pub fn add_properties_listener<F>(&mut self, policy: ListenerTriggerPolicy, callback: F)
+    pub fn add_properties_listener<F>(&mut self, callback: F)
     where
-        F: Fn(HashMap<String, String>) + 'static,
+        F: Fn(&mut ListenerControlFlow, HashMap<String, String>) + 'static,
     {
         self.add_info_listener(
             "properties".to_string(),
-            policy,
-            move |info| {
+            move |control_flow, info| {
                 if info.props().is_none() {
                     return;
                 }
                 let properties = info.props().unwrap();
                 let properties = dict_ref_to_hashmap(properties);
-                callback(properties);
+                callback(control_flow, properties);
             }
         );
     }
@@ -349,39 +358,43 @@ impl NodeState {
         &mut self,
         name: String,
         expected_kind: pipewire::spa::param::ParamType,
-        policy: ListenerTriggerPolicy,
         listener: F
     )
     where
-        F: Fn(u32, u32, &pipewire::spa::pod::Pod) + 'static,
+        F: Fn(&mut ListenerControlFlow, &pipewire::spa::pod::Pod) + 'static,
     {
         let listeners = self.listeners.clone();
         let listener_name = name.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         self.proxy.subscribe_params(&[expected_kind]);
         let listener = self.proxy.add_listener_local()
-            .param(move |_, kind, id, next_id, parameter| {
+            // parameters: seq, kind, id, next_id, parameter
+            .param(move |_, kind, _, _, parameter| {
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
                 if kind != expected_kind {
                     return;
                 }
                 let Some(parameter) = parameter else {
                     return;
                 };
-                listener(id, next_id, parameter);
+                listener(&mut listener_control_flow.borrow_mut(), parameter);
                 listeners.borrow_mut().triggered(&listener_name);
             })
             .register();
-        self.listeners.borrow_mut().add(name, Listener::new(listener, policy));
+        self.listeners.borrow_mut().add(name, Listener::new(listener, control_flow));
     }
 
-    pub fn add_format_listener<F>(&mut self, policy: ListenerTriggerPolicy, callback: F)
+    pub fn add_format_listener<F>(&mut self, callback: F)
     where
-        F: Fn(Result<AudioInfoRaw, Error>) + 'static,
+        F: Fn(&mut ListenerControlFlow, Result<AudioInfoRaw, Error>) + 'static,
     {
         self.add_parameter_listener(
             "format".to_string(),
             pipewire::spa::param::ParamType::EnumFormat,
-            policy,
-            move |_, _, parameter| {
+            move |control_flow, parameter| {
                 let (media_type, media_subtype): (MediaType, MediaSubtype) =
                     match pipewire::spa::param::format_utils::parse_format(parameter) {
                         Ok((media_type, media_subtype)) => (media_type.0.into(), media_subtype.0.into()),
@@ -423,7 +436,7 @@ impl NodeState {
                     },
                     _ => return
                 };
-                callback(parameter);
+                callback(control_flow, parameter);
             }
         );
     }
@@ -458,22 +471,33 @@ impl MetadataState {
         }
     }
 
-    pub fn add_property_listener<F>(&mut self, policy: ListenerTriggerPolicy, listener: F)
+    pub fn add_property_listener<F>(&mut self, listener: F)
     where
-        F: Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + Sized + 'static
+        F: Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + Sized + 'static
     {
         const LISTENER_NAME: &str = "property";
         let listeners = self.listeners.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         let listener = self.proxy.add_listener_local()
             .property(move |subject , key, kind, value| {
-                let result = listener(subject, key, kind, value);
+                if listener_control_flow.borrow().is_released() {
+                    return 0;
+                }
+                let result = listener(
+                    &mut listener_control_flow.borrow_mut(),
+                    subject, 
+                    key, 
+                    kind, 
+                    value
+                );
                 listeners.borrow_mut().triggered(&LISTENER_NAME.to_string());
                 result
             })
             .register();
         self.listeners.borrow_mut().add(
             LISTENER_NAME.to_string(),
-            Listener::new(listener, policy)
+            Listener::new(listener, control_flow)
         );
     }
 }
@@ -517,13 +541,11 @@ impl StreamState {
                 description: format!("Stream {} is already connected", self.name)
             });
         }
-        
         let object = pipewire::spa::pod::Value::Object(pipewire::spa::pod::Object {
             type_: pipewire::spa::sys::SPA_TYPE_OBJECT_Format,
             id: pipewire::spa::sys::SPA_PARAM_EnumFormat,
             properties: self.format.into(),
         });
-
         let values: Vec<u8> = pipewire::spa::pod::serialize::PodSerializer::serialize(
             Cursor::new(Vec::new()),
             &object,
@@ -531,10 +553,8 @@ impl StreamState {
         .unwrap()
         .0
         .into_inner();
-
         let mut params = [pipewire::spa::pod::Pod::from_bytes(&values).unwrap()];
         let flags = pipewire::stream::StreamFlags::AUTOCONNECT | pipewire::stream::StreamFlags::MAP_BUFFERS;
-
         self.proxy
             .connect(
                 self.direction,
@@ -543,9 +563,7 @@ impl StreamState {
                 &mut params,
             )
             .map_err(move |error| Error { description: error.to_string() })?;
-
         self.is_connected = true;
-
         Ok(())
     }
     
@@ -558,29 +576,31 @@ impl StreamState {
         self.proxy
             .disconnect()
             .map_err(move |error| Error { description: error.to_string() })?;
-
         self.is_connected = false;
-
         Ok(())
     }
 
     pub fn add_process_listener(
         &mut self,
-        policy: ListenerTriggerPolicy,
         mut callback: StreamCallback
     )
     {
         const LISTENER_NAME: &str = "process";
         let listeners = self.listeners.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         let listener = self.proxy.add_local_listener()
             .process(move |stream, _| {
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
                 let buffer = stream.dequeue_buffer().unwrap();
-                callback.call(buffer);
+                callback.call(&mut listener_control_flow.borrow_mut(), buffer);
                 listeners.borrow_mut().triggered(&LISTENER_NAME.to_string());
             })
             .register()
             .unwrap();
-        self.listeners.borrow_mut().add(LISTENER_NAME.to_string(), Listener::new(listener, policy));
+        self.listeners.borrow_mut().add(LISTENER_NAME.to_string(), Listener::new(listener, control_flow));
     }
 }
 
@@ -672,11 +692,11 @@ impl Default for SettingsState {
 }
 
 impl SettingsState {
-    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
+    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 5;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
-        move |_: u32, key: Option<&str>, _: Option<&str>, value: Option<&str>| {
+        move |control_flow, _, key, _, value| {
             let settings = &mut state.borrow_mut().settings;
             let key = key.unwrap();
             let value = value.unwrap();
@@ -709,6 +729,7 @@ impl SettingsState {
             };
             if let (GlobalObjectState::Pending, EXPECTED_PROPERTY) = (settings.state.clone(), property_count.get()) {
                 settings.state = GlobalObjectState::Initialized;
+                control_flow.release();
             }
             0
         }
@@ -733,11 +754,11 @@ impl Default for DefaultAudioNodesState {
 }
 
 impl DefaultAudioNodesState {
-    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
+    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 2;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
-        move |_: u32, key: Option<&str>, _: Option<&str>, value: Option<&str>| {
+        move |control_flow, _, key, _, value| {
             let default_audio_devices = &mut state.borrow_mut().default_audio_nodes;
             let key = key.unwrap();
             if value.is_none() {
@@ -771,6 +792,7 @@ impl DefaultAudioNodesState {
             };
             if let (GlobalObjectState::Pending, EXPECTED_PROPERTY) = (default_audio_devices.state.clone(), property_count.get()) {
                 default_audio_devices.state = GlobalObjectState::Initialized;
+                control_flow.release();
             }
             0
         }

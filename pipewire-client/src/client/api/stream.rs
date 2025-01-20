@@ -4,6 +4,7 @@ use crate::messages::{MessageRequest, MessageResponse, StreamCallback};
 use crate::states::GlobalId;
 use crate::{AudioStreamInfo, Direction};
 use std::sync::Arc;
+use crate::listeners::ListenerControlFlow;
 
 pub struct StreamApi {
     api: Arc<InternalApi>,
@@ -24,7 +25,7 @@ impl StreamApi {
         callback: F,
     ) -> Result<String, Error>
     where
-        F: FnMut(pipewire::buffer::Buffer) + Send + 'static
+        F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static
     {
         let request = MessageRequest::CreateStream {
             node_id: GlobalId::from(node_id),

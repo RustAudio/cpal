@@ -89,12 +89,12 @@ pub fn pw_thread(
 
     let listener_main_sender = main_sender.clone();
     core_sync.register(
-        false,
         PIPEWIRE_CORE_SYNC_INITIALIZATION_SEQ,
-        move || {
+        move |control_flow| {
             listener_main_sender
                 .send(MessageResponse::Initialized)
                 .unwrap();
+            control_flow.release();
         }
     );
 

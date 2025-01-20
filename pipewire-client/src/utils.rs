@@ -1,4 +1,4 @@
-use crate::listeners::{Listener, ListenerTriggerPolicy, Listeners};
+use crate::listeners::{Listener, ListenerControlFlow, Listeners};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -49,18 +49,16 @@ impl PipewireCoreSync {
         }
     }
 
-    pub fn register<F>(&self, keep: bool, seq: u32, callback: F)
+    pub fn register<F>(&self, seq: u32, callback: F)
     where
-        F: Fn() + 'static,
+        F: Fn(&mut ListenerControlFlow) + 'static,
     {
         let sync_id = self.core.borrow_mut().sync(seq as i32).unwrap();
         let name = format!("sync-{}", sync_id.raw());
-        let policy = match keep {
-            true => ListenerTriggerPolicy::Keep,
-            false => ListenerTriggerPolicy::Remove,
-        };
         let listeners = self.listeners.clone();
         let listener_name = name.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
         let listener = self
             .core
             .borrow_mut()
@@ -69,13 +67,16 @@ impl PipewireCoreSync {
                 if seq != sync_id {
                     return;
                 }
-                callback();
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
+                callback(&mut listener_control_flow.borrow_mut());
                 listeners.borrow_mut().triggered(&listener_name);
             })
             .register();
         self.listeners
             .borrow_mut()
-            .add(name, Listener::new(listener, policy));
+            .add(name, Listener::new(listener, control_flow));
     }
 }
 
