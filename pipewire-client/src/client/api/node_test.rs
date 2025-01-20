@@ -1,9 +1,9 @@
-use std::any::TypeId;
+use crate::states::NodeState;
 use crate::test_utils::fixtures::client;
 use crate::test_utils::fixtures::PipewireTestClient;
 use crate::Direction;
 use rstest::rstest;
-use crate::states::{NodeState, StreamState};
+use std::any::TypeId;
 
 fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
     let nodes = client.node().enumerate(direction).unwrap();

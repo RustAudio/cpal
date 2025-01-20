@@ -1,9 +1,9 @@
 extern crate cargo;
-extern crate syn;
-extern crate itertools;
-extern crate indexmap;
 extern crate cargo_metadata;
+extern crate indexmap;
+extern crate itertools;
 extern crate quote;
+extern crate syn;
 
 mod build_modules;
 

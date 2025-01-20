@@ -1,12 +1,11 @@
-use std::any::TypeId;
-use std::fs::metadata;
 use crate::client::implementation::CLIENT_NAME_PREFIX;
+use crate::states::{MetadataState, NodeState};
 use crate::test_utils::fixtures::{client2, PipewireTestClient};
 use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
+use crate::utils::PipewireCoreSync;
 use crate::PipewireClient;
 use rstest::rstest;
-use crate::states::{MetadataState, NodeState};
-use crate::utils::PipewireCoreSync;
+use std::any::TypeId;
 
 #[rstest]
 pub fn names(

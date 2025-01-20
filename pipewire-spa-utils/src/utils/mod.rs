@@ -1,3 +1,4 @@
+use ::impl_any_deserializer;
 use libspa::pod::deserialize::DeserializeError;
 use libspa::pod::deserialize::DeserializeSuccess;
 use libspa::pod::deserialize::PodDeserialize;
@@ -6,7 +7,6 @@ use libspa::pod::deserialize::{ChoiceIdVisitor, ChoiceIntVisitor};
 use libspa::pod::{ChoiceValue, Value};
 use libspa::utils::{Choice, ChoiceEnum, Id};
 use std::ops::Deref;
-use ::impl_any_deserializer;
 use impl_choice_int_deserializer;
 
 #[derive(Debug, Clone)]

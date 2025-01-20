@@ -1,10 +1,10 @@
 use crate::client::api::internal::InternalApi;
 use crate::error::Error;
+use crate::listeners::ListenerControlFlow;
 use crate::messages::{MessageRequest, MessageResponse, StreamCallback};
 use crate::states::GlobalId;
 use crate::{AudioStreamInfo, Direction};
 use std::sync::Arc;
-use crate::listeners::ListenerControlFlow;
 
 pub struct StreamApi {
     api: Arc<InternalApi>,
