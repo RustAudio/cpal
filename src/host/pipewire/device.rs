@@ -95,7 +95,7 @@ impl Device {
             self.id,
             direction,
             format,
-            move |buffer| {
+            move |_, buffer| {
                 let mut buffer = AudioBuffer::from(
                     buffer, 
                     sample_format,
