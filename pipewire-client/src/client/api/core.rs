@@ -5,7 +5,7 @@ use crate::states::{DefaultAudioNodesState, SettingsState};
 use std::sync::Arc;
 
 pub struct CoreApi {
-    api: Arc<InternalApi>,
+    pub(crate) api: Arc<InternalApi>,
 }
 
 impl CoreApi {

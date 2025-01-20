@@ -17,6 +17,30 @@ impl PipewireTestClient {
             client,
         }
     }
+    
+    pub fn input_nodes(&self) -> Vec<NodeInfo> {
+        self.node().enumerate(Direction::Input).unwrap()
+    }
+    
+    pub fn output_nodes(&self) -> Vec<NodeInfo> {
+        self.node().enumerate(Direction::Output).unwrap()
+    }
+    
+    pub fn default_input_node(&self) -> NodeInfo {
+        self.input_nodes().iter()
+            .filter(|node| node.is_default)
+            .last()
+            .cloned()
+            .unwrap()
+    }
+    
+    pub fn default_output_node(&self) -> NodeInfo {
+        self.output_nodes().iter()
+            .filter(|node| node.is_default)
+            .last()
+            .cloned()
+            .unwrap()
+    }
 }
 
 impl Deref for PipewireTestClient {
@@ -52,32 +76,4 @@ pub fn client2(server_with_default_configuration: Container) -> (PipewireTestCli
             client_2
         )
     )
-}
-
-#[fixture]
-pub fn input_nodes(client: PipewireTestClient) -> Vec<NodeInfo> {
-    client.node().enumerate(Direction::Input).unwrap()
-}
-
-#[fixture]
-pub fn output_nodes(client: PipewireTestClient) -> Vec<NodeInfo> {
-    client.node().enumerate(Direction::Output).unwrap()
-}
-
-#[fixture]
-pub fn default_input_node(input_nodes: Vec<NodeInfo>) -> NodeInfo {
-    input_nodes.iter()
-        .filter(|node| node.is_default)
-        .last()
-        .cloned()
-        .unwrap()
-}
-
-#[fixture]
-pub fn default_output_node(output_nodes: Vec<NodeInfo>) -> NodeInfo {
-    output_nodes.iter()
-        .filter(|node| node.is_default)
-        .last()
-        .cloned()
-        .unwrap()
 }

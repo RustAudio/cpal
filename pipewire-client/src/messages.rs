@@ -71,7 +71,8 @@ pub(super) enum MessageRequest {
     DefaultAudioNodesState,
     NodeState(GlobalId),
     NodeStates,
-    NodeCount
+    NodeCount,
+    Listeners
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +101,13 @@ pub(super) enum MessageResponse {
     NodeState(GlobalObjectState),
     NodeStates(Vec<GlobalObjectState>),
     NodeCount(u32),
+    // For testing purpose only
+    Listeners {
+        core: HashMap<String, Vec<String>>,
+        metadata: HashMap<String, Vec<String>>,
+        nodes: HashMap<String, Vec<String>>,
+        streams: HashMap<String, Vec<String>>,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -123,5 +131,5 @@ pub(super) enum EventMessage {
     SetNodeFormat {
         id: GlobalId,
         format: AudioInfoRaw,
-    }
+    },
 }

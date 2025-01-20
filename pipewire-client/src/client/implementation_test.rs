@@ -1,9 +1,13 @@
+use std::any::TypeId;
+use std::fs::metadata;
 use crate::client::implementation::CLIENT_NAME_PREFIX;
 use crate::test_utils::fixtures::{client2, PipewireTestClient};
 use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
 use crate::PipewireClient;
 use rstest::rstest;
 use serial_test::serial;
+use crate::states::{MetadataState, NodeState};
+use crate::utils::PipewireCoreSync;
 
 #[rstest]
 #[serial]
@@ -21,7 +25,21 @@ pub fn names(
 #[serial]
 pub fn with_default_configuration(server_with_default_configuration: Container) {
     set_socket_env_vars(&server_with_default_configuration);
-    let _ = PipewireClient::new().unwrap();
+    let client = PipewireClient::new().unwrap();
+    let listeners = client.core().get_listeners().unwrap();
+    let core_listeners = listeners.get(&TypeId::of::<PipewireCoreSync>()).unwrap();
+    let metadata_listeners = listeners.get(&TypeId::of::<MetadataState>()).unwrap();
+    let nodes_listeners = listeners.get(&TypeId::of::<NodeState>()).unwrap();
+    // No need to check stream listeners since we had to create them in first place (i.e. after client init phases).
+    for (_, listeners) in core_listeners {
+        assert_eq!(0, listeners.len());
+    }
+    for (_, listeners) in metadata_listeners {
+        assert_eq!(0, listeners.len());
+    }
+    for (_, listeners) in nodes_listeners {
+        assert_eq!(0, listeners.len());
+    }
 }
 
 #[rstest]

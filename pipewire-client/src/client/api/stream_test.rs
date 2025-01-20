@@ -1,11 +1,11 @@
+use crate::listeners::ListenerControlFlow;
+use crate::states::StreamState;
 use crate::test_utils::fixtures::client;
-use crate::test_utils::fixtures::default_input_node;
-use crate::test_utils::fixtures::default_output_node;
 use crate::test_utils::fixtures::PipewireTestClient;
 use crate::{Direction, NodeInfo};
 use rstest::rstest;
 use serial_test::serial;
-use crate::listeners::ListenerControlFlow;
+use std::any::TypeId;
 
 fn internal_create<F>(
     client: &PipewireTestClient,
@@ -56,15 +56,13 @@ fn internal_create_connected<F>(
 
 fn abstract_create(
     client: &PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
     direction: Direction
 ) -> String {
     let stream = internal_create(
         &client,
         match direction {
-            Direction::Input => default_input_node.clone(),
-            Direction::Output => default_output_node.clone()
+            Direction::Input => client.default_input_node().clone(),
+            Direction::Output => client.default_output_node().clone()
         },
         direction.clone(),
         move |control_flow, _| {
@@ -76,6 +74,12 @@ fn abstract_create(
         Direction::Input => assert_eq!(true, stream.ends_with(".stream_input")),
         Direction::Output => assert_eq!(true, stream.ends_with(".stream_output"))
     };
+    let listeners = client.core().get_listeners().unwrap();
+    let stream_listeners = listeners.get(&TypeId::of::<StreamState>()).unwrap();
+    for (_, listeners) in stream_listeners {
+        // Expect one listener since we created a stream object with our callback set
+        assert_eq!(1, listeners.len());
+    }
     stream
 }
 
@@ -83,59 +87,54 @@ fn abstract_create(
 #[serial]
 fn create_input(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Input;
-    abstract_create(&client, default_input_node, default_output_node, direction);
+    abstract_create(&client, direction);
 }
 
 #[rstest]
 #[serial]
 fn create_output(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Output;
-    abstract_create(&client, default_input_node, default_output_node, direction);
+    abstract_create(&client, direction);
 }
 
 #[rstest]
 #[serial]
 fn delete_input(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Input;
-    let stream = abstract_create(&client, default_input_node, default_output_node, direction);
-    client.stream().delete(stream).unwrap()
+    let stream = abstract_create(&client, direction);
+    client.stream().delete(stream).unwrap();
+    let listeners = client.core().get_listeners().unwrap();
+    let stream_listeners = listeners.get(&TypeId::of::<StreamState>()).unwrap();
+    for (_, listeners) in stream_listeners {
+        assert_eq!(0, listeners.len());
+    }
 }
 
 #[rstest]
 #[serial]
 fn delete_output(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Output;
-    let stream = abstract_create(&client, default_input_node, default_output_node, direction);
+    let stream = abstract_create(&client, direction);
     client.stream().delete(stream).unwrap()
 }
 
 fn abstract_connect(
     client: &PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
     direction: Direction
 ) {
     let stream = internal_create(
         &client,
         match direction {
-            Direction::Input => default_input_node.clone(),
-            Direction::Output => default_output_node.clone()
+            Direction::Input => client.default_input_node().clone(),
+            Direction::Output => client.default_output_node().clone()
         },
         direction.clone(),
         move |control_flow, mut buffer| {
@@ -155,35 +154,29 @@ fn abstract_connect(
 #[serial]
 fn connect_input(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Input;
-    abstract_connect(&client, default_input_node, default_output_node, direction);
+    abstract_connect(&client, direction);
 }
 
 #[rstest]
 #[serial]
 fn connect_output(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Output;
-    abstract_connect(&client, default_input_node, default_output_node, direction);
+    abstract_connect(&client, direction);
 }
 
 fn abstract_disconnect(
     client: &PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
     direction: Direction
 ) {
     let stream = internal_create_connected(
         &client,
         match direction {
-            Direction::Input => default_input_node.clone(),
-            Direction::Output => default_output_node.clone()
+            Direction::Input => client.default_input_node().clone(),
+            Direction::Output => client.default_output_node().clone()
         },
         direction.clone(),
         move |control_flow, _| {
@@ -198,20 +191,16 @@ fn abstract_disconnect(
 #[serial]
 fn disconnect_input(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Input;
-    abstract_disconnect(&client, default_input_node, default_output_node, direction);
+    abstract_disconnect(&client, direction);
 }
 
 #[rstest]
 #[serial]
 fn disconnect_output(
     client: PipewireTestClient,
-    default_input_node: NodeInfo,
-    default_output_node: NodeInfo,
 ) {
     let direction = Direction::Output;
-    abstract_disconnect(&client, default_input_node, default_output_node, direction);
+    abstract_disconnect(&client, direction);
 }

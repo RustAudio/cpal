@@ -49,6 +49,10 @@ impl PipewireCoreSync {
         }
     }
 
+    pub(super) fn get_listener_names(&self) -> Vec<String> {
+        self.listeners.borrow().get_names()
+    }
+
     pub fn register<F>(&self, seq: u32, callback: F)
     where
         F: Fn(&mut ListenerControlFlow) + 'static,

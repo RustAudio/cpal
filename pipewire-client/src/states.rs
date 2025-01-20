@@ -127,6 +127,18 @@ impl GlobalState {
         })
     }
 
+    pub fn get_metadatas(&self) -> Result<HashMap<&GlobalId ,&MetadataState>, Error> {
+        let metadatas = self.metadata.iter()
+            .map(|(id, state)| (id, state))
+            .collect::<HashMap<_, _>>();
+        if metadatas.is_empty() {
+            return Err(Error {
+                description: "Zero metadata registered".to_string(),
+            })
+        }
+        Ok(metadatas)
+    }
+
     pub fn insert_node(&mut self, id: GlobalId, state: NodeState) -> Result<(), Error> {
         if self.nodes.contains_key(&id) {
             return Err(Error {
@@ -191,6 +203,18 @@ impl GlobalState {
         self.streams.get_mut(name).ok_or(Error {
             description: format!("Stream with name({}) not found", name),
         })
+    }
+
+    pub fn get_streams(&self) -> Result<HashMap<&String ,&StreamState>, Error> {
+        let streams = self.streams.iter()
+            .map(|(id, state)| (id, state))
+            .collect::<HashMap<_, _>>();
+        if streams.is_empty() {
+            return Err(Error {
+                description: "Zero stream registered".to_string(),
+            })
+        }
+        Ok(streams)
     }
 
     pub fn get_settings(&self) -> SettingsState {
@@ -275,6 +299,10 @@ impl NodeState {
             format: Rc::new(RefCell::new(None)),
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
+    }
+
+    pub(super) fn get_listener_names(&self) -> Vec<String> {
+        self.listeners.borrow().get_names()
     }
     
     pub fn state(&self) -> GlobalObjectState {
@@ -470,6 +498,10 @@ impl MetadataState {
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
     }
+    
+    pub(super) fn get_listener_names(&self) -> Vec<String> {
+        self.listeners.borrow().get_names()
+    }
 
     pub fn add_property_listener<F>(&mut self, listener: F)
     where
@@ -529,6 +561,10 @@ impl StreamState {
             direction,
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
+    }
+
+    pub(super) fn get_listener_names(&self) -> Vec<String> {
+        self.listeners.borrow().get_names()
     }
 
     pub fn is_connected(&self) -> bool {

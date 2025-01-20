@@ -6,6 +6,7 @@ use crate::utils::PipewireCoreSync;
 use crate::{AudioStreamInfo, Direction, NodeInfo};
 use pipewire::proxy::ProxyT;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 pub(super) fn request_handler(
@@ -129,6 +130,13 @@ pub(super) fn request_handler(
             handle_node_count(
                 state.clone(),
                 main_sender.clone()
+            )
+        }
+        MessageRequest::Listeners => {
+            handle_listeners(
+                state.clone(),
+                main_sender.clone(),
+                core_sync.clone()
             )
         }
     }
@@ -616,4 +624,42 @@ fn handle_node_count(
                 .unwrap();
         }
     };
+}
+fn handle_listeners(
+    state: Rc<RefCell<GlobalState>>,
+    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    core_sync: Rc<PipewireCoreSync>
+)
+{
+    let mut core = HashMap::new();
+    core.insert("0".to_string(), core_sync.get_listener_names());
+    let metadata = state.borrow().get_metadatas()
+        .unwrap_or_default()
+        .iter()
+        .map(move |(id, metadata)| {
+            (id.to_string(), metadata.get_listener_names())
+        })
+        .collect::<HashMap<_, _>>();
+    let nodes = state.borrow().get_nodes()
+        .unwrap_or_default()
+        .iter()
+        .map(move |(id, node)| {
+            (id.to_string(), node.get_listener_names())
+        })
+        .collect::<HashMap<_, _>>();
+    let streams = state.borrow().get_streams()
+        .unwrap_or_default()
+        .iter()
+        .map(move |(name, stream)| {
+            ((*name).clone(), stream.get_listener_names())
+        })
+        .collect::<HashMap<_, _>>();
+    main_sender
+        .send(MessageResponse::Listeners {
+            core,
+            metadata,
+            nodes,
+            streams,
+        })
+        .unwrap();
 }

@@ -6,7 +6,7 @@ use futures::StreamExt;
 use pipewire::spa::utils::dict::ParsableValue;
 use rstest::fixture;
 use std::path::{Path, PathBuf};
-use testcontainers::core::{CmdWaitFor, ExecCommand, Mount};
+use testcontainers::core::{CmdWaitFor, ExecCommand, ExecResult, Mount};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio::io::AsyncReadExt;
@@ -110,47 +110,41 @@ impl Container {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let container = runtime.block_on(container.start()).unwrap();
         self.container = Some(container);
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "mkdir",
-                "--parent",
-                socket_location.to_str().unwrap(),
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![
+            "mkdir",
+            "--parent",
+            socket_location.to_str().unwrap(),
+        ]);
+    }
+    
+    fn exec(&self, command: Vec<&str>) -> ExecResult {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime
+            .block_on(self.container.as_ref().unwrap().exec(
+                ExecCommand::new(command).with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
+            ))
+            .unwrap()
     }
 
     fn run_process(&mut self, process_name: &str) -> u32 {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                process_name
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
-        let mut result = runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "pidof",
-                process_name,
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![process_name]);
+        let mut result = self.exec(vec![
+            "pidof",
+            process_name,
+        ]);
         let mut pid = String::new();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(result.stdout().read_to_string(&mut pid)).unwrap();
         pid = pid.trim_end().to_string();
         u32::parse_value(pid.as_str()).unwrap()
     }
 
     fn kill_process(&mut self, process_id: u32) {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "kill",
-                "-s", "SIGKILL",
-                format!("{}", process_id).as_str()
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![
+            "kill",
+            "-s", "SIGKILL",
+            format!("{}", process_id).as_str()
+        ]);
     }
 
     fn start_pipewire(&mut self) {
@@ -187,55 +181,37 @@ impl Container {
     }
 
     fn load_null_sink_module(&self) {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "pactl",
-                "load-module",
-                "module-null-sink"
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![
+            "pactl",
+            "load-module",
+            "module-null-sink"
+        ]);
     }
 
     fn set_virtual_nodes_configuration(&self) {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "mkdir",
-                "--parent",
-                "/etc/pipewire/pipewire.conf.d/",
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "cp",
-                "/root/pipewire.nodes.conf",
-                "/etc/pipewire/pipewire.conf.d/pipewire.nodes.conf",
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![
+            "mkdir",
+            "--parent",
+            "/etc/pipewire/pipewire.conf.d/",
+        ]);
+        self.exec(vec![
+            "cp",
+            "/root/pipewire.nodes.conf",
+            "/etc/pipewire/pipewire.conf.d/pipewire.nodes.conf",
+        ]);
     }
 
     fn set_default_nodes(&self) {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "pactl",
-                "set-default-sink",
-                "test-sink",
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
-        runtime.block_on(self.container.as_ref().unwrap().exec(
-            ExecCommand::new(vec![
-                "pactl",
-                "set-default-source",
-                "test-source",
-            ])
-                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
-        )).unwrap();
+        self.exec(vec![
+            "pactl",
+            "set-default-sink",
+            "test-sink",
+        ]);
+        self.exec(vec![
+            "pactl",
+            "set-default-source",
+            "test-source",
+        ]);
     }
 }
 

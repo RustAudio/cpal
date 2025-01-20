@@ -1,8 +1,10 @@
+use std::any::TypeId;
 use crate::test_utils::fixtures::client;
 use crate::test_utils::fixtures::PipewireTestClient;
 use crate::Direction;
 use rstest::rstest;
 use serial_test::serial;
+use crate::states::{NodeState, StreamState};
 
 fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
     let nodes = client.node().enumerate(direction).unwrap();
@@ -11,6 +13,11 @@ fn internal_enumerate(client: &PipewireTestClient, direction: Direction) {
         .filter(|node| node.is_default)
         .last();
     assert_eq!(true, default_node.is_some());
+    let listeners = client.core().get_listeners().unwrap();
+    let node_listeners = listeners.get(&TypeId::of::<NodeState>()).unwrap();
+    for (_, listeners) in node_listeners {
+        assert_eq!(0, listeners.len());
+    }
 }
 
 fn internal_create(client: &PipewireTestClient, direction: Direction) {
@@ -22,6 +29,11 @@ fn internal_create(client: &PipewireTestClient, direction: Direction) {
             direction,
             2
         ).unwrap();
+    let listeners = client.core().get_listeners().unwrap();
+    let node_listeners = listeners.get(&TypeId::of::<NodeState>()).unwrap();
+    for (_, listeners) in node_listeners {
+        assert_eq!(0, listeners.len());
+    }
 }
 
 #[rstest]

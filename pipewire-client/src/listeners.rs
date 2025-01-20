@@ -1,9 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops::ControlFlow;
 use std::rc::Rc;
 
-pub(super) struct ListenerControlFlow {
+pub struct ListenerControlFlow {
     is_released: bool
 }
 
@@ -50,6 +49,10 @@ impl<L> Listeners<L> {
         Self {
             listeners: Rc::new(RefCell::new(HashMap::new())),
         }
+    }
+    
+    pub fn get_names(&self) -> Vec<String> {
+        self.listeners.borrow().keys().cloned().collect()
     }
 
     pub fn add(&mut self, name: String, listener: Listener<L>) {
