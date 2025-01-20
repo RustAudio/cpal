@@ -1,0 +1,79 @@
+use crate::test_utils::server::{server_with_default_configuration, set_socket_env_vars, Container};
+use crate::{Direction, NodeInfo, PipewireClient};
+use rstest::fixture;
+use std::cell::RefCell;
+use std::ops::Deref;
+use std::rc::Rc;
+
+pub struct PipewireTestClient {
+    server: Rc<RefCell<Container>>,
+    client: PipewireClient,
+}
+
+impl PipewireTestClient {
+    pub(self) fn new(server: Rc<RefCell<Container>>, client: PipewireClient) -> Self {
+        Self {
+            server,
+            client,
+        }
+    }
+    
+    pub fn input_nodes(&self) -> Vec<NodeInfo> {
+        self.node().enumerate(Direction::Input).unwrap()
+    }
+    
+    pub fn output_nodes(&self) -> Vec<NodeInfo> {
+        self.node().enumerate(Direction::Output).unwrap()
+    }
+    
+    pub fn default_input_node(&self) -> NodeInfo {
+        self.input_nodes().iter()
+            .filter(|node| node.is_default)
+            .last()
+            .cloned()
+            .unwrap()
+    }
+    
+    pub fn default_output_node(&self) -> NodeInfo {
+        self.output_nodes().iter()
+            .filter(|node| node.is_default)
+            .last()
+            .cloned()
+            .unwrap()
+    }
+}
+
+impl Deref for PipewireTestClient {
+    type Target = PipewireClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+#[fixture]
+pub fn client(server_with_default_configuration: Container) -> PipewireTestClient {
+    set_socket_env_vars(&server_with_default_configuration);
+    PipewireTestClient::new(
+        Rc::new(RefCell::new(server_with_default_configuration)),
+        PipewireClient::new().unwrap()
+    )
+}
+
+#[fixture]
+pub fn client2(server_with_default_configuration: Container) -> (PipewireTestClient, PipewireTestClient) {
+    set_socket_env_vars(&server_with_default_configuration);
+    let server = Rc::new(RefCell::new(server_with_default_configuration));
+    let client_1 = PipewireClient::new().unwrap();
+    let client_2 = PipewireClient::new().unwrap();
+    (
+        PipewireTestClient::new(
+            server.clone(),
+            client_1
+        ),
+        PipewireTestClient::new(
+            server.clone(),
+            client_2
+        )
+    )
+}

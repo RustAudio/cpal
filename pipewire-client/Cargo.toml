@@ -1,0 +1,24 @@
+[package]
+name = "pipewire-client"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alexis Bekhdadi <alexis@bekhdadi.com>"]
+description = "PipeWire Client"
+repository = "https://github.com/RustAudio/cpal/"
+documentation = ""
+license = "Apache-2.0"
+keywords = ["pipewire", "client"]
+
+[dependencies]
+pipewire = { version = "0.8" }
+pipewire-spa-utils = { version = "0.1", path = "../pipewire-spa-utils"}
+serde_json = "1.0"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+rstest = "0.24"
+testcontainers = "0.23"
+docker-api = "0.14"
+futures = "0.3"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.12", features = ["v4"] }

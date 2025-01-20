@@ -1,5 +1,5 @@
-/target
-/Cargo.lock
+target/
+Cargo.lock
 .cargo/
 .DS_Store
 recorded.wav
