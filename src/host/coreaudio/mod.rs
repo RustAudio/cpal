@@ -1,8 +1,6 @@
-extern crate coreaudio;
-
-use self::coreaudio::sys::{
+use objc2_core_audio_types::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
-    AudioStreamBasicDescription, OSStatus,
+    AudioStreamBasicDescription,
 };
 
 use crate::DefaultStreamConfigError;
@@ -64,7 +62,7 @@ fn asbd_from_config(
         mFormatFlags: format_flags,
         mFormatID: kAudioFormatLinearPCM,
         mSampleRate: sample_rate as _,
-        ..Default::default()
+        mReserved: 0,
     }
 }
 
@@ -119,3 +117,5 @@ impl From<coreaudio::Error> for DefaultStreamConfigError {
         DefaultStreamConfigError::BackendSpecific { err }
     }
 }
+
+pub(crate) type OSStatus = i32;

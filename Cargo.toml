@@ -44,28 +44,62 @@ libc = "0.2"
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach2 = "0.4" # For access to mach_timebase type.
 
-[target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio"] }
-
-[target.'cfg(target_os = "ios")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
+[target.'cfg(target_vendor = "apple")'.dependencies]
+coreaudio-rs = { version = "0.12", default-features = false, features = [
+    "core_audio",
+    "audio_toolbox",
+] }
+objc2-core-audio = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AudioHardware",
+    "AudioHardwareDeprecated",
+] }
+objc2-audio-toolbox = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AUComponent",
+    "AudioUnitProperties",
+] }
+objc2-core-audio-types = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "CoreAudioBaseTypes",
+] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 wasm-bindgen = { version = "0.2.89" }
 wasm-bindgen-futures = "0.4.33"
 js-sys = { version = "0.3.35" }
-web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
+web-sys = { version = "0.3.35", features = [
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioNode",
+    "AudioDestinationNode",
+    "Window",
+    "AudioContextState",
+] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }
 js-sys = { version = "0.3.35" }
-web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
+web-sys = { version = "0.3.35", features = [
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioNode",
+    "AudioDestinationNode",
+    "Window",
+    "AudioContextState",
+] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"]}
+ndk = { version = "0.9", default-features = false, features = [
+    "audio",
+    "api-level-26",
+] }
 ndk-context = "0.1"
 jni = "0.21"
 num-derive = "0.4"
@@ -85,3 +119,6 @@ name = "record_wav"
 
 [[example]]
 name = "synth_tones"
+
+[patch.crates-io]
+coreaudio-rs = { path = "../coreaudio" }
