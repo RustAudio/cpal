@@ -7,7 +7,6 @@
 //!   buffer size.
 //!
 
-extern crate core_foundation_sys;
 extern crate coreaudio;
 
 use std::cell::RefCell;
