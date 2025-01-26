@@ -332,6 +332,7 @@ pub struct Data {
 /// | wasapi | `QueryPerformanceCounter` |
 /// | asio | `timeGetTime` |
 /// | emscripten | `AudioContext.getOutputTimestamp` |
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
     secs: i64,
@@ -339,6 +340,7 @@ pub struct StreamInstant {
 }
 
 /// A timestamp associated with a call to an input stream's data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InputStreamTimestamp {
     /// The instant the stream's data callback was invoked.
@@ -350,6 +352,7 @@ pub struct InputStreamTimestamp {
 }
 
 /// A timestamp associated with a call to an output stream's data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputStreamTimestamp {
     /// The instant the stream's data callback was invoked.
