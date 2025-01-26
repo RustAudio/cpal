@@ -479,12 +479,16 @@ impl StreamInstant {
         Self::new(s, ns)
     }
 
-    fn new(secs: i64, nanos: u32) -> Self {
+    pub fn new(secs: i64, nanos: u32) -> Self {
         StreamInstant { secs, nanos }
     }
 }
 
 impl InputCallbackInfo {
+    pub fn new(timestamp: InputStreamTimestamp) -> Self {
+        Self { timestamp }
+    }
+
     /// The timestamp associated with the call to an input stream's data callback.
     pub fn timestamp(&self) -> InputStreamTimestamp {
         self.timestamp
@@ -492,6 +496,10 @@ impl InputCallbackInfo {
 }
 
 impl OutputCallbackInfo {
+    pub fn new(timestamp: OutputStreamTimestamp) -> Self {
+        Self { timestamp }
+    }
+
     /// The timestamp associated with the call to an output stream's data callback.
     pub fn timestamp(&self) -> OutputStreamTimestamp {
         self.timestamp
