@@ -114,6 +114,51 @@ where
 
 pub fn host_device_setup(
 ) -> Result<(cpal::Host, cpal::Device, cpal::SupportedStreamConfig), anyhow::Error> {
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack"
+    ))]
+    // Manually check for flags. Can be passed through cargo with -- e.g.
+    // cargo run --release --example beep --features jack -- --jack
+    let host = cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable");
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
+    let host = cpal::host_from_id(cpal::available_hosts()
+        .into_iter()
+        .find(|id| *id == cpal::HostId::PipeWire)
+        .expect(
+            "make sure --features pipewire is specified. only works on OSes where pipewire is available",
+        )).expect("pipewire host unavailable");
+
+    #[cfg(any(
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
+        not(any(
+            feature = "jack",
+            feature = "pipewire",
+        ))
+    ))]
     let host = cpal::default_host();
 
     let device = host
