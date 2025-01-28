@@ -6,17 +6,33 @@ use crate::constants::{PIPEWIRE_CORE_SYNC_INITIALIZATION_SEQ, PIPEWIRE_RUNTIME_D
 use crate::error::Error;
 use crate::messages::{EventMessage, MessageRequest, MessageResponse};
 use crate::states::GlobalState;
-use crate::utils::PipewireCoreSync;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, Once};
+use libc::atexit;
+use crate::client::channel::ServerChannel;
+use crate::listeners::PipewireCoreSync;
+
+static AT_EXIT: Once = Once::new();
+
+extern "C" fn at_exit_callback() {
+    unsafe { pipewire::deinit(); }
+}
 
 pub fn pw_thread(
     client_info: PipewireClientInfo,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
-    pw_receiver: pipewire::channel::Receiver<MessageRequest>,
+    mut server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
     event_receiver: pipewire::channel::Receiver<EventMessage>,
 ) {
+    pipewire::init();
+
+    AT_EXIT.call_once(|| {
+        unsafe {
+            atexit(at_exit_callback);
+        }
+    });
+    
     let connection_properties = Some(pipewire::properties::properties! {
         PIPEWIRE_RUNTIME_DIR_ENVIRONMENT_KEY => client_info.socket_location,
         *pipewire::keys::REMOTE_NAME => client_info.socket_name,
@@ -26,8 +42,8 @@ pub fn pw_thread(
     let main_loop = match pipewire::main_loop::MainLoop::new(None) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(Error {
+            server_channel
+                .fire(MessageResponse::Error(Error {
                     description: format!("Failed to create PipeWire main loop: {}", value),
                 }))
                 .unwrap();
@@ -38,20 +54,20 @@ pub fn pw_thread(
     let context = match pipewire::context::Context::new(&main_loop) {
         Ok(value) => Rc::new(value),
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(Error {
+            server_channel
+                .fire(MessageResponse::Error(Error {
                     description: format!("Failed to create PipeWire context: {}", value),
                 }))
                 .unwrap();
             return;
         }
     };
-
-    let core = match context.connect(connection_properties) {
+    
+    let core = match context.connect(connection_properties.clone()) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(Error {
+            server_channel
+                .fire(MessageResponse::Error(Error {
                     description: format!("Failed to connect PipeWire server: {}", value),
                 }))
                 .unwrap();
@@ -59,12 +75,12 @@ pub fn pw_thread(
         }
     };
 
-    let listener_main_sender = main_sender.clone();
+    let listener_main_sender = server_channel.clone();
     let _core_listener = core
         .add_listener_local()
         .error(move |_, _, _, message| {
             listener_main_sender
-                .send(MessageResponse::Error(Error {
+                .fire(MessageResponse::Error(Error {
                     description: format!("Server error: {}", message),
                 }))
                 .unwrap();
@@ -74,8 +90,8 @@ pub fn pw_thread(
     let registry = match core.get_registry() {
         Ok(value) => Rc::new(value),
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(Error {
+            server_channel
+                .fire(MessageResponse::Error(Error {
                     description: format!("Failed to get Pipewire registry: {}", value),
                 }))
                 .unwrap();
@@ -85,14 +101,14 @@ pub fn pw_thread(
 
     let core_sync = Rc::new(PipewireCoreSync::new(Rc::new(RefCell::new(core.clone()))));
     let core = Rc::new(core);
-    let state = Rc::new(RefCell::new(GlobalState::default()));
+    let state = Arc::new(Mutex::new(GlobalState::default()));
 
-    let listener_main_sender = main_sender.clone();
+    let listener_main_sender = server_channel.clone();
     core_sync.register(
         PIPEWIRE_CORE_SYNC_INITIALIZATION_SEQ,
         move |control_flow| {
             listener_main_sender
-                .send(MessageResponse::Initialized)
+                .fire(MessageResponse::Initialized)
                 .unwrap();
             control_flow.release();
         }
@@ -102,19 +118,19 @@ pub fn pw_thread(
         main_loop.loop_(),
         event_handler(
             state.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
             event_sender.clone()
         )
     );
 
-    let _attached_pw_receiver = pw_receiver.attach(
+    let _attached_pw_receiver = server_channel.attach(
         main_loop.loop_(),
         request_handler(
             core.clone(),
             core_sync.clone(),
             main_loop.clone(),
             state.clone(),
-            main_sender.clone()
+            server_channel.clone()
         )
     );
 
@@ -123,11 +139,11 @@ pub fn pw_thread(
         .global(registry_global_handler(
             state.clone(),
             registry.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
             event_sender.clone(),
         ))
         .global_remove(move |global_id| {
-            let mut state = state.borrow_mut();
+            let mut state = state.lock().unwrap();
             state.remove(&global_id.into())
         })
         .register();

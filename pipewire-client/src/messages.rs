@@ -42,6 +42,11 @@ pub(super) enum MessageRequest {
     Quit,
     Settings,
     DefaultAudioNodes,
+    // Node
+    GetNode {
+        name: String,
+        direction: Direction,
+    },
     CreateNode {
         name: String,
         description: String,
@@ -49,22 +54,18 @@ pub(super) enum MessageRequest {
         direction: Direction,
         channels: u16,
     },
+    DeleteNode(GlobalId),
     EnumerateNodes(Direction),
+    // Stream
     CreateStream {
         node_id: GlobalId,
         direction: Direction,
         format: AudioStreamInfo,
         callback: StreamCallback,
     },
-    DeleteStream {
-        name: String
-    },
-    ConnectStream {
-        name: String
-    },
-    DisconnectStream {
-        name: String
-    },
+    DeleteStream(String),
+    ConnectStream(String),
+    DisconnectStream(String),
     // Internal requests
     CheckSessionManagerRegistered,
     SettingsState,
@@ -72,6 +73,7 @@ pub(super) enum MessageRequest {
     NodeState(GlobalId),
     NodeStates,
     NodeCount,
+    #[cfg(test)]
     Listeners
 }
 
@@ -81,13 +83,13 @@ pub(super) enum MessageResponse {
     Initialized,
     Settings(SettingsState),
     DefaultAudioNodes(DefaultAudioNodesState),
-    CreateNode {
-        id: GlobalId
-    },
+    // Nodes
+    GetNode(NodeInfo),
+    CreateNode(GlobalId),
+    DeleteNode,
     EnumerateNodes(Vec<NodeInfo>),
-    CreateStream {
-        name: String,
-    },
+    // Streams
+    CreateStream(String),
     DeleteStream,
     ConnectStream,
     DisconnectStream,
@@ -102,6 +104,7 @@ pub(super) enum MessageResponse {
     NodeStates(Vec<GlobalObjectState>),
     NodeCount(u32),
     // For testing purpose only
+    #[cfg(test)]
     Listeners {
         core: HashMap<String, Vec<String>>,
         metadata: HashMap<String, Vec<String>>,

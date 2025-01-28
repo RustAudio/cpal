@@ -69,3 +69,60 @@ impl<L> Listeners<L> {
         listeners.remove(name);
     }
 }
+
+pub(super) struct PipewireCoreSync {
+    core: Rc<RefCell<pipewire::core::Core>>,
+    listeners: Rc<RefCell<Listeners<pipewire::core::Listener>>>,
+}
+
+impl PipewireCoreSync {
+    pub fn new(core: Rc<RefCell<pipewire::core::Core>>) -> Self {
+        Self {
+            core,
+            listeners: Rc::new(RefCell::new(Listeners::new())),
+        }
+    }
+
+    pub(super) fn get_listener_names(&self) -> Vec<String> {
+        self.listeners.borrow().get_names()
+    }
+
+    pub fn register<F>(&self, seq: u32, callback: F)
+    where
+        F: Fn(&mut ListenerControlFlow) + 'static,
+    {
+        let sync_id = self.core.borrow_mut().sync(seq as i32).unwrap();
+        let name = format!("sync-{}", sync_id.raw());
+        let listeners = self.listeners.clone();
+        let listener_name = name.clone();
+        let control_flow = Rc::new(RefCell::new(ListenerControlFlow::new()));
+        let listener_control_flow = control_flow.clone();
+        let listener = self
+            .core
+            .borrow_mut()
+            .add_listener_local()
+            .done(move |_, seq| {
+                if seq != sync_id {
+                    return;
+                }
+                if listener_control_flow.borrow().is_released() {
+                    return;
+                }
+                callback(&mut listener_control_flow.borrow_mut());
+                listeners.borrow_mut().triggered(&listener_name);
+            })
+            .register();
+        self.listeners
+            .borrow_mut()
+            .add(name, Listener::new(listener, control_flow));
+    }
+}
+
+impl Clone for PipewireCoreSync {
+    fn clone(&self) -> Self {
+        Self {
+            core: self.core.clone(),
+            listeners: self.listeners.clone(),
+        }
+    }
+}

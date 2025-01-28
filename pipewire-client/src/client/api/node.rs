@@ -17,28 +17,61 @@ impl NodeApi {
         }
     }
 
-    pub(crate) fn get_state(
+    pub(crate) fn state(
         &self,
         id: &GlobalId,
-    ) -> Result<(), Error> {
+    ) -> Result<GlobalObjectState, Error> {
         let request = MessageRequest::NodeState(id.clone());
-        self.api.send_request_without_response(&request)
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::NodeState(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
     }
 
-    pub(crate) fn get_states(
+    pub(crate) fn states(
         &self,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<GlobalObjectState>, Error> {
         let request = MessageRequest::NodeStates;
-        self.api.send_request_without_response(&request)
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::NodeStates(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
     }
 
-    pub(crate) fn get_count(
+    pub(crate) fn count(
         &self,
     ) -> Result<u32, Error> {
         let request = MessageRequest::NodeCount;
         let response = self.api.send_request(&request);
         match response {
             Ok(MessageResponse::NodeCount(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
+    }
+
+    pub fn get(
+        &self,
+        name: String,
+        direction: Direction,
+    ) -> Result<NodeInfo, Error> {
+        let request = MessageRequest::GetNode {
+            name,
+            direction,
+        };
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::GetNode(value)) => Ok(value),
             Err(value) => Err(value),
             Ok(value) => Err(Error {
                 description: format!("Received unexpected response: {:?}", value),
@@ -63,48 +96,33 @@ impl NodeApi {
         };
         let response = self.api.send_request(&request);
         match response {
-            Ok(MessageResponse::CreateNode {
-                   id
-               }) => {
-                #[cfg(debug_assertions)]
-                let timeout_duration = std::time::Duration::from_secs(u64::MAX);
-                #[cfg(not(debug_assertions))]
-                let timeout_duration = std::time::Duration::from_millis(500);
-                self.get_state(&id)?;
+            Ok(MessageResponse::CreateNode(id)) => {
                 let operation = move || {
-                    let response = self.api.wait_response_with_timeout(timeout_duration);
-                    return match response {
-                        Ok(value) => match value {
-                            MessageResponse::NodeState(state) => {
-                                match state == GlobalObjectState::Initialized {
-                                    true => {
-                                        Ok(())
-                                    },
-                                    false => {
-                                        self.get_state(&id)?;
-                                        Err(Error {
-                                            description: "Created node should be initialized at this point".to_string(),
-                                        })
-                                    }
-                                }
-                            }
-                            _ => Err(Error {
-                                description: format!("Received unexpected response: {:?}", value),
-                            }),
-                        },
-                        Err(value) => Err(Error {
-                            description: format!("Failed during post initialization: {:?}", value),
+                    let state = self.state(&id)?;
+                    return if state == GlobalObjectState::Initialized {
+                        Ok(())
+                    } else {
+                        Err(Error {
+                            description: "Created node not yet initialized".to_string(),
                         })
-                    };
+                    }
                 };
-                let mut backoff = Backoff::new(
-                    10,
-                    std::time::Duration::from_millis(10),
-                    std::time::Duration::from_millis(100),
-                );
+                let mut backoff = Backoff::constant(self.api.timeout.as_millis());
                 backoff.retry(operation)
             },
             Ok(MessageResponse::Error(value)) => Err(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
+    }
+
+    pub fn delete(&self, id: u32) -> Result<(), Error> {
+        let request = MessageRequest::DeleteNode(GlobalId::from(id));
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::DeleteNode) => Ok(()),
             Err(value) => Err(value),
             Ok(value) => Err(Error {
                 description: format!("Received unexpected response: {:?}", value),

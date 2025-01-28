@@ -2,9 +2,9 @@ use crate::client::CoreApi;
 use crate::error::Error;
 use crate::messages::{MessageRequest, MessageResponse};
 use crate::states::{MetadataState, NodeState, StreamState};
-use crate::utils::PipewireCoreSync;
 use std::any::TypeId;
 use std::collections::HashMap;
+use crate::listeners::PipewireCoreSync;
 
 impl CoreApi {
     pub(crate) fn get_listeners(&self) -> Result<HashMap<TypeId, HashMap<String, Vec<String>>>, Error> {

@@ -1,6 +1,8 @@
 extern crate pipewire;
 
+use std::thread;
 use crate::client::api::{CoreApi, InternalApi, NodeApi, StreamApi};
+use crate::client::channel::channels;
 use crate::client::connection_string::{PipewireClientInfo, PipewireClientSocketPath};
 use crate::client::handlers::thread;
 use crate::error::Error;
@@ -12,8 +14,9 @@ use std::path::PathBuf;
 use std::string::ToString;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
+use tokio::runtime::Runtime;
 
 pub(super) static CLIENT_NAME_PREFIX: &str = "pipewire-client";
 pub(super) static CLIENT_INDEX: AtomicU32 = AtomicU32::new(0);
@@ -22,6 +25,7 @@ pub struct PipewireClient {
     pub(crate) name: String,
     socket_path: PathBuf,
     thread_handle: Option<JoinHandle<()>>,
+    timeout: Duration,
     internal_api: Arc<InternalApi>,
     core_api: CoreApi,
     node_api: NodeApi,
@@ -29,7 +33,10 @@ pub struct PipewireClient {
 }
 
 impl PipewireClient {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new(
+        runtime: Arc<Runtime>,
+        timeout: Duration,
+    ) -> Result<Self, Error> {        
         let name = format!("{}-{}", CLIENT_NAME_PREFIX, CLIENT_INDEX.load(Ordering::SeqCst));
         CLIENT_INDEX.fetch_add(1, Ordering::SeqCst);
 
@@ -40,20 +47,18 @@ impl PipewireClient {
             socket_location: socket_path.parent().unwrap().to_str().unwrap().to_string(),
             socket_name: socket_path.file_name().unwrap().to_str().unwrap().to_string(),
         };
-
-        let (main_sender, main_receiver) = crossbeam_channel::unbounded();
-        let (pw_sender, pw_receiver) = pipewire::channel::channel();
+        
+        let (client_channel, server_channel) = channels(runtime.clone());
         let (event_sender, event_receiver) = pipewire::channel::channel::<EventMessage>();
 
         let pw_thread = thread::spawn(move || thread(
             client_info,
-            main_sender,
-            pw_receiver,
+            server_channel,
             event_sender,
             event_receiver
         ));
 
-        let internal_api = Arc::new(InternalApi::new(pw_sender, main_receiver));
+        let internal_api = Arc::new(InternalApi::new(client_channel, timeout.clone()));
         let core_api = CoreApi::new(internal_api.clone());
         let node_api = NodeApi::new(internal_api.clone());
         let stream_api = StreamApi::new(internal_api.clone());
@@ -62,6 +67,7 @@ impl PipewireClient {
             name,
             socket_path,
             thread_handle: Some(pw_thread),
+            timeout,
             internal_api,
             core_api,
             node_api,
@@ -76,26 +82,26 @@ impl PipewireClient {
         };
         match client.wait_post_initialization() {
             Ok(_) => {}
-            Err(value) => return Err(Error {
-                description: format!("Post initialization error: {}", value),
-            }),
+            Err(value) => {
+                let global_messages = &client.internal_api.channel.global_messages;
+                return Err(Error {
+                    description: format!("Post initialization error: {}", value),
+                })
+            },
         };
         Ok(client)
     }
 
     fn wait_initialization(&self) -> Result<(), Error> {
-        let timeout_duration = std::time::Duration::from_millis(10 * 1000);
-        let response = self.internal_api.wait_response_with_timeout(timeout_duration);
+        let response = self.internal_api.wait_response_with_timeout(self.timeout);
         let response = match response {
             Ok(value) => value,
             Err(value) => {
                 // Timeout is certainly due to missing session manager
-                // We need to check if that the case. If session manager is running then we return
+                // We need to check if that's the case. If session manager is running then we return
                 // timeout error.
                 return match self.core_api.check_session_manager_registered() {
-                    Ok(_) => Err(Error {
-                        description: value.to_string(),
-                    }),
+                    Ok(_) => Err(value),
                     Err(value) => Err(value)
                 };
             }
@@ -110,11 +116,10 @@ impl PipewireClient {
 
     fn wait_post_initialization(&self) -> Result<(), Error> {
         let mut settings_initialized = false;
-        let mut default_audio_devices_initialized = false;
+        let mut default_audio_nodes_initialized = false;
         let mut nodes_initialized = false;
-        let timeout_duration = std::time::Duration::from_millis(1);
         self.core_api.check_session_manager_registered()?;
-        match self.node_api.get_count() {
+        match self.node_api.count() {
             Ok(value) => {
                 if value == 0 {
                     return Err(Error {
@@ -124,72 +129,28 @@ impl PipewireClient {
             }
             Err(value) => return Err(value),
         }
-        self.core_api.get_settings_state()?;
-        self.core_api.get_default_audio_nodes_state()?;
-        self.node_api.get_states()?;
         let operation = move || {
-            let response = self.internal_api.wait_response_with_timeout(timeout_duration);
-            match response {
-                Ok(value) => match value {
-                    MessageResponse::SettingsState(state) => {
-                        match state {
-                            GlobalObjectState::Initialized => {
-                                settings_initialized = true;
-                            }
-                            _ => {
-                                self.core_api.get_settings_state()?;
-                                return Err(Error {
-                                    description: "Settings not yet initialized".to_string(),
-                                })
-                            }
-                        };
-                    },
-                    MessageResponse::DefaultAudioNodesState(state) => {
-                        match state {
-                            GlobalObjectState::Initialized => {
-                                default_audio_devices_initialized = true;
-                            }
-                            _ => {
-                                self.core_api.get_default_audio_nodes_state()?;
-                                return Err(Error {
-                                    description: "Default audio nodes not yet initialized".to_string(),
-                                })
-                            }
-                        }
-                    },
-                    MessageResponse::NodeStates(states) => {
-                        let condition = states.iter()
-                            .all(|state| *state == GlobalObjectState::Initialized);
-                        match condition {
-                            true => {
-                                nodes_initialized = true;
-                            },
-                            false => {
-                                self.node_api.get_states()?;
-                                return Err(Error {
-                                    description: "All nodes should be initialized at this point".to_string(),
-                                })
-                            }
-                        };
-                    }
-                    MessageResponse::Error(value) => return Err(value),
-                    _ => return Err(Error {
-                        description: format!("Received unexpected response: {:?}", value),
-                    }),
+            if settings_initialized == false {
+                let settings_state = self.core_api.get_settings_state()?;
+                if settings_state == GlobalObjectState::Initialized {
+                    settings_initialized = true;
                 }
-                Err(_) => return Err(Error {
-                    description: format!(
-                        r"Timeout:
-                            - settings: {}
-                            - default audio nodes: {}
-                            - nodes: {}",
-                        settings_initialized,
-                        default_audio_devices_initialized,
-                        nodes_initialized
-                    ),
-                })
-            };
-            if settings_initialized == false || default_audio_devices_initialized == false || nodes_initialized == false {
+            }
+            if default_audio_nodes_initialized == false {
+                let default_audio_nodes_state = self.core_api.get_default_audio_nodes_state()?;
+                if default_audio_nodes_state == GlobalObjectState::Initialized {
+                    default_audio_nodes_initialized = true;
+                }
+            }
+            if nodes_initialized == false {
+                let node_states = self.node_api.states()?;
+                let condition = node_states.iter()
+                    .all(|state| *state == GlobalObjectState::Initialized);
+                if condition {
+                    nodes_initialized = true;
+                }
+            }
+            if settings_initialized == false || default_audio_nodes_initialized == false || nodes_initialized == false {
                 return Err(Error {
                     description: format!(
                         r"Conditions not yet initialized:
@@ -197,18 +158,14 @@ impl PipewireClient {
                             - default audio nodes: {}
                             - nodes: {}",
                         settings_initialized,
-                        default_audio_devices_initialized,
+                        default_audio_nodes_initialized,
                         nodes_initialized
                     ),
                 })
             }
             return Ok(());
         };
-        let mut backoff = Backoff::new(
-            30,
-            std::time::Duration::from_millis(10),
-            std::time::Duration::from_millis(100),
-        );
+        let mut backoff = Backoff::constant(self.timeout.as_millis());
         backoff.retry(operation)
     }
 
@@ -239,9 +196,7 @@ impl Drop for PipewireClient {
     fn drop(&mut self) {
         if self.internal_api.send_request_without_response(&MessageRequest::Quit).is_ok() {
             if let Some(thread_handle) = self.thread_handle.take() {
-                if let Err(err) = thread_handle.join() {
-                    panic!("Failed to join PipeWire thread: {:?}", err);
-                }
+                thread_handle.join().unwrap();
             }
         } else {
             panic!("Failed to send Quit message to PipeWire thread.");

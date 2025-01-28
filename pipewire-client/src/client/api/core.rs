@@ -1,7 +1,7 @@
 use crate::client::api::internal::InternalApi;
 use crate::error::Error;
 use crate::messages::{MessageRequest, MessageResponse};
-use crate::states::{DefaultAudioNodesState, SettingsState};
+use crate::states::{DefaultAudioNodesState, GlobalObjectState, SettingsState};
 use std::sync::Arc;
 
 pub struct CoreApi {
@@ -52,9 +52,16 @@ impl CoreApi {
         }
     }
 
-    pub(crate) fn get_settings_state(&self) -> Result<(), Error> {
+    pub(crate) fn get_settings_state(&self) -> Result<GlobalObjectState, Error> {
         let request = MessageRequest::SettingsState;
-        self.api.send_request_without_response(&request)
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::SettingsState(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
     }
 
     pub fn get_default_audio_nodes(&self) -> Result<DefaultAudioNodesState, Error> {
@@ -69,8 +76,15 @@ impl CoreApi {
         }
     }
 
-    pub(crate) fn get_default_audio_nodes_state(&self) -> Result<(), Error> {
+    pub(crate) fn get_default_audio_nodes_state(&self) -> Result<GlobalObjectState, Error> {
         let request = MessageRequest::DefaultAudioNodesState;
-        self.api.send_request_without_response(&request)
+        let response = self.api.send_request(&request);
+        match response {
+            Ok(MessageResponse::DefaultAudioNodesState(value)) => Ok(value),
+            Err(value) => Err(value),
+            Ok(value) => Err(Error {
+                description: format!("Received unexpected response: {:?}", value),
+            }),
+        }
     }
 }

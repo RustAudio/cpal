@@ -1,0 +1,13 @@
+[package]
+name = "pipewire-common"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alexis Bekhdadi <alexis@bekhdadi.com>"]
+description = "PipeWire Common"
+repository = "https://github.com/RustAudio/cpal/"
+documentation = ""
+license = "Apache-2.0"
+keywords = ["pipewire", "common"]
+
+[dependencies]
+pipewire = "0.8"

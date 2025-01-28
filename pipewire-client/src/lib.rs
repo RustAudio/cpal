@@ -1,20 +1,19 @@
+use pipewire_common::error as error;
+use pipewire_common::utils as utils;
+pub use pipewire_common::utils::Direction;
+pub use pipewire_common::constants as constants;
+
 mod client;
 pub use client::PipewireClient;
 
-mod constants;
 mod listeners;
 mod messages;
 mod states;
 
-mod utils;
-pub use utils::Direction;
-
-mod error;
-
 mod info;
 
 #[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 
 pub use info::AudioStreamInfo;
 pub use info::NodeInfo;

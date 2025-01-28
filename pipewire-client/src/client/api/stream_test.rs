@@ -1,47 +1,40 @@
 use crate::listeners::ListenerControlFlow;
 use crate::states::StreamState;
-use crate::test_utils::fixtures::client;
-use crate::test_utils::fixtures::PipewireTestClient;
-use crate::{Direction, NodeInfo};
+use crate::test_utils::fixtures::{input_connected_stream, input_node, input_stream, output_connected_stream, output_node, output_stream, shared_client, ConnectedStreamFixture, NodeInfoFixture, PipewireTestClient, StreamFixture};
+use crate::{Direction, PipewireClient};
 use rstest::rstest;
+use serial_test::serial;
 use std::any::TypeId;
+use std::fmt::{Display, Formatter};
+use std::ops::Deref;
+use crate::client::api::StreamApi;
+use crate::client::CoreApi;
+
+fn assert_listeners(client: &CoreApi, stream_name: &String, expected_listener: u32) {
+    let listeners = client.get_listeners().unwrap();
+    let stream_listeners = listeners.get(&TypeId::of::<StreamState>()).unwrap().iter()
+        .find_map(move |(key, listeners)| {
+            if key == stream_name {
+                Some(listeners)
+            }
+            else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(expected_listener as usize, stream_listeners.len());
+}
 
 fn internal_create<F>(
-    client: &PipewireTestClient,
-    node: NodeInfo,
+    client: &StreamApi,
+    node: &NodeInfoFixture,
     direction: Direction,
     callback: F,
-) -> String where
+) -> String
+where
     F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static
 {
-    client.stream()
-        .create(
-            node.id,
-            direction,
-            node.format.clone().into(),
-            callback
-        )
-        .unwrap()
-}
-
-fn internal_delete(
-    client: &PipewireTestClient,
-    stream: &String
-) {
-    client.stream()
-        .delete(stream.clone())
-        .unwrap()
-}
-
-fn internal_create_connected<F>(
-    client: &PipewireTestClient,
-    node: NodeInfo,
-    direction: Direction,
-    callback: F,
-) -> String where
-    F: FnMut(&mut ListenerControlFlow, pipewire::buffer::Buffer) + Send + 'static
-{
-    let stream = client.stream()
+    let stream_name = client
         .create(
             node.id,
             direction,
@@ -49,20 +42,17 @@ fn internal_create_connected<F>(
             callback
         )
         .unwrap();
-    client.stream().connect(stream.clone()).unwrap();
-    stream
+    stream_name
 }
 
 fn abstract_create(
-    client: &PipewireTestClient,
+    client: &PipewireClient,
+    node: &NodeInfoFixture,
     direction: Direction
-) -> String {
+) {
     let stream = internal_create(
-        &client,
-        match direction {
-            Direction::Input => client.default_input_node().clone(),
-            Direction::Output => client.default_output_node().clone()
-        },
+        &client.stream(),
+        node,
         direction.clone(),
         move |control_flow, _| {
             assert!(true);
@@ -73,125 +63,167 @@ fn abstract_create(
         Direction::Input => assert_eq!(true, stream.ends_with(".stream_input")),
         Direction::Output => assert_eq!(true, stream.ends_with(".stream_output"))
     };
-    let listeners = client.core().get_listeners().unwrap();
-    let stream_listeners = listeners.get(&TypeId::of::<StreamState>()).unwrap();
-    for (_, listeners) in stream_listeners {
-        // Expect one listener since we created a stream object with our callback set
-        assert_eq!(1, listeners.len());
-    }
-    stream
+    assert_listeners(client.core(), &stream, 1);
 }
 
 #[rstest]
+#[serial]
 fn create_input(
-    client: PipewireTestClient,
+    #[from(input_node)] node: NodeInfoFixture
 ) {
     let direction = Direction::Input;
-    abstract_create(&client, direction);
+    abstract_create(&node.client(), &node, direction);
 }
 
 #[rstest]
+#[serial]
 fn create_output(
-    client: PipewireTestClient,
+    #[from(output_node)] node: NodeInfoFixture
 ) {
     let direction = Direction::Output;
-    abstract_create(&client, direction);
+    abstract_create(&node.client(), &node, direction);
 }
 
 #[rstest]
+#[serial]
+fn create_twice(
+    #[from(output_node)] node: NodeInfoFixture
+) {
+    let direction = Direction::Output;
+    let stream = node.client().stream()
+        .create(
+            node.id,
+            direction.clone(),
+            node.format.clone().into(),
+           move |_, _| {} 
+        )
+        .unwrap();
+    let error = node.client().stream()
+        .create(
+            node.id,
+            direction.clone(),
+            node.format.clone().into(),
+            move |_, _| {}
+        )
+        .unwrap_err();
+    assert_eq!(
+        format!("Stream with name({}) already exists", stream),
+        error.description
+    );
+    assert_listeners(node.client().core(), &stream, 1);
+}
+
+#[rstest]
+#[serial]
 fn delete_input(
-    client: PipewireTestClient,
+    #[from(input_stream)] stream: StreamFixture
 ) {
-    let direction = Direction::Input;
-    let stream = abstract_create(&client, direction);
-    client.stream().delete(stream).unwrap();
-    let listeners = client.core().get_listeners().unwrap();
-    let stream_listeners = listeners.get(&TypeId::of::<StreamState>()).unwrap();
-    for (_, listeners) in stream_listeners {
-        assert_eq!(0, listeners.len());
-    }
+    stream.delete().unwrap();
 }
 
 #[rstest]
+#[serial]
 fn delete_output(
-    client: PipewireTestClient,
+    #[from(output_stream)] stream: StreamFixture
 ) {
-    let direction = Direction::Output;
-    let stream = abstract_create(&client, direction);
-    client.stream().delete(stream).unwrap()
-}
-
-fn abstract_connect(
-    client: &PipewireTestClient,
-    direction: Direction
-) {
-    let stream = internal_create(
-        &client,
-        match direction {
-            Direction::Input => client.default_input_node().clone(),
-            Direction::Output => client.default_output_node().clone()
-        },
-        direction.clone(),
-        move |control_flow, mut buffer| {
-            let data = buffer.datas_mut();
-            let data = &mut data[0];
-            let data = data.data().unwrap();
-            assert_eq!(true, data.len() > 0);
-            control_flow.release();
-        }
-    );
-    client.stream().connect(stream.clone()).ok().unwrap();
-    // Wait a bit to test if stream callback will panic
-    std::thread::sleep(std::time::Duration::from_millis(1 * 1000));
+    stream.delete().unwrap();
 }
 
 #[rstest]
+#[serial]
+fn delete_when_not_exists(
+    #[from(shared_client)] client: PipewireTestClient,
+) {
+    let stream = "not_existing_stream".to_string();
+    let error = client.stream().delete(stream.clone()).unwrap_err();
+    assert_eq!(
+        format!("Stream with name({}) not found", stream),
+        error.description
+    )
+}
+
+#[rstest]
+#[serial]
+fn delete_twice(
+    #[from(output_stream)] stream: StreamFixture
+) {
+    stream.delete().unwrap();
+    let error = stream.delete().unwrap_err();
+    assert_eq!(
+        format!("Stream with name({}) not found", stream),
+        error.description
+    )
+}
+
+#[rstest]
+#[serial]
 fn connect_input(
-    client: PipewireTestClient,
+    #[from(input_stream)] stream: StreamFixture
 ) {
-    let direction = Direction::Input;
-    abstract_connect(&client, direction);
+    stream.connect().unwrap();
+    assert_listeners(stream.client().core(), &stream, 1);
 }
 
 #[rstest]
+#[serial]
 fn connect_output(
-    client: PipewireTestClient,
+    #[from(output_stream)] stream: StreamFixture
 ) {
-    let direction = Direction::Output;
-    abstract_connect(&client, direction);
-}
-
-fn abstract_disconnect(
-    client: &PipewireTestClient,
-    direction: Direction
-) {
-    let stream = internal_create_connected(
-        &client,
-        match direction {
-            Direction::Input => client.default_input_node().clone(),
-            Direction::Output => client.default_output_node().clone()
-        },
-        direction.clone(),
-        move |control_flow, _| {
-            assert!(true);
-            control_flow.release();
-        }
-    );
-    client.stream().disconnect(stream.clone()).unwrap();
+    stream.connect().unwrap();
+    assert_listeners(stream.client().core(), &stream, 1);
 }
 
 #[rstest]
+#[serial]
+fn connect_twice(
+    #[from(output_connected_stream)] stream: ConnectedStreamFixture
+) {
+    let error = stream.connect().unwrap_err();
+    assert_eq!(
+        format!("Stream {} is already connected", stream), 
+        error.description
+    )
+}
+
+#[rstest]
+#[serial]
 fn disconnect_input(
-    client: PipewireTestClient,
+    #[from(input_connected_stream)] stream: ConnectedStreamFixture
 ) {
-    let direction = Direction::Input;
-    abstract_disconnect(&client, direction);
+    stream.disconnect().unwrap();
+    assert_listeners(stream.client().core(), &stream, 1);
 }
 
 #[rstest]
+#[serial]
 fn disconnect_output(
-    client: PipewireTestClient,
+    #[from(output_connected_stream)] stream: ConnectedStreamFixture
 ) {
-    let direction = Direction::Output;
-    abstract_disconnect(&client, direction);
+    stream.disconnect().unwrap();
+    assert_listeners(stream.client().core(), &stream, 1);
+}
+
+#[rstest]
+#[serial]
+fn disconnect_when_not_connected(
+    #[from(output_stream)] stream: StreamFixture
+) {
+    let error = stream.disconnect().unwrap_err();
+    assert_eq!(
+        format!("Stream {} is not connected", stream),
+        error.description
+    )
+}
+
+#[rstest]
+#[serial]
+fn disconnect_twice(
+    #[from(output_connected_stream)] stream: ConnectedStreamFixture
+) {
+    stream.disconnect().unwrap();
+    let error = stream.disconnect().unwrap_err();
+    assert_eq!(
+        format!("Stream {} is not connected", stream),
+        error.description
+    )
 }

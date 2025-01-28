@@ -1,177 +1,296 @@
+use crate::client::channel::{Request, ServerChannel};
 use crate::constants::*;
 use crate::error::Error;
+use crate::listeners::PipewireCoreSync;
 use crate::messages::{MessageRequest, MessageResponse, StreamCallback};
-use crate::states::{GlobalId, GlobalObjectState, GlobalState, OrphanState, StreamState};
-use crate::utils::PipewireCoreSync;
+use crate::states::{GlobalId, GlobalObjectState, GlobalState, NodeState, OrphanState, StreamState};
 use crate::{AudioStreamInfo, Direction, NodeInfo};
 use pipewire::proxy::ProxyT;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+#[cfg(test)]
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use pipewire_common::utils::dict_ref_to_hashmap;
+
+struct Context {
+    request: Request<MessageRequest>,
+    core: Rc<pipewire::core::Core>,
+    core_sync: Rc<PipewireCoreSync>,
+    main_loop: pipewire::main_loop::MainLoop,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
+}
 
 pub(super) fn request_handler(
     core: Rc<pipewire::core::Core>,
     core_sync: Rc<PipewireCoreSync>,
     main_loop: pipewire::main_loop::MainLoop,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
-) -> impl Fn(MessageRequest) + 'static
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
+) -> impl Fn(Request<MessageRequest>) + 'static
 {
-    move |message_request: MessageRequest| match message_request {
-        MessageRequest::Quit => main_loop.quit(),
-        MessageRequest::Settings => {
-            handle_settings(
-                state.clone(),
-                main_sender.clone(),
-            )
-        }
-        MessageRequest::DefaultAudioNodes => {
-            handle_default_audio_nodes(
-                state.clone(), 
-                main_sender.clone()
-            )
-        },
-        MessageRequest::CreateNode {
-            name,
-            description,
-            nickname,
-            direction,
-            channels,
-        } => {
-            handle_create_node(
+    move |request| {
+        let message_request = request.message.clone();
+        let context = Context {
+            request,
+            core: core.clone(),
+            core_sync: core_sync.clone(),
+            main_loop: main_loop.clone(),
+            state: state.clone(),
+            server_channel: server_channel.clone(),
+        };
+        match message_request {
+            MessageRequest::Quit => main_loop.quit(),
+            MessageRequest::Settings => handle_settings(
+                context,
+            ),
+            MessageRequest::DefaultAudioNodes => handle_default_audio_nodes(
+                context,
+            ),
+            MessageRequest::GetNode {
+                name,
+                direction
+            } => handle_get_node(context, name, direction),
+            MessageRequest::CreateNode {
                 name,
                 description,
                 nickname,
                 direction,
                 channels,
-                core.clone(),
-                core_sync.clone(),
-                state.clone(),
-                main_sender.clone(),
-            )
-        }
-        MessageRequest::EnumerateNodes(direction) => {
-            handle_enumerate_node(
+            } => handle_create_node(
+                context,
+                name,
+                description,
+                nickname,
                 direction,
-                state.clone(),
-                main_sender.clone(),
-            )
-        },
-        MessageRequest::CreateStream {
-            node_id,
-            direction,
-            format,
-            callback
-        } => {
-            handle_create_stream(
+                channels,
+            ),
+            MessageRequest::DeleteNode(id) => handle_delete_node(context, id),
+            MessageRequest::EnumerateNodes(direction) => handle_enumerate_node(
+                context,
+                direction,
+            ),
+            MessageRequest::CreateStream {
+                node_id,
+                direction,
+                format,
+                callback
+            } => handle_create_stream(
+                context,
                 node_id,
                 direction,
                 format,
                 callback,
-                core.clone(),
-                state.clone(),
-                main_sender.clone(),
-            )
-        }
-        MessageRequest::DeleteStream { name } => {
-            handle_delete_stream(
+            ),
+            MessageRequest::DeleteStream(name) => handle_delete_stream(
+                context,
                 name,
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::ConnectStream { name } => {
-            handle_connect_stream(
+            ),
+            MessageRequest::ConnectStream(name) => handle_connect_stream(
+                context,
                 name,
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::DisconnectStream { name } => {
-            handle_disconnect_stream(
+            ),
+            MessageRequest::DisconnectStream(name) => handle_disconnect_stream(
+                context,
                 name,
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        // Internal requests
-        MessageRequest::CheckSessionManagerRegistered => {
-            handle_check_session_manager_registered(
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::SettingsState => {
-            handle_settings_state(
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::DefaultAudioNodesState => {
-            handle_default_audio_nodes_state(
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::NodeState(id) => {
-            handle_node_state(
+            ),
+            // Internal requests
+            MessageRequest::CheckSessionManagerRegistered => handle_check_session_manager_registered(
+                context,
+            ),
+            MessageRequest::SettingsState => handle_settings_state(
+                context,
+            ),
+            MessageRequest::DefaultAudioNodesState => handle_default_audio_nodes_state(
+                context,
+            ),
+            MessageRequest::NodeState(id) => handle_node_state(
+                context,
                 id,
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::NodeStates => {
-            handle_node_states(
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::NodeCount => {
-            handle_node_count(
-                state.clone(),
-                main_sender.clone()
-            )
-        }
-        MessageRequest::Listeners => {
-            handle_listeners(
-                state.clone(),
-                main_sender.clone(),
-                core_sync.clone()
-            )
+            ),
+            MessageRequest::NodeStates => handle_node_states(
+                context,
+            ),
+            MessageRequest::NodeCount => handle_node_count(
+                context,
+            ),
+            #[cfg(test)]
+            MessageRequest::Listeners => handle_listeners(
+                context,
+            ),
         }
     }
 }
 
 fn handle_settings(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 ) 
 {
-    let state = state.borrow();
+    let state = context.state.lock().unwrap();
     let settings = state.get_settings();
-    main_sender.send(MessageResponse::Settings(settings)).unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::Settings(settings))
+        .unwrap();
 }
 fn handle_default_audio_nodes(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 ) 
 {
-    let state = state.borrow();
+    let state = context.state.lock().unwrap();
     let default_audio_devices = state.get_default_audio_nodes();
-    main_sender.send(MessageResponse::DefaultAudioNodes(default_audio_devices)).unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::DefaultAudioNodes(default_audio_devices))
+        .unwrap();
+}
+fn handle_get_node(
+    context: Context,
+    name: String,
+    direction: Direction,
+)
+{
+    let control_flow = RefCell::new(false);
+    let state = context.state.lock().unwrap();
+    let default_audio_nodes = state.get_default_audio_nodes();
+    let default_audio_node = match direction {
+        Direction::Input => default_audio_nodes.source.clone(),
+        Direction::Output => default_audio_nodes.sink.clone()
+    };
+    let nodes = match state.get_nodes() {
+        Ok(value) => value,
+        Err(value) => {
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
+                .unwrap();
+            return;
+        }
+    };
+    let node = nodes.iter()
+        .find_map(|(id, node)| {
+            let properties = node.properties().unwrap();
+            let format = node.format().unwrap();
+            let name_to_compare = match node.name() {
+                Ok(value) => value,
+                Err(value) => {
+                    control_flow.replace(true);
+                    context.server_channel
+                        .send(&context.request, MessageResponse::Error(value))
+                        .unwrap();
+                    return None;
+                }
+            };
+            let direction_to_compare = match node.direction() {
+                Ok(value) => value,
+                Err(value) => {
+                    control_flow.replace(true);
+                    context.server_channel
+                        .send(&context.request, MessageResponse::Error(value))
+                        .unwrap();
+                    return None;
+                }
+            };
+            if name_to_compare == name && direction_to_compare == direction {
+                Some((id, properties, format))
+            } else {
+                None
+            }
+        })
+        .iter()
+        .find_map(|(id, properties, format)| {
+            if *control_flow.borrow() == true {
+                return None;
+            }
+            let name = properties.get(*pipewire::keys::NODE_NAME).unwrap().clone();
+            let description = properties
+                .get(*pipewire::keys::NODE_DESCRIPTION)
+                .unwrap()
+                .clone();
+            let nickname = match properties.contains_key(*pipewire::keys::NODE_NICK) {
+                true => properties.get(*pipewire::keys::NODE_NICK).unwrap().clone(),
+                false => name.clone(),
+            };
+            let is_default = name == default_audio_node;
+            Some(NodeInfo {
+                id: (**id).clone().into(),
+                name,
+                description,
+                nickname,
+                direction: direction.clone(),
+                is_default,
+                format: format.clone()
+            })
+        });
+    match node {
+        Some(value) => context.server_channel
+            .send(&context.request, MessageResponse::GetNode(value))
+            .unwrap(),
+        None => context.server_channel
+            .send(&context.request, MessageResponse::Error(Error {
+                description: format!("Node with name({}) not found", name),
+            }))
+            .unwrap()
+    }
+
 }
 fn handle_create_node(
+    context: Context,
     name: String,
     description: String,
     nickname: String,
     direction: Direction,
     channels: u16,
-    core: Rc<pipewire::core::Core>,
-    core_sync: Rc<PipewireCoreSync>,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
+    {
+        let control_flow = RefCell::new(false);
+        let state = context.state.lock().unwrap();
+        let nodes = match state.get_nodes() {
+            Ok(value) => value,
+            Err(value) => {
+                context.server_channel
+                    .send(&context.request, MessageResponse::Error(value))
+                    .unwrap();
+                return;
+            }
+        };
+        let is_exists = nodes.iter().any(|(_, node)| {
+            if *control_flow.borrow() == true {
+                return false;
+            }
+            let name_to_compare = match node.name() {
+                Ok(value) => value,
+                Err(value) => {
+                    control_flow.replace(true);
+                    context.server_channel
+                        .send(&context.request, MessageResponse::Error(value))
+                        .unwrap();
+                    return false;
+                }
+            };
+            let direction_to_compare = match node.direction() {
+                Ok(value) => value,
+                Err(value) => {
+                    control_flow.replace(true);
+                    context.server_channel
+                        .send(&context.request, MessageResponse::Error(value))
+                        .unwrap();
+                    return false;
+                }
+            };
+            name_to_compare == name && direction_to_compare == direction
+        });
+        if is_exists {
+            context.server_channel
+                .send(
+                    &context.request, 
+                    MessageResponse::Error(Error {
+                        description: format!("Node with name({}) already exists", name).to_string(),
+                    }
+                ))
+                .unwrap();
+        }
+    }
     let default_audio_position = format!(
         "[ {} ]",
         (1..=channels + 1)
@@ -204,7 +323,7 @@ fn handle_create_node(
             _ => default_audio_position.as_str(),
         }
     };
-    let node: pipewire::node::Node = match core
+    let node: pipewire::node::Node = match context.core
         .create_object("adapter", properties)
         .map_err(move |error| {
             Error {
@@ -213,52 +332,60 @@ fn handle_create_node(
         }) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
-    let core_sync = core_sync.clone();
-    let listener_main_sender = main_sender.clone();
-    let listener_state = state.clone();
+    let core_sync = context.core_sync.clone();
+    let listener_server_channel = context.server_channel.clone();
+    let listener_state = context.state.clone();
+    let listener_properties = properties.clone();
     core_sync.register(
         PIPEWIRE_CORE_SYNC_CREATE_DEVICE_SEQ,
         move |control_flow| {
-            let state = listener_state.borrow();
-            let nodes = match state.get_nodes() {
+            let mut state = listener_state.lock().unwrap();
+            let mut nodes = match state.get_nodes_mut() {
                 Ok(value) => value,
                 Err(value) => {
-                    listener_main_sender
-                        .send(MessageResponse::Error(value))
+                    listener_server_channel
+                        .send(&context.request, MessageResponse::Error(value))
                         .unwrap();
                     control_flow.release();
                     return;
                 }
             };
-            let node = nodes.iter()
+            let node = nodes.iter_mut()
                 .find(move |(_, node)| {
                     node.state() == GlobalObjectState::Pending
                 });
-            if let None = node {
-                listener_main_sender
-                    .send(MessageResponse::Error(Error {
-                        description: "Created node not found".to_string(),
-                    }))
-                    .unwrap();
-            } 
-            else {
-                let node_id = node.unwrap().0;
-                listener_main_sender
-                    .send(MessageResponse::CreateNode {
-                        id: (*node_id).clone(),
-                    })
-                    .unwrap();
+            match node {
+                Some((id, node)) => {
+                    let properties = dict_ref_to_hashmap(listener_properties.dict());
+                    node.set_properties(properties);
+                    listener_server_channel
+                        .send(
+                            &context.request,
+                            MessageResponse::CreateNode((*id).clone())
+                        )
+                        .unwrap();
+                }
+                None => {
+                    listener_server_channel
+                        .send(
+                            &context.request,
+                            MessageResponse::Error(Error {
+                                description: "Created node not found".to_string(),
+                            })
+                        )
+                        .unwrap();
+                }
             }
             control_flow.release();
         }
     );
-    let mut state = state.borrow_mut();
+    let mut state = context.state.lock().unwrap();
     // We need to store created node object as orphan since it had not been
     // registered by server at this point (does not have an id yet).
     //
@@ -273,13 +400,31 @@ fn handle_create_node(
     let orphan = OrphanState::new(node.upcast());
     state.insert_orphan(orphan);
 }
+fn handle_delete_node(
+    context: Context,
+    id: GlobalId,
+)
+{
+    match context.state.lock().unwrap().delete_node(&id) {
+        Ok(_) => {
+            context.server_channel
+                .send(&context.request, MessageResponse::DeleteNode)
+                .unwrap()
+        }
+        Err(value) => {
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
+                .unwrap()
+        }
+    };
+}
+
 fn handle_enumerate_node(
+    context: Context,
     direction: Direction,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
-    let state = state.borrow();
+    let state = context.state.lock().unwrap();
     let default_audio_nodes = state.get_default_audio_nodes();
     let default_audio_node = match direction {
         Direction::Input => default_audio_nodes.source.clone(),
@@ -292,8 +437,8 @@ fn handle_enumerate_node(
     let nodes = match state.get_nodes() {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -301,7 +446,7 @@ fn handle_enumerate_node(
     let nodes: Vec<NodeInfo> = nodes
         .iter()
         .filter_map(|(id, node)| {
-            let properties = node.properties();
+            let properties = node.properties().unwrap();
             let format = node.format().unwrap();
             if properties.iter().any(|(_, v)| v == filter_value) {
                 Some((id, properties, format))
@@ -331,24 +476,32 @@ fn handle_enumerate_node(
             }
         })
         .collect();
-    main_sender.send(MessageResponse::EnumerateNodes(nodes)).unwrap();
+    context.server_channel.send(&context.request, MessageResponse::EnumerateNodes(nodes)).unwrap();
 }
 fn handle_create_stream(
+    context: Context,
     node_id: GlobalId,
     direction: Direction,
     format: AudioStreamInfo,
     callback: StreamCallback,
-    core: Rc<pipewire::core::Core>,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = context.state.lock().unwrap();
     let node_name = match state.get_node(&node_id) {
-        Ok(value) => value.name(),
+        Ok(value) => {
+            match value.name() {
+                Ok(value) => value,
+                Err(value) => {
+                    context.server_channel
+                        .send(&context.request, MessageResponse::Error(value))
+                        .unwrap();
+                    return;
+                }
+            }
+        },
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -362,14 +515,14 @@ fn handle_create_stream(
         }
     };
     let properties = pipewire::properties::properties! {
-                    *pipewire::keys::MEDIA_TYPE => MEDIA_TYPE_PROPERTY_VALUE_AUDIO,
-                    *pipewire::keys::MEDIA_CLASS => match direction {
-                        Direction::Input => MEDIA_CLASS_PROPERTY_VALUE_STREAM_INPUT_AUDIO,
-                        Direction::Output => MEDIA_CLASS_PROPERTY_VALUE_STREAM_OUTPUT_AUDIO,
-                    },
-                };
+        *pipewire::keys::MEDIA_TYPE => MEDIA_TYPE_PROPERTY_VALUE_AUDIO,
+        *pipewire::keys::MEDIA_CLASS => match direction {
+            Direction::Input => MEDIA_CLASS_PROPERTY_VALUE_STREAM_INPUT_AUDIO,
+            Direction::Output => MEDIA_CLASS_PROPERTY_VALUE_STREAM_OUTPUT_AUDIO,
+        },
+    };
     let stream = match pipewire::stream::Stream::new(
-        &core,
+        &context.core,
         stream_name.clone().as_str(),
         properties,
     )
@@ -380,8 +533,8 @@ fn handle_create_stream(
         }) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -394,100 +547,97 @@ fn handle_create_stream(
     );
     stream.add_process_listener(callback);
     if let Err(value) = state.insert_stream(stream_name.clone(), stream) {
-        main_sender
-            .send(MessageResponse::Error(value))
+        context.server_channel
+            .send(&context.request, MessageResponse::Error(value))
             .unwrap();
         return;
     };
-    main_sender
-        .send(MessageResponse::CreateStream {
-            name: stream_name.clone(),
-        })
+    context.server_channel
+        .send(
+            &context.request,
+            MessageResponse::CreateStream(stream_name.clone())
+        )
         .unwrap();
 }
 fn handle_delete_stream(
+    context: Context,
     name: String,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = context.state.lock().unwrap();
     let stream = match state.get_stream_mut(&name) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
     if stream.is_connected() {
         if let Err(value) = stream.disconnect() {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         };
     }
-    if let Err(value) = state.remove_stream(&name) {
-        main_sender
-            .send(MessageResponse::Error(value))
+    if let Err(value) = state.delete_stream(&name) {
+        context.server_channel
+            .send(&context.request, MessageResponse::Error(value))
             .unwrap();
         return;
     };
-    main_sender.send(MessageResponse::DeleteStream).unwrap();
+    context.server_channel.send(&context.request, MessageResponse::DeleteStream).unwrap();
 }
 fn handle_connect_stream(
+    context: Context,
     name: String,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 )
 {
-    let mut state = state.borrow_mut();
+    let mut state = context.state.lock().unwrap();
     let stream = match state.get_stream_mut(&name) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
     if let Err(value) = stream.connect() {
-        main_sender
-            .send(MessageResponse::Error(value))
+        context.server_channel
+            .send(&context.request, MessageResponse::Error(value))
             .unwrap();
         return;
     };
-    main_sender.send(MessageResponse::ConnectStream).unwrap();
+    context.server_channel.send(&context.request, MessageResponse::ConnectStream).unwrap();
 }
 fn handle_disconnect_stream(
+    context: Context,
     name: String,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = context.state.lock().unwrap();
     let stream = match state.get_stream_mut(&name) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
     if let Err(value) = stream.disconnect() {
-        main_sender
-            .send(MessageResponse::Error(value))
+        context.server_channel
+            .send(&context.request, MessageResponse::Error(value))
             .unwrap();
         return;
     };
-    main_sender.send(MessageResponse::DisconnectStream).unwrap();
+    context.server_channel.send(&context.request, MessageResponse::DisconnectStream).unwrap();
 }
 fn handle_check_session_manager_registered(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 ) 
 {
     pub(crate) fn generate_error_message(session_managers: &Vec<&str>) -> String {
@@ -515,7 +665,7 @@ fn handle_check_session_manager_registered(
         APPLICATION_NAME_PROPERTY_VALUE_PIPEWIRE_MEDIA_SESSION
     ];
     let error_description = generate_error_message(&session_managers);
-    let state = state.borrow_mut();
+    let state = context.state.lock().unwrap();
     let clients = state.get_clients().map_err(|_| {
         Error {
             description: error_description.clone(),
@@ -524,8 +674,8 @@ fn handle_check_session_manager_registered(
     let clients = match clients {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -534,67 +684,68 @@ fn handle_check_session_manager_registered(
         .any(|(_, client)| {
             session_managers.contains(&client.name.as_str())
         });
-    main_sender
-        .send(MessageResponse::CheckSessionManagerRegistered {
-            session_manager_registered,
-            error: match session_manager_registered {
-                true => Some(Error {
-                    description: error_description.clone()
-                }),
-                false => None
-            },
-        })
+    context.server_channel
+        .send(
+            &context.request,
+            MessageResponse::CheckSessionManagerRegistered {
+                session_manager_registered,
+                error: match session_manager_registered {
+                    true => Some(Error {
+                        description: error_description.clone()
+                    }),
+                    false => None
+                },
+            }
+        )
         .unwrap();
 }
 fn handle_settings_state(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 )
 {
-    let state = state.borrow_mut();
-    main_sender
-        .send(MessageResponse::SettingsState(state.get_settings().state))
+    let state = context.state.lock().unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::SettingsState(state.get_settings().state))
         .unwrap();
 }
 fn handle_default_audio_nodes_state(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 )
 {
-    let state = state.borrow_mut();
-    main_sender
-        .send(MessageResponse::DefaultAudioNodesState(state.get_default_audio_nodes().state))
+    let state = context.state.lock().unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::DefaultAudioNodesState(state.get_default_audio_nodes().state))
         .unwrap();
 }
 fn handle_node_state(
+    context: Context,
     id: GlobalId,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
 ) {
-    let state = state.borrow();
+    let state = context.state.lock().unwrap();
     let node = match state.get_node(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
     let state = node.state();
-    main_sender.send(MessageResponse::NodeState(state)).unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::NodeState(state))
+        .unwrap();
 }
 fn handle_node_states(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 ) 
 {
-    let state = state.borrow_mut();
+    let state = context.state.lock().unwrap();
     let nodes = match state.get_nodes() {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            context.server_channel
+                .send(&context.request, MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -604,62 +755,66 @@ fn handle_node_states(
             node.state()
         })
         .collect::<Vec<_>>();
-    main_sender.send(MessageResponse::NodeStates(states)).unwrap();
+    context.server_channel
+        .send(&context.request, MessageResponse::NodeStates(states))
+        .unwrap();
 }
 fn handle_node_count(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    context: Context,
 )
 {
-    let state = state.borrow_mut();
+    let state = context.state.lock().unwrap();
     match state.get_nodes() {
         Ok(value) => {
-            main_sender
-                .send(MessageResponse::NodeCount(value.len() as u32))
+            context.server_channel
+                .send(&context.request, MessageResponse::NodeCount(value.len() as u32))
                 .unwrap();
         },
         Err(_) => {
-            main_sender
-                .send(MessageResponse::NodeCount(0))
+            context.server_channel
+                .send(&context.request, MessageResponse::NodeCount(0))
                 .unwrap();
         }
     };
 }
+#[cfg(test)]
 fn handle_listeners(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
-    core_sync: Rc<PipewireCoreSync>
+    context: Context,
 )
 {
+    let state = context.state.lock().unwrap();
     let mut core = HashMap::new();
-    core.insert("0".to_string(), core_sync.get_listener_names());
-    let metadata = state.borrow().get_metadatas()
+    core.insert("0".to_string(), context.core_sync.get_listener_names());
+    let metadata = state.get_metadatas()
         .unwrap_or_default()
         .iter()
         .map(move |(id, metadata)| {
             (id.to_string(), metadata.get_listener_names())
         })
         .collect::<HashMap<_, _>>();
-    let nodes = state.borrow().get_nodes()
+    let nodes = state.get_nodes()
         .unwrap_or_default()
         .iter()
         .map(move |(id, node)| {
             (id.to_string(), node.get_listener_names())
         })
         .collect::<HashMap<_, _>>();
-    let streams = state.borrow().get_streams()
+    let streams = state.get_streams()
         .unwrap_or_default()
         .iter()
         .map(move |(name, stream)| {
             ((*name).clone(), stream.get_listener_names())
         })
         .collect::<HashMap<_, _>>();
-    main_sender
-        .send(MessageResponse::Listeners {
-            core,
-            metadata,
-            nodes,
-            streams,
-        })
+    context.server_channel
+        .send(
+            &context.request,
+            MessageResponse::Listeners {
+                core,
+                metadata,
+                nodes,
+                streams,
+            }
+        )
         .unwrap();
 }

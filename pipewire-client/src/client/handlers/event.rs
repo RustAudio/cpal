@@ -1,15 +1,17 @@
 use crate::constants::{METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
 use crate::error::Error;
-use crate::messages::{EventMessage, MessageResponse};
+use crate::messages::{EventMessage, MessageRequest, MessageResponse};
 use crate::states::{DefaultAudioNodesState, GlobalId, GlobalState, SettingsState};
 use pipewire_spa_utils::audio::raw::AudioInfoRaw;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use crate::client::channel::ServerChannel;
 
 pub(super) fn event_handler(
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) -> impl Fn(EventMessage) + 'static
 {    
@@ -17,23 +19,23 @@ pub(super) fn event_handler(
         EventMessage::SetMetadataListeners { id } => handle_set_metadata_listeners(
             id,
             state.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
         ),
         EventMessage::RemoveNode { id } => handle_remove_node(
             id, 
-            state.clone(), 
-            main_sender.clone()
+            state.clone(),
+            server_channel.clone()
         ),
         EventMessage::SetNodePropertiesListener { id } => handle_set_node_properties_listener(
             id, 
-            state.clone(), 
-            main_sender.clone(), 
+            state.clone(),
+            server_channel.clone(), 
             event_sender.clone()
         ),
         EventMessage::SetNodeFormatListener { id } => handle_set_node_format_listener(
             id, 
-            state.clone(), 
-            main_sender.clone(), 
+            state.clone(),
+            server_channel.clone(), 
             event_sender.clone()
         ),
         EventMessage::SetNodeProperties { 
@@ -42,36 +44,36 @@ pub(super) fn event_handler(
         } => handle_set_node_properties(
             id, 
             properties, 
-            state.clone(), 
-            main_sender.clone()
+            state.clone(),
+            server_channel.clone()
         ),
         EventMessage::SetNodeFormat { id, format } => handle_set_node_format(
             id, 
             format, 
-            state.clone(), 
-            main_sender.clone()
+            state.clone(),
+            server_channel.clone()
         ),
     }
 }
 
 fn handle_set_metadata_listeners(
     id: GlobalId,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
 ) 
 {
     let listener_state = state.clone();
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let metadata = match state.get_metadata_mut(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
-    let main_sender = main_sender.clone();
+    let server_channel = server_channel.clone();
     match metadata.name.as_str() {
         METADATA_NAME_PROPERTY_VALUE_SETTINGS => {
             metadata.add_property_listener(
@@ -84,8 +86,8 @@ fn handle_set_metadata_listeners(
             )
         },
         _ => {
-            main_sender
-                .send(MessageResponse::Error(Error {
+            server_channel
+                .fire(MessageResponse::Error(Error {
                     description: format!("Unexpected metadata with name: {}", metadata.name)
                 }))
                 .unwrap();
@@ -94,16 +96,16 @@ fn handle_set_metadata_listeners(
 }
 fn handle_remove_node(
     id: GlobalId,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let _ = match state.get_node(&id) {
         Ok(_) => {},
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -112,17 +114,17 @@ fn handle_remove_node(
 }
 fn handle_set_node_properties_listener(
     id: GlobalId,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let node = match state.get_node_mut(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -169,22 +171,22 @@ fn handle_set_node_properties_listener(
 }
 fn handle_set_node_format_listener(
     id: GlobalId,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let node = match state.get_node_mut(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
-    let main_sender = main_sender.clone();
+    let server_channel = server_channel.clone();
     let event_sender = event_sender.clone();
     node.add_format_listener(
         move |control_flow, format| {
@@ -198,7 +200,9 @@ fn handle_set_node_format_listener(
                         .unwrap();
                 }
                 Err(value) => {
-                    main_sender.send(MessageResponse::Error(value)).unwrap();
+                    server_channel
+                        .fire(MessageResponse::Error(value))
+                        .unwrap();
                 }
             };
             control_flow.release();
@@ -208,16 +212,16 @@ fn handle_set_node_format_listener(
 fn handle_set_node_properties(
     id: GlobalId,
     properties: HashMap<String, String>,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let node = match state.get_node_mut(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
@@ -227,19 +231,19 @@ fn handle_set_node_properties(
 fn handle_set_node_format(
     id: GlobalId,
     format: AudioInfoRaw,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
 ) 
 {
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     let node = match state.get_node_mut(&id) {
         Ok(value) => value,
         Err(value) => {
-            main_sender
-                .send(MessageResponse::Error(value))
+            server_channel
+                .fire(MessageResponse::Error(value))
                 .unwrap();
             return;
         }
     };
-    node.set_format(format)
+    node.set_format(format);
 }

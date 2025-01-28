@@ -35,7 +35,7 @@ impl StreamApi {
         };
         let response = self.api.send_request(&request);
         match response {
-            Ok(MessageResponse::CreateStream{name}) => Ok(name),
+            Ok(MessageResponse::CreateStream(name)) => Ok(name),
             Err(value) => Err(value),
             Ok(value) => Err(Error {
                 description: format!("Received unexpected response: {:?}", value),
@@ -47,9 +47,7 @@ impl StreamApi {
         &self,
         name: String
     ) -> Result<(), Error> {
-        let request = MessageRequest::DeleteStream {
-            name,
-        };
+        let request = MessageRequest::DeleteStream(name);
         let response = self.api.send_request(&request);
         match response {
             Ok(MessageResponse::DeleteStream) => Ok(()),
@@ -64,9 +62,7 @@ impl StreamApi {
         &self,
         name: String
     ) -> Result<(), Error> {
-        let request = MessageRequest::ConnectStream {
-            name,
-        };
+        let request = MessageRequest::ConnectStream(name);
         let response = self.api.send_request(&request);
         match response {
             Ok(MessageResponse::ConnectStream) => Ok(()),
@@ -81,9 +77,7 @@ impl StreamApi {
         &self,
         name: String
     ) -> Result<(), Error> {
-        let request = MessageRequest::DisconnectStream {
-            name,
-        };
+        let request = MessageRequest::DisconnectStream(name);
         let response = self.api.send_request(&request);
         match response {
             Ok(MessageResponse::DisconnectStream) => Ok(()),

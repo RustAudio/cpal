@@ -1,51 +1,53 @@
+use crate::client::channel::ServerChannel;
 use crate::constants::{APPLICATION_NAME_PROPERTY_KEY, APPLICATION_NAME_PROPERTY_VALUE_PIPEWIRE_MEDIA_SESSION, APPLICATION_NAME_PROPERTY_VALUE_WIRE_PLUMBER, MEDIA_CLASS_PROPERTY_KEY, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SINK, MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SOURCE, METADATA_NAME_PROPERTY_KEY, METADATA_NAME_PROPERTY_VALUE_DEFAULT, METADATA_NAME_PROPERTY_VALUE_SETTINGS};
-use crate::messages::{EventMessage, MessageResponse};
+use crate::messages::{EventMessage, MessageRequest, MessageResponse};
 use crate::states::{ClientState, GlobalId, GlobalObjectState, GlobalState, MetadataState, NodeState};
-use crate::utils::debug_dict_ref;
 use pipewire::registry::GlobalObject;
 use pipewire::spa;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use pipewire_common::utils::dict_ref_to_hashmap;
 
 pub(super) fn registry_global_handler(
-    state: Rc<RefCell<GlobalState>>,
+    state: Arc<Mutex<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) -> impl Fn(&GlobalObject<&spa::utils::dict::DictRef>) + 'static
 {
     move |global: &GlobalObject<&spa::utils::dict::DictRef>| match global.type_ {
         pipewire::types::ObjectType::Client => handle_client(
             global, 
-            state.clone(), 
-            main_sender.clone()
+            state.clone(),
+            server_channel.clone()
         ),
         pipewire::types::ObjectType::Metadata => handle_metadata(
             global, 
             state.clone(), 
-            registry.clone(), 
-            main_sender.clone(), 
+            registry.clone(),
+            server_channel.clone(), 
             event_sender.clone()
         ),
         pipewire::types::ObjectType::Node => handle_node(
             global,
             state.clone(),
             registry.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
             event_sender.clone()
         ),
         pipewire::types::ObjectType::Port => handle_port(
             global,
             state.clone(),
             registry.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
             event_sender.clone()
         ),
         pipewire::types::ObjectType::Link => handle_link(
             global,
             state.clone(),
             registry.clone(),
-            main_sender.clone(),
+            server_channel.clone(),
             event_sender.clone()
         ),
         _ => {}
@@ -54,8 +56,8 @@ pub(super) fn registry_global_handler(
 
 fn handle_client(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
-    state: Rc<RefCell<GlobalState>>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    state: Arc<Mutex<GlobalState>>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
 ) 
 {
     if global.props.is_none() {
@@ -76,10 +78,10 @@ fn handle_client(
             }
             _ => return,
         };
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     if let Err(value) = state.insert_client(global.id.into(), client) {
-        main_sender
-            .send(MessageResponse::Error(value))
+        server_channel
+            .fire(MessageResponse::Error(value))
             .unwrap();
         return;
     };
@@ -87,9 +89,9 @@ fn handle_client(
 
 fn handle_metadata(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
-    state: Rc<RefCell<GlobalState>>,
+    state: Arc<Mutex<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 ) 
 {
@@ -109,10 +111,10 @@ fn handle_metadata(
             }
             _ => return,
         };
-    let mut state = state.borrow_mut();
+    let mut state = state.lock().unwrap();
     if let Err(value) = state.insert_metadata(global.id.into(), metadata) {
-        main_sender
-            .send(MessageResponse::Error(value))
+        server_channel
+            .fire(MessageResponse::Error(value))
             .unwrap();
         return;
     };
@@ -126,9 +128,9 @@ fn handle_metadata(
 
 fn handle_node(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
-    state: Rc<RefCell<GlobalState>>,
+    state: Arc<Mutex<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {
@@ -136,7 +138,7 @@ fn handle_node(
         return;
     }
     let properties = global.props.unwrap();
-    let node = match properties.get(MEDIA_CLASS_PROPERTY_KEY) {
+    let mut node = match properties.get(MEDIA_CLASS_PROPERTY_KEY) {
         Some(MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SOURCE)
         | Some(MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SINK) => {
             let node: pipewire::node::Node = registry.bind(global).unwrap();
@@ -144,10 +146,11 @@ fn handle_node(
         }
         _ => return,
     };
-    let mut state = state.borrow_mut();
+    node.set_properties(dict_ref_to_hashmap(properties));
+    let mut state = state.lock().unwrap();
     if let Err(value) = state.insert_node(global.id.into(), node) {
-        main_sender
-            .send(MessageResponse::Error(value))
+        server_channel
+            .fire(MessageResponse::Error(value))
             .unwrap();
         return;
     };
@@ -161,9 +164,9 @@ fn handle_node(
 
 fn handle_port(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
-    state: Rc<RefCell<GlobalState>>,
+    state: Arc<Mutex<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {
@@ -171,7 +174,7 @@ fn handle_port(
 
     }
     let properties = global.props.unwrap();
-    debug_dict_ref(properties);
+    // debug_dict_ref(properties);
 
     let port: pipewire::port::Port = registry.bind(global).unwrap();
 
@@ -200,9 +203,9 @@ fn handle_port(
 
 fn handle_link(
     global: &GlobalObject<&spa::utils::dict::DictRef>,
-    state: Rc<RefCell<GlobalState>>,
+    state: Arc<Mutex<GlobalState>>,
     registry: Rc<pipewire::registry::Registry>,
-    main_sender: crossbeam_channel::Sender<MessageResponse>,
+    server_channel: ServerChannel<MessageRequest, MessageResponse>,
     event_sender: pipewire::channel::Sender<EventMessage>,
 )
 {
@@ -210,7 +213,7 @@ fn handle_link(
 
     }
     let properties = global.props.unwrap();
-    debug_dict_ref(properties);
+    // debug_dict_ref(properties);
     
     let link: pipewire::link::Link = registry.bind(global).unwrap();
     // link.

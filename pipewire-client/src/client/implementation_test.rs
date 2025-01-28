@@ -1,13 +1,20 @@
-use crate::client::implementation::CLIENT_NAME_PREFIX;
+use crate::client::implementation::{CLIENT_INDEX, CLIENT_NAME_PREFIX};
 use crate::states::{MetadataState, NodeState};
-use crate::test_utils::fixtures::{client2, PipewireTestClient};
-use crate::test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, set_socket_env_vars, Container};
-use crate::utils::PipewireCoreSync;
+use crate::test_utils::fixtures::{client2, shared_client, PipewireTestClient};
 use crate::PipewireClient;
 use rstest::rstest;
+use serial_test::serial;
 use std::any::TypeId;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+use tokio::runtime::Runtime;
+use pipewire_test_utils::environment::TEST_ENVIRONMENT;
+use pipewire_test_utils::server::{server_with_default_configuration, server_without_node, server_without_session_manager, Server};
+use crate::listeners::PipewireCoreSync;
 
 #[rstest]
+#[serial]
 pub fn names(
     #[from(client2)] (client_1, client_2): (PipewireTestClient, PipewireTestClient)
 ) {
@@ -19,9 +26,23 @@ pub fn names(
 }
 
 #[rstest]
-pub fn with_default_configuration(server_with_default_configuration: Container) {
-    set_socket_env_vars(&server_with_default_configuration);
-    let client = PipewireClient::new().unwrap();
+#[serial]
+#[ignore]
+fn init100(#[from(server_with_default_configuration)] _server: Arc<Server>) {
+    for index in 0..100 {
+        thread::sleep(Duration::from_millis(10));
+        println!("Init client: {}", index);
+        let _ = PipewireClient::new(
+            Arc::new(Runtime::new().unwrap()),
+            TEST_ENVIRONMENT.lock().unwrap().client_timeout.clone(),
+        ).unwrap();
+        assert_eq!(index + 1, CLIENT_INDEX.load(std::sync::atomic::Ordering::SeqCst));
+    }
+}
+
+#[rstest]
+#[serial]
+pub fn with_default_configuration(#[from(shared_client)] client: PipewireTestClient) {
     let listeners = client.core().get_listeners().unwrap();
     let core_listeners = listeners.get(&TypeId::of::<PipewireCoreSync>()).unwrap();
     let metadata_listeners = listeners.get(&TypeId::of::<MetadataState>()).unwrap();
@@ -39,15 +60,21 @@ pub fn with_default_configuration(server_with_default_configuration: Container) 
 }
 
 #[rstest]
-pub fn without_session_manager(server_without_session_manager: Container) {
-    set_socket_env_vars(&server_without_session_manager);
-    let error = PipewireClient::new().unwrap_err();
+#[serial]
+pub fn without_session_manager(#[from(server_without_session_manager)] _server: Arc<Server>) {
+    let error = PipewireClient::new(
+        Arc::new(Runtime::new().unwrap()),
+        TEST_ENVIRONMENT.lock().unwrap().client_timeout.clone(),
+    ).unwrap_err();
     assert_eq!(true, error.description.contains("No session manager registered"))
 }
 
 #[rstest]
-pub fn without_node(server_without_node: Container) {
-    set_socket_env_vars(&server_without_node);
-    let error = PipewireClient::new().unwrap_err();
+#[serial]
+pub fn without_node(#[from(server_without_node)] _server: Arc<Server>) {
+    let error = PipewireClient::new(
+        Arc::new(Runtime::new().unwrap()),
+        TEST_ENVIRONMENT.lock().unwrap().client_timeout.clone(),
+    ).unwrap_err();
     assert_eq!("Post initialization error: Zero node registered", error.description)
 }

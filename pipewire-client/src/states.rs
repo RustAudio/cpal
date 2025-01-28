@@ -14,6 +14,8 @@ use std::fmt::{Display, Formatter};
 use std::io::Cursor;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use pipewire::proxy::ProxyT;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct GlobalId(u32);
@@ -149,6 +151,16 @@ impl GlobalState {
         Ok(())
     }
 
+    pub fn delete_node(&mut self, id: &GlobalId) -> Result<(), Error> {
+        if self.nodes.contains_key(id) == false {
+            return Err(Error {
+                description: format!("Node with id({}) not found", id),
+            });
+        }
+        self.nodes.remove(id);
+        Ok(())
+    }
+
     pub fn get_node(&self, id: &GlobalId) -> Result<&NodeState, Error> {
         self.nodes.get(id).ok_or(Error {
             description: format!("Node with id({}) not found", id),
@@ -173,6 +185,18 @@ impl GlobalState {
         Ok(nodes)
     }
 
+    pub fn get_nodes_mut(&mut self) -> Result<HashMap<&GlobalId ,&mut NodeState>, Error> {
+        let nodes = self.nodes.iter_mut()
+            .map(|(id, state)| (id, state))
+            .collect::<HashMap<_, _>>();
+        if nodes.is_empty() {
+            return Err(Error {
+                description: "Zero node registered".to_string(),
+            })
+        }
+        Ok(nodes)
+    }
+
     pub fn insert_stream(&mut self, name: String, state: StreamState) -> Result<(), Error> {
         if self.streams.contains_key(&name) {
             return Err(Error {
@@ -183,7 +207,7 @@ impl GlobalState {
         Ok(())
     }
 
-    pub fn remove_stream(&mut self, name: &String) -> Result<(), Error> {
+    pub fn delete_stream(&mut self, name: &String) -> Result<(), Error> {
         if self.streams.contains_key(name) == false {
             return Err(Error {
                 description: format!("Stream with name({}) not found", name),
@@ -284,9 +308,9 @@ impl OrphanState {
 
 pub(super) struct NodeState {
     proxy: pipewire::node::Node,
-    state: Rc<RefCell<GlobalObjectState>>,
-    properties: Rc<RefCell<HashMap<String, String>>>,
-    format: Rc<RefCell<Option<AudioInfoRaw>>>,
+    state: GlobalObjectState,
+    properties: Option<HashMap<String, String>>,
+    format: Option<AudioInfoRaw>,
     listeners: Rc<RefCell<Listeners<pipewire::node::NodeListener>>>
 }
 
@@ -294,9 +318,9 @@ impl NodeState {
     pub fn new(proxy: pipewire::node::Node) -> Self {
         Self {
             proxy,
-            state: Rc::new(RefCell::new(GlobalObjectState::Pending)),
-            properties: Rc::new(RefCell::new(HashMap::new())),
-            format: Rc::new(RefCell::new(None)),
+            state: GlobalObjectState::Pending,
+            properties: None,
+            format: None,
             listeners: Rc::new(RefCell::new(Listeners::new())),
         }
     }
@@ -306,43 +330,56 @@ impl NodeState {
     }
     
     pub fn state(&self) -> GlobalObjectState {
-        self.state.borrow().clone()
+        self.state.clone()
     }
 
-    fn set_state(&mut self) {
-        let properties = self.properties.borrow();
-        let format = self.format.borrow();
-        
-        let new_state = if properties.is_empty() == false && format.is_some() {
-            GlobalObjectState::Initialized
+    fn set_state(&mut self) {        
+        if self.properties.is_some() && self.format.is_some() {
+            self.state = GlobalObjectState::Initialized
         } else {
-            GlobalObjectState::Pending
+            self.state = GlobalObjectState::Pending
         };
-        
-        let mut state = self.state.borrow_mut();
-        *state = new_state;
     }
     
-    pub fn properties(&self) -> HashMap<String, String> {
-        self.properties.borrow().clone()
+    pub fn properties(&self) -> Option<HashMap<String, String>> {
+        self.properties.clone()
     }
     
     pub fn set_properties(&mut self, properties: HashMap<String, String>) {
-        self.properties.borrow_mut().extend(properties);
+        if self.properties.is_none() {
+            self.properties = Some(HashMap::new());
+        }
+        self.properties.as_mut().unwrap().extend(properties);
         self.set_state();
     }
     
     pub fn format(&self) -> Option<AudioInfoRaw> {
-        self.format.borrow().clone()
+        self.format.clone()
     }
     
     pub fn set_format(&mut self, format: AudioInfoRaw) {
-        *self.format.borrow_mut() = Some(format);
+        self.format = Some(format);
         self.set_state();
     }
     
-    pub fn name(&self) -> String {
-        self.properties.borrow().get(*pipewire::keys::NODE_NAME).unwrap().clone()
+    pub fn name(&self) -> Result<String, Error> {
+        match self.properties.as_ref().unwrap().get(*pipewire::keys::NODE_NAME) {
+            Some(value) => Ok(value.clone()),
+            None =>  Err(Error {
+                description: "Node name not found in properties".to_string(),
+            })
+        }
+    }
+    
+    pub fn direction(&self) -> Result<Direction, Error> {
+        let media_class = self.properties.as_ref().unwrap().get(*pipewire::keys::MEDIA_CLASS).unwrap().clone();
+        match media_class.as_str() {
+            MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SOURCE => Ok(Direction::Input),
+            MEDIA_CLASS_PROPERTY_VALUE_AUDIO_SINK => Ok(Direction::Output),
+            _ => Err(Error {
+                description: "Media class not an audio sink/source".to_string(),
+            })
+        }
     }
 
     fn add_info_listener<F>(&mut self, name: String, listener: F)
@@ -728,12 +765,12 @@ impl Default for SettingsState {
 }
 
 impl SettingsState {
-    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
+    pub(super) fn listener(state: Arc<Mutex<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 5;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
         move |control_flow, _, key, _, value| {
-            let settings = &mut state.borrow_mut().settings;
+            let settings = &mut state.lock().unwrap().settings;
             let key = key.unwrap();
             let value = value.unwrap();
             match key {
@@ -790,12 +827,12 @@ impl Default for DefaultAudioNodesState {
 }
 
 impl DefaultAudioNodesState {
-    pub(super) fn listener(state: Rc<RefCell<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
+    pub(super) fn listener(state: Arc<Mutex<GlobalState>>) -> impl Fn(&mut ListenerControlFlow, u32, Option<&str>, Option<&str>, Option<&str>) -> i32 + 'static
     {
         const EXPECTED_PROPERTY: u32 = 2;
         let property_count: Rc<Cell<u32>> = Rc::new(Cell::new(0));
         move |control_flow, _, key, _, value| {
-            let default_audio_devices = &mut state.borrow_mut().default_audio_nodes;
+            let default_audio_devices = &mut state.lock().unwrap().default_audio_nodes;
             let key = key.unwrap();
             if value.is_none() {
                 return 0;
