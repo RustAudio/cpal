@@ -296,7 +296,18 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
-            let audio_unit = audio_unit_from_device(self, true)?;
+            #[allow(non_upper_case_globals)]
+            let input = match scope {
+                kAudioObjectPropertyScopeInput => Ok(true),
+                kAudioObjectPropertyScopeOutput => Ok(false),
+                _ => Err(BackendSpecificError {
+                    description: format!(
+                        "unexpected scope (neither input nor output): {:?}",
+                        scope
+                    ),
+                }),
+            }?;
+            let audio_unit = audio_unit_from_device(self, input)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
@@ -398,7 +409,18 @@ impl Device {
                 }
             };
 
-            let audio_unit = audio_unit_from_device(self, true)?;
+            #[allow(non_upper_case_globals)]
+            let input = match scope {
+                kAudioObjectPropertyScopeInput => Ok(true),
+                kAudioObjectPropertyScopeOutput => Ok(false),
+                _ => Err(BackendSpecificError {
+                    description: format!(
+                        "unexpected scope (neither input nor output): {:?}",
+                        scope
+                    ),
+                }),
+            }?;
+            let audio_unit = audio_unit_from_device(self, input)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
