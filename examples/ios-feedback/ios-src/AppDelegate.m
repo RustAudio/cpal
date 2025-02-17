@@ -36,11 +36,14 @@ void rust_ios_main(void);
                        withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
                              error:&error];
 
-    if (success) {
+    NSError *activateError;
+    [session setActive:YES error:&activateError];
+
+    if (success && activateError == nil) {
         NSLog(@"Calling rust_ios_main()");
         rust_ios_main();
     } else {
-        NSLog(@"Failed to configure audio session category");
+        NSLog(@"Failed to configure audio session category or active audio session");
     }
 
     return YES;
