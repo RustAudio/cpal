@@ -74,10 +74,12 @@ macro_rules! impl_platform_host {
 
         /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
+        #[derive(Clone)]
         pub struct SupportedInputConfigs(SupportedInputConfigsInner);
 
         /// The `SupportedOutputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
+        #[derive(Clone)]
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
@@ -122,6 +124,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        #[derive(Clone)]
         enum SupportedInputConfigsInner {
             $(
                 $(#[cfg($feat)])?
@@ -129,6 +132,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        #[derive(Clone)]
         enum SupportedOutputConfigsInner {
             $(
                 $(#[cfg($feat)])?
