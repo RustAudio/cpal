@@ -19,7 +19,9 @@ pub struct Host;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
+#[derive(Clone)]
 pub struct SupportedInputConfigs;
+#[derive(Clone)]
 pub struct SupportedOutputConfigs;
 
 impl Host {
