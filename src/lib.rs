@@ -33,7 +33,7 @@
 //! ```
 //!
 //! Before we can create a stream, we must decide what the configuration of the audio stream is
-//! going to be.    
+//! going to be.
 //! You can query all the supported configurations with the
 //! [`supported_input_configs()`] and [`supported_output_configs()`] methods.
 //! These produce a list of [`SupportedStreamConfigRange`] structs which can later be turned into
@@ -225,7 +225,7 @@ pub type FrameCount = u32;
 /// behavior of the given host. Note, the default buffer size may be surprisingly
 /// large, leading to latency issues. If low latency is desired, [`Fixed(FrameCount)`]
 /// should be used in accordance with the [`SupportedBufferSize`] range produced by
-/// the [`SupportedStreamConfig`] API.  
+/// the [`SupportedStreamConfig`] API.
 ///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
@@ -332,13 +332,15 @@ pub struct Data {
 /// | wasapi | `QueryPerformanceCounter` |
 /// | asio | `timeGetTime` |
 /// | emscripten | `AudioContext.getOutputTimestamp` |
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
-    secs: i64,
-    nanos: u32,
+    pub secs: i64,
+    pub nanos: u32,
 }
 
 /// A timestamp associated with a call to an input stream's data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InputStreamTimestamp {
     /// The instant the stream's data callback was invoked.
@@ -350,6 +352,7 @@ pub struct InputStreamTimestamp {
 }
 
 /// A timestamp associated with a call to an output stream's data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputStreamTimestamp {
     /// The instant the stream's data callback was invoked.
@@ -361,16 +364,17 @@ pub struct OutputStreamTimestamp {
 }
 
 /// Information relevant to a single call to the user's input stream data callback.
+#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputCallbackInfo {
-    timestamp: InputStreamTimestamp,
+    pub timestamp: InputStreamTimestamp,
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
 #[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputCallbackInfo {
-    timestamp: OutputStreamTimestamp,
+    pub timestamp: OutputStreamTimestamp,
 }
 
 impl SupportedStreamConfig {
