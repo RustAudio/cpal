@@ -1,15 +1,15 @@
 use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
-    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, StreamError,
+    BackendSpecificError, BufferSize, Data, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, StreamError,
 };
+use audio_thread_priority::promote_current_thread_to_real_time;
 use std::mem;
 use std::ptr;
 use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation;
-use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::SystemServices;
@@ -269,7 +269,18 @@ fn run_input(
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
-    boost_current_thread_priority();
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = run_ctxt.stream.config.buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) =
+        promote_current_thread_to_real_time(buffer_size, run_ctxt.stream.config.sample_rate.0)
+    {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -298,7 +309,18 @@ fn run_output(
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(StreamError),
 ) {
-    boost_current_thread_priority();
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = run_ctxt.stream.config.buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) =
+        promote_current_thread_to_real_time(buffer_size, run_ctxt.stream.config.sample_rate.0)
+    {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -319,17 +341,6 @@ fn run_output(
             ControlFlow::Break => break,
             ControlFlow::Continue => continue,
         }
-    }
-}
-
-fn boost_current_thread_priority() {
-    unsafe {
-        let thread_id = Threading::GetCurrentThreadId();
-
-        let _ = Threading::SetThreadPriority(
-            HANDLE(thread_id as isize),
-            Threading::THREAD_PRIORITY_TIME_CRITICAL,
-        );
     }
 }
 

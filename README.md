@@ -23,9 +23,10 @@ Currently, supported hosts include:
 - Android (via AAudio)
 - Emscripten
 
-Note that on Linux, the ALSA development files are required. These are provided
-as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
-`alsa-lib-devel` on Fedora.
+Note that on Linux, the ALSA development files and D-Bus development files are
+required. These are provided as part of the `libasound2-dev` and `libdbus-1-dev`
+packages on Debian and Ubuntu distributions and `alsa-lib-devel` and `dbus-devel`
+on Fedora.
 
 ## Compiling for Web Assembly
 
