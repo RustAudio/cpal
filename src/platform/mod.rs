@@ -33,7 +33,7 @@ pub use self::platform_impl::*;
 /// SupportedOutputConfigs and all their necessary trait implementations.
 ///
 macro_rules! impl_platform_host {
-    ($($(#[cfg($feat: meta)])? $HostVariant:ident $host_mod:ident $host_name:literal),*) => {
+    ($($(#[cfg($feat: meta)])? $HostVariant:ident => $Host:ty),* $(,)?) => {
         /// All hosts supported by CPAL on this platform.
         pub const ALL_HOSTS: &'static [HostId] = &[
             $(
@@ -94,7 +94,7 @@ macro_rules! impl_platform_host {
         pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::Device),
+                $HostVariant(<$Host as crate::traits::HostTrait>::Device),
             )*
         }
 
@@ -102,7 +102,7 @@ macro_rules! impl_platform_host {
         pub enum DevicesInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::Devices),
+                $HostVariant(<$Host as crate::traits::HostTrait>::Devices),
             )*
         }
 
@@ -110,7 +110,7 @@ macro_rules! impl_platform_host {
         pub enum HostInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::Host),
+                $HostVariant($Host),
             )*
         }
 
@@ -118,21 +118,21 @@ macro_rules! impl_platform_host {
         pub enum StreamInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::Stream),
+                $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream),
             )*
         }
 
         enum SupportedInputConfigsInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::SupportedInputConfigs),
+                $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::SupportedInputConfigs),
             )*
         }
 
         enum SupportedOutputConfigsInner {
             $(
                 $(#[cfg($feat)])?
-                $HostVariant(crate::host::$host_mod::SupportedOutputConfigs),
+                $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::SupportedInputConfigs),
             )*
         }
 
@@ -141,7 +141,7 @@ macro_rules! impl_platform_host {
                 match self {
                     $(
                         $(#[cfg($feat)])?
-                        HostId::$HostVariant => $host_name,
+                        HostId::$HostVariant => stringify!($HostVariant),
                     )*
                 }
             }
@@ -443,7 +443,7 @@ macro_rules! impl_platform_host {
             fn is_available() -> bool {
                 $(
                     $(#[cfg($feat)])?
-                    if crate::host::$host_mod::Host::is_available() { return true; }
+                    if <$Host>::is_available() { return true; }
                 )*
                 false
             }
@@ -532,29 +532,29 @@ macro_rules! impl_platform_host {
 
         $(
             $(#[cfg($feat)])?
-            impl From<crate::host::$host_mod::Device> for Device {
-                fn from(h: crate::host::$host_mod::Device) -> Self {
+            impl From<<$Host as crate::traits::HostTrait>::Device> for Device {
+                fn from(h: <$Host as crate::traits::HostTrait>::Device) -> Self {
                     DeviceInner::$HostVariant(h).into()
                 }
             }
 
             $(#[cfg($feat)])?
-            impl From<crate::host::$host_mod::Devices> for Devices {
-                fn from(h: crate::host::$host_mod::Devices) -> Self {
+            impl From<<$Host as crate::traits::HostTrait>::Devices> for Devices {
+                fn from(h: <$Host as crate::traits::HostTrait>::Devices) -> Self {
                     DevicesInner::$HostVariant(h).into()
                 }
             }
 
             $(#[cfg($feat)])?
-            impl From<crate::host::$host_mod::Host> for Host {
-                fn from(h: crate::host::$host_mod::Host) -> Self {
+            impl From<$Host> for Host {
+                fn from(h: $Host) -> Self {
                     HostInner::$HostVariant(h).into()
                 }
             }
 
             $(#[cfg($feat)])?
-            impl From<crate::host::$host_mod::Stream> for Stream {
-                fn from(h: crate::host::$host_mod::Stream) -> Self {
+            impl From<<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream> for Stream {
+                fn from(h: <<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream) -> Self {
                     StreamInner::$HostVariant(h).into()
                 }
             }
@@ -565,7 +565,7 @@ macro_rules! impl_platform_host {
             let mut host_ids = vec![];
             $(
                 $(#[cfg($feat)])?
-                if <crate::host::$host_mod::Host as crate::traits::HostTrait>::is_available() {
+                if <$Host as crate::traits::HostTrait>::is_available() {
                     host_ids.push(HostId::$HostVariant);
                 }
             )*
@@ -578,7 +578,7 @@ macro_rules! impl_platform_host {
                 $(
                     $(#[cfg($feat)])?
                     HostId::$HostVariant => {
-                        crate::host::$host_mod::Host::new()
+                        <$Host>::new()
                             .map(HostInner::$HostVariant)
                             .map(Host::from)
                     }
@@ -588,7 +588,6 @@ macro_rules! impl_platform_host {
     };
 }
 
-// TODO: Add pulseaudio and jack here eventually.
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -596,19 +595,17 @@ macro_rules! impl_platform_host {
     target_os = "netbsd"
 ))]
 mod platform_impl {
-    pub use crate::host::alsa::{
-        Device as AlsaDevice, Devices as AlsaDevices, Host as AlsaHost, Stream as AlsaStream,
-        SupportedInputConfigs as AlsaSupportedInputConfigs,
-        SupportedOutputConfigs as AlsaSupportedOutputConfigs,
-    };
+    pub use crate::host::alsa::Host as AlsaHost;
     #[cfg(feature = "jack")]
-    pub use crate::host::jack::{
-        Device as JackDevice, Devices as JackDevices, Host as JackHost, Stream as JackStream,
-        SupportedInputConfigs as JackSupportedInputConfigs,
-        SupportedOutputConfigs as JackSupportedOutputConfigs,
-    };
+    pub use crate::host::jack::Host as JackHost;
+    #[cfg(feature = "pulseaudio")]
+    pub use crate::host::pulseaudio::Host as PulseAudioHost;
 
-    impl_platform_host!(#[cfg(feature = "jack")] Jack jack "JACK", Alsa alsa "ALSA");
+    impl_platform_host!(
+        #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
+        Alsa => AlsaHost,
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -620,13 +617,8 @@ mod platform_impl {
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform_impl {
-    pub use crate::host::coreaudio::{
-        Device as CoreAudioDevice, Devices as CoreAudioDevices, Host as CoreAudioHost,
-        Stream as CoreAudioStream, SupportedInputConfigs as CoreAudioSupportedInputConfigs,
-        SupportedOutputConfigs as CoreAudioSupportedOutputConfigs,
-    };
-
-    impl_platform_host!(CoreAudio coreaudio "CoreAudio");
+    pub use crate::host::coreaudio::Host as CoreAudioHost;
+    impl_platform_host!(CoreAudio => CoreAudioHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -638,13 +630,8 @@ mod platform_impl {
 
 #[cfg(target_os = "emscripten")]
 mod platform_impl {
-    pub use crate::host::emscripten::{
-        Device as EmscriptenDevice, Devices as EmscriptenDevices, Host as EmscriptenHost,
-        Stream as EmscriptenStream, SupportedInputConfigs as EmscriptenSupportedInputConfigs,
-        SupportedOutputConfigs as EmscriptenSupportedOutputConfigs,
-    };
-
-    impl_platform_host!(Emscripten emscripten "Emscripten");
+    pub use crate::host::emscripten::Host as EmscriptenHost;
+    impl_platform_host!(Emscripten => EmscriptenHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -656,13 +643,8 @@ mod platform_impl {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
-    pub use crate::host::webaudio::{
-        Device as WebAudioDevice, Devices as WebAudioDevices, Host as WebAudioHost,
-        Stream as WebAudioStream, SupportedInputConfigs as WebAudioSupportedInputConfigs,
-        SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
-    };
-
-    impl_platform_host!(WebAudio webaudio "WebAudio");
+    pub use crate::host::webaudio::Host as WebAudioHost;
+    impl_platform_host!(WebAudio => WebAudioHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -675,18 +657,13 @@ mod platform_impl {
 #[cfg(windows)]
 mod platform_impl {
     #[cfg(feature = "asio")]
-    pub use crate::host::asio::{
-        Device as AsioDevice, Devices as AsioDevices, Host as AsioHost, Stream as AsioStream,
-        SupportedInputConfigs as AsioSupportedInputConfigs,
-        SupportedOutputConfigs as AsioSupportedOutputConfigs,
-    };
-    pub use crate::host::wasapi::{
-        Device as WasapiDevice, Devices as WasapiDevices, Host as WasapiHost,
-        Stream as WasapiStream, SupportedInputConfigs as WasapiSupportedInputConfigs,
-        SupportedOutputConfigs as WasapiSupportedOutputConfigs,
-    };
+    pub use crate::host::asio::Host as AsioHost;
+    pub use crate::host::wasapi::Host as WasapiHost;
 
-    impl_platform_host!(#[cfg(feature = "asio")] Asio asio "ASIO", Wasapi wasapi "WASAPI");
+    impl_platform_host!(
+        #[cfg(feature = "asio")] Asio => AsioHost,
+        Wasapi => WasapiHost,
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -698,13 +675,8 @@ mod platform_impl {
 
 #[cfg(target_os = "android")]
 mod platform_impl {
-    pub use crate::host::oboe::{
-        Device as OboeDevice, Devices as OboeDevices, Host as OboeHost, Stream as OboeStream,
-        SupportedInputConfigs as OboeSupportedInputConfigs,
-        SupportedOutputConfigs as OboeSupportedOutputConfigs,
-    };
-
-    impl_platform_host!(Oboe oboe "Oboe");
+    pub use crate::host::oboe::Host as OboeHost;
+    impl_platform_host!(Oboe => OboeHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -727,13 +699,9 @@ mod platform_impl {
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
 mod platform_impl {
-    pub use crate::host::null::{
-        Device as NullDevice, Devices as NullDevices, Host as NullHost,
-        SupportedInputConfigs as NullSupportedInputConfigs,
-        SupportedOutputConfigs as NullSupportedOutputConfigs,
-    };
+    pub use crate::host::null::Host as NullHost;
 
-    impl_platform_host!(Null null "Null");
+    impl_platform_host!(Null => NullHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
