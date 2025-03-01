@@ -26,5 +26,12 @@ pub(crate) mod null;
 pub(crate) mod oboe;
 #[cfg(windows)]
 pub(crate) mod wasapi;
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "wasm-bindgen",
+    feature = "web_audio_worklet",
+    target_feature = "atomics"
+))]
+pub(crate) mod web_audio_worklet;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 pub(crate) mod webaudio;

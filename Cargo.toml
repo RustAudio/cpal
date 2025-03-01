@@ -10,10 +10,22 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
+default = []
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
 oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
+# Only available on web when atomics are enabled. See README for what it does.
+web_audio_worklet = [
+    "wasm-bindgen-futures",
+    "web-sys/Blob",
+    "web-sys/BlobPropertyBag",
+    "web-sys/Url",
+    "web-sys/AudioWorklet",
+    "web-sys/AudioWorkletNode",
+    "web-sys/AudioWorkletNodeOptions",
+]
 
 [dependencies]
+wasm-bindgen-futures = {version = "0.4.33", optional = true}
 dasp_sample = "0.11"
 
 [dev-dependencies]
