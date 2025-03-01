@@ -649,6 +649,12 @@ mod platform_impl {
     pub use crate::host::webaudio::Host as WebAudioHost;
     impl_platform_host!(WebAudio => WebAudioHost);
 
+    #[cfg(feature = "web_audio_worklet")]
+    pub use crate::host::web_audio_worklet::Host as WebAudioWorkletHost;
+
+    #[cfg(feature = "web_audio_worklet")]
+    impl_platform_host!(WebAudioWorklet => WebAudioWorkletHost);
+
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
         WebAudioHost::new()
