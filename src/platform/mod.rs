@@ -662,7 +662,15 @@ mod platform_impl {
         SupportedOutputConfigs as WebAudioSupportedOutputConfigs,
     };
 
-    impl_platform_host!(WebAudio webaudio "WebAudio");
+    #[cfg(feature = "web_audio_worklet")]
+    pub use crate::host::webaudio::{
+        Device as WebAudioWorkletDevice, Devices as WebAudioWorkletDevices,
+        Host as WebAudioWorkletHost, Stream as WebAudioWorkletStream,
+        SupportedInputConfigs as WebAudioWorkletSupportedInputConfigs,
+        SupportedOutputConfigs as WebAudioWorkletSupportedOutputConfigs,
+    };
+
+    impl_platform_host!(#[cfg(feature = "web_audio_worklet")] WebAudioWorklet web_audio_worklet "WebAudioWorklet", WebAudio webaudio "WebAudio");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {

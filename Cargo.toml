@@ -10,8 +10,19 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
+default = []
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
 oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
+# Only available on web when atomics are enabled. See README for what it does.
+web_audio_worklet = [
+    "wasm-bindgen-futures",
+    "web-sys/Blob",
+    "web-sys/BlobPropertyBag",
+    "web-sys/Url",
+    "web-sys/AudioWorklet",
+    "web-sys/AudioWorkletNode",
+    "web-sys/AudioWorkletNodeOptions",
+]
 
 [dependencies]
 dasp_sample = "0.11"
@@ -65,6 +76,7 @@ web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOption
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }
+wasm-bindgen-futures = {version = "0.4.33", optional = true}
 js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
