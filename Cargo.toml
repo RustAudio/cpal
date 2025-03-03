@@ -13,7 +13,7 @@ rust-version = "1.70"
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
 oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
 jack = ["dep:jack"]
-pipewire = ["dep:pipewire-client"]
+pipewire = ["dep:pipewire-client", "dep:tokio"]
 
 [dependencies]
 dasp_sample = "0.11"
@@ -48,7 +48,8 @@ num-traits = { version = "0.2.6", optional = true }
 alsa = "0.9"
 libc = "0.2"
 jack = { version = "0.13.0", optional = true }
-pipewire-client = { version = "0.1", path = "pipewire-client", optional = true }
+pipewire-client = { version = "0.1", git = "https://github.com/midoriiro/pipewire-client.git", optional = true }
+tokio = { version = "1.43", features = ["full"], optional = true } # For PipeWire client, will change in the future. client will provide sync and async api.
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.

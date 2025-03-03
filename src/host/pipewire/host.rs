@@ -1,7 +1,10 @@
 use crate::traits::HostTrait;
 use crate::{BackendSpecificError, DevicesError, HostUnavailable, SupportedStreamConfigRange};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
 use pipewire_client::{Direction, PipewireClient};
+use tokio::runtime::Runtime;
 use crate::host::pipewire::Device;
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
@@ -10,18 +13,24 @@ pub type Devices = std::vec::IntoIter<Device>;
 
 #[derive(Debug)]
 pub struct Host {
+    runtime: Arc<Runtime>,
     client: Rc<PipewireClient>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, HostUnavailable> {
-        let client = PipewireClient::new()
+        let timeout = Duration::from_secs(30);
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let client = PipewireClient::new(runtime.clone(), timeout)
             .map_err(move |error| {
                 eprintln!("{}", error.description);
                 HostUnavailable
             })?;
         let client = Rc::new(client);
-        let host = Host { client };
+        let host = Host { 
+            runtime, 
+            client 
+        };
         Ok(host)
     }
 
