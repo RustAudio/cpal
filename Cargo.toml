@@ -30,7 +30,6 @@ web_audio_worklet = [
 ]
 
 [dependencies]
-wasm-bindgen-futures = {version = "0.4.33", optional = true}
 dasp_sample = "0.11"
 
 [dev-dependencies]
@@ -108,6 +107,7 @@ web-sys = { version = "0.3.35", features = [
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2.58", optional = true }
+wasm-bindgen-futures = {version = "0.4.33", optional = true}
 js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [
     "AudioContext",
