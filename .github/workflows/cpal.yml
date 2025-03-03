@@ -14,6 +14,8 @@ jobs:
       run: sudo apt-get install libasound2-dev
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+    - name: Install libpipewire
+      run: sudo apt-get install libpipewire-0.3-dev
     - name: Install stable
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -67,6 +69,8 @@ jobs:
       run: sudo apt-get install libasound2-dev
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+    - name: Install libpipewire
+      run: sudo apt-get install libpipewire-0.3-dev
     - name: Install stable
       uses: dtolnay/rust-toolchain@stable
     - name: Run without features
