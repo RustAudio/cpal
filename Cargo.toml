@@ -11,7 +11,6 @@ rust-version = "1.70"
 
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
-oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
 
 [dependencies]
 dasp_sample = "0.11"
@@ -69,10 +68,11 @@ js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-oboe = { version = "0.6", features = [ "java-interface" ] }
-ndk = { version = "0.8", default-features = false }
+ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"]}
 ndk-context = "0.1"
 jni = "0.21"
+num-derive = "0.4"
+num-traits = "0.2"
 
 [[example]]
 name = "android"

@@ -64,13 +64,8 @@ macro_rules! impl_platform_host {
 
         /// The `Stream` implementation associated with the platform's dynamically dispatched
         /// [`Host`] type.
-        // Streams cannot be `Send` or `Sync` if we plan to support Android's AAudio API. This is
-        // because the stream API is not thread-safe, and the API prohibits calling certain
-        // functions within the callback.
-        //
-        // TODO: Confirm this and add more specific detail and references.
         #[must_use = "If the stream is not stored it will not play."]
-        pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
+        pub struct Stream(StreamInner);
 
         /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
@@ -526,7 +521,7 @@ macro_rules! impl_platform_host {
 
         impl From<StreamInner> for Stream {
             fn from(s: StreamInner) -> Self {
-                Stream(s, Default::default())
+                Stream(s)
             }
         }
 
