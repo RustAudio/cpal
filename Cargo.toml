@@ -74,6 +74,11 @@ jni = "0.21"
 num-derive = "0.4"
 num-traits = "0.2"
 
+[package.metadata.android]
+min_sdk_version = 26
+target_sdk_version = 30
+max_sdk_version = 29
+
 [[example]]
 name = "android"
 path = "examples/android.rs"
