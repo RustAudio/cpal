@@ -693,17 +693,17 @@ mod platform_impl {
 
 #[cfg(target_os = "android")]
 mod platform_impl {
-    pub use crate::host::oboe::{
-        Device as OboeDevice, Devices as OboeDevices, Host as OboeHost, Stream as OboeStream,
-        SupportedInputConfigs as OboeSupportedInputConfigs,
-        SupportedOutputConfigs as OboeSupportedOutputConfigs,
+    pub use crate::host::aaudio::{
+        Device as AAudioDevice, Devices as AAudioDevices, Host as AAudioHost, Stream as AAudioStream,
+        SupportedInputConfigs as AAudioSupportedInputConfigs,
+        SupportedOutputConfigs as AAudioSupportedOutputConfigs,
     };
 
-    impl_platform_host!(Oboe oboe "Oboe");
+    impl_platform_host!(AAudio aaudio "AAudio");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        OboeHost::new()
+        AAudioHost::new()
             .expect("the default host should always be available")
             .into()
     }

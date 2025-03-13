@@ -23,7 +23,7 @@ pub(crate) mod emscripten;
 pub(crate) mod jack;
 pub(crate) mod null;
 #[cfg(target_os = "android")]
-pub(crate) mod oboe;
+pub(crate) mod aaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
