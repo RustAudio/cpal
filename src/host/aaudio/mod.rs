@@ -25,8 +25,8 @@ mod java_interface;
 use self::android_media::{get_audio_record_min_buffer_size, get_audio_track_min_buffer_size};
 use self::ndk::audio::AudioStream;
 
-// Android Java API supports up to 8 channels, but oboe API
-// only exposes mono and stereo.
+// Android Java API supports up to 8 channels
+// TODO: more channels available in native AAudio
 const CHANNEL_MASKS: [i32; 2] = [
     android_media::CHANNEL_OUT_MONO,
     android_media::CHANNEL_OUT_STEREO,
@@ -173,7 +173,8 @@ fn device_supported_configs(
         for channel_count in channel_counts {
             assert!(*channel_count > 0);
             if *channel_count > 2 {
-                // could be supported by the device, but oboe does not support more than 2 channels
+                // could be supported by the device
+                // TODO: more channels available in native AAudio
                 continue;
             }
             let channel_mask = CHANNEL_MASKS[*channel_count as usize - 1];
@@ -384,8 +385,9 @@ impl DeviceTrait for Device {
             1 => 1,
             2 => 2,
             channels => {
+                // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported by Oboe.".to_owned(),
+                    description: "More than 2 channels are not supported yet.".to_owned(),
                 }
                 .into())
             }
@@ -432,8 +434,9 @@ impl DeviceTrait for Device {
             1 => 1,
             2 => 2,
             channels => {
+                // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported by Oboe.".to_owned(),
+                    description: "More than 2 channels are not supported yet.".to_owned(),
                 }
                 .into())
             }
