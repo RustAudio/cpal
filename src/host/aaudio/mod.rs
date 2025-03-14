@@ -389,7 +389,7 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: "More than 2 channels are not supported yet.".to_owned(),
                 }
-                .into())
+                .into());
             }
         };
 
@@ -438,7 +438,7 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: "More than 2 channels are not supported yet.".to_owned(),
                 }
-                .into())
+                .into());
             }
         };
 

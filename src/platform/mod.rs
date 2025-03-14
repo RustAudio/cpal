@@ -694,8 +694,8 @@ mod platform_impl {
 #[cfg(target_os = "android")]
 mod platform_impl {
     pub use crate::host::aaudio::{
-        Device as AAudioDevice, Devices as AAudioDevices, Host as AAudioHost, Stream as AAudioStream,
-        SupportedInputConfigs as AAudioSupportedInputConfigs,
+        Device as AAudioDevice, Devices as AAudioDevices, Host as AAudioHost,
+        Stream as AAudioStream, SupportedInputConfigs as AAudioSupportedInputConfigs,
         SupportedOutputConfigs as AAudioSupportedOutputConfigs,
     };
 
