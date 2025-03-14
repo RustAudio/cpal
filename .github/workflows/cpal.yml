@@ -223,7 +223,7 @@ jobs:
         targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
     - name: Set Up Android tools
       run: |
-        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "platforms;android-30"
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "build-tools;30.0.2" "platforms;android-30"
     - name: Install Cargo APK
       run: cargo install cargo-apk
     - name: Build APK
