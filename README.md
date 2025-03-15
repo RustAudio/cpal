@@ -20,7 +20,7 @@ Currently, supported hosts include:
 - Windows (via WASAPI by default, see ASIO instructions below)
 - macOS (via CoreAudio)
 - iOS (via CoreAudio)
-- Android (via Oboe)
+- Android (via AAudio)
 - Emscripten
 
 Note that on Linux, the ALSA development files are required. These are provided
@@ -37,10 +37,6 @@ Some audio backends are optional and will only be compiled with a [feature flag]
 
 - JACK (on Linux): `jack`
 - ASIO (on Windows): `asio`
-
-Oboe can either use a shared or static runtime. The static runtime is used by default, but activating the
-`oboe-shared-stdcxx` feature makes it use the shared runtime, which requires `libc++_shared.so` from the Android NDK to
-be present during execution.
 
 ## ASIO on Windows
 
