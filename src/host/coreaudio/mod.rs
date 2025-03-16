@@ -64,7 +64,7 @@ fn asbd_from_config(
         mFormatFlags: format_flags,
         mFormatID: kAudioFormatLinearPCM,
         mSampleRate: sample_rate as _,
-        ..Default::default()
+        mReserved: 0,
     }
 }
 

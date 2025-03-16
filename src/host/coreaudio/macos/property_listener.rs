@@ -1,4 +1,6 @@
 //! Helper code for registering audio object property listeners.
+use std::ptr::NonNull;
+
 use super::coreaudio::sys::{
     AudioObjectAddPropertyListener, AudioObjectID, AudioObjectPropertyAddress,
     AudioObjectRemovePropertyListener, OSStatus,
@@ -30,7 +32,7 @@ impl AudioObjectPropertyListener {
         unsafe {
             coreaudio::Error::from_os_status(AudioObjectAddPropertyListener(
                 audio_object_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 Some(property_listener_handler_shim),
                 &*callback as *const _ as *mut _,
             ))?;
@@ -54,7 +56,7 @@ impl AudioObjectPropertyListener {
         unsafe {
             coreaudio::Error::from_os_status(AudioObjectRemovePropertyListener(
                 self.audio_object_id,
-                &self.property_address as *const _,
+                NonNull::from(&self.property_address),
                 Some(property_listener_handler_shim),
                 &*self.callback as *const _ as *mut _,
             ))?;
@@ -73,10 +75,10 @@ impl Drop for AudioObjectPropertyListener {
 }
 
 /// Callback used to call user-provided closure as a property listener.
-unsafe extern "C" fn property_listener_handler_shim(
+unsafe extern "C-unwind" fn property_listener_handler_shim(
     _: AudioObjectID,
     _: u32,
-    _: *const AudioObjectPropertyAddress,
+    _: NonNull<AudioObjectPropertyAddress>,
     callback: *mut ::std::os::raw::c_void,
 ) -> OSStatus {
     let wrapper = callback as *mut PropertyListenerCallbackWrapper;
