@@ -33,6 +33,7 @@ use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr::null;
+use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -43,6 +44,9 @@ pub use self::enumerate::{
     SupportedOutputConfigs,
 };
 
+use coreaudio::sys::{
+    kAudioDevicePropertyLatency, kAudioDevicePropertySafetyOffset, kAudioStreamPropertyLatency,
+};
 use property_listener::AudioObjectPropertyListener;
 
 pub mod enumerate;
@@ -296,18 +300,7 @@ impl Device {
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
             let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
-            #[allow(non_upper_case_globals)]
-            let input = match scope {
-                kAudioObjectPropertyScopeInput => Ok(true),
-                kAudioObjectPropertyScopeOutput => Ok(false),
-                _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
-                }),
-            }?;
-            let audio_unit = audio_unit_from_device(self, input)?;
+            let audio_unit = audio_unit_from_device(self, true)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
@@ -409,18 +402,7 @@ impl Device {
                 }
             };
 
-            #[allow(non_upper_case_globals)]
-            let input = match scope {
-                kAudioObjectPropertyScopeInput => Ok(true),
-                kAudioObjectPropertyScopeOutput => Ok(false),
-                _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
-                }),
-            }?;
-            let audio_unit = audio_unit_from_device(self, input)?;
+            let audio_unit = audio_unit_from_device(self, true)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
@@ -462,32 +444,7 @@ struct StreamInner {
     // a stream associated with the device.
     #[allow(dead_code)]
     device_id: AudioDeviceID,
-}
-
-impl StreamInner {
-    fn play(&mut self) -> Result<(), PlayStreamError> {
-        if !self.playing {
-            if let Err(e) = self.audio_unit.start() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            self.playing = true;
-        }
-        Ok(())
-    }
-
-    fn pause(&mut self) -> Result<(), PauseStreamError> {
-        if self.playing {
-            if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            self.playing = false;
-        }
-        Ok(())
-    }
+    sample_rate: SampleRate,
 }
 
 /// Register the on-disconnect callback.
@@ -500,7 +457,7 @@ fn add_disconnect_listener<E>(
 where
     E: FnMut(StreamError) + Send + 'static,
 {
-    let stream_inner_weak = Arc::downgrade(&stream.inner);
+    let stream_copy = stream.clone();
     let mut stream_inner = stream.inner.lock().unwrap();
     stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
         stream_inner.device_id,
@@ -510,11 +467,8 @@ where
             mElement: kAudioObjectPropertyElementMaster,
         },
         move || {
-            if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
-                let mut stream_inner = stream_inner_strong.lock().unwrap();
-                let _ = stream_inner.pause();
-                (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
-            }
+            let _ = stream_copy.pause();
+            (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
         },
     )?);
     Ok(())
@@ -659,6 +613,7 @@ impl Device {
             _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
+            sample_rate: config.sample_rate,
         });
 
         // If we didn't request the default device, stop the stream if the
@@ -764,6 +719,7 @@ impl Device {
             _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
+            sample_rate: config.sample_rate,
         });
 
         // If we didn't request the default device, stop the stream if the
@@ -948,13 +904,95 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         let mut stream = self.inner.lock().unwrap();
 
-        stream.play()
+        if !stream.playing {
+            if let Err(e) = stream.audio_unit.start() {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            stream.playing = true;
+        }
+        Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         let mut stream = self.inner.lock().unwrap();
 
-        stream.pause()
+        if stream.playing {
+            if let Err(e) = stream.audio_unit.stop() {
+                let description = format!("{}", e);
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+
+            stream.playing = false;
+        }
+        Ok(())
+    }
+
+    // for coreaudio, latency is
+    // The minimum latency of an AudioStream on an AudioDevice is the sum of:
+    // - the Device's presentation latency, kAudioDevicePropertyLatency
+    // - the Stream's presentation latency, kAudioStreamPropertyLatency
+    // - the Device's safety offset, kAudioDevicePropertySafetyOffset
+
+    // The latency between roughly when the IOProc is called and when the first sample hits the wire is the sum of:
+    // - the minimum latency for the Stream in question (as calculated above)
+    // - the IO buffer frame size, kAudioDevicePropertyBufferFrameSize
+    fn latency(&self) -> Option<u32> {
+        println!("latency");
+        let stream = self.inner.lock().unwrap();
+        let audio_unit = &stream.audio_unit;
+
+        // device presentation latency
+        let device_latency: u32 = match audio_unit.get_property(
+            kAudioDevicePropertyLatency,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(device_latency) => device_latency,
+            Err(_) => return None,
+        };
+
+        // stream presentation latency
+        let stream_latency: u32 = match audio_unit.get_property(
+            kAudioStreamPropertyLatency,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(stream_latency) => stream_latency,
+            Err(_) => return None,
+        };
+
+        // device safety offset
+        let safety_offset: u32 = match audio_unit.get_property(
+            kAudioDevicePropertySafetyOffset,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(safety_offset) => safety_offset,
+            Err(_) => return None,
+        };
+
+        // IO buffer frame size
+        let buffer_size: u32 = match audio_unit.get_property(
+            kAudioDevicePropertyBufferFrameSize,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(buffer_size) => buffer_size,
+            Err(_) => return None,
+        };
+
+        // sample rate
+        let sample_rate = stream.sample_rate;
+
+        let latency = device_latency + stream_latency + safety_offset + buffer_size;
+
+        println!("latency: {} frames", latency);
+        println!("sample rate: {}", sample_rate.0);
+
+        Some(latency)
     }
 }
 
