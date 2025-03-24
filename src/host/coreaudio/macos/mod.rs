@@ -930,17 +930,12 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    // for coreaudio, latency is
-    // The minimum latency of an AudioStream on an AudioDevice is the sum of:
-    // - the Device's presentation latency, kAudioDevicePropertyLatency
-    // - the Stream's presentation latency, kAudioStreamPropertyLatency
-    // - the Device's safety offset, kAudioDevicePropertySafetyOffset
-
-    // The latency between roughly when the IOProc is called and when the first sample hits the wire is the sum of:
-    // - the minimum latency for the Stream in question (as calculated above)
-    // - the IO buffer frame size, kAudioDevicePropertyBufferFrameSize
+    // For coreaudio, the total latency is the sum of the
+    // - device presentation latency (kAudioDevicePropertyLatency)
+    // - stream presentation latency (kAudioStreamPropertyLatency)
+    // - device safety offset (kAudioDevicePropertySafetyOffset)
+    // - IO buffer frame size (kAudioDevicePropertyBufferFrameSize)
     fn latency(&self) -> Option<u32> {
-        println!("latency");
         let stream = self.inner.lock().unwrap();
         let audio_unit = &stream.audio_unit;
 
@@ -984,13 +979,7 @@ impl StreamTrait for Stream {
             Err(_) => return None,
         };
 
-        // sample rate
-        let sample_rate = stream.sample_rate;
-
         let latency = device_latency + stream_latency + safety_offset + buffer_size;
-
-        println!("latency: {} frames", latency);
-        println!("sample rate: {}", sample_rate.0);
 
         Some(latency)
     }
