@@ -960,11 +960,6 @@ impl StreamTrait for Stream {
         stream.pause()
     }
 
-    // For coreaudio, the total latency is the sum of the
-    // - device presentation latency (kAudioDevicePropertyLatency)
-    // - stream presentation latency (kAudioStreamPropertyLatency)
-    // - device safety offset (kAudioDevicePropertySafetyOffset)
-    // - IO buffer frame size (kAudioDevicePropertyBufferFrameSize)
     fn latency(&self) -> Option<u32> {
         let stream = self.inner.lock().unwrap();
         let audio_unit = &stream.audio_unit;
