@@ -209,10 +209,14 @@ pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat
     let fmt = match *ty {
         sys::AsioSampleType::ASIOSTInt16MSB => SampleFormat::I16,
         sys::AsioSampleType::ASIOSTInt16LSB => SampleFormat::I16,
-        sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
-        sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,
+        sys::AsioSampleType::ASIOSTInt24MSB => SampleFormat::I24,
+        sys::AsioSampleType::ASIOSTInt24LSB => SampleFormat::I24,
         sys::AsioSampleType::ASIOSTInt32MSB => SampleFormat::I32,
         sys::AsioSampleType::ASIOSTInt32LSB => SampleFormat::I32,
+        sys::AsioSampleType::ASIOSTFloat32MSB => SampleFormat::F32,
+        sys::AsioSampleType::ASIOSTFloat32LSB => SampleFormat::F32,
+        sys::AsioSampleType::ASIOSTFloat64MSB => SampleFormat::F64,
+        sys::AsioSampleType::ASIOSTFloat64LSB => SampleFormat::F64,
         _ => return None,
     };
     Some(fmt)

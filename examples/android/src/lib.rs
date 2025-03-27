@@ -5,7 +5,7 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample,
+    SizedSample, I24,
 };
 use cpal::{FromSample, Sample};
 
@@ -22,7 +22,7 @@ fn main() {
     match config.sample_format() {
         cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()).unwrap(),
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()).unwrap(),
         cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()).unwrap(),
         // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()).unwrap(),
         cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()).unwrap(),

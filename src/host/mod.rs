@@ -1,3 +1,5 @@
+#[cfg(target_os = "android")]
+pub(crate) mod aaudio;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -32,8 +34,6 @@ pub(crate) mod jack;
 ))]
 pub(crate)mod pipewire;
 pub(crate) mod null;
-#[cfg(target_os = "android")]
-pub(crate) mod oboe;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]

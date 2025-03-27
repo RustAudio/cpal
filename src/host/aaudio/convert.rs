@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::time::Duration;
 
-extern crate oboe;
+extern crate ndk;
 
 use crate::{
     BackendSpecificError, BuildStreamError, PauseStreamError, PlayStreamError, StreamError,
@@ -15,22 +15,21 @@ pub fn to_stream_instant(duration: Duration) -> StreamInstant {
     )
 }
 
-pub fn stream_instant<T: oboe::AudioStreamSafe + ?Sized>(stream: &mut T) -> StreamInstant {
-    const CLOCK_MONOTONIC: i32 = 1;
+pub fn stream_instant(stream: &ndk::audio::AudioStream) -> StreamInstant {
     let ts = stream
-        .get_timestamp(CLOCK_MONOTONIC)
-        .unwrap_or(oboe::FrameTimestamp {
-            position: 0,
-            timestamp: 0,
+        .timestamp(ndk::audio::Clockid::Monotonic)
+        .unwrap_or(ndk::audio::Timestamp {
+            frame_position: 0,
+            time_nanoseconds: 0,
         });
-    to_stream_instant(Duration::from_nanos(ts.timestamp as u64))
+    to_stream_instant(Duration::from_nanos(ts.time_nanoseconds as u64))
 }
 
-impl From<oboe::Error> for StreamError {
-    fn from(error: oboe::Error) -> Self {
-        use self::oboe::Error::*;
+impl From<ndk::audio::AudioError> for StreamError {
+    fn from(error: ndk::audio::AudioError) -> Self {
+        use self::ndk::audio::AudioError::*;
         match error {
-            Disconnected | Unavailable | Closed => Self::DeviceNotAvailable,
+            Disconnected | Unavailable => Self::DeviceNotAvailable,
             e => (BackendSpecificError {
                 description: e.to_string(),
             })
@@ -39,11 +38,11 @@ impl From<oboe::Error> for StreamError {
     }
 }
 
-impl From<oboe::Error> for PlayStreamError {
-    fn from(error: oboe::Error) -> Self {
-        use self::oboe::Error::*;
+impl From<ndk::audio::AudioError> for PlayStreamError {
+    fn from(error: ndk::audio::AudioError) -> Self {
+        use self::ndk::audio::AudioError::*;
         match error {
-            Disconnected | Unavailable | Closed => Self::DeviceNotAvailable,
+            Disconnected | Unavailable => Self::DeviceNotAvailable,
             e => (BackendSpecificError {
                 description: e.to_string(),
             })
@@ -52,11 +51,11 @@ impl From<oboe::Error> for PlayStreamError {
     }
 }
 
-impl From<oboe::Error> for PauseStreamError {
-    fn from(error: oboe::Error) -> Self {
-        use self::oboe::Error::*;
+impl From<ndk::audio::AudioError> for PauseStreamError {
+    fn from(error: ndk::audio::AudioError) -> Self {
+        use self::ndk::audio::AudioError::*;
         match error {
-            Disconnected | Unavailable | Closed => Self::DeviceNotAvailable,
+            Disconnected | Unavailable => Self::DeviceNotAvailable,
             e => (BackendSpecificError {
                 description: e.to_string(),
             })
@@ -65,11 +64,11 @@ impl From<oboe::Error> for PauseStreamError {
     }
 }
 
-impl From<oboe::Error> for BuildStreamError {
-    fn from(error: oboe::Error) -> Self {
-        use self::oboe::Error::*;
+impl From<ndk::audio::AudioError> for BuildStreamError {
+    fn from(error: ndk::audio::AudioError) -> Self {
+        use self::ndk::audio::AudioError::*;
         match error {
-            Disconnected | Unavailable | Closed => Self::DeviceNotAvailable,
+            Disconnected | Unavailable => Self::DeviceNotAvailable,
             NoFreeHandles => Self::StreamIdOverflow,
             InvalidFormat | InvalidRate => Self::StreamConfigNotSupported,
             IllegalArgument => Self::InvalidArgument,
