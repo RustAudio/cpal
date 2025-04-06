@@ -243,13 +243,15 @@ impl wasm_bindgen::describe::WasmDescribe for BufferSize {
 
 #[cfg(target_os = "emscripten")]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
-    type Abi = Option<u32>;
+    type Abi = Option<f64>;
     fn into_abi(self) -> Self::Abi {
-        match self {
-            Self::Default => None,
-            Self::Fixed(fc) => Some(fc),
-        }
-        .into_abi()
+        Some(
+            match self {
+                Self::Default => None,
+                Self::Fixed(fc) => Some(fc),
+            }
+            .into_abi(),
+        )
     }
 }
 
