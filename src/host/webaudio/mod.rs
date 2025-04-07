@@ -492,7 +492,9 @@ fn default_output_device() -> Option<Device> {
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
-    js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext")).unwrap().is_truthy()
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext"))
+        .unwrap()
+        .is_truthy()
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
