@@ -313,7 +313,17 @@ impl DeviceTrait for Device {
     fn name(&self) -> Result<String, DeviceNameError> {
         match &self.0 {
             None => Ok("default".to_owned()),
-            Some(info) => Ok(info.product_name.clone()),
+            Some(info) => {
+                let name = if info.address.is_empty() {
+                    format!("{}:{:?}", info.product_name, info.device_type)
+                } else {
+                    format!(
+                        "{}:{:?}:{}",
+                        info.product_name, info.device_type, info.address
+                    )
+                };
+                Ok(name)
+            }
         }
     }
 
