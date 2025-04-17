@@ -1,16 +1,17 @@
+#![allow(deprecated)]
 extern crate coreaudio;
 
 use self::coreaudio::sys::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
+    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress, OSStatus,
 };
 use super::Device;
 use crate::{BackendSpecificError, DevicesError, SupportedStreamConfigRange};
 use std::mem;
-use std::ptr::null;
+use std::ptr::{null, NonNull};
 use std::vec::IntoIter as VecIntoIter;
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
@@ -30,11 +31,11 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
 
     let data_size = 0u32;
     let status = AudioObjectGetPropertyDataSize(
-        kAudioObjectSystemObject,
-        &property_address as *const _,
+        kAudioObjectSystemObject as AudioObjectID,
+        NonNull::from(&property_address),
         0,
         null(),
-        &data_size as *const _ as *mut _,
+        NonNull::from(&data_size),
     );
     try_status_or_return!(status);
 
@@ -43,12 +44,12 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     audio_devices.reserve_exact(device_count as usize);
 
     let status = AudioObjectGetPropertyData(
-        kAudioObjectSystemObject,
-        &property_address as *const _,
+        kAudioObjectSystemObject as AudioObjectID,
+        NonNull::from(&property_address),
         0,
         null(),
-        &data_size as *const _ as *mut _,
-        audio_devices.as_mut_ptr() as *mut _,
+        NonNull::from(&data_size),
+        NonNull::new(audio_devices.as_mut_ptr()).unwrap().cast(),
     );
     try_status_or_return!(status);
 
@@ -95,16 +96,16 @@ pub fn default_input_device() -> Option<Device> {
         mElement: kAudioObjectPropertyElementMaster,
     };
 
-    let audio_device_id: AudioDeviceID = 0;
-    let data_size = mem::size_of::<AudioDeviceID>();
+    let mut audio_device_id: AudioDeviceID = 0;
+    let data_size = mem::size_of::<AudioDeviceID>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
-            kAudioObjectSystemObject,
-            &property_address as *const _,
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&property_address),
             0,
             null(),
-            &data_size as *const _ as *mut _,
-            &audio_device_id as *const _ as *mut _,
+            NonNull::from(&data_size),
+            NonNull::from(&mut audio_device_id).cast(),
         )
     };
     if status != kAudioHardwareNoError as i32 {
@@ -125,16 +126,16 @@ pub fn default_output_device() -> Option<Device> {
         mElement: kAudioObjectPropertyElementMaster,
     };
 
-    let audio_device_id: AudioDeviceID = 0;
-    let data_size = mem::size_of::<AudioDeviceID>();
+    let mut audio_device_id: AudioDeviceID = 0;
+    let data_size = mem::size_of::<AudioDeviceID>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
-            kAudioObjectSystemObject,
-            &property_address as *const _,
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&property_address),
             0,
             null(),
-            &data_size as *const _ as *mut _,
-            &audio_device_id as *const _ as *mut _,
+            NonNull::from(&data_size),
+            NonNull::from(&mut audio_device_id).cast(),
         )
     };
     if status != kAudioHardwareNoError as i32 {
