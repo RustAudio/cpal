@@ -429,9 +429,9 @@ impl Device {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
                         channels,
-                        min_sample_rate: SampleRate(min_rate as u32),
-                        max_sample_rate: SampleRate(max_rate as u32),
-                        buffer_size: buffer_size_range.clone(),
+                        min_sample_rate: SampleRate(min_rate),
+                        max_sample_rate: SampleRate(max_rate),
+                        buffer_size: buffer_size_range,
                         sample_format,
                     });
                 }
@@ -478,7 +478,7 @@ impl Device {
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
-        match formats.into_iter().last() {
+        match formats.into_iter().next_back() {
             Some(f) => {
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
@@ -909,7 +909,7 @@ fn stream_timestamp(
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
-    ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
+    ts.tv_sec * 1_000_000_000 + ts.tv_nsec
 }
 
 // Adapted from `timediff` here:
