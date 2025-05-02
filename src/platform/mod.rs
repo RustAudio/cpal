@@ -580,6 +580,12 @@ macro_rules! impl_platform_host {
                 )*
             }
         }
+        
+        impl Default for Host {
+            fn default() -> Host {
+                default_host()
+            }
+        }
     };
 }
 
