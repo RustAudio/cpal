@@ -220,4 +220,12 @@ pub trait StreamTrait {
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
+
+    /// The current latency of the stream in samples (if available).
+    ///
+    /// Note: This is not implemented on all platforms and not all backends return reliable
+    /// information.
+    fn latency(&self) -> Option<u32> {
+        None
+    }
 }
