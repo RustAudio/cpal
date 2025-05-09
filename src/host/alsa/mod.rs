@@ -10,6 +10,7 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
+use audio_thread_priority::promote_current_thread_to_real_time;
 use std::cell::Cell;
 use std::cmp;
 use std::convert::TryInto;
@@ -589,6 +590,17 @@ fn input_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = stream.conf.buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, stream.conf.sample_rate.0) {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -640,6 +652,17 @@ fn output_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = stream.conf.buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, stream.conf.sample_rate.0) {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
