@@ -35,14 +35,14 @@ windows = { version = "0.54.0", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
-audio_thread_priority = "0.33.0"
+audio_thread_priority = { version = "0.33.0", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9"
 libc = "0.2"
-audio_thread_priority = "0.33.0"
+audio_thread_priority = { version = "0.33.0", optional = true }
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
