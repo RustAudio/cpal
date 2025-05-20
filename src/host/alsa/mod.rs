@@ -589,6 +589,8 @@ fn input_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -640,6 +642,8 @@ fn output_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -683,6 +687,25 @@ fn output_stream_worker(
         }
     }
 }
+
+#[cfg(feature = "audio_thread_priority")]
+fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRate) {
+    use audio_thread_priority::promote_current_thread_to_real_time;
+
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
+}
+
+#[cfg(not(feature = "audio_thread_priority"))]
+fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
 
 enum PollDescriptorsFlow {
     Continue,
