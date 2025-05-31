@@ -14,6 +14,8 @@ jobs:
       run: sudo apt-get install libasound2-dev
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+    - name: Install dbus
+      run: sudo apt-get install libdbus-1-dev
     - name: Install stable
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -22,7 +24,7 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all --all-features
     - name: Run clippy for Android target
-      run: cargo clippy --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
+      run: cargo clippy --all --features asio --target armv7-linux-androideabi
 
   rustfmt-check:
     runs-on: ubuntu-latest
@@ -67,6 +69,8 @@ jobs:
       run: sudo apt-get install libasound2-dev
     - name: Install libjack
       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+    - name: Install dbus
+      run: sudo apt-get install libdbus-1-dev
     - name: Install stable
       uses: dtolnay/rust-toolchain@stable
     - name: Run without features
@@ -137,7 +141,7 @@ jobs:
 
     strategy:
       matrix:
-        target: [wasm32-wasi]
+        target: [wasm32-wasip1]
 
     runs-on: ubuntu-latest
 
@@ -203,15 +207,16 @@ jobs:
       with:
         target: armv7-linux-androideabi
     - name: Check android
-      run: cargo check --example android --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
+      working-directory: examples/android
+      run: cargo check --target armv7-linux-androideabi --verbose
     - name: Check beep
-      run: cargo check --example beep --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
+      run: cargo check --example beep --target armv7-linux-androideabi --verbose
     - name: Check enumerate
-      run: cargo check --example enumerate --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
+      run: cargo check --example enumerate --target armv7-linux-androideabi --verbose
     - name: Check feedback
-      run: cargo check --example feedback --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
+      run: cargo check --example feedback --target armv7-linux-androideabi --verbose
     - name: Check record_wav
-      run: cargo check --example record_wav --target armv7-linux-androideabi --features oboe/fetch-prebuilt --verbose
+      run: cargo check --example record_wav --target armv7-linux-androideabi --verbose
 
   android-apk-build:
     runs-on: ubuntu-latest
@@ -223,11 +228,12 @@ jobs:
         targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
     - name: Set Up Android tools
       run: |
-        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "platforms;android-30"
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "build-tools;30.0.2" "platforms;android-30"
     - name: Install Cargo APK
       run: cargo install cargo-apk
     - name: Build APK
-      run: cargo apk build --example android
+      working-directory: examples/android
+      run: cargo apk build
 
   ios-build:
     runs-on: macOS-latest

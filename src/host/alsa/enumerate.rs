@@ -21,7 +21,7 @@ impl Devices {
 unsafe impl Send for Devices {}
 unsafe impl Sync for Devices {}
 
-const BUILTINS: [&'static str; 5] = ["default", "pipewire", "pulse", "jack", "oss"];
+const BUILTINS: [&str; 5] = ["default", "pipewire", "pulse", "jack", "oss"];
 
 impl Iterator for Devices {
     type Item = Device;
@@ -32,7 +32,7 @@ impl Iterator for Devices {
             self.builtin_pos += 1;
             let name = BUILTINS[pos];
 
-            if let Ok(handles) = DeviceHandles::open(&name) {
+            if let Ok(handles) = DeviceHandles::open(name) {
                 return Some(Device {
                     name: name.to_string(),
                     pcm_id: name.to_string(),
@@ -42,9 +42,7 @@ impl Iterator for Devices {
         }
 
         loop {
-            let Some(res) = self.card_iter.next() else {
-                return None;
-            };
+            let res = self.card_iter.next()?;
             let Ok(card) = res else { continue };
 
             let ctl_id = format!("hw:{}", card.get_index());

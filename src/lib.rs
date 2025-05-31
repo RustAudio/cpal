@@ -33,7 +33,7 @@
 //! ```
 //!
 //! Before we can create a stream, we must decide what the configuration of the audio stream is
-//! going to be.    
+//! going to be.
 //! You can query all the supported configurations with the
 //! [`supported_input_configs()`] and [`supported_output_configs()`] methods.
 //! These produce a list of [`SupportedStreamConfigRange`] structs which can later be turned into
@@ -225,7 +225,7 @@ pub type FrameCount = u32;
 /// behavior of the given host. Note, the default buffer size may be surprisingly
 /// large, leading to latency issues. If low latency is desired, [`Fixed(FrameCount)`]
 /// should be used in accordance with the [`SupportedBufferSize`] range produced by
-/// the [`SupportedStreamConfig`] API.  
+/// the [`SupportedStreamConfig`] API.
 ///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
@@ -243,7 +243,8 @@ impl wasm_bindgen::describe::WasmDescribe for BufferSize {
 
 #[cfg(target_os = "emscripten")]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
-    type Abi = Option<u32>;
+    type Abi = <Option<FrameCount> as wasm_bindgen::convert::IntoWasmAbi>::Abi;
+
     fn into_abi(self) -> Self::Abi {
         match self {
             Self::Default => None,
@@ -479,12 +480,16 @@ impl StreamInstant {
         Self::new(s, ns)
     }
 
-    fn new(secs: i64, nanos: u32) -> Self {
+    pub fn new(secs: i64, nanos: u32) -> Self {
         StreamInstant { secs, nanos }
     }
 }
 
 impl InputCallbackInfo {
+    pub fn new(timestamp: InputStreamTimestamp) -> Self {
+        Self { timestamp }
+    }
+
     /// The timestamp associated with the call to an input stream's data callback.
     pub fn timestamp(&self) -> InputStreamTimestamp {
         self.timestamp
@@ -492,6 +497,10 @@ impl InputCallbackInfo {
 }
 
 impl OutputCallbackInfo {
+    pub fn new(timestamp: OutputStreamTimestamp) -> Self {
+        Self { timestamp }
+    }
+
     /// The timestamp associated with the call to an output stream's data callback.
     pub fn timestamp(&self) -> OutputStreamTimestamp {
         self.timestamp
@@ -834,6 +843,7 @@ const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(96000),
     SampleRate(176400),
     SampleRate(192000),
+    SampleRate(384000),
 ];
 
 #[test]

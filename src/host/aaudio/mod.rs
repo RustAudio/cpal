@@ -1,32 +1,32 @@
 use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::vec::IntoIter as VecIntoIter;
 
-extern crate oboe;
+extern crate ndk;
+
+use convert::{stream_instant, to_stream_instant};
+use java_interface::{AudioDeviceDirection, AudioDeviceInfo};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, SizedSample, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
+    OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
+    SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 mod android_media;
 mod convert;
-mod input_callback;
-mod output_callback;
+mod java_interface;
 
 use self::android_media::{get_audio_record_min_buffer_size, get_audio_track_min_buffer_size};
-use self::input_callback::CpalInputCallback;
-use self::oboe::{AudioInputStream, AudioOutputStream};
-use self::output_callback::CpalOutputCallback;
+use self::ndk::audio::AudioStream;
 
-// Android Java API supports up to 8 channels, but oboe API
-// only exposes mono and stereo.
+// Android Java API supports up to 8 channels
+// TODO: more channels available in native AAudio
 const CHANNEL_MASKS: [i32; 2] = [
     android_media::CHANNEL_OUT_MONO,
     android_media::CHANNEL_OUT_STEREO,
@@ -38,11 +38,17 @@ const SAMPLE_RATES: [i32; 13] = [
 
 pub struct Host;
 #[derive(Clone)]
-pub struct Device(Option<oboe::AudioDeviceInfo>);
+pub struct Device(Option<AudioDeviceInfo>);
 pub enum Stream {
-    Input(Box<RefCell<dyn AudioInputStream>>),
-    Output(Box<RefCell<dyn AudioOutputStream>>),
+    Input(AudioStream),
+    Output(AudioStream),
 }
+
+// AAudioStream is safe to be send, but not sync.
+// See https://developer.android.com/ndk/guides/audio/aaudio/aaudio
+// TODO: Is this still in-progress? https://github.com/rust-mobile/ndk/pull/497
+unsafe impl Send for Stream {}
+
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type Devices = VecIntoIter<Device>;
@@ -62,8 +68,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        if let Ok(devices) = oboe::AudioDeviceInfo::request(oboe::AudioDeviceDirection::InputOutput)
-        {
+        if let Ok(devices) = AudioDeviceInfo::request(AudioDeviceDirection::InputOutput) {
             Ok(devices
                 .into_iter()
                 .map(|d| Device(Some(d)))
@@ -140,7 +145,7 @@ fn default_supported_configs(is_output: bool) -> VecIntoIter<SupportedStreamConf
 }
 
 fn device_supported_configs(
-    device: &oboe::AudioDeviceInfo,
+    device: &AudioDeviceInfo,
     is_output: bool,
 ) -> VecIntoIter<SupportedStreamConfigRange> {
     let sample_rates = if !device.sample_rates.is_empty() {
@@ -156,7 +161,7 @@ fn device_supported_configs(
         &ALL_CHANNELS
     };
 
-    const ALL_FORMATS: [oboe::AudioFormat; 2] = [oboe::AudioFormat::I16, oboe::AudioFormat::F32];
+    const ALL_FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
     let formats = if !device.formats.is_empty() {
         device.formats.as_slice()
     } else {
@@ -168,18 +173,15 @@ fn device_supported_configs(
         for channel_count in channel_counts {
             assert!(*channel_count > 0);
             if *channel_count > 2 {
-                // could be supported by the device, but oboe does not support more than 2 channels
+                // could be supported by the device
+                // TODO: more channels available in native AAudio
                 continue;
             }
             let channel_mask = CHANNEL_MASKS[*channel_count as usize - 1];
             for format in formats {
                 let (android_format, sample_format) = match format {
-                    oboe::AudioFormat::I16 => {
-                        (android_media::ENCODING_PCM_16BIT, SampleFormat::I16)
-                    }
-                    oboe::AudioFormat::F32 => {
-                        (android_media::ENCODING_PCM_FLOAT, SampleFormat::F32)
-                    }
+                    SampleFormat::I16 => (android_media::ENCODING_PCM_16BIT, SampleFormat::I16),
+                    SampleFormat::F32 => (android_media::ENCODING_PCM_FLOAT, SampleFormat::F32),
                     _ => panic!("Unexpected format"),
                 };
                 let buffer_size = buffer_size_range_for_params(
@@ -202,69 +204,105 @@ fn device_supported_configs(
     output.into_iter()
 }
 
-fn configure_for_device<D, C, I>(
-    builder: oboe::AudioStreamBuilder<D, C, I>,
+fn configure_for_device(
+    builder: ndk::audio::AudioStreamBuilder,
     device: &Device,
     config: &StreamConfig,
-) -> oboe::AudioStreamBuilder<D, C, I> {
+) -> ndk::audio::AudioStreamBuilder {
     let mut builder = if let Some(info) = &device.0 {
-        builder.set_device_id(info.id)
+        builder.device_id(info.id)
     } else {
         builder
     };
-    builder = builder.set_sample_rate(config.sample_rate.0.try_into().unwrap());
+    builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
     match &config.buffer_size {
         BufferSize::Default => builder,
-        BufferSize::Fixed(size) => builder.set_buffer_capacity_in_frames(*size as i32),
+        BufferSize::Fixed(size) => builder.buffer_capacity_in_frames(*size as i32),
     }
 }
 
-fn build_input_stream<D, E, C, T>(
+fn build_input_stream<D, E>(
     device: &Device,
     config: &StreamConfig,
-    data_callback: D,
-    error_callback: E,
-    builder: oboe::AudioStreamBuilder<oboe::Input, C, T>,
+    mut data_callback: D,
+    mut error_callback: E,
+    builder: ndk::audio::AudioStreamBuilder,
+    sample_format: SampleFormat,
 ) -> Result<Stream, BuildStreamError>
 where
-    T: SizedSample + oboe::IsFormat + Send + 'static,
-    C: oboe::IsChannelCount + Send + 'static,
-    (T, C): oboe::IsFrameType,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
+    let created = Instant::now();
+    let channel_count = config.channels as i32;
     let stream = builder
-        .set_callback(CpalInputCallback::<T, C>::new(
-            data_callback,
-            error_callback,
-        ))
+        .data_callback(Box::new(move |stream, data, num_frames| {
+            let cb_info = InputCallbackInfo {
+                timestamp: InputStreamTimestamp {
+                    callback: to_stream_instant(created.elapsed()),
+                    capture: stream_instant(stream),
+                },
+            };
+            (data_callback)(
+                &unsafe {
+                    Data::from_parts(
+                        data as *mut _,
+                        (num_frames * channel_count).try_into().unwrap(),
+                        sample_format,
+                    )
+                },
+                &cb_info,
+            );
+            ndk::audio::AudioCallbackResult::Continue
+        }))
+        .error_callback(Box::new(move |stream, error| {
+            (error_callback)(StreamError::from(error))
+        }))
         .open_stream()?;
-    Ok(Stream::Input(Box::new(RefCell::new(stream))))
+    Ok(Stream::Input(stream))
 }
 
-fn build_output_stream<D, E, C, T>(
+fn build_output_stream<D, E>(
     device: &Device,
     config: &StreamConfig,
-    data_callback: D,
-    error_callback: E,
-    builder: oboe::AudioStreamBuilder<oboe::Output, C, T>,
+    mut data_callback: D,
+    mut error_callback: E,
+    builder: ndk::audio::AudioStreamBuilder,
+    sample_format: SampleFormat,
 ) -> Result<Stream, BuildStreamError>
 where
-    T: SizedSample + oboe::IsFormat + Send + 'static,
-    C: oboe::IsChannelCount + Send + 'static,
-    (T, C): oboe::IsFrameType,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
+    let created = Instant::now();
+    let channel_count = config.channels as i32;
     let stream = builder
-        .set_callback(CpalOutputCallback::<T, C>::new(
-            data_callback,
-            error_callback,
-        ))
+        .data_callback(Box::new(move |stream, data, num_frames| {
+            let cb_info = OutputCallbackInfo {
+                timestamp: OutputStreamTimestamp {
+                    callback: to_stream_instant(created.elapsed()),
+                    playback: stream_instant(stream),
+                },
+            };
+            (data_callback)(
+                &mut unsafe {
+                    Data::from_parts(
+                        data as *mut _,
+                        (num_frames * channel_count).try_into().unwrap(),
+                        sample_format,
+                    )
+                },
+                &cb_info,
+            );
+            ndk::audio::AudioCallbackResult::Continue
+        }))
+        .error_callback(Box::new(move |stream, error| {
+            (error_callback)(StreamError::from(error))
+        }))
         .open_stream()?;
-    Ok(Stream::Output(Box::new(RefCell::new(stream))))
+    Ok(Stream::Output(stream))
 }
 
 impl DeviceTrait for Device {
@@ -275,7 +313,17 @@ impl DeviceTrait for Device {
     fn name(&self) -> Result<String, DeviceNameError> {
         match &self.0 {
             None => Ok("default".to_owned()),
-            Some(info) => Ok(info.product_name.clone()),
+            Some(info) => {
+                let name = if info.address.is_empty() {
+                    format!("{}:{:?}", info.product_name, info.device_type)
+                } else {
+                    format!(
+                        "{}:{:?}:{}",
+                        info.product_name, info.device_type, info.address
+                    )
+                };
+                Ok(name)
+            }
         }
     }
 
@@ -333,66 +381,41 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        match sample_format {
-            SampleFormat::I16 => {
-                let builder = oboe::AudioStreamBuilder::default()
-                    .set_input()
-                    .set_format::<i16>();
-                if config.channels == 1 {
-                    build_input_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_mono(),
-                    )
-                } else if config.channels == 2 {
-                    build_input_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_stereo(),
-                    )
-                } else {
-                    Err(BackendSpecificError {
-                        description: "More than 2 channels are not supported by Oboe.".to_owned(),
-                    }
-                    .into())
+        let format = match sample_format {
+            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
+            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!("{} format is not supported on Android.", sample_format),
                 }
+                .into())
             }
-            SampleFormat::F32 => {
-                let builder = oboe::AudioStreamBuilder::default()
-                    .set_input()
-                    .set_format::<f32>();
-                if config.channels == 1 {
-                    build_input_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_mono(),
-                    )
-                } else if config.channels == 2 {
-                    build_input_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_stereo(),
-                    )
-                } else {
-                    Err(BackendSpecificError {
-                        description: "More than 2 channels are not supported by Oboe.".to_owned(),
-                    }
-                    .into())
+        };
+        let channel_count = match config.channels {
+            1 => 1,
+            2 => 2,
+            channels => {
+                // TODO: more channels available in native AAudio
+                return Err(BackendSpecificError {
+                    description: "More than 2 channels are not supported yet.".to_owned(),
                 }
+                .into());
             }
-            sample_format => Err(BackendSpecificError {
-                description: format!("{} format is not supported on Android.", sample_format),
-            }
-            .into()),
-        }
+        };
+
+        let builder = ndk::audio::AudioStreamBuilder::new()?
+            .direction(ndk::audio::AudioDirection::Input)
+            .channel_count(channel_count)
+            .format(format);
+
+        build_input_stream(
+            self,
+            config,
+            data_callback,
+            error_callback,
+            builder,
+            sample_format,
+        )
     }
 
     fn build_output_stream_raw<D, E>(
@@ -407,80 +430,49 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        match sample_format {
-            SampleFormat::I16 => {
-                let builder = oboe::AudioStreamBuilder::default()
-                    .set_output()
-                    .set_format::<i16>();
-                if config.channels == 1 {
-                    build_output_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_mono(),
-                    )
-                } else if config.channels == 2 {
-                    build_output_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_stereo(),
-                    )
-                } else {
-                    Err(BackendSpecificError {
-                        description: "More than 2 channels are not supported by Oboe.".to_owned(),
-                    }
-                    .into())
+        let format = match sample_format {
+            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
+            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!("{} format is not supported on Android.", sample_format),
                 }
+                .into())
             }
-            SampleFormat::F32 => {
-                let builder = oboe::AudioStreamBuilder::default()
-                    .set_output()
-                    .set_format::<f32>();
-                if config.channels == 1 {
-                    build_output_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_mono(),
-                    )
-                } else if config.channels == 2 {
-                    build_output_stream(
-                        self,
-                        config,
-                        data_callback,
-                        error_callback,
-                        builder.set_stereo(),
-                    )
-                } else {
-                    Err(BackendSpecificError {
-                        description: "More than 2 channels are not supported by Oboe.".to_owned(),
-                    }
-                    .into())
+        };
+        let channel_count = match config.channels {
+            1 => 1,
+            2 => 2,
+            channels => {
+                // TODO: more channels available in native AAudio
+                return Err(BackendSpecificError {
+                    description: "More than 2 channels are not supported yet.".to_owned(),
                 }
+                .into());
             }
-            sample_format => Err(BackendSpecificError {
-                description: format!("{} format is not supported on Android.", sample_format),
-            }
-            .into()),
-        }
+        };
+
+        let builder = ndk::audio::AudioStreamBuilder::new()?
+            .direction(ndk::audio::AudioDirection::Output)
+            .channel_count(channel_count)
+            .format(format);
+
+        build_output_stream(
+            self,
+            config,
+            data_callback,
+            error_callback,
+            builder,
+            sample_format,
+        )
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Self::Input(stream) => stream
-                .borrow_mut()
-                .request_start()
-                .map_err(PlayStreamError::from),
-            Self::Output(stream) => stream
-                .borrow_mut()
-                .request_start()
-                .map_err(PlayStreamError::from),
+            Self::Input(stream) => stream.request_start().map_err(PlayStreamError::from),
+            Self::Output(stream) => stream.request_start().map_err(PlayStreamError::from),
         }
     }
 
@@ -490,10 +482,7 @@ impl StreamTrait for Stream {
                 description: "Pause called on the input stream.".to_owned(),
             }
             .into()),
-            Self::Output(stream) => stream
-                .borrow_mut()
-                .request_pause()
-                .map_err(PauseStreamError::from),
+            Self::Output(stream) => stream.request_pause().map_err(PauseStreamError::from),
         }
     }
 }

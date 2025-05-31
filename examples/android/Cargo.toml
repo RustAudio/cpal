@@ -1,0 +1,30 @@
+[package]
+name = "android"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = { path = "../../" }
+anyhow = "1.0"
+ndk-glue = "0.7"
+
+[lib]
+name = "android"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[package.metadata.android]
+# Specifies the package property of the manifest.
+package = "com.foo.bar"
+
+# Specifies the array of targets to build for.
+build_targets = [ "armv7-linux-androideabi", "aarch64-linux-android", "i686-linux-android", "x86_64-linux-android" ]
+
+# Name for final APK file.
+# Defaults to package name.
+apk_name = "myapp"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 30
+max_sdk_version = 29
