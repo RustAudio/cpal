@@ -12,6 +12,9 @@ rust-version = "1.70"
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
 
+# Deprecated, the `oboe` backend has been removed
+oboe-shared-stdcxx = []
+
 [dependencies]
 dasp_sample = "0.11"
 
