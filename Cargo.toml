@@ -49,14 +49,27 @@ audio_thread_priority = { version = "0.33.0", optional = true }
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach2 = "0.4" # For access to mach_timebase type.
 
-[target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio"] }
-
-[target.'cfg(target_os = "ios")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
+[target.'cfg(target_vendor = "apple")'.dependencies]
+coreaudio-rs = { version = "0.13.0", default-features = false, features = [
+    "core_audio",
+    "audio_toolbox",
+] }
+objc2-core-audio = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AudioHardware",
+    "AudioHardwareDeprecated",
+] }
+objc2-audio-toolbox = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AUComponent",
+    "AudioUnitProperties",
+] }
+objc2-core-audio-types = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "CoreAudioBaseTypes",
+] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 wasm-bindgen = { version = "0.2.89" }
