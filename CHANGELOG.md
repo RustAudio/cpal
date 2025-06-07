@@ -1,6 +1,6 @@
 # Unreleased
 
-# Version 0.16.0 (2024-06-06)
+# Version 0.16.0 (2024-06-07)
 
 - Migrate from `oboe` to `ndk::audio`. **NOTE:** This raises the minimum Android API version to 26 (Android 8/Oreo).
 - `SampleFormat` now impls `PartialOrd`, `Ord` and `Hash`.
