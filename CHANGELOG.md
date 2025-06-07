@@ -1,6 +1,28 @@
 # Unreleased
 
-- All error enums are now `Clone`.
+# Version 0.16.0 (2024-06-06)
+
+- Migrate from `oboe` to `ndk::audio`. **NOTE:** This raises the minimum Android API version to 26 (Android 8/Oreo).
+- `SampleFormat` now impls `PartialOrd`, `Ord` and `Hash`.
+- All error enums are now `Clone`, `PartialEq`, `Eq` and `Hash`.
+- Added optional `supports_input`/`output` methods to `DeviceTrait`.
+- Added 384000Hz to `COMMON_SAMPLE_RATES`.
+- Added constructors for `InputCallbackInfo`, `OutputCallbackInfo` and `StreamInstant`.
+- Added `Default` impl for `Host`.
+- Set realtime priority for stream threads in ALSA and WASAPI.
+- AAudio: Improve device names.
+- ALSA: Don't panic when handling invalid stream timestamps.
+- ALSA: Improved card enumeration.
+- ALSA: Fix infinite loop on broken pipes.
+- ASIO: Fix build failure on Windows.
+- ASIO: Add support for int24.
+- CoreAudio: Fix callback being called after dropping the stream.
+- CoreAudio: Fix non-default audio output.
+- CoreAudio: Fix handling of integer input formats.
+- WASAPI: Fixed memory leak.
+- WASAPI: Remove usage of `eval`.
+- Update `jack` dependency to 0.13.
+- Update `coreaudio-rs` dependency to 0.13.
 
 # Version 0.15.3 (2024-03-04)
 
