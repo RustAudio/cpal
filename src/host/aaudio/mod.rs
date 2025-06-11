@@ -36,6 +36,222 @@ const SAMPLE_RATES: [i32; 13] = [
     5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176_400, 192_000,
 ];
 
+/// Audio usage types for Android AAudio streams
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioUsage {
+    /// Media playback (default) - routes to speakers
+    Media,
+    /// Voice communication - routes to earpiece/headset for VoIP
+    VoiceCommunication,
+    /// Traditional phone calls - routes to earpiece/headset
+    VoiceCall,
+    /// Voice recognition - optimized for speech input
+    VoiceRecognition,
+    /// Games and interactive applications
+    Game,
+    /// Assistant applications
+    Assistant,
+}
+
+impl AudioUsage {
+    fn to_ndk_usage(self) -> ndk::audio::AudioUsage {
+        match self {
+            AudioUsage::Media => ndk::audio::AudioUsage::Media,
+            AudioUsage::VoiceCommunication => ndk::audio::AudioUsage::VoiceCommunication,
+            AudioUsage::VoiceCall => ndk::audio::AudioUsage::VoiceCall,
+            AudioUsage::VoiceRecognition => ndk::audio::AudioUsage::VoiceRecognition,
+            AudioUsage::Game => ndk::audio::AudioUsage::Game,
+            AudioUsage::Assistant => ndk::audio::AudioUsage::Assistant,
+        }
+    }
+}
+
+impl Default for AudioUsage {
+    fn default() -> Self {
+        AudioUsage::Media
+    }
+}
+
+/// Audio content types for Android AAudio streams
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioContentType {
+    /// Music content
+    Music,
+    /// Speech content for VoIP/calls
+    Speech,
+    /// Movie content
+    Movie,
+    /// Sonification (UI sounds, notifications)
+    Sonification,
+}
+
+impl AudioContentType {
+    fn to_ndk_content_type(self) -> ndk::audio::AudioContentType {
+        match self {
+            AudioContentType::Music => ndk::audio::AudioContentType::Music,
+            AudioContentType::Speech => ndk::audio::AudioContentType::Speech,
+            AudioContentType::Movie => ndk::audio::AudioContentType::Movie,
+            AudioContentType::Sonification => ndk::audio::AudioContentType::Sonification,
+        }
+    }
+}
+
+impl Default for AudioContentType {
+    fn default() -> Self {
+        AudioContentType::Music
+    }
+}
+
+/// Audio input presets for Android AAudio streams
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioInputPreset {
+    /// Voice recognition (default, lowest latency)
+    VoiceRecognition,
+    /// Voice communication for VoIP
+    VoiceCommunication,
+    /// High quality voice recording
+    VoicePerformance,
+    /// General audio recording
+    Generic,
+    /// Camera/camcorder recording
+    Camcorder,
+}
+
+impl AudioInputPreset {
+    fn to_ndk_input_preset(self) -> ndk::audio::AudioInputPreset {
+        match self {
+            AudioInputPreset::VoiceRecognition => ndk::audio::AudioInputPreset::VoiceRecognition,
+            AudioInputPreset::VoiceCommunication => ndk::audio::AudioInputPreset::VoiceCommunication,
+            AudioInputPreset::VoicePerformance => ndk::audio::AudioInputPreset::VoicePerformance,
+            AudioInputPreset::Generic => ndk::audio::AudioInputPreset::Generic,
+            AudioInputPreset::Camcorder => ndk::audio::AudioInputPreset::Camcorder,
+        }
+    }
+}
+
+impl Default for AudioInputPreset {
+    fn default() -> Self {
+        AudioInputPreset::VoiceRecognition
+    }
+}
+
+/// Audio sharing modes for Android AAudio streams
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioSharingMode {
+    /// Shared mode - allows other apps to use audio (recommended)
+    Shared,
+    /// Exclusive mode - blocks other apps from using audio (not recommended)
+    Exclusive,
+}
+
+impl AudioSharingMode {
+    fn to_ndk_sharing_mode(self) -> ndk::audio::AudioSharingMode {
+        match self {
+            AudioSharingMode::Shared => ndk::audio::AudioSharingMode::Shared,
+            AudioSharingMode::Exclusive => ndk::audio::AudioSharingMode::Exclusive,
+        }
+    }
+}
+
+impl Default for AudioSharingMode {
+    fn default() -> Self {
+        AudioSharingMode::Shared
+    }
+}
+
+/// Audio performance modes for Android AAudio streams
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioPerformanceMode {
+    /// Default mode - balanced latency and power
+    None,
+    /// Low latency mode for real-time applications
+    LowLatency,
+    /// Power saving mode for longer battery life
+    PowerSaving,
+}
+
+impl AudioPerformanceMode {
+    fn to_ndk_performance_mode(self) -> ndk::audio::AudioPerformanceMode {
+        match self {
+            AudioPerformanceMode::None => ndk::audio::AudioPerformanceMode::None,
+            AudioPerformanceMode::LowLatency => ndk::audio::AudioPerformanceMode::LowLatency,
+            AudioPerformanceMode::PowerSaving => ndk::audio::AudioPerformanceMode::PowerSaving,
+        }
+    }
+}
+
+impl Default for AudioPerformanceMode {
+    fn default() -> Self {
+        AudioPerformanceMode::None
+    }
+}
+
+/// Extended stream configuration for Android-specific audio settings
+#[derive(Debug, Clone)]
+pub struct AndroidStreamConfig {
+    /// Standard stream configuration
+    pub base: StreamConfig,
+    /// Audio usage type (affects routing)
+    pub usage: AudioUsage,
+    /// Audio content type
+    pub content_type: AudioContentType,
+    /// Input preset (for input streams only)
+    pub input_preset: AudioInputPreset,
+    /// Sharing mode
+    pub sharing_mode: AudioSharingMode,
+    /// Performance mode
+    pub performance_mode: AudioPerformanceMode,
+}
+
+impl AndroidStreamConfig {
+    pub fn new(base: StreamConfig) -> Self {
+        Self {
+            base,
+            usage: AudioUsage::default(),
+            content_type: AudioContentType::default(),
+            input_preset: AudioInputPreset::default(),
+            sharing_mode: AudioSharingMode::default(),
+            performance_mode: AudioPerformanceMode::default(),
+        }
+    }
+
+    /// Create configuration optimized for VoIP applications
+    pub fn for_voip(base: StreamConfig) -> Self {
+        Self {
+            base,
+            usage: AudioUsage::VoiceCommunication,
+            content_type: AudioContentType::Speech,
+            input_preset: AudioInputPreset::VoiceCommunication,
+            sharing_mode: AudioSharingMode::Shared, // Always shared for VoIP
+            performance_mode: AudioPerformanceMode::LowLatency,
+        }
+    }
+
+    /// Create configuration optimized for traditional phone calls
+    pub fn for_voice_call(base: StreamConfig) -> Self {
+        Self {
+            base,
+            usage: AudioUsage::VoiceCall,
+            content_type: AudioContentType::Speech,
+            input_preset: AudioInputPreset::VoiceCommunication,
+            sharing_mode: AudioSharingMode::Shared,
+            performance_mode: AudioPerformanceMode::LowLatency,
+        }
+    }
+
+    /// Create configuration for media playback
+    pub fn for_media(base: StreamConfig) -> Self {
+        Self {
+            base,
+            usage: AudioUsage::Media,
+            content_type: AudioContentType::Music,
+            input_preset: AudioInputPreset::Generic,
+            sharing_mode: AudioSharingMode::Shared,
+            performance_mode: AudioPerformanceMode::None,
+        }
+    }
+}
+
 pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
@@ -207,15 +423,28 @@ fn device_supported_configs(
 fn configure_for_device(
     builder: ndk::audio::AudioStreamBuilder,
     device: &Device,
-    config: &StreamConfig,
+    config: &AndroidStreamConfig,
 ) -> ndk::audio::AudioStreamBuilder {
     let mut builder = if let Some(info) = &device.0 {
         builder.device_id(info.id)
     } else {
         builder
     };
-    builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
-    match &config.buffer_size {
+    builder = builder.sample_rate(config.base.sample_rate.0.try_into().unwrap());
+    
+    builder = builder
+        .sharing_mode(config.sharing_mode.to_ndk_sharing_mode())
+        .performance_mode(config.performance_mode.to_ndk_performance_mode());
+
+    // Apply usage and content type (API level 28+)
+    #[cfg(feature = "api-level-28")]
+    {
+        builder = builder
+            .usage(config.usage.to_ndk_usage())
+            .content_type(config.content_type.to_ndk_content_type());
+    }
+
+    match &config.base.buffer_size {
         BufferSize::Default => builder,
         BufferSize::Fixed(size) => builder.buffer_capacity_in_frames(*size as i32),
     }
@@ -223,7 +452,7 @@ fn configure_for_device(
 
 fn build_input_stream<D, E>(
     device: &Device,
-    config: &StreamConfig,
+    config: &AndroidStreamConfig,
     mut data_callback: D,
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
@@ -234,6 +463,13 @@ where
     E: FnMut(StreamError) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
+
+    // Apply input preset (API level 28+)
+    #[cfg(feature = "api-level-28")]
+    {
+        builder = builder.input_preset(config.input_preset.to_ndk_input_preset());
+    }
+
     let created = Instant::now();
     let channel_count = config.channels as i32;
     let stream = builder
@@ -265,7 +501,7 @@ where
 
 fn build_output_stream<D, E>(
     device: &Device,
-    config: &StreamConfig,
+    config: &AndroidStreamConfig,
     mut data_callback: D,
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
@@ -303,6 +539,108 @@ where
         }))
         .open_stream()?;
     Ok(Stream::Output(stream))
+}
+
+impl Device {
+    /// Build input stream with Android-specific configuration
+    pub fn build_input_stream_with_android_config<D, E>(
+        &self,
+        config: &AndroidStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let format = match sample_format {
+            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
+            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!("{} format is not supported on Android.", sample_format),
+                }
+                .into())
+            }
+        };
+        let channel_count = match config.base.channels {
+            1 => 1,
+            2 => 2,
+            channels => {
+                // TODO: more channels available in native AAudio
+                return Err(BackendSpecificError {
+                    description: "More than 2 channels are not supported yet.".to_owned(),
+                }
+                .into());
+            }
+        };
+
+        let builder = ndk::audio::AudioStreamBuilder::new()?
+            .direction(ndk::audio::AudioDirection::Input)
+            .channel_count(channel_count)
+            .format(format);
+
+        build_input_stream(
+            self,
+            config,
+            data_callback,
+            error_callback,
+            builder,
+            sample_format,
+        )
+    }
+
+    /// Build output stream with Android-specific configuration
+    pub fn build_output_stream_with_android_config<D, E>(
+        &self,
+        config: &AndroidStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let format = match sample_format {
+            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
+            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!("{} format is not supported on Android.", sample_format),
+                }
+                .into())
+            }
+        };
+        let channel_count = match config.base.channels {
+            1 => 1,
+            2 => 2,
+            channels => {
+                // TODO: more channels available in native AAudio
+                return Err(BackendSpecificError {
+                    description: "More than 2 channels are not supported yet.".to_owned(),
+                }
+                .into());
+            }
+        };
+
+        let builder = ndk::audio::AudioStreamBuilder::new()?
+            .direction(ndk::audio::AudioDirection::Output)
+            .channel_count(channel_count)
+            .format(format);
+
+        build_output_stream(
+            self,
+            config,
+            data_callback,
+            error_callback,
+            builder,
+            sample_format,
+        )
+    }
 }
 
 impl DeviceTrait for Device {
@@ -375,46 +713,20 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
-        _timeout: Option<Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let format = match sample_format {
-            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
-            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!("{} format is not supported on Android.", sample_format),
-                }
-                .into())
-            }
-        };
-        let channel_count = match config.channels {
-            1 => 1,
-            2 => 2,
-            channels => {
-                // TODO: more channels available in native AAudio
-                return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
-                }
-                .into());
-            }
-        };
-
-        let builder = ndk::audio::AudioStreamBuilder::new()?
-            .direction(ndk::audio::AudioDirection::Input)
-            .channel_count(channel_count)
-            .format(format);
-
-        build_input_stream(
-            self,
-            config,
+        // Use default Android configuration (media usage)
+        let android_config = AndroidStreamConfig::for_media(config.clone());
+        self.build_input_stream_with_android_config(
+            &android_config,
+            sample_format,
             data_callback,
             error_callback,
-            builder,
-            sample_format,
+            timeout,
         )
     }
 
@@ -424,46 +736,20 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
-        _timeout: Option<Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let format = match sample_format {
-            SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
-            SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!("{} format is not supported on Android.", sample_format),
-                }
-                .into())
-            }
-        };
-        let channel_count = match config.channels {
-            1 => 1,
-            2 => 2,
-            channels => {
-                // TODO: more channels available in native AAudio
-                return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
-                }
-                .into());
-            }
-        };
-
-        let builder = ndk::audio::AudioStreamBuilder::new()?
-            .direction(ndk::audio::AudioDirection::Output)
-            .channel_count(channel_count)
-            .format(format);
-
-        build_output_stream(
-            self,
-            config,
+        // Use default Android configuration (media usage)
+        let android_config = AndroidStreamConfig::for_media(config.clone());
+        self.build_output_stream_with_android_config(
+            &android_config,
+            sample_format,
             data_callback,
             error_callback,
-            builder,
-            sample_format,
+            timeout,
         )
     }
 }
