@@ -870,9 +870,15 @@ fn process_output(
     loop {
         match stream.channel.io_bytes().writei(buffer) {
             Err(err) if err.errno() == libc::EPIPE => {
-                // buffer underrun
-                // TODO: Notify the user of this.
-                let _ = stream.channel.try_recover(err, false);
+                // ALSA underrun or overrun.
+                // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
+                // Even if these recover successfully, they still may cause audible glitches.
+
+                // TODO:
+                //   Should we notify the user about successfully recovered errors?
+                //   Should we notify the user about failures in try_recover, rather than ignoring them?
+                //   (Both potentially not real-time-safe)
+                _ = stream.channel.try_recover(err, true);
             }
             Err(err) => {
                 error_callback(err.into());

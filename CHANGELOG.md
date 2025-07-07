@@ -1,5 +1,7 @@
 # Unreleased
 
+- ALSA(process_output): pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr
+
 # Version 0.16.0 (2025-06-07)
 
 - Migrate from `oboe` to `ndk::audio`. **NOTE:** This raises the minimum Android API version to 26 (Android 8/Oreo).
