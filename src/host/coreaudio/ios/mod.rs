@@ -7,17 +7,12 @@
 //!   buffer size.
 //!
 
-extern crate core_foundation_sys;
-extern crate coreaudio;
-
 use std::cell::RefCell;
 
-use self::coreaudio::audio_unit::render_callback::data;
-use self::coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
-use self::coreaudio::sys::{
-    kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat, AudioBuffer,
-    AudioStreamBasicDescription,
-};
+use coreaudio::audio_unit::render_callback::data;
+use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
+use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
+use objc2_core_audio_types::{AudioBuffer, AudioStreamBasicDescription};
 
 use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
