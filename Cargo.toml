@@ -51,6 +51,7 @@ jack = { version = "0.13.0", optional = true }
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 mach2 = "0.4" # For access to mach_timebase type.
 
+
 [target.'cfg(target_vendor = "apple")'.dependencies]
 coreaudio-rs = { version = "0.13.0", default-features = false, features = [
     "core_audio",
@@ -89,6 +90,9 @@ jni = "0.21"
 num-derive = "0.4"
 num-traits = "0.2"
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2" # Needed only for spectrogram example
+
 [[example]]
 name = "beep"
 
@@ -103,3 +107,6 @@ name = "record_wav"
 
 [[example]]
 name = "synth_tones"
+
+[[example]]
+name = "spectrogram"
