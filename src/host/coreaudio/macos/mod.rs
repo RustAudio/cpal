@@ -1,25 +1,7 @@
-extern crate core_foundation_sys;
-extern crate coreaudio;
-
+#![allow(deprecated)]
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
 
-use self::core_foundation_sys::string::{CFStringGetCString, CFStringGetCStringPtr, CFStringRef};
-use self::coreaudio::audio_unit::render_callback::{self, data};
-use self::coreaudio::audio_unit::{AudioUnit, Element, Scope};
-use self::coreaudio::sys::{
-    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
-    kAudioDevicePropertyDeviceNameCFString, kAudioDevicePropertyNominalSampleRate,
-    kAudioDevicePropertyScopeOutput, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, kAudioOutputUnitProperty_CurrentDevice,
-    kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat, kCFStringEncodingUTF8,
-    AudioBuffer, AudioBufferList, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData, AudioStreamBasicDescription,
-    AudioValueRange, OSStatus,
-};
+use super::OSStatus;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -28,11 +10,28 @@ use crate::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::ffi::CStr;
+use coreaudio::audio_unit::render_callback::{self, data};
+use coreaudio::audio_unit::{AudioUnit, Element, Scope};
+use objc2_audio_toolbox::{
+    kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
+    kAudioUnitProperty_StreamFormat,
+};
+use objc2_core_audio::{
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectPropertyScope, AudioObjectSetPropertyData,
+};
+use objc2_core_audio_types::{
+    AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
+};
 use std::fmt;
 use std::mem;
-use std::os::raw::c_char;
-use std::ptr::null;
+use std::ptr::{null, NonNull};
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -43,6 +42,7 @@ pub use self::enumerate::{
     SupportedOutputConfigs,
 };
 
+use coreaudio::audio_unit::macos_helpers::get_device_name;
 use property_listener::AudioObjectPropertyListener;
 
 pub mod enumerate;
@@ -171,54 +171,11 @@ impl Device {
     }
 
     fn name(&self) -> Result<String, DeviceNameError> {
-        let property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMaster,
-        };
-        let device_name: CFStringRef = null();
-        let data_size = mem::size_of::<CFStringRef>();
-        let c_str = unsafe {
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                &property_address as *const _,
-                0,
-                null(),
-                &data_size as *const _ as *mut _,
-                &device_name as *const _ as *mut _,
-            );
-            check_os_status(status)?;
-
-            let c_string: *const c_char = CFStringGetCStringPtr(device_name, kCFStringEncodingUTF8);
-            if c_string.is_null() {
-                let status = AudioObjectGetPropertyData(
-                    self.audio_device_id,
-                    &property_address as *const _,
-                    0,
-                    null(),
-                    &data_size as *const _ as *mut _,
-                    &device_name as *const _ as *mut _,
-                );
-                check_os_status(status)?;
-                let mut buf: [i8; 255] = [0; 255];
-                let result = CFStringGetCString(
-                    device_name,
-                    buf.as_mut_ptr(),
-                    buf.len() as _,
-                    kCFStringEncodingUTF8,
-                );
-                if result == 0 {
-                    let description =
-                        "core foundation failed to return device name string".to_string();
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                let name: &CStr = CStr::from_ptr(buf.as_ptr());
-                return Ok(name.to_str().unwrap().to_owned());
-            }
-            CStr::from_ptr(c_string as *mut _)
-        };
-        Ok(c_str.to_string_lossy().into_owned())
+        get_device_name(self.audio_device_id).map_err(|err| DeviceNameError::BackendSpecific {
+            err: BackendSpecificError {
+                description: err.to_string(),
+            },
+        })
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
@@ -238,10 +195,10 @@ impl Device {
             let data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
+                NonNull::from(&data_size),
             );
             check_os_status(status)?;
 
@@ -249,11 +206,11 @@ impl Device {
             audio_buffer_list.reserve_exact(data_size as usize);
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
-                audio_buffer_list.as_mut_ptr() as *mut _,
+                NonNull::from(&data_size),
+                NonNull::new(audio_buffer_list.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
 
@@ -282,10 +239,10 @@ impl Device {
             let data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
+                NonNull::from(&data_size),
             );
             check_os_status(status)?;
 
@@ -294,11 +251,11 @@ impl Device {
             ranges.reserve_exact(data_size as usize);
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
-                ranges.as_mut_ptr() as *mut _,
+                NonNull::from(&data_size),
+                NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
 
@@ -385,15 +342,15 @@ impl Device {
         };
 
         unsafe {
-            let asbd: AudioStreamBasicDescription = mem::zeroed();
+            let mut asbd: AudioStreamBasicDescription = mem::zeroed();
             let data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
-                &asbd as *const _ as *mut _,
+                NonNull::from(&data_size),
+                NonNull::from(&mut asbd).cast(),
             );
             default_config_error_from_os_status(status)?;
 
@@ -799,16 +756,16 @@ fn set_sample_rate(
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMaster,
     };
-    let sample_rate: f64 = 0.0;
+    let mut sample_rate: f64 = 0.0;
     let data_size = mem::size_of::<f64>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
             audio_device_id,
-            &property_address as *const _,
+            NonNull::from(&property_address),
             0,
             null(),
-            &data_size as *const _ as *mut _,
-            &sample_rate as *const _ as *mut _,
+            NonNull::from(&data_size),
+            NonNull::from(&mut sample_rate).cast(),
         )
     };
     coreaudio::Error::from_os_status(status)?;
@@ -821,10 +778,10 @@ fn set_sample_rate(
         let status = unsafe {
             AudioObjectGetPropertyDataSize(
                 audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
+                NonNull::from(&data_size),
             )
         };
         coreaudio::Error::from_os_status(status)?;
@@ -834,11 +791,11 @@ fn set_sample_rate(
         let status = unsafe {
             AudioObjectGetPropertyData(
                 audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
-                &data_size as *const _ as *mut _,
-                ranges.as_mut_ptr() as *mut _,
+                NonNull::from(&data_size),
+                NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;
@@ -864,16 +821,16 @@ fn set_sample_rate(
         // Send sample rate updates back on a channel.
         let sample_rate_handler = move || {
             let mut rate: f64 = 0.0;
-            let data_size = mem::size_of::<f64>();
+            let data_size = mem::size_of::<f64>() as u32;
 
             let result = unsafe {
                 AudioObjectGetPropertyData(
                     audio_device_id,
-                    &sample_rate_address as *const _,
+                    NonNull::from(&sample_rate_address),
                     0,
                     null(),
-                    &data_size as *const _ as *mut _,
-                    &mut rate as *const _ as *mut _,
+                    NonNull::from(&data_size),
+                    NonNull::from(&mut rate).cast(),
                 )
             };
             send.send(coreaudio::Error::from_os_status(result).map(|_| rate))
@@ -891,11 +848,11 @@ fn set_sample_rate(
         let status = unsafe {
             AudioObjectSetPropertyData(
                 audio_device_id,
-                &property_address as *const _,
+                NonNull::from(&property_address),
                 0,
                 null(),
                 data_size,
-                &ranges[range_index] as *const _ as *const _,
+                NonNull::from(&ranges[range_index]).cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;

@@ -429,9 +429,9 @@ impl Device {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
                         channels,
-                        min_sample_rate: SampleRate(min_rate as u32),
-                        max_sample_rate: SampleRate(max_rate as u32),
-                        buffer_size: buffer_size_range.clone(),
+                        min_sample_rate: SampleRate(min_rate),
+                        max_sample_rate: SampleRate(max_rate),
+                        buffer_size: buffer_size_range,
                         sample_format,
                     });
                 }
@@ -478,7 +478,7 @@ impl Device {
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
-        match formats.into_iter().last() {
+        match formats.into_iter().next_back() {
             Some(f) => {
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
@@ -589,6 +589,8 @@ fn input_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -640,6 +642,8 @@ fn output_stream_worker(
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
     timeout: Option<Duration>,
 ) {
+    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+
     let mut ctxt = StreamWorkerContext::new(&timeout);
     loop {
         let flow =
@@ -683,6 +687,25 @@ fn output_stream_worker(
         }
     }
 }
+
+#[cfg(feature = "audio_thread_priority")]
+fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRate) {
+    use audio_thread_priority::promote_current_thread_to_real_time;
+
+    let buffer_size = if let BufferSize::Fixed(buffer_size) = buffer_size {
+        buffer_size
+    } else {
+        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
+        0
+    };
+
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+        eprintln!("Failed to promote audio thread to real-time priority: {err}");
+    }
+}
+
+#[cfg(not(feature = "audio_thread_priority"))]
+fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
 
 enum PollDescriptorsFlow {
     Continue,
@@ -847,9 +870,15 @@ fn process_output(
     loop {
         match stream.channel.io_bytes().writei(buffer) {
             Err(err) if err.errno() == libc::EPIPE => {
-                // buffer underrun
-                // TODO: Notify the user of this.
-                let _ = stream.channel.try_recover(err, false);
+                // ALSA underrun or overrun.
+                // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
+                // Even if these recover successfully, they still may cause audible glitches.
+
+                // TODO:
+                //   Should we notify the user about successfully recovered errors?
+                //   Should we notify the user about failures in try_recover, rather than ignoring them?
+                //   (Both potentially not real-time-safe)
+                _ = stream.channel.try_recover(err, true);
             }
             Err(err) => {
                 error_callback(err.into());
