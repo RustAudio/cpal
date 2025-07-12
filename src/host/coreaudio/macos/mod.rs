@@ -161,6 +161,15 @@ pub struct Device {
 }
 
 impl Device {
+    /// Construct a new device given its ID.
+    /// Useful for constructing hidden devices.
+    pub fn new(audio_device_id: AudioDeviceID) -> Self {
+        Device {
+            audio_device_id,
+            is_default: audio_device_id < 0,
+        }
+    }
+
     fn name(&self) -> Result<String, DeviceNameError> {
         get_device_name(self.audio_device_id).map_err(|err| DeviceNameError::BackendSpecific {
             err: BackendSpecificError {
