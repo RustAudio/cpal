@@ -166,7 +166,8 @@ impl Device {
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
         Device {
             audio_device_id,
-            is_default: audio_device_id < 0,
+            // TODO: This could be made to detect the default device properly.
+            is_default: false,
         }
     }
 
