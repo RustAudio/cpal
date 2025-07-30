@@ -278,19 +278,19 @@ impl Device {
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
-            let mut fmts = vec![];
-            for range in ranges {
-                let fmt = SupportedStreamConfigRange {
-                    channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(range.mMinimum as _),
-                    max_sample_rate: SampleRate(range.mMaximum as _),
-                    buffer_size,
-                    sample_format,
-                };
-                fmts.push(fmt);
-            }
+            let fmt = SupportedStreamConfigRange {
+                channels: n_channels as ChannelCount,
+                min_sample_rate: SampleRate(
+                    ranges.iter().map(|v| v.mMinimum as u32).min().unwrap(),
+                ),
+                max_sample_rate: SampleRate(
+                    ranges.iter().map(|v| v.mMaximum as u32).max().unwrap(),
+                ),
+                buffer_size,
+                sample_format,
+            };
 
-            Ok(fmts.into_iter())
+            Ok(vec![fmt].into_iter())
         }
     }
 
