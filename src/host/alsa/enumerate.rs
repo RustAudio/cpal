@@ -1,19 +1,20 @@
 use super::alsa;
 use super::{Device, DeviceHandles};
 use crate::{BackendSpecificError, DevicesError};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 /// ALSA's implementation for `Devices`.
 pub struct Devices {
-    builtin_pos: usize,
-    card_iter: alsa::card::Iter,
+    hint_iter: Option<alsa::device_name::HintIter>,
+    enumerated_pcm_ids: HashSet<String>,
 }
 
 impl Devices {
     pub fn new() -> Result<Self, DevicesError> {
         Ok(Devices {
-            builtin_pos: 0,
-            card_iter: alsa::card::Iter::new(),
+            hint_iter: None,
+            enumerated_pcm_ids: HashSet::new(),
         })
     }
 }
@@ -21,63 +22,61 @@ impl Devices {
 unsafe impl Send for Devices {}
 unsafe impl Sync for Devices {}
 
-const BUILTINS: [&str; 5] = ["default", "pipewire", "pulse", "jack", "oss"];
+fn try_open_device(pcm_id: &str, name: String) -> Option<Device> {
+    // Try to open handles during enumeration
+    let handles = DeviceHandles::open(pcm_id).unwrap_or_else(|_| {
+        // If opening fails during enumeration, create default handles
+        // The actual opening will be attempted when the device is used
+        DeviceHandles::default()
+    });
+
+    // Include all devices from ALSA hints (matches `aplay -L` behavior)
+    // Even devices that can't be opened during enumeration are valid for selection
+    Some(Device {
+        name,
+        pcm_id: pcm_id.to_string(),
+        handles: Arc::new(Mutex::new(handles)),
+    })
+}
 
 impl Iterator for Devices {
     type Item = Device;
 
     fn next(&mut self) -> Option<Device> {
-        while self.builtin_pos < BUILTINS.len() {
-            let pos = self.builtin_pos;
-            self.builtin_pos += 1;
-            let name = BUILTINS[pos];
-
-            if let Ok(handles) = DeviceHandles::open(name) {
-                return Some(Device {
-                    name: name.to_string(),
-                    pcm_id: name.to_string(),
-                    handles: Arc::new(Mutex::new(handles)),
-                });
+        // Enumerate ALL devices from ALSA hints (same as aplay -L)
+        if self.hint_iter.is_none() {
+            match alsa::device_name::HintIter::new_str(None, "pcm") {
+                Ok(iter) => self.hint_iter = Some(iter),
+                Err(_) => return None, // If hints fail, we're done
             }
         }
 
-        loop {
-            let res = self.card_iter.next()?;
-            let Ok(card) = res else { continue };
+        if let Some(ref mut hint_iter) = self.hint_iter {
+            loop {
+                match hint_iter.next() {
+                    Some(hint) => {
+                        let name = match hint.name {
+                            None => continue,
+                            Some(name) => name,
+                        };
 
-            let ctl_id = format!("hw:{}", card.get_index());
-            let Ok(ctl) = alsa::Ctl::new(&ctl_id, false) else {
-                continue;
-            };
-            let Ok(cardinfo) = ctl.card_info() else {
-                continue;
-            };
-            let Ok(card_name) = cardinfo.get_name() else {
-                continue;
-            };
+                        // Skip if we've already enumerated this device by PCM ID
+                        if self.enumerated_pcm_ids.contains(&name) {
+                            continue;
+                        }
 
-            // Using plughw adds the ALSA plug layer, which can do sample type conversion,
-            // sample rate convertion, ...
-            // It is convenient, but at the same time not suitable for pro-audio as it hides
-            // the actual device capabilities and perform audio manipulation under your feet,
-            // for example sample rate conversion, sample format conversion, adds dummy channels,
-            // ...
-            // For now, many hardware only support 24bit / 3 bytes, which isn't yet supported by
-            // cpal. So we have to enable plughw (unfortunately) for maximum compatibility.
-            const USE_PLUGHW: bool = true;
-            let pcm_id = if USE_PLUGHW {
-                format!("plughw:{}", card.get_index())
-            } else {
-                ctl_id
-            };
-            if let Ok(handles) = DeviceHandles::open(&pcm_id) {
-                return Some(Device {
-                    name: card_name.to_string(),
-                    pcm_id: pcm_id.to_string(),
-                    handles: Arc::new(Mutex::new(handles)),
-                });
+                        // Include all devices from hints (same as aplay -L)
+                        if let Some(device) = try_open_device(&name, name.clone()) {
+                            self.enumerated_pcm_ids.insert(name.clone());
+                            return Some(device);
+                        }
+                    }
+                    None => return None, // All devices enumerated
+                }
             }
         }
+
+        None
     }
 }
 
