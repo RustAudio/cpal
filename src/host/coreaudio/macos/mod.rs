@@ -166,7 +166,11 @@ impl Device {
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
         Device {
             audio_device_id,
-            is_default: audio_device_id < 0,
+            // is_default: audio_device_id < 0;
+            // This doesn't makse sense, as audio_device_id is of type u32,
+            // and will never be less than 0. We'll just say false as a simpler correction.
+            // TODO: This could be made to detect the default device properly.
+            is_default: false,
         }
     }
 
