@@ -708,6 +708,7 @@ mod platform_impl {
         Stream as AAudioStream, SupportedInputConfigs as AAudioSupportedInputConfigs,
         SupportedOutputConfigs as AAudioSupportedOutputConfigs,
     };
+    pub use ndk::audio::AudioInputPreset;
 
     impl_platform_host!(AAudio aaudio "AAudio");
 
