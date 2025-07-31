@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
@@ -14,7 +13,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -256,7 +255,7 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
@@ -298,7 +297,7 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
@@ -388,13 +387,13 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: format!("{} format is not supported on Android.", sample_format),
                 }
-                .into())
+                .into());
             }
         };
         let channel_count = match config.channels {
             1 => 1,
             2 => 2,
-            channels => {
+            _ => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
                     description: "More than 2 channels are not supported yet.".to_owned(),
@@ -404,6 +403,7 @@ impl DeviceTrait for Device {
         };
 
         let builder = ndk::audio::AudioStreamBuilder::new()?
+            .input_preset(config.input_preset)
             .direction(ndk::audio::AudioDirection::Input)
             .channel_count(channel_count)
             .format(format);
@@ -437,13 +437,13 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: format!("{} format is not supported on Android.", sample_format),
                 }
-                .into())
+                .into());
             }
         };
         let channel_count = match config.channels {
             1 => 1,
             2 => 2,
-            channels => {
+            _ => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
                     description: "More than 2 channels are not supported yet.".to_owned(),
