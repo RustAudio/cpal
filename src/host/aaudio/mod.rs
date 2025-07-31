@@ -403,10 +403,12 @@ impl DeviceTrait for Device {
         };
 
         let builder = ndk::audio::AudioStreamBuilder::new()?
-            .input_preset(config.input_preset)
             .direction(ndk::audio::AudioDirection::Input)
             .channel_count(channel_count)
             .format(format);
+
+        #[cfg(feature = "android-input-preset")]
+        let builder = builder.input_preset(config.input_preset);
 
         build_input_stream(
             self,
