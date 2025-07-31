@@ -22,9 +22,6 @@ void rust_ios_main(void);
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     // Override point for customization after application launch.
 
-    NSError *error;
-    BOOL success;
-
     // It is necessary to access the sharedInstance so that calls to AudioSessionGetProperty
     // will work.
     AVAudioSession *session = AVAudioSession.sharedInstance;
@@ -32,18 +29,22 @@ void rust_ios_main(void);
     // Since this demo records and plays, lets use AVAudioSessionCategoryPlayAndRecord.
     // Also default to speaker as defaulting to the phone earpiece would be unusual.
     // Allowing bluetooth should direct audio to your bluetooth headset.
-    success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
-                       withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
-                             error:&error];
+    NSError *categoryError;
+    BOOL isSetCategorySuccess = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                                         withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
+                                               error:&categoryError];
+    if (isSetCategorySuccess && categoryError == nil) {
+        NSError *activateError;
+        BOOL isActivateSuccess = [session setActive:YES error:&activateError];
 
-    NSError *activateError;
-    [session setActive:YES error:&activateError];
-
-    if (success && activateError == nil) {
-        NSLog(@"Calling rust_ios_main()");
-        rust_ios_main();
+        if (isActivateSuccess && activateError == nil) {
+            NSLog(@"Calling rust_ios_main()");
+            rust_ios_main();
+        } else {
+            NSLog(@"Failed to active audio session");
+        }
     } else {
-        NSLog(@"Failed to configure audio session category or active audio session");
+        NSLog(@"Failed to configure audio session category");
     }
 
     return YES;
