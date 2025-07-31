@@ -1,6 +1,7 @@
 # Unreleased
 
 - ALSA(process_output): pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr
+- ALSA: Fix buffer size selection. (error 22)
 - WASAPI: Expose IMMDevice from WASAPI host Device.
 
 # Version 0.16.0 (2025-06-07)
