@@ -20,12 +20,12 @@ use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
+    kAudioDevicePropertyStreamFormat, kAudioHardwarePropertyDefaultInputDevice,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData, kAudioHardwarePropertyDefaultInputDevice,
-    kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice
+    kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject, AudioDeviceID,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -165,7 +165,6 @@ impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-
         // Get default input device ID.
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -200,13 +199,10 @@ impl Device {
                 NonNull::from(&mut default_output_device_id).cast(),
             )
         };
-
-
         Device {
             audio_device_id,
-            is_default: 
-                (default_input_device_id == audio_device_id && input_status == 0) || 
-                (default_output_device_id == audio_device_id && output_status == 0)
+            is_default: (default_input_device_id == audio_device_id && input_status == 0)
+                || (default_output_device_id == audio_device_id && output_status == 0),
         }
     }
 

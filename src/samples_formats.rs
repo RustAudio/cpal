@@ -37,7 +37,6 @@ pub enum SampleFormat {
 
     // /// `I48` with a valid range of '-(1 << 47)..(1 << 47)' with `0` being the origin
     // I48,
-    
     /// `i64` with a valid range of `i64::MIN..=i64::MAX` with `0` being the origin.
     I64,
 
@@ -49,13 +48,11 @@ pub enum SampleFormat {
 
     // /// `U24` with a valid range of '0..16777216' with `1 << 23 == 8388608` being the origin
     // U24,
-
     /// `u32` with a valid range of `u32::MIN..=u32::MAX` with `1 << 31` being the origin.
     U32,
 
     // /// `U48` with a valid range of '0..(1 << 48)' with `1 << 47` being the origin
     // U48,
-
     /// `u64` with a valid range of `u64::MIN..=u64::MAX` with `1 << 63` being the origin.
     U64,
 
