@@ -264,7 +264,7 @@ pub struct StreamConfig {
     pub sample_rate: SampleRate,
     pub buffer_size: BufferSize,
     #[cfg(all(target_os = "android", feature = "android-input-preset"))]
-    pub input_preset: ndk::audio::AudioInputPreset,
+    pub input_preset: platform::AudioInputPreset,
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
@@ -413,7 +413,7 @@ impl SupportedStreamConfig {
             sample_rate: self.sample_rate,
             buffer_size: BufferSize::Default,
             #[cfg(all(target_os = "android", feature = "android-input-preset"))]
-            input_preset: ndk::audio::AudioInputPreset::VoiceRecognition,
+            input_preset: platform::AudioInputPreset::VoiceRecognition,
         }
     }
 }
