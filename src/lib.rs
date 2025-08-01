@@ -263,7 +263,7 @@ pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
     pub buffer_size: BufferSize,
-    #[cfg(feature = "android-input-preset")]
+    #[cfg(all(target_os = "android", feature = "android-input-preset"))]
     pub input_preset: ndk::audio::AudioInputPreset,
 }
 
