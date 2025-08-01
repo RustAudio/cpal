@@ -412,7 +412,7 @@ impl SupportedStreamConfig {
             channels: self.channels,
             sample_rate: self.sample_rate,
             buffer_size: BufferSize::Default,
-            #[cfg(feature = "android-input-preset")]
+            #[cfg(all(target_os = "android", feature = "android-input-preset"))]
             input_preset: ndk::audio::AudioInputPreset::VoiceRecognition,
         }
     }
