@@ -70,12 +70,15 @@ impl From<BackendSpecificError> for DevicesError {
 pub enum DeviceNameError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
+    /// The name is not valid UTF-8.
+    InvalidUtf8,
 }
 
 impl Display for DeviceNameError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
+            Self::InvalidUtf8 => write!(f, "The name is not valid UTF-8"),
         }
     }
 }
