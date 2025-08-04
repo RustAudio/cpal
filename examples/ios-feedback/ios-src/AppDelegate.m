@@ -41,7 +41,7 @@ void rust_ios_main(void);
             NSLog(@"Calling rust_ios_main()");
             rust_ios_main();
         } else {
-            NSLog(@"Failed to active audio session");
+            NSLog(@"Failed to activate audio session");
         }
     } else {
         NSLog(@"Failed to configure audio session category");
