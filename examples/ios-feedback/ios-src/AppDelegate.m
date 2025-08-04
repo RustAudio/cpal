@@ -29,22 +29,22 @@ void rust_ios_main(void);
     // Since this demo records and plays, lets use AVAudioSessionCategoryPlayAndRecord.
     // Also default to speaker as defaulting to the phone earpiece would be unusual.
     // Allowing bluetooth should direct audio to your bluetooth headset.
-    NSError *categoryError;
+    NSError *categoryError = nil;
     BOOL isSetCategorySuccess = [session setCategory:AVAudioSessionCategoryPlayAndRecord
                                          withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
                                                error:&categoryError];
-    if (isSetCategorySuccess && categoryError == nil) {
-        NSError *activateError;
+    if (isSetCategorySuccess) {
+        NSError *activateError = nil;
         BOOL isActivateSuccess = [session setActive:YES error:&activateError];
 
-        if (isActivateSuccess && activateError == nil) {
+        if (isActivateSuccess) {
             NSLog(@"Calling rust_ios_main()");
             rust_ios_main();
         } else {
-            NSLog(@"Failed to activate audio session");
+            NSLog(@"Failed to activate audio session: %@", activateError);
         }
     } else {
-        NSLog(@"Failed to configure audio session category");
+        NSLog(@"Failed to set category: %@", categoryError);
     }
 
     return YES;
