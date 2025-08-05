@@ -290,7 +290,7 @@ impl Device {
             if ranges.is_empty() {
                 Ok(vec![].into_iter())
             } else if contains_different_sample_rates {
-                let res = ranges.into_iter().map(|range| SupportedStreamConfigRange {
+                let res = ranges.iter().map(|range| SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(range.mMinimum as u32),
                     max_sample_rate: SampleRate(range.mMaximum as u32),
@@ -303,14 +303,14 @@ impl Device {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: SampleRate(
                         ranges
-                            .into_iter()
+                            .iter()
                             .map(|v| v.mMinimum as u32)
                             .min()
                             .expect("the list must not be empty"),
                     ),
                     max_sample_rate: SampleRate(
                         ranges
-                            .into_iter()
+                            .iter()
                             .map(|v| v.mMaximum as u32)
                             .max()
                             .expect("the list must not be empty"),
