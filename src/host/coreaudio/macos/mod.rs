@@ -299,13 +299,10 @@ impl Device {
                 });
                 Ok(res.collect::<Vec<_>>().into_iter())
             } else {
-                let values = ranges.into_iter().map(|v| v.mMinimum as u32); //assume that all mMinimum and mMaximum values are the same
-                let min = values.clone().min().expect("the list must not be empty");
-                let max = values.max().expect("the list must not be empty");
                 let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(min),
-                    max_sample_rate: SampleRate(max),
+                    min_sample_rate: SampleRate(ranges.into_iter().map(|v| v.mMinimum as u32).min().expect("the list must not be empty")),
+                    max_sample_rate: SampleRate(ranges.into_iter().map(|v| v.mMaximum as u32).max().expect("the list must not be empty")),
                     buffer_size,
                     sample_format,
                 };
