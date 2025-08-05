@@ -25,7 +25,7 @@ pub use self::macos::{
     Device, Host, Stream,
 };
 
-/// Common helper methods used by both macOS and iOS
+// Common helper methods used by both macOS and iOS
 
 fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
     match coreaudio::Error::from_os_status(os_status) {
@@ -105,7 +105,7 @@ impl From<coreaudio::Error> for BuildStreamError {
 
 impl From<coreaudio::Error> for SupportedStreamConfigsError {
     fn from(err: coreaudio::Error) -> SupportedStreamConfigsError {
-        let description = format!("{}", err);
+        let description = format!("{err}");
         let err = BackendSpecificError { description };
         // Check for possible DeviceNotAvailable variant
         SupportedStreamConfigsError::BackendSpecific { err }
@@ -114,7 +114,7 @@ impl From<coreaudio::Error> for SupportedStreamConfigsError {
 
 impl From<coreaudio::Error> for DefaultStreamConfigError {
     fn from(err: coreaudio::Error) -> DefaultStreamConfigError {
-        let description = format!("{}", err);
+        let description = format!("{err}");
         let err = BackendSpecificError { description };
         // Check for possible DeviceNotAvailable variant
         DefaultStreamConfigError::BackendSpecific { err }

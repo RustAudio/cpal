@@ -29,9 +29,11 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
+use std::cell::RefCell;
 use std::fmt;
 use std::mem;
 use std::ptr::{null, NonNull};
+use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -275,10 +277,7 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
@@ -359,7 +358,7 @@ impl Device {
                     Err(DefaultStreamConfigError::DeviceNotAvailable)
                 }
                 err => {
-                    let description = format!("{}", err);
+                    let description = format!("{err}");
                     let err = BackendSpecificError { description };
                     Err(err.into())
                 }
@@ -411,10 +410,7 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
@@ -465,7 +461,7 @@ impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{}", e);
+                let description = format!("{e}");
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -477,7 +473,7 @@ impl StreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{}", e);
+                let description = format!("{e}");
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -497,8 +493,8 @@ fn add_disconnect_listener<E>(
 where
     E: FnMut(StreamError) + Send + 'static,
 {
-    let stream_inner_weak = Arc::downgrade(&stream.inner);
-    let mut stream_inner = stream.inner.lock().unwrap();
+    let stream_inner_weak = Rc::downgrade(&stream.inner);
+    let mut stream_inner = stream.inner.borrow_mut();
     stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
         stream_inner.device_id,
         AudioObjectPropertyAddress {
@@ -508,8 +504,17 @@ where
         },
         move || {
             if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
-                let mut stream_inner = stream_inner_strong.lock().unwrap();
-                let _ = stream_inner.pause();
+                match stream_inner_strong.try_borrow_mut() {
+                    Ok(mut stream_inner) => {
+                        let _ = stream_inner.pause();
+                    }
+                    Err(_) => {
+                        // Could not acquire mutable borrow. This can occur if there are
+                        // overlapping borrows, if the stream is already in use, or if a panic
+                        // occurred during a previous borrow. Still notify about device
+                        // disconnection even if we can't pause.
+                    }
+                }
                 (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
             }
         },
@@ -664,7 +669,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().unwrap().audio_unit.start()?;
+        stream.inner.borrow_mut().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -769,7 +774,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().unwrap().audio_unit.start()?;
+        stream.inner.borrow_mut().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -930,26 +935,26 @@ fn set_sample_rate(
 
 #[derive(Clone)]
 pub struct Stream {
-    inner: Arc<Mutex<StreamInner>>,
+    inner: Rc<RefCell<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Rc::new(RefCell::new(inner)),
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.lock().unwrap();
+        let mut stream = self.inner.borrow_mut();
 
         stream.play()
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.lock().unwrap();
+        let mut stream = self.inner.borrow_mut();
 
         stream.pause()
     }
