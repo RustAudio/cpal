@@ -162,20 +162,24 @@ pub struct Device {
     is_default: bool,
 }
 
+fn is_default_device(audio_device_id: AudioDeviceID) -> bool {
+    default_input_device()
+        .map(|d| d.audio_device_id == audio_device_id)
+        .unwrap_or(false)
+    ||
+    default_output_device()
+        .map(|d| d.audio_device_id == audio_device_id)
+        .unwrap_or(false)
+}
+
+
 impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-
-        let is_default = 
-            default_input_device()
-                .map(|d| d.audio_device_id == audio_device_id)
-                .unwrap_or(false)
-            ||
-            default_output_device()
-                .map(|d| d.audio_device_id == audio_device_id)
-                .unwrap_or(false);
         
+        let is_default = is_default_device(audio_device_id);
+
         Self {
             audio_device_id,
             is_default,
