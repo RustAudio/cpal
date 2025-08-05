@@ -277,9 +277,7 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {scope:?}"
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
@@ -412,9 +410,7 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {scope:?}"
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
