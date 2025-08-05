@@ -6,7 +6,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 fn main() -> Result<(), anyhow::Error> {
     println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
     let available_hosts = cpal::available_hosts();
-    println!("Available hosts:\n  {:?}", available_hosts);
+    println!("Available hosts:\n  {available_hosts:?}");
 
     for host_id in available_hosts {
         println!("{}", host_id.name());
@@ -14,8 +14,8 @@ fn main() -> Result<(), anyhow::Error> {
 
         let default_in = host.default_input_device().map(|e| e.name().unwrap());
         let default_out = host.default_output_device().map(|e| e.name().unwrap());
-        println!("  Default Input Device:\n    {:?}", default_in);
-        println!("  Default Output Device:\n    {:?}", default_out);
+        println!("  Default Input Device:\n    {default_in:?}");
+        println!("  Default Output Device:\n    {default_out:?}");
 
         let devices = host.devices()?;
         println!("  Devices: ");
@@ -24,12 +24,12 @@ fn main() -> Result<(), anyhow::Error> {
 
             // Input configs
             if let Ok(conf) = device.default_input_config() {
-                println!("    Default input stream config:\n      {:?}", conf);
+                println!("    Default input stream config:\n      {conf:?}");
             }
             let input_configs = match device.supported_input_configs() {
                 Ok(f) => f.collect(),
                 Err(e) => {
-                    println!("    Error getting supported input configs: {:?}", e);
+                    println!("    Error getting supported input configs: {e:?}");
                     Vec::new()
                 }
             };
@@ -47,12 +47,12 @@ fn main() -> Result<(), anyhow::Error> {
 
             // Output configs
             if let Ok(conf) = device.default_output_config() {
-                println!("    Default output stream config:\n      {:?}", conf);
+                println!("    Default output stream config:\n      {conf:?}");
             }
             let output_configs = match device.supported_output_configs() {
                 Ok(f) => f.collect(),
                 Err(e) => {
-                    println!("    Error getting supported output configs: {:?}", e);
+                    println!("    Error getting supported output configs: {e:?}");
                     Vec::new()
                 }
             };

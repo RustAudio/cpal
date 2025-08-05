@@ -123,7 +123,7 @@ pub fn host_device_setup(
     println!("Output device : {}", device.name()?);
 
     let config = device.default_output_config()?;
-    println!("Default output config : {:?}", config);
+    println!("Default output config : {config:?}");
 
     Ok((host, device, config))
 }
@@ -142,10 +142,10 @@ where
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };
-    let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
+    let err_fn = |err| eprintln!("Error building output sound stream: {err}");
 
     let time_at_start = std::time::Instant::now();
-    println!("Time at start: {:?}", time_at_start);
+    println!("Time at start: {time_at_start:?}");
 
     let stream = device.build_output_stream(
         config,

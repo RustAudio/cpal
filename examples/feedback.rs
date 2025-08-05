@@ -148,8 +148,7 @@ fn main() -> anyhow::Result<()> {
 
     // Build streams.
     println!(
-        "Attempting to build both streams with f32 samples and `{:?}`.",
-        config
+        "Attempting to build both streams with f32 samples and `{config:?}`."
     );
     let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn, None)?;
     let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn, None)?;
@@ -173,5 +172,5 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn err_fn(err: cpal::StreamError) {
-    eprintln!("an error occurred on stream: {}", err);
+    eprintln!("an error occurred on stream: {err}");
 }
