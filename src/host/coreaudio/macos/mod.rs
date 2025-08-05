@@ -236,6 +236,13 @@ impl Device {
             let sample_format = SampleFormat::F32;
 
             // Get available sample rate ranges.
+            // The property "kAudioDevicePropertyAvailableNominalSampleRates" returns a list of pairs of
+            // minimum and maximum sample rates but most of the devices returns pairs of same values though the underlying mechanism is unclear.
+            // This may cause issues when, for example, sorting the configs by the sample rates.
+            // We follows the implementation of RtAudio, which returns single element of config
+            // when all the pairs have the same values and returns multiple elements otherwise.
+            // See https://github.com/thestk/rtaudio/blob/master/RtAudio.cpp#L1369C1-L1375C39
+
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
             let data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
@@ -278,19 +285,33 @@ impl Device {
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
-            let fmt = SupportedStreamConfigRange {
-                channels: n_channels as ChannelCount,
-                min_sample_rate: SampleRate(
-                    ranges.iter().map(|v| v.mMinimum as u32).min().unwrap(),
-                ),
-                max_sample_rate: SampleRate(
-                    ranges.iter().map(|v| v.mMaximum as u32).max().unwrap(),
-                ),
-                buffer_size,
-                sample_format,
-            };
 
-            Ok(vec![fmt].into_iter())
+            let contains_different_sample_rates = ranges.iter().any(|r| r.mMinimum != r.mMaximum);
+            if ranges.is_empty() {
+                Ok(vec![].into_iter())
+            } else if contains_different_sample_rates {
+                let res = ranges.into_iter().map(|range| SupportedStreamConfigRange {
+                    channels: n_channels as ChannelCount,
+                    min_sample_rate: SampleRate(range.mMinimum as u32),
+                    max_sample_rate: SampleRate(range.mMaximum as u32),
+                    buffer_size,
+                    sample_format,
+                });
+                Ok(res.collect::<Vec<_>>().into_iter())
+            } else {
+                let values = ranges.into_iter().map(|v| v.mMinimum as u32); //assume that all mMinimum and mMaximum values are the same
+                let min = values.clone().min().expect("the list must not be empty");
+                let max = values.max().expect("the list must not be empty");
+                let fmt = SupportedStreamConfigRange {
+                    channels: n_channels as ChannelCount,
+                    min_sample_rate: SampleRate(min),
+                    max_sample_rate: SampleRate(max),
+                    buffer_size,
+                    sample_format,
+                };
+
+                Ok(vec![fmt].into_iter())
+            }
         }
     }
 
