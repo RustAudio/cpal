@@ -2,6 +2,7 @@
 
 - ALSA(process_output): pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr
 - WASAPI: Expose IMMDevice from WASAPI host Device.
+- `Device::supported_configs` on CoreAudio now returns a single element which contains available samplerate range if the all element of list have same value for `mMinimum` and `mMaximum` (which is the most case).
 
 # Version 0.16.0 (2025-06-07)
 
