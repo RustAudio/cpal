@@ -29,9 +29,11 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
+use std::cell::RefCell;
 use std::fmt;
 use std::mem;
 use std::ptr::{null, NonNull};
+use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -245,6 +247,13 @@ impl Device {
             let sample_format = SampleFormat::F32;
 
             // Get available sample rate ranges.
+            // The property "kAudioDevicePropertyAvailableNominalSampleRates" returns a list of pairs of
+            // minimum and maximum sample rates but most of the devices returns pairs of same values though the underlying mechanism is unclear.
+            // This may cause issues when, for example, sorting the configs by the sample rates.
+            // We follows the implementation of RtAudio, which returns single element of config
+            // when all the pairs have the same values and returns multiple elements otherwise.
+            // See https://github.com/thestk/rtaudio/blob/master/RtAudio.cpp#L1369C1-L1375C39
+
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
             let data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
@@ -277,29 +286,49 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
-            let mut fmts = vec![];
-            for range in ranges {
+
+            let contains_different_sample_rates = ranges.iter().any(|r| r.mMinimum != r.mMaximum);
+            if ranges.is_empty() {
+                Ok(vec![].into_iter())
+            } else if contains_different_sample_rates {
+                let res = ranges.iter().map(|range| SupportedStreamConfigRange {
+                    channels: n_channels as ChannelCount,
+                    min_sample_rate: SampleRate(range.mMinimum as u32),
+                    max_sample_rate: SampleRate(range.mMaximum as u32),
+                    buffer_size,
+                    sample_format,
+                });
+                Ok(res.collect::<Vec<_>>().into_iter())
+            } else {
                 let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(range.mMinimum as _),
-                    max_sample_rate: SampleRate(range.mMaximum as _),
+                    min_sample_rate: SampleRate(
+                        ranges
+                            .iter()
+                            .map(|v| v.mMinimum as u32)
+                            .min()
+                            .expect("the list must not be empty"),
+                    ),
+                    max_sample_rate: SampleRate(
+                        ranges
+                            .iter()
+                            .map(|v| v.mMaximum as u32)
+                            .max()
+                            .expect("the list must not be empty"),
+                    ),
                     buffer_size,
                     sample_format,
                 };
-                fmts.push(fmt);
-            }
 
-            Ok(fmts.into_iter())
+                Ok(vec![fmt].into_iter())
+            }
         }
     }
 
@@ -338,7 +367,7 @@ impl Device {
                     Err(DefaultStreamConfigError::DeviceNotAvailable)
                 }
                 err => {
-                    let description = format!("{}", err);
+                    let description = format!("{err}");
                     let err = BackendSpecificError { description };
                     Err(err.into())
                 }
@@ -390,10 +419,7 @@ impl Device {
                 kAudioObjectPropertyScopeInput => Ok(true),
                 kAudioObjectPropertyScopeOutput => Ok(false),
                 _ => Err(BackendSpecificError {
-                    description: format!(
-                        "unexpected scope (neither input nor output): {:?}",
-                        scope
-                    ),
+                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
                 }),
             }?;
             let audio_unit = audio_unit_from_device(self, input)?;
@@ -444,7 +470,7 @@ impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{}", e);
+                let description = format!("{e}");
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -456,7 +482,7 @@ impl StreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{}", e);
+                let description = format!("{e}");
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -476,8 +502,8 @@ fn add_disconnect_listener<E>(
 where
     E: FnMut(StreamError) + Send + 'static,
 {
-    let stream_inner_weak = Arc::downgrade(&stream.inner);
-    let mut stream_inner = stream.inner.lock().unwrap();
+    let stream_inner_weak = Rc::downgrade(&stream.inner);
+    let mut stream_inner = stream.inner.borrow_mut();
     stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
         stream_inner.device_id,
         AudioObjectPropertyAddress {
@@ -487,8 +513,17 @@ where
         },
         move || {
             if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
-                let mut stream_inner = stream_inner_strong.lock().unwrap();
-                let _ = stream_inner.pause();
+                match stream_inner_strong.try_borrow_mut() {
+                    Ok(mut stream_inner) => {
+                        let _ = stream_inner.pause();
+                    }
+                    Err(_) => {
+                        // Could not acquire mutable borrow. This can occur if there are
+                        // overlapping borrows, if the stream is already in use, or if a panic
+                        // occurred during a previous borrow. Still notify about device
+                        // disconnection even if we can't pause.
+                    }
+                }
                 (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
             }
         },
@@ -643,7 +678,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().unwrap().audio_unit.start()?;
+        stream.inner.borrow_mut().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -748,7 +783,7 @@ impl Device {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
-        stream.inner.lock().unwrap().audio_unit.start()?;
+        stream.inner.borrow_mut().audio_unit.start()?;
 
         Ok(stream)
     }
@@ -909,26 +944,26 @@ fn set_sample_rate(
 
 #[derive(Clone)]
 pub struct Stream {
-    inner: Arc<Mutex<StreamInner>>,
+    inner: Rc<RefCell<StreamInner>>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Rc::new(RefCell::new(inner)),
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.lock().unwrap();
+        let mut stream = self.inner.borrow_mut();
 
         stream.play()
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.lock().unwrap();
+        let mut stream = self.inner.borrow_mut();
 
         stream.pause()
     }

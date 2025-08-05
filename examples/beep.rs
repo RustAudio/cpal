@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     println!("Output device: {}", device.name()?);
 
     let config = device.default_output_config().unwrap();
-    println!("Default output config: {:?}", config);
+    println!("Default output config: {config:?}");
 
     match config.sample_format() {
         cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
@@ -108,7 +108,7 @@ where
         (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
 
     let stream = device.build_output_stream(
         config,
