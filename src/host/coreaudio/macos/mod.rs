@@ -20,10 +20,9 @@ use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioHardwarePropertyDefaultInputDevice,
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMaster,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject, AudioDeviceID,
+    kAudioObjectPropertyScopeOutput, AudioDeviceID,
     AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
@@ -165,44 +164,19 @@ impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-        // Get default input device ID.
-        let mut property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMaster,
-        };
 
-        let mut default_input_device_id: AudioDeviceID = 0;
-        let data_size = mem::size_of::<AudioDeviceID>() as u32;
-        let input_status = unsafe {
-            AudioObjectGetPropertyData(
-                kAudioObjectSystemObject as AudioObjectID,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&data_size),
-                NonNull::from(&mut default_input_device_id).cast(),
-            )
-        };
-
-        // Get default output device ID.
-        property_address.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-
-        let mut default_output_device_id: AudioDeviceID = 0;
-        let output_status = unsafe {
-            AudioObjectGetPropertyData(
-                kAudioObjectSystemObject as AudioObjectID,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&data_size),
-                NonNull::from(&mut default_output_device_id).cast(),
-            )
-        };
-        Device {
+        let is_default = 
+            default_input_device()
+                .map(|d| d.audio_device_id == audio_device_id)
+                .unwrap_or(false)
+            ||
+            default_output_device()
+                .map(|d| d.audio_device_id == audio_device_id)
+                .unwrap_or(false);
+        
+        Self {
             audio_device_id,
-            is_default: (default_input_device_id == audio_device_id && input_status == 0)
-                || (default_output_device_id == audio_device_id && output_status == 0),
+            is_default,
         }
     }
 
