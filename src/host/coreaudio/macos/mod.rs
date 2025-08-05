@@ -301,8 +301,20 @@ impl Device {
             } else {
                 let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(ranges.into_iter().map(|v| v.mMinimum as u32).min().expect("the list must not be empty")),
-                    max_sample_rate: SampleRate(ranges.into_iter().map(|v| v.mMaximum as u32).max().expect("the list must not be empty")),
+                    min_sample_rate: SampleRate(
+                        ranges
+                            .into_iter()
+                            .map(|v| v.mMinimum as u32)
+                            .min()
+                            .expect("the list must not be empty"),
+                    ),
+                    max_sample_rate: SampleRate(
+                        ranges
+                            .into_iter()
+                            .map(|v| v.mMaximum as u32)
+                            .max()
+                            .expect("the list must not be empty"),
+                    ),
                     buffer_size,
                     sample_format,
                 };
