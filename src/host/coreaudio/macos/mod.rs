@@ -509,8 +509,10 @@ where
                         let _ = stream_inner.pause();
                     }
                     Err(_) => {
-                        // Could not acquire mutable borrow; stream may already be in use.
-                        // Still notify about device disconnection even if we can't pause.
+                        // Could not acquire mutable borrow. This can occur if there are
+                        // overlapping borrows, if the stream is already in use, or if a panic
+                        // occurred during a previous borrow. Still notify about device
+                        // disconnection even if we can't pause.
                     }
                 }
                 (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
