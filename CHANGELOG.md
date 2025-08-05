@@ -8,6 +8,7 @@
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
+- CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
 
 # Version 0.16.0 (2025-06-07)
 
