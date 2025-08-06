@@ -1,6 +1,7 @@
 # Unreleased
 
 - All error enums are now `Clone`.
+- Fix an iOS example by properly activating audio session.
 
 # Version 0.15.3 (2024-03-04)
 
