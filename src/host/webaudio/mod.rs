@@ -2,7 +2,6 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use self::js_sys::eval;
 use self::wasm_bindgen::prelude::*;
 use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
@@ -493,11 +492,9 @@ fn default_output_device() -> Option<Device> {
 
 // Detects whether the `AudioContext` global variable is available.
 fn is_webaudio_available() -> bool {
-    if let Ok(audio_context_is_defined) = eval("typeof AudioContext !== 'undefined'") {
-        audio_context_is_defined.as_bool().unwrap()
-    } else {
-        false
-    }
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext"))
+        .unwrap()
+        .is_truthy()
 }
 
 // Whether or not the given stream configuration is valid for building a stream.

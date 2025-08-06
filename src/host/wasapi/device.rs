@@ -329,6 +329,10 @@ impl Device {
         }
     }
 
+    pub fn immdevice(&self) -> &Audio::IMMDevice {
+        &self.device
+    }
+
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
     fn ensure_future_audio_client(
         &self,

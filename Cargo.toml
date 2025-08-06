@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.15.3"
+version = "0.16.0"
 description = "Low-level cross-platform audio I/O library in pure Rust."
 repository = "https://github.com/rustaudio/cpal"
 documentation = "https://docs.rs/cpal"
@@ -11,7 +11,9 @@ rust-version = "1.70"
 
 [features]
 asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
-oboe-shared-stdcxx = ["oboe/shared-stdcxx"] # Only available on Android. See README for what it does.
+
+# Deprecated, the `oboe` backend has been removed
+oboe-shared-stdcxx = []
 
 [dependencies]
 dasp_sample = "0.11"
@@ -21,9 +23,6 @@ anyhow = "1.0"
 hound = "3.5"
 ringbuf = "0.4.1"
 clap = { version = "4.0", features = ["derive"] }
-
-[target.'cfg(target_os = "android")'.dev-dependencies]
-ndk-glue = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.54.0", features = [
@@ -39,23 +38,38 @@ windows = { version = "0.54.0", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
+audio_thread_priority = { version = "0.33.0", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9"
 libc = "0.2"
+audio_thread_priority = { version = "0.33.0", optional = true }
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-core-foundation-sys = "0.8.2" # For linking to CoreFoundation.framework and handling device name `CFString`s.
 mach2 = "0.4" # For access to mach_timebase type.
 
-[target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio"] }
-
-[target.'cfg(target_os = "ios")'.dependencies]
-coreaudio-rs = { version = "0.11", default-features = false, features = ["audio_unit", "core_audio", "audio_toolbox"] }
+[target.'cfg(target_vendor = "apple")'.dependencies]
+coreaudio-rs = { version = "0.13.0", default-features = false, features = [
+    "core_audio",
+    "audio_toolbox",
+] }
+objc2-core-audio = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AudioHardware",
+    "AudioHardwareDeprecated",
+] }
+objc2-audio-toolbox = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "AUComponent",
+    "AudioUnitProperties",
+] }
+objc2-core-audio-types = { version = "0.3.1", default-features = false, features = [
+    "std",
+    "CoreAudioBaseTypes",
+] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 wasm-bindgen = { version = "0.2.89" }
@@ -69,15 +83,11 @@ js-sys = { version = "0.3.35" }
 web-sys = { version = "0.3.35", features = [ "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode", "AudioNode",  "AudioDestinationNode", "Window", "AudioContextState"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-oboe = { version = "0.6", features = [ "java-interface" ] }
-ndk = { version = "0.8", default-features = false }
+ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"]}
 ndk-context = "0.1"
 jni = "0.21"
-
-[[example]]
-name = "android"
-path = "examples/android.rs"
-crate-type = ["cdylib"]
+num-derive = "0.4"
+num-traits = "0.2"
 
 [[example]]
 name = "beep"

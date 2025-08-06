@@ -1,8 +1,6 @@
-extern crate coreaudio;
-
-use self::coreaudio::sys::{
-    kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM,
-    AudioStreamBasicDescription, OSStatus,
+use objc2_core_audio_types::{
+    kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
+    kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
 
 use crate::DefaultStreamConfigError;
@@ -27,7 +25,7 @@ pub use self::macos::{
     Device, Host, Stream,
 };
 
-/// Common helper methods used by both macOS and iOS
+// Common helper methods used by both macOS and iOS
 
 fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
     match coreaudio::Error::from_os_status(os_status) {
@@ -52,7 +50,10 @@ fn asbd_from_config(
     let frames_per_packet = 1;
     let bytes_per_packet = frames_per_packet * bytes_per_frame;
     let format_flags = match sample_format {
-        SampleFormat::F32 => kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+        SampleFormat::F32 | SampleFormat::F64 => kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+        SampleFormat::I16 | SampleFormat::I32 | SampleFormat::I64 => {
+            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked
+        }
         _ => kAudioFormatFlagIsPacked,
     };
     AudioStreamBasicDescription {
@@ -64,7 +65,7 @@ fn asbd_from_config(
         mFormatFlags: format_flags,
         mFormatID: kAudioFormatLinearPCM,
         mSampleRate: sample_rate as _,
-        ..Default::default()
+        mReserved: 0,
     }
 }
 
@@ -104,7 +105,7 @@ impl From<coreaudio::Error> for BuildStreamError {
 
 impl From<coreaudio::Error> for SupportedStreamConfigsError {
     fn from(err: coreaudio::Error) -> SupportedStreamConfigsError {
-        let description = format!("{}", err);
+        let description = format!("{err}");
         let err = BackendSpecificError { description };
         // Check for possible DeviceNotAvailable variant
         SupportedStreamConfigsError::BackendSpecific { err }
@@ -113,9 +114,11 @@ impl From<coreaudio::Error> for SupportedStreamConfigsError {
 
 impl From<coreaudio::Error> for DefaultStreamConfigError {
     fn from(err: coreaudio::Error) -> DefaultStreamConfigError {
-        let description = format!("{}", err);
+        let description = format!("{err}");
         let err = BackendSpecificError { description };
         // Check for possible DeviceNotAvailable variant
         DefaultStreamConfigError::BackendSpecific { err }
     }
 }
+
+pub(crate) type OSStatus = i32;

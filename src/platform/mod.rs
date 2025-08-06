@@ -64,20 +64,17 @@ macro_rules! impl_platform_host {
 
         /// The `Stream` implementation associated with the platform's dynamically dispatched
         /// [`Host`] type.
-        // Streams cannot be `Send` or `Sync` if we plan to support Android's AAudio API. This is
-        // because the stream API is not thread-safe, and the API prohibits calling certain
-        // functions within the callback.
-        //
-        // TODO: Confirm this and add more specific detail and references.
         #[must_use = "If the stream is not stored it will not play."]
-        pub struct Stream(StreamInner, crate::platform::NotSendSyncAcrossAllPlatforms);
+        pub struct Stream(StreamInner);
 
         /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
+        #[derive(Clone)]
         pub struct SupportedInputConfigs(SupportedInputConfigsInner);
 
         /// The `SupportedOutputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
+        #[derive(Clone)]
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
@@ -122,6 +119,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        #[derive(Clone)]
         enum SupportedInputConfigsInner {
             $(
                 $(#[cfg($feat)])?
@@ -129,6 +127,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        #[derive(Clone)]
         enum SupportedOutputConfigsInner {
             $(
                 $(#[cfg($feat)])?
@@ -526,7 +525,7 @@ macro_rules! impl_platform_host {
 
         impl From<StreamInner> for Stream {
             fn from(s: StreamInner) -> Self {
-                Stream(s, Default::default())
+                Stream(s)
             }
         }
 
@@ -583,6 +582,12 @@ macro_rules! impl_platform_host {
                             .map(Host::from)
                     }
                 )*
+            }
+        }
+
+        impl Default for Host {
+            fn default() -> Host {
+                default_host()
             }
         }
     };
@@ -698,17 +703,17 @@ mod platform_impl {
 
 #[cfg(target_os = "android")]
 mod platform_impl {
-    pub use crate::host::oboe::{
-        Device as OboeDevice, Devices as OboeDevices, Host as OboeHost, Stream as OboeStream,
-        SupportedInputConfigs as OboeSupportedInputConfigs,
-        SupportedOutputConfigs as OboeSupportedOutputConfigs,
+    pub use crate::host::aaudio::{
+        Device as AAudioDevice, Devices as AAudioDevices, Host as AAudioHost,
+        Stream as AAudioStream, SupportedInputConfigs as AAudioSupportedInputConfigs,
+        SupportedOutputConfigs as AAudioSupportedOutputConfigs,
     };
 
-    impl_platform_host!(Oboe oboe "Oboe");
+    impl_platform_host!(AAudio aaudio "AAudio");
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        OboeHost::new()
+        AAudioHost::new()
             .expect("the default host should always be available")
             .into()
     }

@@ -82,7 +82,7 @@ fn main() -> Result<(), anyhow::Error> {
     let config = device
         .default_input_config()
         .expect("Failed to get default input config");
-    println!("Default input config: {:?}", config);
+    println!("Default input config: {config:?}");
 
     // The WAV file we're recording to.
     const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
@@ -97,7 +97,7 @@ fn main() -> Result<(), anyhow::Error> {
     let writer_2 = writer.clone();
 
     let err_fn = move |err| {
-        eprintln!("an error occurred on stream: {}", err);
+        eprintln!("an error occurred on stream: {err}");
     };
 
     let stream = match config.sample_format() {
@@ -138,7 +138,7 @@ fn main() -> Result<(), anyhow::Error> {
     std::thread::sleep(std::time::Duration::from_secs(3));
     drop(stream);
     writer.lock().unwrap().take().unwrap().finalize()?;
-    println!("Recording {} complete!", PATH);
+    println!("Recording {PATH} complete!");
     Ok(())
 }
 
