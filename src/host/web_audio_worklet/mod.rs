@@ -46,11 +46,15 @@ impl HostTrait for Host {
     type Device = Device;
 
     fn is_available() -> bool {
-        if let Ok(audio_context_is_defined) = js_sys::eval("typeof AudioWorklet !== 'undefined'") {
-            audio_context_is_defined.as_bool().unwrap()
-        } else {
-            false
+        if let Some(window) = web_sys::window() {
+            // Check if 'AudioWorklet' exists on the window object
+            if let Ok(has_audio_worklet) =
+                js_sys::Reflect::has(&window, &JsValue::from_str("AudioWorklet"))
+            {
+                return has_audio_worklet;
+            }
         }
+        false
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
