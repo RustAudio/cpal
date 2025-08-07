@@ -1,4 +1,16 @@
-// This file is taken from here: https://github.com/rustwasm/wasm-bindgen/blob/main/examples/wasm-audio-worklet/src/dependent_module.rs
+// This file is based on code from:
+//   https://github.com/rustwasm/wasm-bindgen/blob/main/examples/wasm-audio-worklet/src/dependent_module.rs
+//
+// The original code is licensed under either of:
+//   - MIT license (https://opensource.org/licenses/MIT)
+//   - Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+// at your option.
+//
+// Copyright (c) 2017-2024 The wasm-bindgen Developers
+//
+// This file incorporates code from the above source under the terms of those licenses.
+// Please see the original repository for more details.
+//
 // See this issue for a further explanation of what this file does: https://github.com/rustwasm/wasm-bindgen/issues/3019
 
 use js_sys::{wasm_bindgen, Array, JsString};
