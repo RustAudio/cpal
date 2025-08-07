@@ -374,6 +374,24 @@ impl WasmAudioProcessor {
         self.interleaved_buffer.as_mut_ptr() as _
     }
 
+    /// Converts this `WasmAudioProcessor` into a raw pointer (as `usize`) for FFI use.
+    ///
+    /// # Purpose
+    /// This function is intended to transfer ownership of the processor instance to the caller,
+    /// typically for passing between Rust and JavaScript via WebAssembly.
+    ///
+    /// # Relationship with [`unpack`]
+    /// The returned pointer must be passed to [`unpack`] exactly once to recover the original
+    /// `WasmAudioProcessor` instance. Failing to do so will result in a memory leak. Calling
+    /// [`unpack`] more than once or using the pointer after it has been unpacked will result in
+    /// undefined behavior.
+    ///
+    /// # Safety and Lifetime
+    /// After calling `pack`, the caller is responsible for ensuring that `unpack` is called
+    /// exactly once, and that the pointer is not used after being unpacked. This function
+    /// should be used with care, as improper use can lead to memory safety issues.
+    ///
+    /// [`unpack`]: Self::unpack
     pub fn pack(self) -> usize {
         Box::into_raw(Box::new(self)) as usize
     }
