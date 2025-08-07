@@ -159,16 +159,15 @@ impl DeviceTrait for Device {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
-    is_default: bool,
 }
 
-fn is_default_device(audio_device_id: AudioDeviceID) -> bool {
+fn is_default_device(device: Device) -> bool {
     default_input_device()
-        .map(|d| d.audio_device_id == audio_device_id)
+        .map(|d| d.audio_device_id == device.audio_device_id)
         .unwrap_or(false)
     ||
     default_output_device()
-        .map(|d| d.audio_device_id == audio_device_id)
+        .map(|d| d.audio_device_id == device.audio_device_id)
         .unwrap_or(false)
 }
 
@@ -177,12 +176,8 @@ impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-        
-        let is_default = is_default_device(audio_device_id);
-
         Self {
             audio_device_id,
-            is_default,
         }
     }
 
@@ -536,7 +531,7 @@ where
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let output_type = if device.is_default && !input {
+    let output_type = if is_default_device(device.clone()) && !input {
         coreaudio::audio_unit::IOType::DefaultOutput
     } else {
         coreaudio::audio_unit::IOType::HalOutput
@@ -678,7 +673,7 @@ impl Device {
 
         // If we didn't request the default device, stop the stream if the
         // device disconnects.
-        if !self.is_default {
+        if !is_default_device(self.clone()) {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
@@ -783,7 +778,7 @@ impl Device {
 
         // If we didn't request the default device, stop the stream if the
         // device disconnects.
-        if !self.is_default {
+        if !is_default_device(self.clone()) {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
