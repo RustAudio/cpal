@@ -22,9 +22,9 @@ use objc2_core_audio::{
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
     kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID,
-    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -161,24 +161,20 @@ pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
 }
 
-fn is_default_device(device: Device) -> bool {
+fn is_default_device(device: &Device) -> bool {
     default_input_device()
         .map(|d| d.audio_device_id == device.audio_device_id)
         .unwrap_or(false)
-    ||
-    default_output_device()
-        .map(|d| d.audio_device_id == device.audio_device_id)
-        .unwrap_or(false)
+        || default_output_device()
+            .map(|d| d.audio_device_id == device.audio_device_id)
+            .unwrap_or(false)
 }
-
 
 impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-        Self {
-            audio_device_id,
-        }
+        Self { audio_device_id }
     }
 
     fn name(&self) -> Result<String, DeviceNameError> {
@@ -531,7 +527,7 @@ where
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let output_type = if is_default_device(device.clone()) && !input {
+    let output_type = if is_default_device(device) && !input {
         coreaudio::audio_unit::IOType::DefaultOutput
     } else {
         coreaudio::audio_unit::IOType::HalOutput
@@ -673,7 +669,7 @@ impl Device {
 
         // If we didn't request the default device, stop the stream if the
         // device disconnects.
-        if !is_default_device(self.clone()) {
+        if !is_default_device(self) {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 
@@ -778,7 +774,7 @@ impl Device {
 
         // If we didn't request the default device, stop the stream if the
         // device disconnects.
-        if !is_default_device(self.clone()) {
+        if !is_default_device(self) {
             add_disconnect_listener(&stream, error_callback_disconnect)?;
         }
 

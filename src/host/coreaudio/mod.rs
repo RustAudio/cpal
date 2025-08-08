@@ -25,7 +25,6 @@ pub use self::macos::{
     Device, Host, Stream,
 };
 
-
 // Common helper methods used by both macOS and iOS
 fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
     match coreaudio::Error::from_os_status(os_status) {
