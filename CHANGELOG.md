@@ -4,6 +4,7 @@
 - CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
+- CoreAudio: The `Device.is_default` parameter has been removed, as it did not function as intended. To determine whether an audio device is default, call `is_default_device` in macos/mod.rs.
 
 # Version 0.16.0 (2025-06-07)
 
