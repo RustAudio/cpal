@@ -8,9 +8,6 @@ use crate::{
     SupportedStreamConfigsError,
 };
 
-#[derive(Default)]
-pub struct Devices;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
@@ -19,11 +16,6 @@ pub struct Host;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
-#[derive(Clone)]
-pub struct SupportedInputConfigs;
-#[derive(Clone)]
-pub struct SupportedOutputConfigs;
-
 impl Host {
     #[allow(dead_code)]
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -31,15 +23,9 @@ impl Host {
     }
 }
 
-impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        Ok(Devices)
-    }
-}
-
 impl DeviceTrait for Device {
-    type SupportedInputConfigs = SupportedInputConfigs;
-    type SupportedOutputConfigs = SupportedOutputConfigs;
+    type SupportedInputConfigs = std::iter::Empty<SupportedStreamConfigRange>;
+    type SupportedOutputConfigs = std::iter::Empty<SupportedStreamConfigRange>;
     type Stream = Stream;
 
     #[inline]
@@ -50,14 +36,14 @@ impl DeviceTrait for Device {
     #[inline]
     fn supported_input_configs(
         &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
     #[inline]
     fn supported_output_configs(
         &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
@@ -104,7 +90,7 @@ impl DeviceTrait for Device {
 }
 
 impl HostTrait for Host {
-    type Devices = Devices;
+    type Devices = std::iter::Empty<Device>;
     type Device = Device;
 
     fn is_available() -> bool {
@@ -112,7 +98,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+        Ok(std::iter::empty())
     }
 
     fn default_input_device(&self) -> Option<Device> {
@@ -131,32 +117,5 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         unimplemented!()
-    }
-}
-
-impl Iterator for Devices {
-    type Item = Device;
-
-    #[inline]
-    fn next(&mut self) -> Option<Device> {
-        None
-    }
-}
-
-impl Iterator for SupportedInputConfigs {
-    type Item = SupportedStreamConfigRange;
-
-    #[inline]
-    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
-        None
-    }
-}
-
-impl Iterator for SupportedOutputConfigs {
-    type Item = SupportedStreamConfigRange;
-
-    #[inline]
-    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
-        None
     }
 }
