@@ -63,7 +63,7 @@ impl Devices {
             match audio_devices() {
                 Ok(devices) => devices,
                 Err(os_status) => {
-                    let description = format!("{}", os_status);
+                    let description = format!("{os_status}");
                     let err = BackendSpecificError { description };
                     return Err(err.into());
                 }
@@ -105,7 +105,7 @@ pub fn default_input_device() -> Option<Device> {
             NonNull::from(&mut audio_device_id).cast(),
         )
     };
-    if status != kAudioHardwareNoError as i32 {
+    if status != kAudioHardwareNoError {
         return None;
     }
 
@@ -135,7 +135,7 @@ pub fn default_output_device() -> Option<Device> {
             NonNull::from(&mut audio_device_id).cast(),
         )
     };
-    if status != kAudioHardwareNoError as i32 {
+    if status != kAudioHardwareNoError {
         return None;
     }
 

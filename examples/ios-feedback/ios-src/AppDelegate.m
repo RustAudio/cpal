@@ -22,9 +22,6 @@ void rust_ios_main(void);
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     // Override point for customization after application launch.
 
-    NSError *error;
-    BOOL success;
-
     // It is necessary to access the sharedInstance so that calls to AudioSessionGetProperty
     // will work.
     AVAudioSession *session = AVAudioSession.sharedInstance;
@@ -32,15 +29,22 @@ void rust_ios_main(void);
     // Since this demo records and plays, lets use AVAudioSessionCategoryPlayAndRecord.
     // Also default to speaker as defaulting to the phone earpiece would be unusual.
     // Allowing bluetooth should direct audio to your bluetooth headset.
-    success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
-                       withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
-                             error:&error];
+    NSError *categoryError = nil;
+    BOOL isSetCategorySuccess = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                                         withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth
+                                               error:&categoryError];
+    if (isSetCategorySuccess) {
+        NSError *activateError = nil;
+        BOOL isActivateSuccess = [session setActive:YES error:&activateError];
 
-    if (success) {
-        NSLog(@"Calling rust_ios_main()");
-        rust_ios_main();
+        if (isActivateSuccess) {
+            NSLog(@"Calling rust_ios_main()");
+            rust_ios_main();
+        } else {
+            NSLog(@"Failed to activate audio session: %@", activateError);
+        }
     } else {
-        NSLog(@"Failed to configure audio session category");
+        NSLog(@"Failed to set category: %@", categoryError);
     }
 
     return YES;
