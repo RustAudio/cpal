@@ -5,9 +5,9 @@ use self::alsa::poll::Descriptors;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cell::Cell;
@@ -1104,30 +1104,74 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    let mut buffer_size = config.buffer_size;
-
-    if let BufferSize::Fixed(v) = buffer_size {
-        if hw_params
-            .set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)
-            .is_err()
-            || hw_params
-                .set_buffer_size_near(v as alsa::pcm::Frames)
-                .is_err()
-        {
-            buffer_size = BufferSize::Default;
-        }
-    }
-
-    if let BufferSize::Default = buffer_size {
-        // These values together represent a moderate latency and wakeup interval.
-        // Without them, we are at the mercy of the device
-        hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
-        hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
-    }
+    let _ = set_hw_params_periods(&hw_params, config.buffer_size);
 
     pcm_handle.hw_params(&hw_params)?;
 
     Ok(hw_params.can_pause())
+}
+
+/// Returns true if the periods were reasonably set. A false result indicates the device default
+/// configuration is being used.
+fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSize) -> bool {
+    const FALLBACK_PERIOD_TIME: u32 = 25_000;
+
+    // When the API is made available, this could rely on snd_pcm_hw_params_get_periods_min and
+    // snd_pcm_hw_params_get_periods_max
+    const PERIOD_COUNT: u32 = 2;
+
+    /// Returns true if the buffer size was reasonably set.
+    fn set_hw_params_buffer_size(hw_params: &alsa::pcm::HwParams, buffer_size: FrameCount) -> bool {
+        // Desired period size
+        let period_size = (buffer_size / PERIOD_COUNT) as alsa::pcm::Frames;
+
+        if hw_params
+            .set_period_size_near(period_size, alsa::ValueOr::Greater)
+            .is_err()
+        {
+            return false;
+        }
+
+        // Actual period size
+        let period_size = if let Ok(period_size) = hw_params.get_period_size() {
+            period_size
+        } else {
+            return false;
+        };
+
+        hw_params
+            .set_buffer_size_near(period_size * PERIOD_COUNT as alsa::pcm::Frames)
+            .is_ok()
+    }
+
+    if let BufferSize::Fixed(val) = buffer_size {
+        if set_hw_params_buffer_size(hw_params, val) {
+            return true;
+        }
+    }
+
+    if hw_params
+        .set_period_time_near(FALLBACK_PERIOD_TIME, alsa::ValueOr::Nearest)
+        .is_err()
+    {
+        return false;
+    }
+
+    let period_size = if let Ok(period_size) = hw_params.get_period_size() {
+        period_size
+    } else {
+        return false;
+    };
+
+    // We should not fail if the driver is unhappy here.
+    // `default` pcm sometimes fails here, but there no reason to as we attempt to provide a size or
+    // minimum number of periods.
+    hw_params
+        .set_buffer_size(period_size * PERIOD_COUNT as alsa::pcm::Frames)
+        .is_ok()
+        || hw_params
+            .set_periods(PERIOD_COUNT, alsa::ValueOr::Greater)
+            .is_ok()
 }
 
 fn set_sw_params_from_format(
