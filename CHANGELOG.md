@@ -1,8 +1,9 @@
 # Unreleased
 
-- ALSA(process_output): pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
+- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ALSA: Fix buffer size selection. (error 22)
 - CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
+- CoreAudio: Detect default audio device lazily when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
 
