@@ -5,6 +5,7 @@
 - CoreAudio: Detect default audio device lazily when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
+- ALSA: Added support for arm64 Linux development, introducing a new Dockerfile.
 
 # Version 0.16.0 (2025-06-07)
 
