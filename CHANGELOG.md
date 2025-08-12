@@ -5,6 +5,11 @@
 - CoreAudio: Detect default audio device lazily when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
+<<<<<<< Updated upstream
+=======
+- CoreAudio: The `Device.is_default` parameter has been removed, as it did not function as intended. To determine whether an audio device is default, call `is_default_device` in macos/mod.rs.
+- Update `Dockerfile` for arm64 Linux devices to include build tools, Rust, and curl by default.
+>>>>>>> Stashed changes
 
 # Version 0.16.0 (2025-06-07)
 
