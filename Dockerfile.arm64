@@ -12,3 +12,6 @@ RUN apt-get update && \
 # Set /cpal/ to working directory
 WORKDIR /cpal
 COPY . .
+
+# When running this Docker container, ensure ALSA devices are exposed 
+# using `--device /dev/snd` and `--group-add audio`
