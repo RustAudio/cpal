@@ -7,6 +7,7 @@ RUN apt-get update && \
         libjack-jackd2-dev \
         libjack-jackd2-0 \
         pkg-config \
+        libdbus-1-dev \
 
 # Set /cpal/ to working directory
 WORKDIR /cpal
