@@ -78,32 +78,27 @@ jobs:
     - name: Run all features
       run: cargo test --all --all-features --verbose
 
-  linux-check-and-test-armv7:
-    runs-on: ubuntu-latest
+  linux-check-and-test-arm64:
+    runs-on: ubuntu-24.04-arm64
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: armv7-unknown-linux-gnueabihf
-
-      - name: Install cross
-        run: cargo install cross
-
-      - name: Check without features for armv7
-        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
-
-      - name: Test without features for armv7
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
-
-      - name: Check all features for armv7
-        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
-
-      - name: Test all features for armv7
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
-
+    - name: Checkout sources
+      uses: actions/checkout@v4
+    
+    - name: Build Docker image
+      run: docker build -t cpal-arm64 .
+    
+    - name: Check without features
+      run: docker run --rm -v ${{ github.workspace }}:/workspace cpal-arm64 cargo check --workspace --no-default-features --verbose
+    
+    - name: Test without features  
+      run: docker run --rm -v ${{ github.workspace }}:/workspace cpal-arm64 cargo test --workspace --no-default-features --verbose
+    
+    - name: Check all features
+      run: docker run --rm -v ${{ github.workspace }}:/workspace cpal-arm64 cargo check --workspace --all-features --verbose
+    
+    - name: Test all features
+      run: docker run --rm -v ${{ github.workspace }}:/workspace cpal-arm64 cargo test --workspace --all-features --verbose
+  
   asmjs-wasm32-test:
     strategy:
       matrix:
