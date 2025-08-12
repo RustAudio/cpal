@@ -104,6 +104,18 @@ jobs:
       - name: Test all features for armv7
         run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
+  linux-check-and-test-arm64:
+    runs-on: ubuntu-22.04-arm64
+    steps:
+      - name: Build Docker container for arm64
+        run: docker build -f Dockerfile.arm64 -t cpal-arm64 .
+      
+      - name: Run without features
+        run: docker run --rm cpal-arm64 cargo test --all --no-default-features --verbose
+
+      - name: Run all features
+        run: docker run --rm cpal-arm64 cargo test --all --all-features --verbose
+
   asmjs-wasm32-test:
     strategy:
       matrix:
