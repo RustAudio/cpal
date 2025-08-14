@@ -105,7 +105,7 @@ jobs:
         run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
   linux-check-and-test-arm64:
-    runs-on: ubuntu-22.04-arm64
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Build Docker container for arm64
         run: docker build -f Dockerfile.arm64 -t cpal-arm64 .
