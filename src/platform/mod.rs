@@ -747,19 +747,3 @@ mod platform_impl {
             .into()
     }
 }
-
-// The following zero-sized types are for applying Send/Sync restrictions to ensure
-// consistent behaviour across different platforms. These verbosely named types are used
-// (rather than using the markers directly) in the hope of making the compile errors
-// slightly more helpful.
-//
-// TODO: Remove these in favour of using negative trait bounds if they stabilise.
-
-// A marker used to remove the `Send` and `Sync` traits.
-struct NotSendSyncAcrossAllPlatforms(std::marker::PhantomData<*mut ()>);
-
-impl Default for NotSendSyncAcrossAllPlatforms {
-    fn default() -> Self {
-        NotSendSyncAcrossAllPlatforms(std::marker::PhantomData)
-    }
-}
