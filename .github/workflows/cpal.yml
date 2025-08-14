@@ -110,9 +110,6 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Debug testing...
-        run: ls -la
-
       - name: Build Docker container for arm64
         run: docker build -f Dockerfile.arm64 -t cpal-arm64 .
       
