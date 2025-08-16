@@ -3,56 +3,21 @@ use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_
 
 use super::OSStatus;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
-};
-use coreaudio::audio_unit::render_callback::{self, data};
-use coreaudio::audio_unit::{AudioUnit, Element, Scope};
-use objc2_audio_toolbox::{
-    kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
-    kAudioUnitProperty_StreamFormat,
-};
-use objc2_core_audio::{
-    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData,
-};
-use objc2_core_audio_types::{
-    AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
-};
+use crate::traits::{HostTrait, StreamTrait};
+use crate::{BackendSpecificError, DevicesError, PauseStreamError, PlayStreamError};
+use coreaudio::audio_unit::AudioUnit;
+use objc2_core_audio::AudioDeviceID;
 use std::cell::RefCell;
-use std::fmt;
-use std::mem;
-use std::ptr::{null, NonNull};
 use std::rc::Rc;
-use std::slice;
-use std::sync::mpsc::{channel, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
-pub use self::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
-};
+pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
-use coreaudio::audio_unit::macos_helpers::get_device_name;
 use property_listener::AudioObjectPropertyListener;
 
 mod device;
 pub mod enumerate;
 mod loopback;
 mod property_listener;
-use device::is_default_device;
 pub use device::Device;
 
 /// Coreaudio host, the default host on macOS.

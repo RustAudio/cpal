@@ -1,10 +1,3 @@
-use std::mem::{self, MaybeUninit};
-use std::ptr::{null, NonNull};
-
-use objc2_core_audio::{
-    kAudioHardwareNoError, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-};
 use objc2_core_audio_types::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
     kAudioFormatLinearPCM, AudioStreamBasicDescription,

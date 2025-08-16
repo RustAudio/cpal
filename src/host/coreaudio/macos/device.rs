@@ -13,7 +13,6 @@ use crate::{
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
-use objc2::rc::Retained;
 use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_StreamFormat,
@@ -21,39 +20,22 @@ use objc2_audio_toolbox::{
 use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
-    kAudioDevicePropertyDeviceUID, kAudioDevicePropertyNominalSampleRate,
-    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyElementMaster,
+    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioHardwareCreateProcessTap,
-    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
-    CATapDescription, CATapMuteBehavior,
+    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
-use objc2_core_foundation::kCFTypeArrayCallBacks;
-use objc2_core_foundation::kCFTypeDictionaryKeyCallBacks;
-use objc2_core_foundation::kCFTypeDictionaryValueCallBacks;
-use objc2_core_foundation::CFMutableDictionary;
-use objc2_core_foundation::CFType;
-use objc2_core_foundation::Type;
-use objc2_core_foundation::{
-    kCFAllocatorDefault, CFArray, CFDictionary, CFDictionaryCreate, CFRetained, CFString,
-    CFStringCreateWithCString,
-};
-use objc2_foundation::{ns_string, NSArray, NSDictionary, NSMutableDictionary, NSNumber, NSString};
-use std::ffi::c_void;
-use std::ffi::CStr;
 
 pub use super::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
 };
-use std::cell::RefCell;
 use std::fmt;
-use std::mem::{self, MaybeUninit};
+use std::mem::{self};
 use std::ptr::{null, NonNull};
 use std::rc::Rc;
 use std::slice;
