@@ -17,7 +17,7 @@
         pkgs = import nixpkgs { inherit system; };
       in
       {
-        devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.mkShellNoCC {
           buildInputs = with pkgs; [
             cargo
             rustc
