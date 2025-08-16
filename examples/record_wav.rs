@@ -12,9 +12,15 @@ use std::sync::{Arc, Mutex};
 #[derive(Parser, Debug)]
 #[command(version, about = "CPAL record_wav example", long_about = None)]
 struct Opt {
-    /// The audio device to use
+    /// The audio device to use.
+    /// For the default microphone, use "default".
+    /// For recording system output, use "default-output".
     #[arg(short, long, default_value_t = String::from("default"))]
     device: String,
+
+    /// How long to record, in seconds
+    #[arg(long, default_value_t = 3)]
+    duration: u64,
 
     /// Use the JACK host
     #[cfg(all(
@@ -69,20 +75,24 @@ fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
 
     // Set up the input device and stream with the default input config.
-    let device = if opt.device == "default" {
-        host.default_input_device()
-    } else {
-        host.input_devices()?
-            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+    let device = match opt.device.as_str() {
+        "default" => host.default_input_device(),
+        "default-output" => host.default_output_device(),
+        name => host
+            .input_devices()?
+            .find(|x| x.name().map(|y| y == name).unwrap_or(false)),
     }
     .expect("failed to find input device");
 
     println!("Input device: {}", device.name()?);
 
-    let config = device
-        .default_input_config()
-        .expect("Failed to get default input config");
-    println!("Default input config: {config:?}");
+    let config = if device.supports_input() {
+        device.default_input_config()
+    } else {
+        device.default_output_config()
+    }
+    .expect("Failed to get default input/output config");
+    println!("Default input/output config: {config:?}");
 
     // The WAV file we're recording to.
     const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/recorded.wav");
@@ -135,7 +145,7 @@ fn main() -> Result<(), anyhow::Error> {
     stream.play()?;
 
     // Let recording go for roughly three seconds.
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    std::thread::sleep(std::time::Duration::from_secs(opt.duration));
     drop(stream);
     writer.lock().unwrap().take().unwrap().finalize()?;
     println!("Recording {PATH} complete!");

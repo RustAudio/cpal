@@ -2,6 +2,7 @@
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
 
 use super::OSStatus;
+use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -49,6 +50,7 @@ use property_listener::AudioObjectPropertyListener;
 
 mod device;
 pub mod enumerate;
+mod loopback;
 mod property_listener;
 use device::is_default_device;
 pub use device::Device;
@@ -96,6 +98,9 @@ struct StreamInner {
     // a stream associated with the device.
     #[allow(dead_code)]
     device_id: AudioDeviceID,
+    /// Manage the lifetime of the aggregate device used
+    /// for loopback recording
+    _loopback_device: Option<LoopbackDevice>,
 }
 
 impl StreamInner {
@@ -205,7 +210,7 @@ mod test {
                 &config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
-                    println!("Got data");
+                    println!("Got data: {:?}", &data[..25]);
                 },
                 move |err| println!("Error: {err}"),
                 None, // None=blocking, Some(Duration)=timeout
@@ -227,12 +232,13 @@ mod test {
             .with_max_sample_rate();
         let config = supported_config.config();
 
+        println!("Building input stream");
         let stream = device
             .build_input_stream(
                 &config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
-                    println!("Got data");
+                    println!("Got data: {:?}", &data[..25]);
                 },
                 move |err| println!("Error: {err}"),
                 None, // None=blocking, Some(Duration)=timeout

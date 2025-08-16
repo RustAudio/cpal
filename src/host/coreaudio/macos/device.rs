@@ -2,42 +2,33 @@
 use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
+use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    DefaultStreamConfigError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
-use coreaudio::error::audio_unit;
-use objc2::rc::{autoreleasepool, Retained};
-use objc2::AnyThread;
+use objc2::rc::Retained;
 use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_StreamFormat,
 };
-use objc2_core_audio::kAudioEndPointDeviceIsPrivateKey;
-use objc2_core_audio::AudioDeviceCreateIOProcID;
-use objc2_core_audio::AudioDeviceIOProcID;
-use objc2_core_audio::AudioHardwareCreateAggregateDevice;
 use objc2_core_audio::{
-    kAudioAggregateDeviceIsPrivateKey, kAudioAggregateDeviceNameKey,
-    kAudioAggregateDeviceTapAutoStartKey, kAudioAggregateDeviceTapListKey,
-    kAudioAggregateDeviceUIDKey, kAudioDevicePropertyAvailableNominalSampleRates,
-    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
-    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyDeviceUID,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
-    kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey, AudioDeviceID,
-    AudioHardwareCreateProcessTap, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
-    AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyScope,
-    AudioObjectSetPropertyData, CATapDescription, CATapMuteBehavior,
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyDeviceUID, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyElementMaster,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioHardwareCreateProcessTap,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    CATapDescription, CATapMuteBehavior,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -72,8 +63,6 @@ use std::time::{Duration, Instant};
 
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
-type CFStringRef = *mut std::os::raw::c_void;
-
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
 fn set_sample_rate(
@@ -393,7 +382,7 @@ impl DeviceTrait for Device {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
 }
@@ -420,42 +409,6 @@ impl Device {
                 description: err.to_string(),
             },
         })
-    }
-
-    fn uid(&self) -> Result<Retained<NSString>, BackendSpecificError> {
-        let mut cfstring: CFStringRef = std::ptr::null_mut();
-        let mut size = std::mem::size_of::<CFStringRef>() as u32;
-
-        let property = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
-
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property),
-                0,
-                std::ptr::null(),
-                NonNull::from(&mut size),
-                NonNull::from(&mut cfstring).cast(),
-            )
-        };
-        check_os_status(status)?;
-
-        if cfstring.is_null() {
-            return Err(BackendSpecificError {
-                description: "Device uid is null".to_string(),
-            });
-        }
-
-        let ns_string: Retained<NSString> = unsafe {
-            // unwrap cuz cfstring!=null as checked before
-            Retained::retain(cfstring as *mut NSString).unwrap()
-        };
-
-        Ok(ns_string)
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
@@ -752,11 +705,13 @@ impl Device {
         // Potentially change the device sample rate to match the config.
         set_sample_rate(self.audio_device_id, config.sample_rate)?;
 
+        let mut loopback_aggregate: Option<LoopbackDevice> = None;
         let mut audio_unit = if self.supports_input() {
             audio_unit_from_device(self, true)?
         } else {
-            let loopback_aggregate = self.get_loopback_record_device()?;
-            audio_unit_from_device(&loopback_aggregate, true)?
+            loopback_aggregate.replace(self.create_loopback_record_device()?);
+            // audio_unit_from_device(&loopback_aggregate.clone().unwrap().aggregate_device, true)?
+            audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
         };
 
         // Set the stream in interleaved mode.
@@ -835,6 +790,7 @@ impl Device {
             _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
+            _loopback_device: loopback_aggregate,
         });
 
         // If we didn't request the default device, stop the stream if the
@@ -846,50 +802,6 @@ impl Device {
         stream.inner.borrow_mut().audio_unit.start()?;
 
         Ok(stream)
-    }
-
-    fn get_loopback_record_device(&self) -> Result<Device, BuildStreamError> {
-        // 1 - Create tap
-
-        // Empty list of processes as we want to record all processes
-        let processes = NSArray::new();
-        let device_uid = self.uid()?;
-        let tap_desc = unsafe {
-            CATapDescription::initWithProcesses_andDeviceUID_withStream(
-                CATapDescription::alloc(),
-                &*processes,
-                device_uid.as_ref(),
-                0,
-            )
-        };
-        unsafe {
-            tap_desc.setMuteBehavior(CATapMuteBehavior::Unmuted); // captured audio still goes to speakers
-            tap_desc.setName(ns_string!("cpal output recorder"));
-            tap_desc.setPrivate(true); // the Aggregate Device would be private
-            tap_desc.setExclusive(true); // the process list means exclude them
-        };
-
-        let mut _tap_obj_id: MaybeUninit<AudioObjectID> = MaybeUninit::uninit();
-        let _tap_obj_id = unsafe {
-            AudioHardwareCreateProcessTap(Some(tap_desc.as_ref()), _tap_obj_id.as_mut_ptr());
-            _tap_obj_id.assume_init()
-        };
-        let tap_uid = unsafe { tap_desc.UUID().UUIDString() };
-
-        // 2 - Create aggregate device
-        let aggregate_deivce_properties = create_audio_aggregate_device_properties(tap_uid);
-        let aggregate_device_id: AudioObjectID = 0;
-        let status = unsafe {
-            AudioHardwareCreateAggregateDevice(
-                aggregate_deivce_properties.as_ref(),
-                NonNull::from(&aggregate_device_id),
-            )
-        };
-        check_os_status(status)?;
-
-        // TODO: impl Drop for Device and destroy the aggregate device
-        let aggregate_device = Device::new(aggregate_device_id);
-        Ok(aggregate_device)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -984,6 +896,7 @@ impl Device {
             _disconnect_listener: None,
             audio_unit,
             device_id: self.audio_device_id,
+            _loopback_device: None,
         });
 
         // If we didn't request the default device, stop the stream if the
@@ -996,114 +909,4 @@ impl Device {
 
         Ok(stream)
     }
-}
-
-fn to_cfstring(cstr: &'static CStr) -> CFRetained<CFString> {
-    unsafe {
-        CFStringCreateWithCString(
-            kCFAllocatorDefault,
-            cstr.as_ptr(),
-            0x08000100, /* UTF8 */
-        )
-    }
-    .unwrap()
-}
-
-/// Rust reimplementation of the following:
-/// ```c
-/// tap_uid = [[tap_description UUID] UUIDString];
-/// taps = @[
-///     @{
-///         @kAudioSubTapUIDKey : (NSString*)tap_uid,
-///         @kAudioSubTapDriftCompensationKey : @YES,
-///     },
-/// ];
-///
-/// aggregate_device_properties = @{
-///     @kAudioAggregateDeviceNameKey : @"MiniMetersAggregateDevice",
-///     @kAudioAggregateDeviceUIDKey :
-///         @"com.josephlyncheski.MiniMetersAggregateDevice",
-///     @kAudioAggregateDeviceTapListKey : taps,
-///     @kAudioAggregateDeviceTapAutoStartKey : @NO,
-///     // If we set this to NO then I believe we need to make the Tap public as
-///     // well.
-///     @kAudioAggregateDeviceIsPrivateKey : @YES,
-/// };
-/// ```
-pub fn create_audio_aggregate_device_properties(
-    tap_uid: Retained<NSString>,
-) -> CFRetained<CFDictionary> {
-    let tap_inner = unsafe {
-        let dict = CFMutableDictionary::new(
-            kCFAllocatorDefault,
-            2,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks,
-        )
-        .unwrap();
-
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioSubTapUIDKey) as *const _ as *const c_void,
-            &*tap_uid as *const _ as *const c_void,
-        );
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioSubTapDriftCompensationKey) as *const _ as *const c_void,
-            &*NSNumber::initWithBool(NSNumber::alloc(), true) as *const _ as *const c_void,
-        );
-
-        dict
-    };
-    let _taps_list = [tap_inner];
-    let taps = unsafe {
-        CFArray::new(
-            kCFAllocatorDefault,
-            _taps_list.as_ptr() as *mut *const c_void,
-            _taps_list.len() as _,
-            &kCFTypeArrayCallBacks,
-        )
-        .unwrap()
-    };
-    let aggregate_dev_properties = unsafe {
-        let dict = CFMutableDictionary::new(
-            kCFAllocatorDefault,
-            5,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks,
-        )
-        .unwrap();
-
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioAggregateDeviceNameKey) as *const _ as *const c_void,
-            &*CFString::from_str("Cpal loopback record aggregate device") as *const _
-                as *const c_void,
-        );
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioAggregateDeviceUIDKey) as *const _ as *const c_void,
-            &*CFString::from_str("com.cpal.LoopbackRecordAggregateDevice") as *const _
-                as *const c_void,
-        );
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioAggregateDeviceTapListKey) as *const _ as *const c_void,
-            &*taps as *const _ as *const c_void,
-        );
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioAggregateDeviceTapAutoStartKey) as *const _ as *const c_void,
-            &*NSNumber::initWithBool(NSNumber::alloc(), false) as *const _ as *const c_void,
-        );
-        CFMutableDictionary::set_value(
-            Some(dict.as_ref()),
-            &*to_cfstring(kAudioEndPointDeviceIsPrivateKey) as *const _ as *const c_void,
-            &*NSNumber::initWithBool(NSNumber::alloc(), true) as *const _ as *const c_void,
-        );
-
-        CFRetained::cast_unchecked::<CFDictionary>(dict)
-    };
-
-    aggregate_dev_properties
 }
