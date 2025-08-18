@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
@@ -692,7 +691,6 @@ impl Device {
             audio_unit_from_device(self, true)?
         } else {
             loopback_aggregate.replace(self.create_loopback_record_device()?);
-            // audio_unit_from_device(&loopback_aggregate.clone().unwrap().aggregate_device, true)?
             audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
         };
 
