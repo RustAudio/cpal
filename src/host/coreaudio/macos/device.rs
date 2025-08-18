@@ -690,7 +690,7 @@ impl Device {
         let mut audio_unit = if self.supports_input() {
             audio_unit_from_device(self, true)?
         } else {
-            loopback_aggregate.replace(self.create_loopback_record_device()?);
+            loopback_aggregate.replace(LoopbackDevice::from_device(self)?);
             audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
         };
 
