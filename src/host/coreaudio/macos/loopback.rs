@@ -1,7 +1,9 @@
 //! Manages loopback recording (recording system audio output)
 
 use super::device::Device;
-use crate::{host::coreaudio::check_os_status, BackendSpecificError, BuildStreamError};
+use crate::{
+    host::coreaudio::check_os_status, traits::DeviceTrait, BackendSpecificError, BuildStreamError,
+};
 use objc2::{rc::Retained, AnyThread};
 use objc2_core_audio::{
     kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
@@ -27,51 +29,6 @@ use std::{
 type CFStringRef = *mut std::os::raw::c_void;
 
 impl Device {
-    pub fn create_loopback_record_device(&self) -> Result<LoopbackDevice, BuildStreamError> {
-        // 1 - Create tap
-
-        // Empty list of processes as we want to record all processes
-        let processes = NSArray::new();
-        let device_uid = self.uid()?;
-        let tap_desc = unsafe {
-            CATapDescription::initWithProcesses_andDeviceUID_withStream(
-                CATapDescription::alloc(),
-                &*processes,
-                device_uid.as_ref(),
-                0,
-            )
-        };
-        unsafe {
-            tap_desc.setMuteBehavior(CATapMuteBehavior::Unmuted); // captured audio still goes to speakers
-            tap_desc.setName(ns_string!("cpal output recorder"));
-            tap_desc.setPrivate(true); // the Aggregate Device would be private
-            tap_desc.setExclusive(true); // the process list means exclude them
-        };
-
-        let mut tap_obj_id: MaybeUninit<AudioObjectID> = MaybeUninit::uninit();
-        let tap_obj_id = unsafe {
-            AudioHardwareCreateProcessTap(Some(tap_desc.as_ref()), tap_obj_id.as_mut_ptr());
-            tap_obj_id.assume_init()
-        };
-        let tap_uid = unsafe { tap_desc.UUID().UUIDString() };
-
-        // 2 - Create aggregate device
-        let aggregate_device_properties = create_audio_aggregate_device_properties(tap_uid);
-        let aggregate_device_id: AudioObjectID = 0;
-        let status = unsafe {
-            AudioHardwareCreateAggregateDevice(
-                aggregate_device_properties.as_ref(),
-                NonNull::from(&aggregate_device_id),
-            )
-        };
-        check_os_status(status)?;
-
-        Ok(LoopbackDevice {
-            tap_id: tap_obj_id,
-            aggregate_device: Device::new(aggregate_device_id),
-        })
-    }
-
     fn uid(&self) -> Result<Retained<NSString>, BackendSpecificError> {
         let mut cfstring: CFStringRef = std::ptr::null_mut();
         let mut size = std::mem::size_of::<CFStringRef>() as u32;
@@ -106,6 +63,79 @@ impl Device {
         };
 
         Ok(ns_string)
+    }
+}
+
+/// An aggregate device with tap for recording system output.
+///
+/// Its main difference with [`Device`] is that it's destroyed when dropped.
+///
+/// It also doesn't implement the [`DeviceTrait`] as users shouldn't be using it. Its
+/// main purpose is to destroy the created aggregate device when loopback recording
+/// is done.
+#[derive(PartialEq, Eq)]
+pub struct LoopbackDevice {
+    pub tap_id: AudioObjectID,
+    pub aggregate_device: Device,
+}
+
+impl LoopbackDevice {
+    /// Create a [`LoopbackDevice`] that records the sound
+    /// output of `device`.
+    pub fn from_device(device: &Device) -> Result<Self, BuildStreamError> {
+        // 1 - Create tap
+
+        // Empty list of processes as we want to record all processes
+        let processes = NSArray::new();
+        let device_uid = device.uid()?;
+        let tap_desc = unsafe {
+            CATapDescription::initWithProcesses_andDeviceUID_withStream(
+                CATapDescription::alloc(),
+                &*processes,
+                device_uid.as_ref(),
+                0,
+            )
+        };
+        unsafe {
+            tap_desc.setMuteBehavior(CATapMuteBehavior::Unmuted); // captured audio still goes to speakers
+            tap_desc.setName(ns_string!("cpal output recorder"));
+            tap_desc.setPrivate(true); // the Aggregate Device would be private
+            tap_desc.setExclusive(true); // the process list means exclude them
+        };
+
+        let mut tap_obj_id: MaybeUninit<AudioObjectID> = MaybeUninit::uninit();
+        let tap_obj_id = unsafe {
+            AudioHardwareCreateProcessTap(Some(tap_desc.as_ref()), tap_obj_id.as_mut_ptr());
+            tap_obj_id.assume_init()
+        };
+        let tap_uid = unsafe { tap_desc.UUID().UUIDString() };
+
+        // 2 - Create aggregate device
+        let aggregate_device_properties = create_audio_aggregate_device_properties(tap_uid);
+        let aggregate_device_id: AudioObjectID = 0;
+        let status = unsafe {
+            AudioHardwareCreateAggregateDevice(
+                aggregate_device_properties.as_ref(),
+                NonNull::from(&aggregate_device_id),
+            )
+        };
+        check_os_status(status)?;
+
+        Ok(Self {
+            tap_id: tap_obj_id,
+            aggregate_device: Device::new(aggregate_device_id),
+        })
+    }
+}
+
+impl Drop for LoopbackDevice {
+    fn drop(&mut self) {
+        unsafe {
+            let status = AudioHardwareDestroyAggregateDevice(self.aggregate_device.audio_device_id);
+            check_os_status(status).unwrap();
+            let status = AudioHardwareDestroyProcessTap(self.tap_id);
+            check_os_status(status).unwrap();
+        }
     }
 }
 
@@ -217,28 +247,4 @@ pub fn create_audio_aggregate_device_properties(
     };
 
     aggregate_dev_properties
-}
-
-/// An aggregate device with tap for recording system output.
-///
-/// Its main difference with [`Device`] is that it's destroyed when dropped.
-///
-/// It also doesn't implement the [`DeviceTrait`] as users shouldn't be using it. Its
-/// main purpose is to destroy the created aggregate device when loopback recording
-/// is done.
-#[derive(PartialEq, Eq)]
-pub struct LoopbackDevice {
-    pub tap_id: AudioObjectID,
-    pub aggregate_device: Device,
-}
-
-impl Drop for LoopbackDevice {
-    fn drop(&mut self) {
-        unsafe {
-            let status = AudioHardwareDestroyAggregateDevice(self.aggregate_device.audio_device_id);
-            check_os_status(status).unwrap();
-            let status = AudioHardwareDestroyProcessTap(self.tap_id);
-            check_os_status(status).unwrap();
-        }
-    }
 }
