@@ -56,11 +56,11 @@ impl Device {
         let tap_uid = unsafe { tap_desc.UUID().UUIDString() };
 
         // 2 - Create aggregate device
-        let aggregate_deivce_properties = create_audio_aggregate_device_properties(tap_uid);
+        let aggregate_device_properties = create_audio_aggregate_device_properties(tap_uid);
         let aggregate_device_id: AudioObjectID = 0;
         let status = unsafe {
             AudioHardwareCreateAggregateDevice(
-                aggregate_deivce_properties.as_ref(),
+                aggregate_device_properties.as_ref(),
                 NonNull::from(&aggregate_device_id),
             )
         };
@@ -101,7 +101,7 @@ impl Device {
         }
 
         let ns_string: Retained<NSString> = unsafe {
-            // unwrap cuz cfstring!=null as checked before
+            // unwrap cause cfstring!=null as checked before
             Retained::retain(cfstring as *mut NSString).unwrap()
         };
 
@@ -226,7 +226,7 @@ pub fn create_audio_aggregate_device_properties(
 /// It also doesn't implement the [`DeviceTrait`] as users shouldn't be using it. Its
 /// main purpose is to destroy the created aggregate device when loopback recording
 /// is done.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct LoopbackDevice {
     pub tap_id: AudioObjectID,
     pub aggregate_device: Device,
