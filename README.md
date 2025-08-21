@@ -37,6 +37,9 @@ Some audio backends are optional and will only be compiled with a [feature flag]
 
 - JACK (on Linux): `jack`
 - ASIO (on Windows): `asio`
+- AudioWorklet (on Web): `web_audio_worklet`
+
+For AudioWorklet backend usage see the README for the `web-audio-worklet-beep` example.
 
 Oboe can either use a shared or static runtime. The static runtime is used by default, but activating the
 `oboe-shared-stdcxx` feature makes it use the shared runtime, which requires `libc++_shared.so` from the Android NDK to

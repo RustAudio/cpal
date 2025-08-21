@@ -663,7 +663,7 @@ mod platform_impl {
     };
 
     #[cfg(feature = "web_audio_worklet")]
-    pub use crate::host::webaudio::{
+    pub use crate::host::web_audio_worklet::{
         Device as WebAudioWorkletDevice, Devices as WebAudioWorkletDevices,
         Host as WebAudioWorkletHost, Stream as WebAudioWorkletStream,
         SupportedInputConfigs as WebAudioWorkletSupportedInputConfigs,
