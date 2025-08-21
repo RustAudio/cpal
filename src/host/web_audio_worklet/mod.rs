@@ -118,7 +118,7 @@ impl DeviceTrait for Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -184,7 +184,7 @@ impl DeviceTrait for Device {
 
         let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
-                let description = format!("{:?}", err);
+                let description = format!("{err:?}", err);
                 let err = BackendSpecificError { description };
                 err.into()
             },
@@ -227,7 +227,7 @@ impl DeviceTrait for Device {
                             let callback = crate::StreamInstant::from_secs_f64(now);
 
                             let buffer_duration =
-                                frames_to_duration(frame_size as _, SampleRate(sample_rate as u32));
+                                frames_to_duration(frame_size as _, SampleRate(sample_rate));
                             let playback = callback.add(buffer_duration).expect(
                             "`playback` occurs beyond representation supported by `StreamInstant`",
                         );
@@ -248,11 +248,11 @@ impl DeviceTrait for Device {
             })()
             .await;
 
-            if let Err(e) = result {
-                let description = if let Some(string_value) = e.as_string() {
+            if let Err(err) = result {
+                let description = if let Some(string_value) = err.as_string() {
                     string_value
                 } else {
-                    format!("Browser error initializing stream: {:?}", e)
+                    format!("Browser error initializing stream: {err:?}")
                 };
 
                 error_callback(StreamError::BackendSpecific {
@@ -270,7 +270,7 @@ impl StreamTrait for Stream {
         match self.audio_context.resume() {
             Ok(_) => Ok(()),
             Err(err) => {
-                let description = format!("{:?}", err);
+                let description = format!("{err:?}");
                 let err = BackendSpecificError { description };
                 Err(err.into())
             }
@@ -281,7 +281,7 @@ impl StreamTrait for Stream {
         match self.audio_context.suspend() {
             Ok(_) => Ok(()),
             Err(err) => {
-                let description = format!("{:?}", err);
+                let description = format!("{err:?}");
                 let err = BackendSpecificError { description };
                 Err(err.into())
             }
@@ -331,6 +331,8 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
     std::time::Duration::new(secs, nanos)
 }
 
+type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
+
 /// WasmAudioProcessor provides an interface for the Javascript code
 /// running in the AudioWorklet to interact with Rust.
 #[wasm_bindgen]
@@ -339,11 +341,11 @@ pub struct WasmAudioProcessor {
     interleaved_buffer: Vec<f32>,
     #[wasm_bindgen(skip)]
     // Passes in an interleaved scratch buffer, frame size, sample rate, and current time.
-    callback: Box<dyn FnMut(&mut [f32], u32, u32, f64)>,
+    callback: AudioProcessorCallback,
 }
 
 impl WasmAudioProcessor {
-    pub fn new(callback: Box<dyn FnMut(&mut [f32], u32, u32, f64)>) -> Self {
+    pub fn new(callback: AudioProcessorCallback) -> Self {
         Self {
             interleaved_buffer: Vec::new(),
             callback,
