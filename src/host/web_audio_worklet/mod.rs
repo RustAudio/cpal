@@ -6,9 +6,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::time::Duration;
@@ -28,8 +28,8 @@ pub struct Stream {
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 
-const MIN_CHANNELS: u16 = 1;
-const MAX_CHANNELS: u16 = 32;
+const MIN_CHANNELS: ChannelCount = 1;
+const MAX_CHANNELS: ChannelCount = 32;
 const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
 const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
 const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
@@ -184,7 +184,7 @@ impl DeviceTrait for Device {
 
         let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
-                let description = format!("{err:?}", err);
+                let description = format!("{err:?}");
                 let err = BackendSpecificError { description };
                 err.into()
             },

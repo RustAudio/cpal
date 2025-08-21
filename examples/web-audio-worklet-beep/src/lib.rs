@@ -24,8 +24,8 @@ pub fn main_js() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
     let document = gloo::utils::document();
-    let play_button = document.get_element_by_id("play")?;
-    let stop_button = document.get_element_by_id("stop")?;
+    let play_button = document.get_element_by_id("play").unwrap();
+    let stop_button = document.get_element_by_id("stop").unwrap();
 
     // stream needs to be referenced from the "play" and "stop" closures
     let stream = Rc::new(Cell::new(None));
