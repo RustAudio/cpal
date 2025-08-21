@@ -24,8 +24,8 @@ pub fn main_js() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
     let document = gloo::utils::document();
-    let play_button = document.get_element_by_id("play").unwrap();
-    let stop_button = document.get_element_by_id("stop").unwrap();
+    let play_button = document.get_element_by_id("play")?;
+    let stop_button = document.get_element_by_id("stop")?;
 
     // stream needs to be referenced from the "play" and "stop" closures
     let stream = Rc::new(Cell::new(None));
@@ -83,7 +83,7 @@ where
     let mut sample_clock = 0f32;
     let mut next_value = move || {
         sample_clock = (sample_clock + 1.0) % sample_rate;
-        (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
+        (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
     let err_fn = |err| console::error_1(&format!("an error occurred on stream: {}", err).into());

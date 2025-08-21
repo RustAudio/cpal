@@ -3,6 +3,7 @@ name = "web-audio-worklet-beep"
 description = "cpal beep example for WebAssembly on an AudioWorklet"
 version = "0.1.0"
 edition = "2018"
+authors = ["Ian Kettlewell <ian.kettlewell@gmail.com>"]
 
 [lib]
 crate-type = ["cdylib"]

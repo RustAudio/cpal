@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2017-2024 The wasm-bindgen Developers
 //
-// This file incorporates code from the above source under the terms of those licenses.
+// This file incorporates code from the above source under the Apache License, Version 2.0 license.
 // Please see the original repository for more details.
 //
 // See this issue for a further explanation of what this file does: https://github.com/rustwasm/wasm-bindgen/issues/3019

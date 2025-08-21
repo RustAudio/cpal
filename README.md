@@ -37,6 +37,9 @@ Some audio backends are optional and will only be compiled with a [feature flag]
 
 - JACK (on Linux): `jack`
 - ASIO (on Windows): `asio`
+- AudioWorklet (on Web): `web_audio_worklet`
+
+For AudioWorklet backend usage see the README for the `web-audio-worklet-beep` example.
 
 ## ASIO on Windows
 

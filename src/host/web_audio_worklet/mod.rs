@@ -37,7 +37,11 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        Ok(Host)
+        if Self::is_available() {
+            Ok(Host)
+        } else {
+            Err(crate::HostUnavailable)
+        }
     }
 }
 
@@ -47,14 +51,19 @@ impl HostTrait for Host {
 
     fn is_available() -> bool {
         if let Some(window) = web_sys::window() {
-            // Check if 'AudioWorklet' exists on the window object
-            if let Ok(has_audio_worklet) =
-                js_sys::Reflect::has(&window, &JsValue::from_str("AudioWorklet"))
-            {
-                return has_audio_worklet;
-            }
+            let has_audio_worklet =
+                js_sys::Reflect::has(&window, &JsValue::from_str("AudioWorklet")).unwrap_or(false);
+
+            let cross_origin_isolated =
+                js_sys::Reflect::get(&window, &JsValue::from_str("crossOriginIsolated"))
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+            has_audio_worklet && cross_origin_isolated
+        } else {
+            false
         }
-        false
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
