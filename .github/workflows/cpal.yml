@@ -48,16 +48,9 @@ jobs:
       run: sudo apt update
     - name: Install alsa
       run: sudo apt-get install libasound2-dev
-    - name: Verify publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        dry-run: true
-        ignore-unpublished-changes: true
-    - name: Publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        ignore-unpublished-changes: true
-        registry-token: ${{ secrets.CRATESIO_TOKEN }}
+    - name: cargo publish
+      continue-on-error: true
+      run: cargo publish --token ${{ secrets.CRATESIO_TOKEN }}
 
   ubuntu-test:
     runs-on: ubuntu-latest
