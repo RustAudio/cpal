@@ -1151,9 +1151,29 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
     // and snd_pcm_hw_params_get_periods_max
     const PERIOD_COUNT: u32 = 2;
 
+    // Restrict the configuration space to contain only one periods count
+    hw_params
+        .set_periods(PERIOD_COUNT, alsa::ValueOr::Nearest)
+        .unwrap_or_default();
+
+    let Some(period_count) = hw_params
+        .get_periods()
+        .ok()
+        .filter(|&period_count| period_count > 0)
+    else {
+        return false;
+    };
+
     /// Returns true if the buffer size was reasonably set.
+    ///
+    /// The buffer is a ring buffer. The buffer size always has to be greater than one period size.
+    /// Commonly this is 2*period size, but some hardware can do 8 periods per buffer. It is also
+    /// possible for the buffer size to not be an integer multiple of the period size.
+    ///
+    /// See: https://www.alsa-project.org/wiki/FramesPeriods
     fn set_hw_params_buffer_size(
         hw_params: &alsa::pcm::HwParams,
+        period_count: u32,
         mut buffer_size: FrameCount,
     ) -> bool {
         buffer_size = {
@@ -1164,7 +1184,7 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
         // Desired period size
         let period_size = {
             let (min_period_size, max_period_size) = hw_params_period_size_min_max(hw_params);
-            (buffer_size / PERIOD_COUNT).clamp(min_period_size, max_period_size)
+            (buffer_size / period_count).clamp(min_period_size, max_period_size)
         };
 
         // Actual period size
@@ -1175,7 +1195,7 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
         };
 
         if let Ok(buffer_size) =
-            hw_params.set_buffer_size_near(period_size * PERIOD_COUNT as alsa::pcm::Frames)
+            hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
         {
             // Double-check the set size is within the CPAL range
             if VALID_BUFFER_SIZE.contains(&buffer_size) {
@@ -1187,7 +1207,7 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
     }
 
     if let BufferSize::Fixed(val) = buffer_size {
-        if set_hw_params_buffer_size(hw_params, val) {
+        if set_hw_params_buffer_size(hw_params, period_count, val) {
             return true;
         }
     }
@@ -1209,7 +1229,7 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
     // `default` pcm sometimes fails here, but there no reason to as we attempt to provide a size or
     // minimum number of periods.
     if let Ok(buffer_size) =
-        hw_params.set_buffer_size_near(period_size * PERIOD_COUNT as alsa::pcm::Frames)
+        hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
     {
         // Double-check the set size is within the CPAL range
         if VALID_BUFFER_SIZE.contains(&buffer_size) {
@@ -1221,9 +1241,8 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
     hw_params
         .set_buffer_size_max(FrameCount::MAX as _)
         .unwrap_or_default();
-    hw_params
-        .set_periods(PERIOD_COUNT, alsa::ValueOr::Nearest)
-        .is_ok()
+
+    true
 }
 
 fn set_sw_params_from_format(
