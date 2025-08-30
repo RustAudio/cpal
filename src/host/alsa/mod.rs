@@ -1135,7 +1135,14 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    let _ = set_hw_params_periods(&hw_params, config.buffer_size);
+    if !set_hw_params_periods(&hw_params, config.buffer_size) {
+        return Err(BackendSpecificError {
+            description: format!(
+                "Buffer size '{:?}' is not supported by this backend",
+                config.buffer_size
+            ),
+        });
+    }
 
     pcm_handle.hw_params(&hw_params)?;
 
@@ -1194,22 +1201,18 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
             return false;
         };
 
-        if let Ok(buffer_size) =
+        let Ok(buffer_size) =
             hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
-        {
-            // Double-check the set size is within the CPAL range
-            if VALID_BUFFER_SIZE.contains(&buffer_size) {
-                return true;
-            }
-        }
+        else {
+            return false;
+        };
 
-        false
+        // Double-check the set size is within the CPAL range
+        VALID_BUFFER_SIZE.contains(&buffer_size)
     }
 
     if let BufferSize::Fixed(val) = buffer_size {
-        if set_hw_params_buffer_size(hw_params, period_count, val) {
-            return true;
-        }
+        return set_hw_params_buffer_size(hw_params, period_count, val);
     }
 
     if hw_params
@@ -1228,21 +1231,15 @@ fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSiz
     // We should not fail if the driver is unhappy here.
     // `default` pcm sometimes fails here, but there no reason to as we attempt to provide a size or
     // minimum number of periods.
-    if let Ok(buffer_size) =
+    let Ok(buffer_size) =
         hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
-    {
-        // Double-check the set size is within the CPAL range
-        if VALID_BUFFER_SIZE.contains(&buffer_size) {
-            return true;
-        }
-    }
+    else {
+        return hw_params.set_buffer_size_min(1).is_ok()
+            && hw_params.set_buffer_size_max(FrameCount::MAX as _).is_ok();
+    };
 
-    hw_params.set_buffer_size_min(1).unwrap_or_default();
-    hw_params
-        .set_buffer_size_max(FrameCount::MAX as _)
-        .unwrap_or_default();
-
-    true
+    // Double-check the set size is within the CPAL range
+    VALID_BUFFER_SIZE.contains(&buffer_size)
 }
 
 fn set_sw_params_from_format(
