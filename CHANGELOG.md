@@ -1,5 +1,6 @@
 # Unreleased
 
+- ASIO: Fix linker flags for MinGW cross-compilation.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
 - CoreAudio: Detect default audio device lazily when building a stream, instead of during device enumeration.
