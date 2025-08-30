@@ -5,14 +5,15 @@ use self::alsa::poll::Descriptors;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use std::cell::Cell;
 use std::cmp;
 use std::convert::TryInto;
+use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -24,6 +25,9 @@ pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 
 mod enumerate;
+
+const VALID_BUFFER_SIZE: RangeInclusive<alsa::pcm::Frames> =
+    1..=FrameCount::MAX as alsa::pcm::Frames;
 
 /// The default linux, dragonfly, freebsd and netbsd host type.
 #[derive(Debug)]
@@ -413,12 +417,10 @@ impl Device {
             })
             .collect::<Vec<_>>();
 
-        let min_buffer_size = hw_params.get_buffer_size_min()?;
-        let max_buffer_size = hw_params.get_buffer_size_max()?;
-
+        let (min_buffer_size, max_buffer_size) = hw_params_buffer_size_min_max(&hw_params);
         let buffer_size_range = SupportedBufferSize::Range {
-            min: min_buffer_size as u32,
-            max: max_buffer_size as u32,
+            min: min_buffer_size,
+            max: max_buffer_size,
         };
 
         let mut output = Vec::with_capacity(
@@ -1040,6 +1042,35 @@ impl StreamTrait for Stream {
     }
 }
 
+// Overly safe clamp because alsa Frames are i64
+fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
+    buffer_size.clamp(1, FrameCount::MAX as _) as _
+}
+
+fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
+    let min_buf = hw_params
+        .get_buffer_size_min()
+        .map(clamp_frame_count)
+        .unwrap_or(1);
+    let max_buf = hw_params
+        .get_buffer_size_max()
+        .map(clamp_frame_count)
+        .unwrap_or(FrameCount::MAX);
+    (min_buf, max_buf)
+}
+
+fn hw_params_period_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
+    let min_buf = hw_params
+        .get_period_size_min()
+        .map(clamp_frame_count)
+        .unwrap_or(1);
+    let max_buf = hw_params
+        .get_period_size_max()
+        .map(clamp_frame_count)
+        .unwrap_or(FrameCount::MAX);
+    (min_buf, max_buf)
+}
+
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
@@ -1104,22 +1135,111 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    match config.buffer_size {
-        BufferSize::Fixed(v) => {
-            hw_params.set_period_size_near((v / 4) as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_size(v as alsa::pcm::Frames)?;
-        }
-        BufferSize::Default => {
-            // These values together represent a moderate latency and wakeup interval.
-            // Without them, we are at the mercy of the device
-            hw_params.set_period_time_near(25_000, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_time_near(100_000, alsa::ValueOr::Nearest)?;
-        }
+    if !set_hw_params_periods(&hw_params, config.buffer_size) {
+        return Err(BackendSpecificError {
+            description: format!(
+                "Buffer size '{:?}' is not supported by this backend",
+                config.buffer_size
+            ),
+        });
     }
 
     pcm_handle.hw_params(&hw_params)?;
 
     Ok(hw_params.can_pause())
+}
+
+/// Returns true if the periods were reasonably set. A false result indicates the device default
+/// configuration is being used.
+fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSize) -> bool {
+    const FALLBACK_PERIOD_TIME: u32 = 25_000;
+
+    // TODO: When the API is made available, this could rely on snd_pcm_hw_params_get_periods_min
+    // and snd_pcm_hw_params_get_periods_max
+    const PERIOD_COUNT: u32 = 2;
+
+    // Restrict the configuration space to contain only one periods count
+    hw_params
+        .set_periods(PERIOD_COUNT, alsa::ValueOr::Nearest)
+        .unwrap_or_default();
+
+    let Some(period_count) = hw_params
+        .get_periods()
+        .ok()
+        .filter(|&period_count| period_count > 0)
+    else {
+        return false;
+    };
+
+    /// Returns true if the buffer size was reasonably set.
+    ///
+    /// The buffer is a ring buffer. The buffer size always has to be greater than one period size.
+    /// Commonly this is 2*period size, but some hardware can do 8 periods per buffer. It is also
+    /// possible for the buffer size to not be an integer multiple of the period size.
+    ///
+    /// See: https://www.alsa-project.org/wiki/FramesPeriods
+    fn set_hw_params_buffer_size(
+        hw_params: &alsa::pcm::HwParams,
+        period_count: u32,
+        mut buffer_size: FrameCount,
+    ) -> bool {
+        buffer_size = {
+            let (min_buffer_size, max_buffer_size) = hw_params_buffer_size_min_max(hw_params);
+            buffer_size.clamp(min_buffer_size, max_buffer_size)
+        };
+
+        // Desired period size
+        let period_size = {
+            let (min_period_size, max_period_size) = hw_params_period_size_min_max(hw_params);
+            (buffer_size / period_count).clamp(min_period_size, max_period_size)
+        };
+
+        // Actual period size
+        let Ok(period_size) =
+            hw_params.set_period_size_near(period_size as _, alsa::ValueOr::Greater)
+        else {
+            return false;
+        };
+
+        let Ok(buffer_size) =
+            hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
+        else {
+            return false;
+        };
+
+        // Double-check the set size is within the CPAL range
+        VALID_BUFFER_SIZE.contains(&buffer_size)
+    }
+
+    if let BufferSize::Fixed(val) = buffer_size {
+        return set_hw_params_buffer_size(hw_params, period_count, val);
+    }
+
+    if hw_params
+        .set_period_time_near(FALLBACK_PERIOD_TIME, alsa::ValueOr::Nearest)
+        .is_err()
+    {
+        return false;
+    }
+
+    let period_size = if let Ok(period_size) = hw_params.get_period_size() {
+        period_size
+    } else {
+        return false;
+    };
+
+    // We should not fail if the driver is unhappy here.
+    // `default` pcm sometimes fails here, but there no reason to as we attempt to provide a size or
+    // minimum number of periods.
+    let Ok(buffer_size) =
+        hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
+    else {
+        return hw_params.set_buffer_size_min(1).is_ok()
+            && hw_params.set_buffer_size_max(FrameCount::MAX as _).is_ok();
+    };
+
+    // Double-check the set size is within the CPAL range
+    VALID_BUFFER_SIZE.contains(&buffer_size)
 }
 
 fn set_sw_params_from_format(
