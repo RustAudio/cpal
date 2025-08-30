@@ -2,9 +2,11 @@
 
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
-- ALSA: Fix buffer and period size selection by rounding to supported values. Actual buffer size may be different from the requested size or may be a device-specified default size. Additionally sets ALSA "periods" to 2 (previously 4). (error 22)
-- CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
-- CoreAudio: Detect default audio device lazily when building a stream, instead of during device enumeration.
+- ALSA: Fix buffer and period size by selecting the closest supported values.
+- ALSA: Change ALSA periods from 4 to 2.
+- ALSA: Change card enumeration to work like `aplay -L` does.
+- CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
+- CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose IMMDevice from WASAPI host Device.
 
