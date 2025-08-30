@@ -1,5 +1,6 @@
 # Unreleased
 
+- ASIO: Fix linker flags for MinGW cross-compilation.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ALSA: Fix buffer and period size selection by rounding to supported values. Actual buffer size may be different from the requested size or may be a device-specified default size. Additionally sets ALSA "periods" to 2 (previously 4). (error 22)
 - CoreAudio: `Device::supported_configs` now returns a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values (which is the most common case).
