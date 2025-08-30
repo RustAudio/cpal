@@ -889,9 +889,8 @@ fn process_output(
             }
             Ok(result) if result != available_frames => {
                 let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                     result {} (this should never happen)",
-                    available_frames, result,
+                    "unexpected number of frames written: expected {available_frames}, \
+                     result {result} (this should never happen)"
                 );
                 error_callback(BackendSpecificError { description }.into());
                 continue;
@@ -941,7 +940,7 @@ fn stream_timestamp(
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
-    ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
+    (ts.tv_sec * 1_000_000_000 + ts.tv_nsec).into()
 }
 
 // Adapted from `timediff` here:
@@ -1099,8 +1098,7 @@ fn set_hw_params_from_format(
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
+                        "Sample format '{sample_format}' is not supported by this backend"
                     ),
                 })
             }
@@ -1124,8 +1122,7 @@ fn set_hw_params_from_format(
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
+                        "Sample format '{sample_format}' is not supported by this backend"
                     ),
                 })
             }

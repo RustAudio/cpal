@@ -31,7 +31,7 @@ unsafe impl Sync for Devices {}
 
 fn open_device(pcm_id: &str, desc: Option<String>) -> Device {
     // Try to open handles during enumeration
-    let handles = DeviceHandles::open(&pcm_id).unwrap_or_else(|_| {
+    let handles = DeviceHandles::open(pcm_id).unwrap_or_else(|_| {
         // If opening fails during enumeration, create default handles
         // The actual opening will be attempted when the device is used
         DeviceHandles::default()
