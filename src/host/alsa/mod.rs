@@ -4,6 +4,7 @@ extern crate libc;
 use std::{
     cell::Cell,
     cmp, fmt,
+    ops::RangeInclusive,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
@@ -940,7 +941,11 @@ fn stream_timestamp(
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
-    (ts.tv_sec * 1_000_000_000 + ts.tv_nsec).into()
+    let nanos = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
+    #[cfg(target_pointer_width = "64")]
+    return nanos;
+    #[cfg(not(target_pointer_width = "64"))]
+    return nanos.into();
 }
 
 // Adapted from `timediff` here:

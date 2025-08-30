@@ -29,37 +29,20 @@ impl Devices {
 unsafe impl Send for Devices {}
 unsafe impl Sync for Devices {}
 
-fn open_device(pcm_id: &str, desc: Option<String>) -> Device {
-    // Try to open handles during enumeration
-    let handles = DeviceHandles::open(pcm_id).unwrap_or_else(|_| {
-        // If opening fails during enumeration, create default handles
-        // The actual opening will be attempted when the device is used
-        DeviceHandles::default()
-    });
-
-    // Include all devices from ALSA hints (matches `aplay -L` behavior)
-    // Even devices that can't be opened during enumeration are valid for selection
-    Device {
-        pcm_id: pcm_id.to_owned(),
-        desc,
-        handles: Arc::new(Mutex::new(handles)),
-    }
-}
-
 impl Iterator for Devices {
     type Item = Device;
 
     fn next(&mut self) -> Option<Device> {
         loop {
             let hint = self.hint_iter.next()?;
-            let (pcm_id, desc) = match (hint.name, hint.desc) {
-                (Some(name), desc) => (name, desc),
-                _ => continue, // Skip hints without a valid PCM ID
-            };
-
-            let device = open_device(&pcm_id, desc);
-            self.enumerated_pcm_ids.insert(pcm_id);
-            return Some(device);
+            if let Ok(device) = Device::try_from(hint) {
+                if self.enumerated_pcm_ids.insert(device.pcm_id.clone()) {
+                    return Some(device);
+                } else {
+                    // Skip duplicate PCM IDs
+                    continue;
+                }
+            }
         }
     }
 }
@@ -87,5 +70,30 @@ impl From<alsa::Error> for DevicesError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
+    }
+}
+
+impl TryFrom<alsa::device_name::Hint> for Device {
+    type Error = BackendSpecificError;
+
+    fn try_from(hint: alsa::device_name::Hint) -> Result<Self, Self::Error> {
+        let pcm_id = hint.name.ok_or_else(|| BackendSpecificError {
+            description: "ALSA hint missing PCM ID".to_string(),
+        })?;
+
+        // Try to open handles during enumeration
+        let handles = DeviceHandles::open(&pcm_id).unwrap_or_else(|_| {
+            // If opening fails during enumeration, create default handles
+            // The actual opening will be attempted when the device is used
+            DeviceHandles::default()
+        });
+
+        // Include all devices from ALSA hints (matches `aplay -L` behavior)
+        // Even devices that can't be opened during enumeration are valid for selection
+        Ok(Self {
+            pcm_id: pcm_id.to_owned(),
+            desc: hint.desc,
+            handles: Arc::new(Mutex::new(handles)),
+        })
     }
 }
