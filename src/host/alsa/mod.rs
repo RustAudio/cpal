@@ -1,25 +1,27 @@
 extern crate alsa;
 extern crate libc;
 
+use std::{
+    cell::Cell,
+    cmp, fmt,
+    ops::RangeInclusive,
+    sync::{Arc, Mutex},
+    thread::{self, JoinHandle},
+    time::Duration,
+    vec::IntoIter as VecIntoIter,
+};
+
 use self::alsa::poll::Descriptors;
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
+pub use self::enumerate::{default_input_device, default_output_device, Devices};
+
 use crate::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
     StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
-use std::cell::Cell;
-use std::cmp;
-use std::convert::TryInto;
-use std::ops::RangeInclusive;
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
-use std::vec::IntoIter as VecIntoIter;
-
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -241,8 +243,8 @@ impl DeviceHandles {
 
 #[derive(Clone)]
 pub struct Device {
-    name: String,
     pcm_id: String,
+    desc: Option<String>,
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
@@ -306,7 +308,7 @@ impl Device {
 
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.name.clone())
+        Ok(self.to_string())
     }
 
     fn supported_configs(
@@ -888,9 +890,8 @@ fn process_output(
             }
             Ok(result) if result != available_frames => {
                 let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                     result {} (this should never happen)",
-                    available_frames, result,
+                    "unexpected number of frames written: expected {available_frames}, \
+                     result {result} (this should never happen)"
                 );
                 error_callback(BackendSpecificError { description }.into());
                 continue;
@@ -940,7 +941,11 @@ fn stream_timestamp(
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
-    ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
+    let nanos = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
+    #[cfg(target_pointer_width = "64")]
+    return nanos;
+    #[cfg(not(target_pointer_width = "64"))]
+    return nanos.into();
 }
 
 // Adapted from `timediff` here:
@@ -1098,8 +1103,7 @@ fn set_hw_params_from_format(
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
+                        "Sample format '{sample_format}' is not supported by this backend"
                     ),
                 })
             }
@@ -1123,8 +1127,7 @@ fn set_hw_params_from_format(
             sample_format => {
                 return Err(BackendSpecificError {
                     description: format!(
-                        "Sample format '{}' is not supported by this backend",
-                        sample_format
+                        "Sample format '{sample_format}' is not supported by this backend"
                     ),
                 })
             }
@@ -1326,5 +1329,15 @@ impl From<alsa::Error> for StreamError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
+    }
+}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(desc) = &self.desc {
+            write!(f, "{} ({})", self.pcm_id, desc.replace('\n', ", "))
+        } else {
+            write!(f, "{}", self.pcm_id)
+        }
     }
 }
