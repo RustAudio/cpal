@@ -71,14 +71,18 @@ impl SampleFormat {
     #[must_use]
     pub fn sample_size(&self) -> usize {
         match *self {
-            SampleFormat::I8 | SampleFormat::U8 => mem::size_of::<i8>(),
-            SampleFormat::I16 | SampleFormat::U16 => mem::size_of::<i16>(),
+            SampleFormat::I8 => mem::size_of::<i8>(),
+            SampleFormat::U8 => mem::size_of::<u8>(),
+            SampleFormat::I16 => mem::size_of::<i16>(),
+            SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::I24 => mem::size_of::<i32>(),
             // SampleFormat::U24 => mem::size_of::<i32>(),
-            SampleFormat::I32 | SampleFormat::U32 => mem::size_of::<i32>(),
+            SampleFormat::I32 => mem::size_of::<i32>(),
+            SampleFormat::U32 => mem::size_of::<u32>(),
             // SampleFormat::I48 => mem::size_of::<i64>(),
             // SampleFormat::U48 => mem::size_of::<i64>(),
-            SampleFormat::I64 | SampleFormat::U64 => mem::size_of::<i64>(),
+            SampleFormat::I64 => mem::size_of::<i64>(),
+            SampleFormat::U64 => mem::size_of::<u64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
             SampleFormat::F64 => mem::size_of::<f64>(),
         }
