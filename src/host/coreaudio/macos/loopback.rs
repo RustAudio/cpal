@@ -131,10 +131,10 @@ impl LoopbackDevice {
 impl Drop for LoopbackDevice {
     fn drop(&mut self) {
         unsafe {
-            let status = AudioHardwareDestroyAggregateDevice(self.aggregate_device.audio_device_id);
-            check_os_status(status).unwrap();
-            let status = AudioHardwareDestroyProcessTap(self.tap_id);
-            check_os_status(status).unwrap();
+            // We don't check status to avoid panic during `drop`
+            let _status =
+                AudioHardwareDestroyAggregateDevice(self.aggregate_device.audio_device_id);
+            let _status = AudioHardwareDestroyProcessTap(self.tap_id);
         }
     }
 }
