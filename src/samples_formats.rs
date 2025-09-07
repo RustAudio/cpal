@@ -6,8 +6,8 @@ pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
 
 /// Format that each sample has. Usually, this corresponds to the sampling
 /// depth of the audio source. For example, 16 bit quantized samples can be
-/// encoded in `i16` or `u16`. Note that the sampling depth is not directly
-/// visible for formats where [`is_float`] is true.
+/// encoded in `i16` or `u16`. Note that the quantized sampling depth is not
+/// directly visible for formats where [`is_float`] is true.
 ///
 /// Also note that the backend must support the encoding of the quantized
 /// samples in the given format, as there is no generic transformation from one
@@ -71,17 +71,44 @@ impl SampleFormat {
     #[must_use]
     pub fn sample_size(&self) -> usize {
         match *self {
-            SampleFormat::I8 | SampleFormat::U8 => mem::size_of::<i8>(),
-            SampleFormat::I16 | SampleFormat::U16 => mem::size_of::<i16>(),
+            SampleFormat::I8 => mem::size_of::<i8>(),
+            SampleFormat::U8 => mem::size_of::<u8>(),
+            SampleFormat::I16 => mem::size_of::<i16>(),
+            SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::I24 => mem::size_of::<i32>(),
             // SampleFormat::U24 => mem::size_of::<i32>(),
-            SampleFormat::I32 | SampleFormat::U32 => mem::size_of::<i32>(),
-
+            SampleFormat::I32 => mem::size_of::<i32>(),
+            SampleFormat::U32 => mem::size_of::<u32>(),
             // SampleFormat::I48 => mem::size_of::<i64>(),
             // SampleFormat::U48 => mem::size_of::<i64>(),
-            SampleFormat::I64 | SampleFormat::U64 => mem::size_of::<i64>(),
+            SampleFormat::I64 => mem::size_of::<i64>(),
+            SampleFormat::U64 => mem::size_of::<u64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
             SampleFormat::F64 => mem::size_of::<f64>(),
+        }
+    }
+
+    /// Returns the number of bits of a sample of this format. Note that this is
+    /// not necessarily the same as the size of the primitive used to represent
+    /// this sample format (e.g., I24 has size of i32 but 24 bits per sample).
+    #[inline]
+    #[must_use]
+    pub fn bits_per_sample(&self) -> u32 {
+        match *self {
+            SampleFormat::I8 => i8::BITS,
+            SampleFormat::U8 => u8::BITS,
+            SampleFormat::I16 => i16::BITS,
+            SampleFormat::U16 => u16::BITS,
+            SampleFormat::I24 => 24,
+            // SampleFormat::U24 => 24,
+            SampleFormat::I32 => i32::BITS,
+            SampleFormat::U32 => u32::BITS,
+            // SampleFormat::I48 => 48,
+            // SampleFormat::U48 => 48,
+            SampleFormat::I64 => i64::BITS,
+            SampleFormat::U64 => u64::BITS,
+            SampleFormat::F32 => 32,
+            SampleFormat::F64 => 64,
         }
     }
 
