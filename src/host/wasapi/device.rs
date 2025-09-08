@@ -538,6 +538,15 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
+        self.build_input_stream_raw_inner_with_config(config, sample_format, None)
+    }
+
+    pub(crate) fn build_input_stream_raw_inner_with_config(
+        &self,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
+        wasapi_config: Option<&super::WasapiStreamConfig>,
+    ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -569,7 +578,14 @@ impl Device {
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
-                let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
+                let share_mode = if wasapi_config
+                    .and_then(|c| c.exclusive_mode)
+                    .unwrap_or(false)
+                {
+                    Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
+                } else {
+                    Audio::AUDCLNT_SHAREMODE_SHARED
+                };
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(&audio_client, &format_attempt.Format) {
@@ -661,6 +677,15 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
+        self.build_output_stream_raw_inner_with_config(config, sample_format, None)
+    }
+
+    pub(crate) fn build_output_stream_raw_inner_with_config(
+        &self,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
+        wasapi_config: Option<&super::WasapiStreamConfig>,
+    ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -678,7 +703,14 @@ impl Device {
             let waveformatex = {
                 let format_attempt = config_to_waveformatextensible(config, sample_format)
                     .ok_or(BuildStreamError::StreamConfigNotSupported)?;
-                let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
+                let share_mode = if wasapi_config
+                    .and_then(|c| c.exclusive_mode)
+                    .unwrap_or(false)
+                {
+                    Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
+                } else {
+                    Audio::AUDCLNT_SHAREMODE_SHARED
+                };
 
                 // Ensure the format is supported.
                 match super::device::is_format_supported(&audio_client, &format_attempt.Format) {
@@ -757,6 +789,52 @@ impl Device {
                 sample_format,
             })
         }
+    }
+
+    /// Build input stream with optional WASAPI-specific configuration
+    pub fn build_input_stream_raw_with_wasapi_config<D, E>(
+        &self,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+        wasapi_config: Option<&super::WasapiStreamConfig>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let stream_inner =
+            self.build_input_stream_raw_inner_with_config(config, sample_format, wasapi_config)?;
+        Ok(Stream::new_input(
+            stream_inner,
+            data_callback,
+            error_callback,
+        ))
+    }
+
+    /// Build output stream with optional WASAPI-specific configuration
+    pub fn build_output_stream_raw_with_wasapi_config<D, E>(
+        &self,
+        config: &StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+        wasapi_config: Option<&super::WasapiStreamConfig>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let stream_inner =
+            self.build_output_stream_raw_inner_with_config(config, sample_format, wasapi_config)?;
+        Ok(Stream::new_output(
+            stream_inner,
+            data_callback,
+            error_callback,
+        ))
     }
 }
 

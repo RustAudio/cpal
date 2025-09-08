@@ -252,6 +252,114 @@ impl DeviceTrait for Device {
     }
 }
 
+impl Device {
+    /// Build input stream with optional JACK-specific configuration
+    pub fn build_input_stream_raw_with_jack_config<D, E>(
+        &self,
+        conf: &StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+        jack_config: Option<&super::JackStreamConfig>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        if let DeviceType::OutputDevice = &self.device_type {
+            // Trying to create an input stream from an output device
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+        if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+
+        // Use configuration from jack_config if provided, otherwise use device defaults
+        let client_name = jack_config
+            .and_then(|config| config.client_name.as_ref())
+            .unwrap_or(&self.name);
+        let start_server = jack_config
+            .and_then(|config| config.start_server_automatically)
+            .unwrap_or(self.start_server_automatically);
+        let connect_ports = jack_config
+            .and_then(|config| config.connect_ports_automatically)
+            .unwrap_or(self.connect_ports_automatically);
+
+        // The settings should be fine, create a Client
+        let client_options = super::get_client_options(start_server);
+        let client;
+        match super::get_client(client_name, client_options) {
+            Ok(c) => client = c,
+            Err(e) => {
+                return Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError { description: e },
+                })
+            }
+        };
+        let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
+
+        if connect_ports {
+            stream.connect_to_system_inputs();
+        }
+
+        Ok(stream)
+    }
+
+    /// Build output stream with optional JACK-specific configuration
+    pub fn build_output_stream_raw_with_jack_config<D, E>(
+        &self,
+        conf: &StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+        jack_config: Option<&super::JackStreamConfig>,
+    ) -> Result<Stream, BuildStreamError>
+    where
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        if let DeviceType::InputDevice = &self.device_type {
+            // Trying to create an output stream from an input device
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+        if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+
+        // Use configuration from jack_config if provided, otherwise use device defaults
+        let client_name = jack_config
+            .and_then(|config| config.client_name.as_ref())
+            .unwrap_or(&self.name);
+        let start_server = jack_config
+            .and_then(|config| config.start_server_automatically)
+            .unwrap_or(self.start_server_automatically);
+        let connect_ports = jack_config
+            .and_then(|config| config.connect_ports_automatically)
+            .unwrap_or(self.connect_ports_automatically);
+
+        // The settings should be fine, create a Client
+        let client_options = super::get_client_options(start_server);
+        let client;
+        match super::get_client(client_name, client_options) {
+            Ok(c) => client = c,
+            Err(e) => {
+                return Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError { description: e },
+                })
+            }
+        };
+        let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
+
+        if connect_ports {
+            stream.connect_to_system_outputs();
+        }
+
+        Ok(stream)
+    }
+}
+
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
         // Device::name() can never fail in this implementation

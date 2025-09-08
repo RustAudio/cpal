@@ -3,6 +3,27 @@ pub use self::device::{
     SupportedOutputConfigs,
 };
 pub use self::stream::Stream;
+
+/// Configuration for WASAPI streams.
+#[derive(Clone, Debug, Default)]
+pub struct WasapiStreamConfig {
+    /// Whether to use exclusive mode (true) or shared mode (false, default).
+    pub exclusive_mode: Option<bool>,
+}
+
+impl WasapiStreamConfig {
+    /// Create a new WASAPI stream configuration with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set exclusive mode. When true, the stream will attempt to use exclusive mode
+    /// which can provide lower latency but prevents other applications from using the device.
+    pub fn exclusive_mode(mut self, exclusive: bool) -> Self {
+        self.exclusive_mode = Some(exclusive);
+        self
+    }
+}
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;

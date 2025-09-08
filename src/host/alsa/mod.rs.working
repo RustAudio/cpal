@@ -4,6 +4,7 @@ extern crate libc;
 use std::{
     cell::Cell,
     cmp, fmt,
+    ops::RangeInclusive,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
@@ -25,108 +26,13 @@ use crate::{
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 
-/// ALSA access types for audio data.
-///
-/// Different access types provide different trade-offs between performance,
-/// latency, and compatibility with audio hardware and applications.
-#[derive(Clone, Copy, Debug, Default)]
-pub enum AlsaAccessType {
-    /// Interleaved read/write access (default).
-    ///
-    /// Audio samples from different channels are stored consecutively in memory
-    /// (e.g., L-R-L-R for stereo). This is the most common and compatible mode.
-    #[default]
-    RwInterleaved,
-
-    /// Non-interleaved read/write access.
-    ///
-    /// Audio samples from different channels are stored in separate blocks
-    /// (e.g., LLLL-RRRR for stereo). Some professional applications prefer this.
-    RwNonInterleaved,
-
-    /// Memory-mapped interleaved access.
-    ///
-    /// Uses memory-mapped I/O with interleaved samples. Can provide lower latency
-    /// but may not be supported by all hardware or system configurations.
-    MmapInterleaved,
-
-    /// Memory-mapped non-interleaved access.
-    ///
-    /// Uses memory-mapped I/O with non-interleaved samples. Combines the benefits
-    /// of both memory-mapped access and channel separation.
-    MmapNonInterleaved,
-}
-
-/// Platform-specific configuration for ALSA streams.
-///
-/// This configuration allows fine-tuning ALSA-specific parameters that affect
-/// audio latency and stability. These settings are only applied when using the
-/// ALSA backend on Linux and other supported systems.
-#[derive(Clone, Debug, Default)]
-pub struct AlsaStreamConfig {
-    /// Number of periods for the ALSA buffer.
-    ///
-    /// ALSA divides the audio buffer into periods. The number of periods affects
-    /// both latency and stability:
-    /// - Fewer periods (2-3) = lower latency but potentially less stable
-    /// - More periods (4-8) = higher latency but more stable playback
-    ///
-    /// If not set, ALSA will use its default value (typically 2-4 periods).
-    pub periods: Option<u32>,
-
-    /// ALSA access type for audio data transfer.
-    ///
-    /// Controls how audio data is organized in memory and accessed by the hardware.
-    /// Different access types can affect performance and compatibility:
-    /// - `RwInterleaved` (default): Standard interleaved access, most compatible
-    /// - `RwNonInterleaved`: Non-interleaved access, preferred by some pro apps
-    /// - `MmapInterleaved`: Memory-mapped interleaved, potentially lower latency
-    /// - `MmapNonInterleaved`: Memory-mapped non-interleaved
-    ///
-    /// If not set, defaults to `RwInterleaved`.
-    pub access_type: Option<AlsaAccessType>,
-}
-
-impl AlsaStreamConfig {
-    /// Set the number of periods for the ALSA buffer.
-    ///
-    /// # Arguments
-    /// * `periods` - Number of periods (typically 2-8, common values are 2, 3, or 4)
-    ///
-    /// # Example
-    /// ```no_run
-    /// use cpal::{StreamConfig, SampleRate, BufferSize};
-    ///
-    /// let config = StreamConfig::new(2, SampleRate(44100), BufferSize::Fixed(512))
-    ///     .on_alsa(|alsa| alsa.periods(2));
-    /// ```
-    pub fn periods(mut self, periods: u32) -> Self {
-        self.periods = Some(periods);
-        self
-    }
-
-    /// Set the ALSA access type for audio data transfer.
-    ///
-    /// # Arguments
-    /// * `access_type` - The access type to use for audio data transfer
-    ///
-    /// # Example
-    /// ```no_run
-    /// # #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))]
-    /// # {
-    /// use cpal::{StreamConfig, SampleRate, BufferSize, config::alsa::AlsaAccessType};
-    ///
-    /// let config = StreamConfig::new(2, SampleRate(44100), BufferSize::Default)
-    ///     .on_alsa(|alsa| alsa.access_type(AlsaAccessType::MmapInterleaved));
-    /// # }
-    /// ```
-    pub fn access_type(mut self, access_type: AlsaAccessType) -> Self {
-        self.access_type = Some(access_type);
-        self
-    }
-}
-
 mod enumerate;
+
+const VALID_BUFFER_SIZE: RangeInclusive<alsa::pcm::Frames> =
+    1..=FrameCount::MAX as alsa::pcm::Frames;
+
+const FALLBACK_PERIOD_TIME: u32 = 25_000;
+const PREFERRED_PERIOD_COUNT: u32 = 2;
 
 /// The default linux, dragonfly, freebsd and netbsd host type.
 #[derive(Debug)]
@@ -202,7 +108,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner =
-            self.build_stream_inner(conf, sample_format, alsa::Direction::Capture, None, None)?;
+            self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
         let stream = Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
@@ -225,73 +131,7 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         let stream_inner =
-            self.build_stream_inner(conf, sample_format, alsa::Direction::Playback, None, None)?;
-        let stream = Stream::new_output(
-            Arc::new(stream_inner),
-            data_callback,
-            error_callback,
-            timeout,
-        );
-        Ok(stream)
-    }
-}
-
-impl Device {
-    /// Build input stream with optional ALSA-specific configuration
-    pub fn build_input_stream_raw_with_alsa_config<D, E>(
-        &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
-        data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
-        alsa_config: Option<&AlsaStreamConfig>,
-    ) -> Result<Stream, BuildStreamError>
-    where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let periods = alsa_config.and_then(|c| c.periods);
-        let access_type = alsa_config.and_then(|c| c.access_type);
-        let stream_inner = self.build_stream_inner(
-            conf,
-            sample_format,
-            alsa::Direction::Capture,
-            periods,
-            access_type,
-        )?;
-        let stream = Stream::new_input(
-            Arc::new(stream_inner),
-            data_callback,
-            error_callback,
-            timeout,
-        );
-        Ok(stream)
-    }
-
-    /// Build output stream with optional ALSA-specific configuration
-    pub fn build_output_stream_raw_with_alsa_config<D, E>(
-        &self,
-        conf: &StreamConfig,
-        sample_format: SampleFormat,
-        data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
-        alsa_config: Option<&AlsaStreamConfig>,
-    ) -> Result<Stream, BuildStreamError>
-    where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let periods = alsa_config.and_then(|c| c.periods);
-        let access_type = alsa_config.and_then(|c| c.access_type);
-        let stream_inner = self.build_stream_inner(
-            conf,
-            sample_format,
-            alsa::Direction::Playback,
-            periods,
-            access_type,
-        )?;
+            self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
         let stream = Stream::new_output(
             Arc::new(stream_inner),
             data_callback,
@@ -417,8 +257,6 @@ impl Device {
         conf: &StreamConfig,
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
-        periods: Option<u32>,
-        access_type: Option<AlsaAccessType>,
     ) -> Result<StreamInner, BuildStreamError> {
         let handle_result = self
             .handles
@@ -433,8 +271,7 @@ impl Device {
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
-        let can_pause =
-            set_hw_params_from_format(&handle, conf, sample_format, periods, access_type)?;
+        let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
         let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
@@ -1234,19 +1071,9 @@ fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
     sample_format: SampleFormat,
-    periods: Option<u32>,
-    access_type: Option<AlsaAccessType>,
 ) -> Result<bool, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
-
-    // Set the access type based on configuration
-    let alsa_access = match access_type.unwrap_or_default() {
-        AlsaAccessType::RwInterleaved => alsa::pcm::Access::RWInterleaved,
-        AlsaAccessType::RwNonInterleaved => alsa::pcm::Access::RWNonInterleaved,
-        AlsaAccessType::MmapInterleaved => alsa::pcm::Access::MMapInterleaved,
-        AlsaAccessType::MmapNonInterleaved => alsa::pcm::Access::MMapNonInterleaved,
-    };
-    hw_params.set_access(alsa_access)?;
+    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
 
     let sample_format = if cfg!(target_endian = "big") {
         match sample_format {
@@ -1298,34 +1125,169 @@ fn set_hw_params_from_format(
         }
     };
 
-    // Set the sample format, rate, and channels - if this fails, the format is not supported.
     hw_params.set_format(sample_format)?;
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // Set periods if requested
-    if let Some(periods_count) = periods {
-        hw_params.set_periods(periods_count, alsa::ValueOr::Nearest)?;
+    if !set_hw_params_periods(&hw_params, config.buffer_size) {
+        return Err(BackendSpecificError {
+            description: format!(
+                "Buffer size '{:?}' is not supported by this backend",
+                config.buffer_size
+            ),
+        });
     }
 
-    // Set buffer size if requested. ALSA will calculate the period size from this buffer size as:
-    // period_size = nearest_set_buffer_size / periods
-    //
-    // If not requested, ALSA will calculate the period size from the device defaults:
-    // period_size = default_buffer_size / default_periods
-    if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-        hw_params
-            .set_buffer_size_near(buffer_size as _)
-            .map_err(|_| BackendSpecificError {
-                description: format!(
-                    "Buffer size '{:?}' is not supported by this backend",
-                    config.buffer_size
-                ),
-            })?;
-    }
     pcm_handle.hw_params(&hw_params)?;
 
     Ok(hw_params.can_pause())
+}
+
+/// Returns true if the periods were reasonably set. A false result indicates the device default
+/// configuration is being used.
+fn set_hw_params_periods(hw_params: &alsa::pcm::HwParams, buffer_size: BufferSize) -> bool {
+    // TIMING IMPROVEMENT 2: Use consistent ValueOr::Nearest for all ALSA calls
+    // TODO: When the API is made available, this could rely on snd_pcm_hw_params_get_periods_min
+    // and snd_pcm_hw_params_get_periods_max
+    hw_params
+        .set_periods(PREFERRED_PERIOD_COUNT, alsa::ValueOr::Nearest)
+        .unwrap_or_default();
+
+    let Some(actual_period_count) = hw_params
+        .get_periods()
+        .ok()
+        .filter(|&period_count| period_count > 0)
+    else {
+        return false;
+    };
+
+    // TIMING IMPROVEMENT 1: Adapt to actual period count from ALSA
+    // Rather than rejecting different period counts, use what ALSA gives us
+    // and ensure all subsequent calculations use the actual period count
+    let period_count = actual_period_count;
+
+    // Basic sanity check - reject only truly unreasonable values
+    if period_count < 1 || period_count > 16 {
+        return false;
+    }
+
+    /// Returns true if the buffer size was reasonably set.
+    ///
+    /// The buffer is a ring buffer. The buffer size always has to be greater than one period size.
+    /// Commonly this is 2*period size, but some hardware can do 8 periods per buffer. It is also
+    /// possible for the buffer size to not be an integer multiple of the period size.
+    ///
+    /// See: https://www.alsa-project.org/wiki/FramesPeriods
+    fn set_hw_params_buffer_size(
+        hw_params: &alsa::pcm::HwParams,
+        period_count: u32,
+        mut buffer_size: FrameCount,
+    ) -> bool {
+        buffer_size = {
+            let (min_buffer_size, max_buffer_size) = hw_params_buffer_size_min_max(hw_params);
+            buffer_size.clamp(min_buffer_size, max_buffer_size)
+        };
+
+        // TIMING IMPROVEMENT 1: Use time-based period configuration for device compatibility
+        // TIMING IMPROVEMENT 2: Use consistent ValueOr::Nearest for all ALSA calls
+        let Ok(_) = hw_params.set_period_time_near(FALLBACK_PERIOD_TIME, alsa::ValueOr::Nearest)
+        else {
+            return false;
+        };
+
+        // TIMING IMPROVEMENT 4: Validate period size is within reasonable bounds
+        let Ok(actual_period_size) = hw_params.get_period_size() else {
+            return false;
+        };
+        
+        // Ensure period size is reasonable (not too small or too large)
+        if let Ok(sample_rate) = hw_params.get_rate() {
+            let expected_period_size = (FALLBACK_PERIOD_TIME * sample_rate) / 1_000_000;
+            let period_size_ratio = actual_period_size as f64 / expected_period_size as f64;
+            
+            // Allow reasonable deviation but reject extreme values that cause timing issues
+            if period_size_ratio < 0.5 || period_size_ratio > 2.0 {
+                return false;
+            }
+        }
+
+        // Set buffer size to requested size
+        let Ok(actual_buffer_size) = hw_params.set_buffer_size_near(buffer_size as _) else {
+            return false;
+        };
+
+        // TIMING IMPROVEMENT 5: Validate final configuration makes sense
+        let final_period_count = hw_params.get_periods().unwrap_or(period_count);
+        let final_period_size = hw_params.get_period_size().unwrap_or(actual_period_size);
+        
+        // Check buffer/period relationship is reasonable
+        let calculated_buffer = final_period_count as alsa::pcm::Frames * final_period_size;
+        let buffer_ratio = actual_buffer_size as f64 / calculated_buffer as f64;
+        
+        // Allow some flexibility but reject configurations that will cause timing problems
+        if buffer_ratio < 0.8 || buffer_ratio > 1.2 {
+            return false;
+        }
+
+        // Double-check the set size is within the CPAL range
+        VALID_BUFFER_SIZE.contains(&actual_buffer_size)
+    }
+
+    if let BufferSize::Fixed(val) = buffer_size {
+        return set_hw_params_buffer_size(hw_params, period_count, val);
+    }
+
+    // Default path: Use stable period time for consistent timing
+    // TIMING IMPROVEMENT 2: Use consistent ValueOr::Nearest 
+    if hw_params
+        .set_period_time_near(FALLBACK_PERIOD_TIME, alsa::ValueOr::Nearest)
+        .is_err()
+    {
+        return false;
+    }
+
+    let Ok(actual_period_size) = hw_params.get_period_size() else {
+        return false;
+    };
+
+    // TIMING IMPROVEMENT 4: Validate period size is within reasonable bounds  
+    if let Ok(sample_rate) = hw_params.get_rate() {
+        let expected_period_size = (FALLBACK_PERIOD_TIME * sample_rate) / 1_000_000;
+        let period_size_ratio = actual_period_size as f64 / expected_period_size as f64;
+        
+        // Allow reasonable deviation but reject extreme values that cause timing issues
+        if period_size_ratio < 0.5 || period_size_ratio > 2.0 {
+            return false;
+        }
+    }
+
+    let period_size = actual_period_size;
+
+    // We should not fail if the driver is unhappy here.
+    // `default` pcm sometimes fails here, but there no reason to as we attempt to provide a size or
+    // minimum number of periods.
+    let Ok(actual_buffer_size) =
+        hw_params.set_buffer_size_near(period_size * period_count as alsa::pcm::Frames)
+    else {
+        return hw_params.set_buffer_size_min(1).is_ok()
+            && hw_params.set_buffer_size_max(FrameCount::MAX as _).is_ok();
+    };
+
+    // TIMING IMPROVEMENT 5: Validate final configuration makes sense
+    let final_period_count = hw_params.get_periods().unwrap_or(period_count);
+    let final_period_size = hw_params.get_period_size().unwrap_or(period_size);
+    
+    // Check buffer/period relationship is reasonable
+    let calculated_buffer = final_period_count as alsa::pcm::Frames * final_period_size;
+    let buffer_ratio = actual_buffer_size as f64 / calculated_buffer as f64;
+    
+    // Allow some flexibility but reject configurations that will cause timing problems
+    if buffer_ratio < 0.8 || buffer_ratio > 1.2 {
+        return false;
+    }
+
+    // Double-check the set size is within the CPAL range
+    VALID_BUFFER_SIZE.contains(&actual_buffer_size)
 }
 
 fn set_sw_params_from_format(

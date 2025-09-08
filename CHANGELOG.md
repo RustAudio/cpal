@@ -1,14 +1,23 @@
 # Unreleased
 
+- Add `audio_thread_priority` feature flag for real-time thread priority on ALSA/WASAPI.
 - Add `Sample::bits_per_sample` method.
-- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
+- Add `StreamConfigBuilder` with platform-specific options.
+- Add device-tied stream building methods: `SupportedStreamConfig::build_input_stream()` and `build_output_stream()`.
+- `BufferSize` now impls `Default`.
+- Remove deprecated `oboe-shared-stdcxx` feature flag.
+- ALSA: Add `AlsaStreamConfig` for periods and access types.
 - ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
+- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
+- JACK: Add `jack` feature flag to enable JACK audio backend support.
+- JACK: Add `JackStreamConfig` for client names and port connections.
+- WASAPI: Add `WasapiStreamConfig` for exclusive mode support.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 
 # Version 0.16.0 (2025-06-07)

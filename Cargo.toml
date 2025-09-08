@@ -10,13 +10,18 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
-asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
+# ASIO backend (Windows only). See README for setup instructions.
+asio = ["dep:asio-sys", "dep:num-traits"]
 
-# Deprecated, the `oboe` backend has been removed
-oboe-shared-stdcxx = []
+# Real-time thread priority for audio threads on ALSA/WASAPI
+audio_thread_priority = ["dep:audio_thread_priority"]
+
+# JACK Audio backend
+jack = ["dep:jack"]
 
 [dependencies]
 dasp_sample = "0.11"
+jack = { version = "0.13.0", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -46,7 +51,6 @@ num-traits = { version = "0.2.6", optional = true }
 alsa = "0.9"
 libc = "0.2"
 audio_thread_priority = { version = "0.33.0", optional = true }
-jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 mach2 = "0.4" # For access to mach_timebase type.

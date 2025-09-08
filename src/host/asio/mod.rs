@@ -9,6 +9,7 @@ use crate::{
 
 pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};
 pub use self::stream::Stream;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -131,7 +132,6 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         Stream::play(self)
     }
-
     fn pause(&self) -> Result<(), PauseStreamError> {
         Stream::pause(self)
     }

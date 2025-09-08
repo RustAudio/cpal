@@ -590,6 +590,7 @@ macro_rules! impl_platform_host {
                 default_host()
             }
         }
+
     };
 }
 
@@ -621,7 +622,12 @@ mod platform_impl {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform_impl {
     pub use crate::host::coreaudio::Host as CoreAudioHost;
-    impl_platform_host!(CoreAudio => CoreAudioHost);
+    #[cfg(feature = "jack")]
+    pub use crate::host::jack::Host as JackHost;
+    impl_platform_host!(
+        #[cfg(feature = "jack")] Jack => JackHost,
+        CoreAudio => CoreAudioHost,
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -661,10 +667,13 @@ mod platform_impl {
 mod platform_impl {
     #[cfg(feature = "asio")]
     pub use crate::host::asio::Host as AsioHost;
+    #[cfg(feature = "jack")]
+    pub use crate::host::jack::Host as JackHost;
     pub use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio => AsioHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
         Wasapi => WasapiHost,
     );
 

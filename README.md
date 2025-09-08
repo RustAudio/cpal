@@ -17,8 +17,8 @@ This library currently supports the following:
 Currently, supported hosts include:
 
 - Linux (via ALSA or JACK)
-- Windows (via WASAPI by default, see ASIO instructions below)
-- macOS (via CoreAudio)
+- Windows (via WASAPI by default, JACK or ASIO, see instructions below)
+- macOS (via CoreAudio or JACK)
 - iOS (via CoreAudio)
 - Android (via AAudio)
 - Emscripten
@@ -27,16 +27,30 @@ Note that on Linux, the ALSA development files are required. These are provided
 as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
 `alsa-lib-devel` on Fedora.
 
+For JACK support, install the JACK development libraries on Linux
+(`libjack-jackd2-dev` on Debian/Ubuntu) or download JACK from
+[jackaudio.org](https://jackaudio.org/downloads/) for macOS/Windows.
+
 ## Compiling for Web Assembly
 
-If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch.
+If you are interested in using CPAL with WASM, please see
+[this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project)
+in our Wiki which walks through setting up a new project from scratch.
 
 ## Feature flags for audio backends
 
-Some audio backends are optional and will only be compiled with a [feature flag](https://doc.rust-lang.org/cargo/reference/features.html).
+Some audio backends and features are optional and will only be compiled with a
+[feature flag](https://doc.rust-lang.org/cargo/reference/features.html).
 
-- JACK (on Linux): `jack`
-- ASIO (on Windows): `asio`
+### Audio Backend Features
+
+- **ASIO**: `asio` - Enable ASIO support (Windows only)
+- **JACK**: `jack` - Enable JACK audio support
+
+### Additional Features
+
+- **Real-time Thread Priority**: `audio_thread_priority` - Enable real-time
+thread priority for ALSA/WASAPI audio threads (may require elevated privileges)
 
 ## ASIO on Windows
 
@@ -51,13 +65,20 @@ WASAPI.
 
 ### Locating the ASIO SDK
 
-The location of ASIO SDK is exposed to CPAL by setting the `CPAL_ASIO_DIR` environment variable.
+The location of ASIO SDK is exposed to CPAL by setting the `CPAL_ASIO_DIR`
+environment variable.
 
-The build script will try to find the ASIO SDK by following these steps in order:
+The build script will try to find the ASIO SDK by following these steps in
+order:
 
 1. Check if `CPAL_ASIO_DIR` is set and if so use the path to point to the SDK.
-2. Check if the ASIO SDK is already installed in the temporary directory, if so use that and set the path of `CPAL_ASIO_DIR` to the output of `std::env::temp_dir().join("asio_sdk")`.
-3. If the ASIO SDK is not already installed, download it from <https://www.steinberg.net/asiosdk> and install it in the temporary directory. The path of `CPAL_ASIO_DIR` will be set to the output of `std::env::temp_dir().join("asio_sdk")`.
+2. Check if the ASIO SDK is already installed in the temporary directory, if so
+use that and set the path of `CPAL_ASIO_DIR` to the output of
+`std::env::temp_dir().join("asio_sdk")`.
+3. If the ASIO SDK is not already installed, download it from
+<https://www.steinberg.net/asiosdk> and install it in the temporary directory.
+The path of `CPAL_ASIO_DIR` will be set to the output of
+`std::env::temp_dir().join("asio_sdk")`.
 
 In an ideal situation you don't need to worry about this step.
 
@@ -70,22 +91,25 @@ In an ideal situation you don't need to worry about this step.
 2. Add the LLVM `bin` directory to a `LIBCLANG_PATH` environment variable. If
    you installed LLVM to the default directory, this should work in the command
    prompt:
-   ```
+   ```cmd
    setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"
    ```
 3. If you don't have any ASIO devices or drivers available, you can [**download
    and install ASIO4ALL**](http://www.asio4all.org/). Be sure to enable the
    "offline" feature during installation despite what the installer says about
    it being useless.
-4. Our build script assumes that Microsoft Visual Studio is installed if the host OS for compilation is Windows. The script will try to find `vcvarsall.bat`
-   and execute it with the right host and target machine architecture regardless of the Microsoft Visual Studio version.
+4. Our build script assumes that Microsoft Visual Studio is installed if the
+   host OS for compilation is Windows. The script will try to find
+   `vcvarsall.bat` and execute it with the right host and target machine
+   architecture regardless of the Microsoft Visual Studio version.
    If there are any errors encountered in this process which is unlikely,
-   you may find the `vcvarsall.bat` manually and execute it with your machine architecture as an argument.
+   you may find the `vcvarsall.bat` manually and execute it with your machine
+   architecture as an argument.
    The script will detect this and skip the step.
 
    A manually executed command example for 64 bit machines:
 
-   ```
+   ```cmd
    "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" amd64
    ```
 
@@ -106,7 +130,7 @@ In an ideal situation you don't need to worry about this step.
 
 6. Make sure to enable the `asio` feature when building CPAL:
 
-   ```
+   ```shell
    cargo build --features "asio"
    ```
 
@@ -121,18 +145,26 @@ _Updated as of ASIO version 2.3.3._
 
 ### Cross compilation
 
-When Windows is the host and the target OS, the build script of `asio-sys` supports all cross compilation targets
-which are supported by the MSVC compiler. An exhaustive list of combinations could be found [here](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160#vcvarsall-syntax) with the addition of undocumented `arm64`, `arm64_x86`, `arm64_amd64` and `arm64_arm` targets. (5.11.2023)
+When Windows is the host and the target OS, the build script of `asio-sys`
+supports all cross compilation targets which are supported by the MSVC
+compiler. An exhaustive list of combinations could be found [here](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160#vcvarsall-syntax)
+with the addition of undocumented `arm64`, `arm64_x86`, `arm64_amd64` and
+`arm64_arm` targets. (5.11.2023)
 
-It is also possible to compile Windows applications with ASIO support on Linux and macOS.
+It is also possible to compile Windows applications with ASIO support on Linux
+and macOS.
 
-For both platforms the common way to do this is to use the [MinGW-w64](https://www.mingw-w64.org/) toolchain.
+For both platforms the common way to do this is to use the
+[MinGW-w64](https://www.mingw-w64.org/) toolchain.
 
-Make sure that you have included the `MinGW-w64` include directory in your `CPLUS_INCLUDE_PATH` environment variable.
-Make sure that LLVM is installed and include directory is also included in your `CPLUS_INCLUDE_PATH` environment variable.
+Make sure that you have included the `MinGW-w64` include directory in your
+`CPLUS_INCLUDE_PATH` environment variable.
+Make sure that LLVM is installed and include directory is also included in your
+`CPLUS_INCLUDE_PATH` environment variable.
 
-Example for macOS for the target of `x86_64-pc-windows-gnu` where `mingw-w64` is installed via brew:
+Example for macOS for the target of `x86_64-pc-windows-gnu` where `mingw-w64`
+is installed via brew:
 
-```
+```shell
 export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11.0.1/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```

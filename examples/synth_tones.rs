@@ -125,7 +125,7 @@ pub fn host_device_setup(
     let config = device.default_output_config()?;
     println!("Default output config : {config:?}");
 
-    Ok((host, device, config))
+    Ok((host, device, config.into()))
 }
 
 pub fn make_stream<T>(
