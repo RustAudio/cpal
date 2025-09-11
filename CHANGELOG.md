@@ -1,15 +1,15 @@
 # Unreleased
 
-- Added `Sample::bits_per_sample` method.
+- Add `Sample::bits_per_sample` method.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
-- ALSA: Fix BufferSize::Fixed by selecting the nearest supported frame count.
-- ALSA: Change BufferSize::Default to use the device defaults instead of 4 periods of 25 ms.
+- ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
+- ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - iOS: Fix example by properly activating audio session.
-- WASAPI: Expose IMMDevice from WASAPI host Device.
+- WASAPI: Expose `IMMDevice` from WASAPI host Device.
 
 # Version 0.16.0 (2025-06-07)
 
