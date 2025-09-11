@@ -5,7 +5,7 @@ use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
 
 mod device;
 pub use self::device::Device;
-pub use self::stream::Stream;
+
 mod stream;
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
@@ -13,6 +13,74 @@ const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type Devices = std::vec::IntoIter<Device>;
+
+/// Platform-specific configuration for JACK streams.
+///
+/// This configuration allows customizing JACK client behavior, including
+/// client naming and connection policies. These settings are only applied
+/// when using the JACK backend.
+#[derive(Clone, Debug, Default)]
+pub struct JackStreamConfig {
+    /// Custom client name for JACK.
+    ///
+    /// If not set, defaults to "cpal_client_in" for input streams and
+    /// "cpal_client_out" for output streams.
+    pub client_name: Option<String>,
+    /// Whether to automatically connect ports to system inputs/outputs.
+    ///
+    /// If not set, uses the default behavior (typically true).
+    pub connect_ports_automatically: Option<bool>,
+    /// Whether to automatically start the JACK server if it's not running.
+    ///
+    /// If not set, uses the default behavior (typically false).
+    pub start_server_automatically: Option<bool>,
+}
+
+impl JackStreamConfig {
+    /// Set a custom client name for JACK.
+    ///
+    /// This name will appear in JACK connection managers and routing tools.
+    /// Client names must be unique within a JACK session.
+    ///
+    /// # Arguments
+    /// * `name` - The desired client name
+    ///
+    /// # Example
+    /// ```no_run
+    /// use cpal::{StreamConfig, SampleRate, BufferSize};
+    ///
+    /// let config = StreamConfig::new(2, SampleRate(44100), BufferSize::Default)
+    ///     .on_jack(|jack| jack.client_name("my_audio_app".to_string()));
+    /// ```
+    pub fn client_name<S: Into<String>>(mut self, name: S) -> Self {
+        self.client_name = Some(name.into());
+        self
+    }
+
+    /// Set whether to automatically connect ports to system inputs/outputs.
+    ///
+    /// When enabled, output streams will connect to system playback ports
+    /// and input streams will connect to system capture ports automatically.
+    ///
+    /// # Arguments
+    /// * `connect` - Whether to auto-connect ports
+    pub fn connect_ports_automatically(mut self, connect: bool) -> Self {
+        self.connect_ports_automatically = Some(connect);
+        self
+    }
+
+    /// Set whether to automatically start the JACK server if it's not running.
+    ///
+    /// When enabled, CPAL will attempt to start the JACK server if it's not
+    /// already running. This requires proper JACK configuration on the system.
+    ///
+    /// # Arguments
+    /// * `start` - Whether to auto-start the JACK server
+    pub fn start_server_automatically(mut self, start: bool) -> Self {
+        self.start_server_automatically = Some(start);
+        self
+    }
+}
 
 /// The JACK Host type
 #[derive(Debug)]
