@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceIdError, DeviceNameError, DevicesError,
     InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
     PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -88,6 +88,9 @@ pub trait DeviceTrait {
 
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
+
+    /// The device-id of the device. (For supported OS's only)
+    fn device_id(&self) -> Result<u32, DeviceIdError>;
 
     /// True if the device supports audio input, otherwise false
     fn supports_input(&self) -> bool {

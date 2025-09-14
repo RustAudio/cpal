@@ -54,6 +54,10 @@ impl Device {
         Ok(self.driver.name().to_string())
     }
 
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Err(DeviceIdError::UnsupportedOS)
+    }
+
     /// Gets the supported input configs.
     /// TODO currently only supports the default.
     /// Need to find all possible configs.

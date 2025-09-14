@@ -68,6 +68,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Device::device_id(self)
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -305,6 +309,11 @@ impl Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok(self.to_string())
+    }
+
+    #[inline]
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Err(DeviceIdError::UnsupportedOS)
     }
 
     fn supported_configs(

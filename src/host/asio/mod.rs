@@ -62,6 +62,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Device::device_id(self)
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {

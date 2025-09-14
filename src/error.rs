@@ -65,6 +65,31 @@ impl From<BackendSpecificError> for DevicesError {
     }
 }
 
+/// An error that may occur while attempting to retrieve a device id.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DeviceIdError {
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
+    BackendSpecific { err: BackendSpecificError },
+    UnsupportedOS,
+}
+
+impl Display for DeviceIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            Self::UnsupportedOS => {f.write_str("Device ids are unsupported for this OS")}
+        }
+    }
+}
+
+impl Error for DeviceIdError {}
+
+impl From<BackendSpecificError> for DeviceIdError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
+}
+
 /// An error that may occur while attempting to retrieve a device name.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceNameError {

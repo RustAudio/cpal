@@ -314,6 +314,15 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn device_id(&self) -> Result<u32, crate::DeviceIdError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d.device_id(),
+                    )*
+                }
+            }
+
             fn supports_input(&self) -> bool {
                 match self.0 {
                     $(

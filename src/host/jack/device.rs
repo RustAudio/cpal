@@ -146,6 +146,10 @@ impl DeviceTrait for Device {
         Ok(self.name.clone())
     }
 
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Err(DeviceIdError::UnsupportedOS)
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {

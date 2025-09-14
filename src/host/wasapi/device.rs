@@ -58,6 +58,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Device::device_id(self)
+    }
+
     fn supports_input(&self) -> bool {
         self.data_flow() == Audio::eCapture
     }
@@ -319,6 +323,10 @@ impl Device {
 
             Ok(name_string)
         }
+    }
+
+    fn device_id(&self) -> Result<u32, DeviceIdError> {
+        Err(DeviceIdError::UnsupportedOS)
     }
 
     #[inline]
