@@ -5,6 +5,7 @@ use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
 use crate::DeviceNameError;
+use crate::DeviceIdError;
 use crate::DevicesError;
 use crate::SampleFormat;
 use crate::SampleRate;
