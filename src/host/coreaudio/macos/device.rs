@@ -100,7 +100,7 @@ fn set_sample_rate(
         };
         coreaudio::Error::from_os_status(status)?;
         let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-        let ranges: &'static [AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
+        let ranges: &[AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate.0;
@@ -438,7 +438,7 @@ impl Device {
             // Count the number of channels as the sum of all channels in all output buffers.
             let n_buffers = (*audio_buffer_list).mNumberBuffers as usize;
             let first: *const AudioBuffer = (*audio_buffer_list).mBuffers.as_ptr();
-            let buffers: &'static [AudioBuffer] = slice::from_raw_parts(first, n_buffers);
+            let buffers: &[AudioBuffer] = slice::from_raw_parts(first, n_buffers);
             let mut n_channels = 0;
             for buffer in buffers {
                 n_channels += buffer.mNumberChannels as usize;
@@ -481,7 +481,7 @@ impl Device {
             check_os_status(status)?;
 
             let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-            let ranges: &'static [AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+            let ranges: &[AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
