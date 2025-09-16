@@ -47,7 +47,7 @@ pub enum SampleFormat {
     U16,
 
     /// `U24` with a valid range of '0..16777216' with `1 << 23 == 8388608` being the origin
-    // U24,
+    U24,
     /// `u32` with a valid range of `u32::MIN..=u32::MAX` with `1 << 31` being the origin.
     U32,
 
@@ -76,7 +76,7 @@ impl SampleFormat {
             SampleFormat::I16 => mem::size_of::<i16>(),
             SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::I24 => mem::size_of::<i32>(),
-            // SampleFormat::U24 => mem::size_of::<i32>(),
+            SampleFormat::U24 => mem::size_of::<i32>(),
             SampleFormat::I32 => mem::size_of::<i32>(),
             SampleFormat::U32 => mem::size_of::<u32>(),
             // SampleFormat::I48 => mem::size_of::<i64>(),
@@ -100,7 +100,7 @@ impl SampleFormat {
             SampleFormat::I16 => i16::BITS,
             SampleFormat::U16 => u16::BITS,
             SampleFormat::I24 => 24,
-            // SampleFormat::U24 => 24,
+            SampleFormat::U24 => 24,
             SampleFormat::I32 => i32::BITS,
             SampleFormat::U32 => u32::BITS,
             // SampleFormat::I48 => 48,
@@ -133,7 +133,7 @@ impl SampleFormat {
             *self,
             SampleFormat::U8
                 | SampleFormat::U16
-                // | SampleFormat::U24
+                | SampleFormat::U24
                 | SampleFormat::U32
                 // | SampleFormat::U48
                 | SampleFormat::U64
@@ -158,7 +158,7 @@ impl Display for SampleFormat {
             SampleFormat::I64 => "i64",
             SampleFormat::U8 => "u8",
             SampleFormat::U16 => "u16",
-            // SampleFormat::U24 => "u24",
+            SampleFormat::U24 => "u24",
             SampleFormat::U32 => "u32",
             // SampleFormat::U48 => "u48",
             SampleFormat::U64 => "u64",
@@ -205,9 +205,9 @@ impl SizedSample for u16 {
     const FORMAT: SampleFormat = SampleFormat::U16;
 }
 
-// impl SizedSample for U24 {
-//     const FORMAT: SampleFormat = SampleFormat::U24;
-// }
+impl SizedSample for U24 {
+    const FORMAT: SampleFormat = SampleFormat::U24;
+}
 
 impl SizedSample for u32 {
     const FORMAT: SampleFormat = SampleFormat::U32;

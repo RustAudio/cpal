@@ -1,10 +1,11 @@
 # Unreleased
 
 - Add `Sample::bits_per_sample` method.
-- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
+- ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
