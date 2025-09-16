@@ -237,8 +237,8 @@ impl Device {
                 n_channels += buffer.mNumberChannels as usize;
             }
 
-            // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
-            // I16 but just use F32 for now as it's the default anyway.
+            // TODO: macOS should support I8, I16, I24, I32, F32 and F64. This should allow for
+            // using I16 but just use F32 for now as it's the default anyway.
             let sample_format = SampleFormat::F32;
 
             // Get available sample rate ranges.
@@ -404,7 +404,10 @@ impl Device {
                     );
                 match maybe_sample_format {
                     Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
+                    Some(coreaudio::audio_unit::SampleFormat::I8) => SampleFormat::I8,
                     Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
+                    Some(coreaudio::audio_unit::SampleFormat::I24) => SampleFormat::I24,
+                    Some(coreaudio::audio_unit::SampleFormat::I32) => SampleFormat::I32,
                     _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
                 }
             };
