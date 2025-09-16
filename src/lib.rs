@@ -219,6 +219,11 @@ where
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
 
+pub enum DeviceId {
+    MacOS(u32),
+    Windows(String),
+}
+
 /// The buffer size used by the device.
 ///
 /// [`Default`] is used when no specific buffer size is set and uses the default
