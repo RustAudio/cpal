@@ -5,6 +5,7 @@ use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
 use crate::DeviceNameError;
+use crate::DeviceId;
 use crate::DeviceIdError;
 use crate::DevicesError;
 use crate::SampleFormat;
@@ -55,7 +56,7 @@ impl Device {
         Ok(self.driver.name().to_string())
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

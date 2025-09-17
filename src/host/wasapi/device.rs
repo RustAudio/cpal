@@ -1,6 +1,6 @@
 use crate::FrameCount;
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError, DeviceIdError,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError,
     DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
@@ -58,8 +58,8 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
-        Device::device_id(self)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supports_input(&self) -> bool {
@@ -325,7 +325,7 @@ impl Device {
         }
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

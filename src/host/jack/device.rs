@@ -1,6 +1,6 @@
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DeviceIdError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError,
     InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
@@ -146,7 +146,7 @@ impl DeviceTrait for Device {
         Ok(self.name.clone())
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

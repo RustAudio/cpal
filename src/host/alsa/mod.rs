@@ -16,7 +16,7 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DeviceIdError, DevicesError, FrameCount, InputCallbackInfo,
+    DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
     StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
@@ -68,8 +68,8 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
-        Device::device_id(self)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -312,7 +312,7 @@ impl Device {
     }
 
     #[inline]
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

@@ -314,11 +314,11 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn device_id(&self) -> Result<u32, crate::DeviceIdError> {
+            fn id(&self) -> Result<crate::DeviceId, crate::DeviceIdError> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
-                        DeviceInner::$HostVariant(ref d) => d.device_id(),
+                        DeviceInner::$HostVariant(ref d) => d.id(),
                     )*
                 }
             }

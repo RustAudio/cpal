@@ -4,7 +4,7 @@ use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_
 use super::OSStatus;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
@@ -87,7 +87,7 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError>{
+    fn id(&self) -> Result<DeviceId, DeviceIdError>{
        Device::id(self)
     }
 
@@ -185,8 +185,8 @@ impl Device {
         })
     }
 
-    fn id(&self) -> Result<u32, DeviceIdError> {
-        Ok(self.audio_device_id)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::MacOS(self.audio_device_id))
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.

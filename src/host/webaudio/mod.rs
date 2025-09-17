@@ -8,7 +8,7 @@ use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DeviceIdError,DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    DeviceNameError, DeviceId, DeviceIdError,DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
     PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
@@ -85,7 +85,7 @@ impl Device {
     }
 
     #[inline]
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 
@@ -148,8 +148,8 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
-        Device::device_id(self)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     #[inline]

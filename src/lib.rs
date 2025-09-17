@@ -219,6 +219,7 @@ where
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceId {
     MacOS(u32),
     Windows(String),

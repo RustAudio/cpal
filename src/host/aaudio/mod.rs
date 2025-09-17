@@ -12,7 +12,7 @@ use java_interface::{AudioDeviceDirection, AudioDeviceInfo};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DeviceIdError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
+    DeviceNameError, DeviceId, DeviceIdError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
     SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -210,7 +210,7 @@ fn configure_for_device(
     config: &StreamConfig,
 ) -> ndk::audio::AudioStreamBuilder {
     let mut builder = if let Some(info) = &device.0 {
-        builder.device_id(info.id)
+        builder.id(info.id)
     } else {
         builder
     };
@@ -327,7 +327,7 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

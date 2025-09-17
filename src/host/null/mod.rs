@@ -2,7 +2,11 @@ use std::time::Duration;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, 
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, 
+    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, 
+    SupportedStreamConfigRange, SupportedStreamConfigsError
 };
 
 #[derive(Default)]
@@ -45,7 +49,7 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 

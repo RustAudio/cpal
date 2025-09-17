@@ -18,7 +18,7 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceIdError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
     DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
     PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -74,7 +74,7 @@ impl Device {
         Ok("Default Device".to_owned())
     }
 
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Err(DeviceIdError::UnsupportedOS)
     }
 
@@ -145,8 +145,8 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn device_id(&self) -> Result<u32, DeviceIdError> {
-        Device::device_id(self)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     #[inline]
