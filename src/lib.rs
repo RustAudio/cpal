@@ -219,6 +219,8 @@ where
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
 
+/// The device ID of the audio device, on supported OSs
+/// Currently only supports macOS
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceId {
     MacOS(u32),
