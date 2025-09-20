@@ -326,7 +326,23 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        unsafe {
+            match self.device.GetId() {
+                Ok(pwstr) => {
+                    match pwstr.to_string() {
+                        Ok(id_str) => {
+                            Ok(DeviceId::Windows(id_str))
+                        },
+                        Err(_e) => {
+                            Err(DeviceIdError::ParseError)
+                        }
+                    }
+                },
+                Err(e) => {
+                    Err(DeviceIdError::BackendSpecific { err: e.into() })
+                }
+            }
+        }
     }
 
     #[inline]
