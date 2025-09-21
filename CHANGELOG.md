@@ -2,7 +2,7 @@
 
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
-- ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
+- ALSA: Improve `BufferSize::Fixed` latency precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).

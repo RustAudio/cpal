@@ -219,7 +219,7 @@ where
 /// The desired number of frames for the hardware buffer.
 pub type FrameCount = u32;
 
-/// The buffer size used by the device.
+/// The buffer size controls the latency between your application and the audio hardware.
 ///
 /// [`Default`] is used when no specific buffer size is set and uses the default
 /// behavior of the given host. Note, the default buffer size may be surprisingly
@@ -229,7 +229,8 @@ pub type FrameCount = u32;
 ///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
-/// [`SupportedStreamConfig`]: SupportedStreamConfig::buffer_size
+/// [`SupportedBufferSize`]: SupportedStreamConfig::buffer_size
+/// [`SupportedStreamConfig`]: SupportedStreamConfig
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BufferSize {
     Default,
