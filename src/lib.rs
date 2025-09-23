@@ -220,7 +220,7 @@ where
 pub type FrameCount = u32;
 
 /// The device ID of the audio device, on supported OSs
-/// Currently only supports macOS
+/// Currently only supports macOS and Windows (WASAPI)
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceId {
     MacOS(u32),

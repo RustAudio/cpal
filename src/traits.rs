@@ -86,7 +86,7 @@ pub trait DeviceTrait {
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
 
-    /// The device-id of the device. (For supported OS's only)
+    /// The device-id of the device. (For supported OSs only)
     fn id(&self) -> Result<DeviceId, DeviceIdError>;
 
     /// True if the device supports audio input, otherwise false
