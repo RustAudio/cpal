@@ -2,9 +2,9 @@ extern crate asio_sys as sys;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigsError,
 };
 
 pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};

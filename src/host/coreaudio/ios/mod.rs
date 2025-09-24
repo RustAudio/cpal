@@ -18,10 +18,11 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 use self::enumerate::{

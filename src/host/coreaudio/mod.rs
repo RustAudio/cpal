@@ -20,10 +20,7 @@ pub use self::ios::{
 };
 
 #[cfg(target_os = "macos")]
-pub use self::macos::{
-    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
-    Device, Host, Stream,
-};
+pub use self::macos::Host;
 
 // Common helper methods used by both macOS and iOS
 

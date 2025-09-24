@@ -1,8 +1,8 @@
 use crate::FrameCount;
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std::ffi::OsString;
@@ -328,19 +328,11 @@ impl Device {
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         unsafe {
             match self.device.GetId() {
-                Ok(pwstr) => {
-                    match pwstr.to_string() {
-                        Ok(id_str) => {
-                            Ok(DeviceId::Windows(id_str))
-                        },
-                        Err(_e) => {
-                            Err(DeviceIdError::ParseError)
-                        }
-                    }
+                Ok(pwstr) => match pwstr.to_string() {
+                    Ok(id_str) => Ok(DeviceId::Windows(id_str)),
+                    Err(_e) => Err(DeviceIdError::ParseError),
                 },
-                Err(e) => {
-                    Err(DeviceIdError::BackendSpecific { err: e.into() })
-                }
+                Err(e) => Err(DeviceIdError::BackendSpecific { err: e.into() }),
             }
         }
     }

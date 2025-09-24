@@ -4,7 +4,11 @@ use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_
 use super::OSStatus;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
@@ -87,8 +91,8 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError>{
-       Device::id(self)
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(

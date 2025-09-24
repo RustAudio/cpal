@@ -69,7 +69,9 @@ impl From<BackendSpecificError> for DevicesError {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceIdError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
+    BackendSpecific {
+        err: BackendSpecificError,
+    },
     UnsupportedOS,
     ParseError,
 }
@@ -78,8 +80,8 @@ impl Display for DeviceIdError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
-            Self::UnsupportedOS => {f.write_str("Device ids are unsupported for this OS")},
-            Self::ParseError => {f.write_str("Failed to parse the device_id")},
+            Self::UnsupportedOS => f.write_str("Device ids are unsupported for this OS"),
+            Self::ParseError => f.write_str("Failed to parse the device_id"),
         }
     }
 }

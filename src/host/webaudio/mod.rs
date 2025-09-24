@@ -7,10 +7,11 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DeviceId, DeviceIdError,DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};

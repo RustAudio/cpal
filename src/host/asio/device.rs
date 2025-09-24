@@ -4,9 +4,9 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
-use crate::DeviceNameError;
 use crate::DeviceId;
 use crate::DeviceIdError;
+use crate::DeviceNameError;
 use crate::DevicesError;
 use crate::SampleFormat;
 use crate::SampleRate;

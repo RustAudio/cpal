@@ -2,11 +2,10 @@ use std::time::Duration;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, 
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, 
-    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, 
-    SupportedStreamConfigRange, SupportedStreamConfigsError
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 #[derive(Default)]

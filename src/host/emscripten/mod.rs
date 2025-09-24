@@ -7,10 +7,10 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.

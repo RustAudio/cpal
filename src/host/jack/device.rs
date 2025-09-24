@@ -1,9 +1,9 @@
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DeviceId, DeviceIdError,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
 use std::time::Duration;

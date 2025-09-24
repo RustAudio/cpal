@@ -11,10 +11,10 @@ use java_interface::{AudioDeviceDirection, AudioDeviceInfo};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DeviceId, DeviceIdError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
-    OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -210,7 +210,7 @@ fn configure_for_device(
     config: &StreamConfig,
 ) -> ndk::audio::AudioStreamBuilder {
     let mut builder = if let Some(info) = &device.0 {
-        builder.id(info.id)
+        builder.device_id(info.id)
     } else {
         builder
     };
