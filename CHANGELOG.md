@@ -10,6 +10,7 @@
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
+- CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
