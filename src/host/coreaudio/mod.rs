@@ -51,9 +51,11 @@ fn asbd_from_config(
     let bytes_per_packet = frames_per_packet * bytes_per_frame;
     let format_flags = match sample_format {
         SampleFormat::F32 | SampleFormat::F64 => kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-        SampleFormat::I16 | SampleFormat::I32 | SampleFormat::I64 => {
-            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked
-        }
+        SampleFormat::I8
+        | SampleFormat::I16
+        | SampleFormat::I24
+        | SampleFormat::I32
+        | SampleFormat::I64 => kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
         _ => kAudioFormatFlagIsPacked,
     };
     AudioStreamBasicDescription {
