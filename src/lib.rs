@@ -225,6 +225,7 @@ pub type FrameCount = u32;
 pub enum DeviceId {
     MacOS(u32),
     Windows(String),
+    ALSA(String),
 }
 
 /// The buffer size used by the device.

@@ -313,7 +313,7 @@ impl Device {
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        Ok(DeviceId::ALSA(self.pcm_id.clone()))
     }
 
     fn supported_configs(
