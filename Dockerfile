@@ -1,8 +1,8 @@
 ARG CROSS_BASE_IMAGE
 FROM $CROSS_BASE_IMAGE
 
-ENV PKG_CONFIG_ALLOW_CROSS 1
-ENV PKG_CONFIG_PATH /usr/lib/arm-linux-gnueabihf/pkgconfig/
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig/
 
 RUN dpkg --add-architecture armhf && \
     apt-get update && \
