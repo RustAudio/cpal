@@ -1,5 +1,6 @@
 # Unreleased
 
+- Add `DeviceId` enum supporting most APIs that returns a system device id for the audio device, allowing it to be reselected using the `HostTrait::device_by_id()` function
 - Add `Sample::bits_per_sample` method.
 - ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
