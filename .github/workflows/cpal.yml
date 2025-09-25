@@ -1,50 +1,95 @@
 name: cpal
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  release:
+    types: [published]
 
 jobs:
-
-  clippy-and-fmt:
+  rustfmt:
+    name: Check code formatting
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install Linux audio dependencies
-      run: |
-        sudo apt update
-        sudo apt-get install -y libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-        targets: armv7-linux-androideabi
-    - name: Run rustfmt
-      run: cargo fmt --all -- --check
-    - name: Run clippy
-      run: cargo clippy --all --all-features
-    - name: Run clippy for Android target
-      run: cargo clippy --all --features asio --target armv7-linux-androideabi
+      - uses: actions/checkout@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Run Clippy lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: armv7-linux-androideabi
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --all --all-features
+      - name: Run clippy for Android target
+        run: cargo clippy --all --features asio --target armv7-linux-androideabi
 
   cargo-publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    name: Publish to crates.io
+    if: github.event_name == 'release'
+    needs: [test-native, test-cross, test-wasm, test-android, test-ios]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install Linux audio dependencies
-      run: |
-        sudo apt update
-        sudo apt-get install -y libasound2-dev
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-    - name: Verify publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        dry-run: true
-        ignore-unpublished-changes: true
-    - name: Publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        ignore-unpublished-changes: true
-        registry-token: ${{ secrets.CRATESIO_TOKEN }}
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Verify the release tag matches Cargo.toml version
+      - name: Verify release version
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Release tag version: $RELEASE_VERSION"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version mismatch! Cargo.toml has $CARGO_VERSION but release tag is v$RELEASE_VERSION"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CRATESIO_TOKEN }}
 
   # Native platform testing
   test-native:
@@ -55,16 +100,10 @@ jobs:
           # Linux x86_64
           - os: ubuntu-latest
             name: linux-x64
-            deps: |
-              sudo apt update
-              sudo apt-get install -y libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
           # Linux ARM64 native
           - os: ubuntu-24.04-arm
             name: linux-arm64
-            deps: |
-              sudo apt update
-              sudo apt-get install -y libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
           # Windows x86_64
           - os: windows-latest
@@ -99,15 +138,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: test-${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install dependencies
+      - name: Cache Linux audio packages
+        if: runner.os == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install non-Linux dependencies
+        if: runner.os != 'Linux'
         run: ${{ matrix.deps }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Build beep example (macOS only)
         if: matrix.build-beep
@@ -126,23 +175,30 @@ jobs:
 
   # Cross-compilation for architectures without native runners
   test-cross:
+    name: Test cross-compilation (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target: [armv7-unknown-linux-gnueabihf]
 
-    name: test-cross-${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
 
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-${{ matrix.target }}
+
       - name: Install cross
-        run: cargo install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Check without features
         run: cross check --target ${{ matrix.target }} --workspace --no-default-features --verbose
@@ -158,6 +214,7 @@ jobs:
 
   # WebAssembly builds
   test-wasm:
+    name: Test WebAssembly (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -174,9 +231,8 @@ jobs:
             setup-emscripten: false
             args: ""
 
-    name: test-wasm-${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Emscripten toolchain
         if: matrix.setup-emscripten
@@ -187,6 +243,11 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-${{ matrix.target }}
+
       - name: Build beep example
         run: cargo build --example beep --target ${{ matrix.target }} ${{ matrix.args }}
 
@@ -195,17 +256,22 @@ jobs:
         working-directory: ./examples/wasm-beep
         run: cargo build --target ${{ matrix.target }}
 
-
   # Android cross-compilation
   test-android:
+    name: Test Android cross-compilation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain (Android targets)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
 
       - name: Check Android examples
         run: |
@@ -218,12 +284,17 @@ jobs:
         working-directory: examples/android
         run: cargo check --target armv7-linux-androideabi --verbose
 
-      - name: Set up Android SDK
-        run: |
-          ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "build-tools;30.0.2" "platforms;android-30"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 30
+          build-tools: 30.0.2
+          cache-disabled: false
 
-      - name: Install Cargo APK
-        run: cargo install cargo-apk
+      - name: Install cargo-apk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-apk
 
       - name: Build APK
         working-directory: examples/android
@@ -231,9 +302,10 @@ jobs:
 
   # iOS cross-compilation
   test-ios:
+    name: Test iOS cross-compilation
     runs-on: macOS-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: brew install llvm
@@ -243,9 +315,15 @@ jobs:
         with:
           targets: aarch64-apple-ios,x86_64-apple-ios
 
-      - name: Install cargo lipo
-        run: cargo install cargo-lipo
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - name: Install cargo-lipo
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-lipo
 
       - name: Build iOS example
         run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
-
