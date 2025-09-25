@@ -65,7 +65,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::jack(self.name.clone()))
+        Ok(DeviceId::Jack(self.name.clone()))
     }
 
     pub fn default_output_device(

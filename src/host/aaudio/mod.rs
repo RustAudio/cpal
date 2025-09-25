@@ -329,8 +329,8 @@ impl DeviceTrait for Device {
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         match &self.0 {
-            None => Ok(DeviceId::aaudio(-1)), // Default device
-            Some(info) => Ok(DeviceId::aaudio(info.id)),
+            None => Ok(DeviceId::AAudio(-1)), // Default device
+            Some(info) => Ok(DeviceId::AAudio(info.id)),
         }
     }
 
