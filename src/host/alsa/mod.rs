@@ -337,16 +337,16 @@ impl Device {
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
         // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 8] = [
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 10] = [
             (SampleFormat::I8, alsa::pcm::Format::S8),
             (SampleFormat::U8, alsa::pcm::Format::U8),
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
             //SND_PCM_FORMAT_S16_BE,
             (SampleFormat::U16, alsa::pcm::Format::U16LE),
             //SND_PCM_FORMAT_U16_BE,
-            //SND_PCM_FORMAT_S24_LE,
+            (SampleFormat::I24, alsa::pcm::Format::S24LE),
             //SND_PCM_FORMAT_S24_BE,
-            //SND_PCM_FORMAT_U24_LE,
+            (SampleFormat::U24, alsa::pcm::Format::U24LE),
             //SND_PCM_FORMAT_U24_BE,
             (SampleFormat::I32, alsa::pcm::Format::S32LE),
             //SND_PCM_FORMAT_S32_BE,
@@ -1081,13 +1081,13 @@ fn set_hw_params_from_format(
         match sample_format {
             SampleFormat::I8 => alsa::pcm::Format::S8,
             SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24BE,
+            SampleFormat::I24 => alsa::pcm::Format::S24BE,
             SampleFormat::I32 => alsa::pcm::Format::S32BE,
             // SampleFormat::I48 => alsa::pcm::Format::S48BE,
             // SampleFormat::I64 => alsa::pcm::Format::S64BE,
             SampleFormat::U8 => alsa::pcm::Format::U8,
             SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24BE,
+            SampleFormat::U24 => alsa::pcm::Format::U24BE,
             SampleFormat::U32 => alsa::pcm::Format::U32BE,
             // SampleFormat::U48 => alsa::pcm::Format::U48BE,
             // SampleFormat::U64 => alsa::pcm::Format::U64BE,
@@ -1105,13 +1105,13 @@ fn set_hw_params_from_format(
         match sample_format {
             SampleFormat::I8 => alsa::pcm::Format::S8,
             SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            // SampleFormat::I24 => alsa::pcm::Format::S24LE,
+            SampleFormat::I24 => alsa::pcm::Format::S24LE,
             SampleFormat::I32 => alsa::pcm::Format::S32LE,
             // SampleFormat::I48 => alsa::pcm::Format::S48LE,
             // SampleFormat::I64 => alsa::pcm::Format::S64LE,
             SampleFormat::U8 => alsa::pcm::Format::U8,
             SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            // SampleFormat::U24 => alsa::pcm::Format::U24LE,
+            SampleFormat::U24 => alsa::pcm::Format::U24LE,
             SampleFormat::U32 => alsa::pcm::Format::U32LE,
             // SampleFormat::U48 => alsa::pcm::Format::U48LE,
             // SampleFormat::U64 => alsa::pcm::Format::U64LE,

@@ -8,7 +8,7 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample, I24,
+    SizedSample, I24, U24,
 };
 use cpal::{FromSample, Sample};
 
@@ -103,6 +103,7 @@ where
         cpal::SampleFormat::I64 => make_stream::<i64>(&device, &config.into()),
         cpal::SampleFormat::U8 => make_stream::<u8>(&device, &config.into()),
         cpal::SampleFormat::U16 => make_stream::<u16>(&device, &config.into()),
+        cpal::SampleFormat::U24 => make_stream::<U24>(&device, &config.into()),
         cpal::SampleFormat::U32 => make_stream::<u32>(&device, &config.into()),
         cpal::SampleFormat::U64 => make_stream::<u64>(&device, &config.into()),
         cpal::SampleFormat::F32 => make_stream::<f32>(&device, &config.into()),
