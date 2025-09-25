@@ -226,7 +226,7 @@ pub enum DeviceId {
     CoreAudio(u32),
     WASAPI(String),
     ALSA(String),
-    AAudio(String),
+    AAudio(i32),
     Jack(String),
     Null,
 }
