@@ -24,7 +24,6 @@ on:
 
 jobs:
   rustfmt:
-    name: Check code formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -36,7 +35,6 @@ jobs:
         run: cargo fmt --all -- --check
 
   clippy:
-    name: Run Clippy lints
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -61,7 +59,6 @@ jobs:
         run: cargo clippy --all --features asio --target armv7-linux-androideabi
 
   cargo-publish:
-    name: Publish to crates.io
     if: github.event_name == 'release'
     needs: [test-native, test-cross, test-wasm, test-android, test-ios]
     runs-on: ubuntu-latest
@@ -175,7 +172,6 @@ jobs:
 
   # Cross-compilation for architectures without native runners
   test-cross:
-    name: Test cross-compilation (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -214,7 +210,6 @@ jobs:
 
   # WebAssembly builds
   test-wasm:
-    name: Test WebAssembly (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -258,7 +253,6 @@ jobs:
 
   # Android cross-compilation
   test-android:
-    name: Test Android cross-compilation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -287,9 +281,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 30
-          build-tools: 30.0.2
-          cache-disabled: false
+          cmdline-tools-version: 10406996  # API level 30 (Android 11)
 
       - name: Install cargo-apk
         uses: taiki-e/install-action@v2
@@ -302,7 +294,6 @@ jobs:
 
   # iOS cross-compilation
   test-ios:
-    name: Test iOS cross-compilation
     runs-on: macOS-latest
     steps:
       - uses: actions/checkout@v5
