@@ -397,7 +397,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::MacOS(self.audio_device_id))
+        Ok(DeviceId::CoreAudio(self.audio_device_id))
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.

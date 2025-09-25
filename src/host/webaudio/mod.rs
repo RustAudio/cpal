@@ -87,7 +87,7 @@ impl Device {
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        Err(DeviceIdError::UnsupportedPlatform)
     }
 
     #[inline]

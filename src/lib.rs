@@ -223,9 +223,51 @@ pub type FrameCount = u32;
 /// Currently only supports macOS and Windows (WASAPI)
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceId {
-    MacOS(u32),
-    Windows(String),
+    CoreAudio(u32),
+    WASAPI(String),
     ALSA(String),
+    AAudio(String),
+    Jack(String),
+    Null,
+}
+
+impl std::fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
+            DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
+            DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
+            DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
+            DeviceId::Jack(name) => write!(f, "jack:{}", name),
+            DeviceId::Null => write!(f, "null"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeviceId {
+    type Err = DeviceIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (platform, data) = s.split_once(':').ok_or(DeviceIdError::ParseError)?;
+
+        match platform {
+            "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
+            "coreaudio" => {
+                if let Ok(id) = data.parse::<u32>() {
+                    Ok(DeviceId::CoreAudio(id))
+                } else {
+                    Err(DeviceIdError::ParseError)
+                }
+            }
+            "alsa" => Ok(DeviceId::ALSA(data.to_string())),
+            "aaudio" => {
+                let id = data.parse().map_err(|_| DeviceIdError::ParseError)?;
+                Ok(DeviceId::AAudio(id))
+            }
+            "jack" => Ok(DeviceId::Jack(data.to_string())),
+            _ => Err(DeviceIdError::UnsupportedPlatform),
+        }
+    }
 }
 
 /// The buffer size used by the device.

@@ -330,7 +330,7 @@ impl Device {
         unsafe {
             match self.device.GetId() {
                 Ok(pwstr) => match pwstr.to_string() {
-                    Ok(id_str) => Ok(DeviceId::Windows(id_str)),
+                    Ok(id_str) => Ok(DeviceId::WASAPI(id_str)),
                     Err(_e) => Err(DeviceIdError::ParseError),
                 },
                 Err(e) => Err(DeviceIdError::BackendSpecific { err: e.into() }),

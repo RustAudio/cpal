@@ -44,6 +44,15 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio in general.
     fn devices(&self) -> Result<Self::Devices, DevicesError>;
 
+    /// Fetches a [`Device`](DeviceTrait) based on a [`DeviceId`](DeviceId) if available
+    ///
+    /// Returns `None` if no device matching the id is found
+    fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
+        self.devices()
+            .ok()?
+            .find(|device| device.id().ok().as_ref() == Some(id))
+    }
+
     /// The default input audio device on the system.
     ///
     /// Returns `None` if no input device is available.

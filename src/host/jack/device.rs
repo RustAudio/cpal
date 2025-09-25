@@ -64,6 +64,10 @@ impl Device {
         }
     }
 
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::jack(self.name.clone()))
+    }
+
     pub fn default_output_device(
         name: &str,
         connect_ports_automatically: bool,
@@ -147,7 +151,7 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        Device::id(self)
     }
 
     fn supported_input_configs(

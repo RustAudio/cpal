@@ -49,7 +49,7 @@ impl DeviceTrait for Device {
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        Ok(DeviceId::Null)
     }
 
     #[inline]

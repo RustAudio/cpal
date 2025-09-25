@@ -328,7 +328,10 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedOS)
+        match &self.0 {
+            None => Ok(DeviceId::aaudio(-1)), // Default device
+            Some(info) => Ok(DeviceId::aaudio(info.id)),
+        }
     }
 
     fn supported_input_configs(
