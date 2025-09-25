@@ -281,7 +281,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platforms;android-30 build-tools;30
+          packages: platforms;android-30 build-tools;30.0.3
 
       - name: Install cargo-apk
         uses: taiki-e/install-action@v2
