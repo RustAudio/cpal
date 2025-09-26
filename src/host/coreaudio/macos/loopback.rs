@@ -89,7 +89,7 @@ impl LoopbackDevice {
         let tap_desc = unsafe {
             CATapDescription::initWithProcesses_andDeviceUID_withStream(
                 CATapDescription::alloc(),
-                &*processes,
+                &processes,
                 device_uid.as_ref(),
                 0,
             )

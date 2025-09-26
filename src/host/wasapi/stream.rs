@@ -350,10 +350,8 @@ fn boost_current_thread_priority(_: BufferSize, _: crate::SampleRate) {
     unsafe {
         let thread_handle = Threading::GetCurrentThread();
 
-        let _ = Threading::SetThreadPriority(
-            thread_handle,
-            Threading::THREAD_PRIORITY_TIME_CRITICAL,
-        );
+        let _ =
+            Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL);
     }
 }
 
