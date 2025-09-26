@@ -11,7 +11,7 @@ extern crate cpal;
 extern crate ringbuf;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::RingBuffer;
+use ringbuf::{HeapRb, traits::{Split, Producer, Consumer}};
 
 const LATENCY_MS: f32 = 1000.0;
 
@@ -36,20 +36,20 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     let latency_samples = latency_frames as usize * config.channels as usize;
 
     // The buffer to share samples
-    let ring = RingBuffer::new(latency_samples * 2);
+    let ring = HeapRb::<f32>::new(latency_samples * 2);
     let (mut producer, mut consumer) = ring.split();
 
     // Fill the samples with 0.0 equal to the length of the delay.
     for _ in 0..latency_samples {
         // The ring buffer has twice as much space as necessary to add latency here,
         // so this should never fail
-        producer.push(0.0).unwrap();
+        producer.try_push(0.0).unwrap();
     }
 
     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
-            if producer.push(sample).is_err() {
+            if producer.try_push(sample).is_err() {
                 output_fell_behind = true;
             }
         }
@@ -59,21 +59,18 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     };
 
     let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-        let mut input_fell_behind = None;
+        let mut input_fell_behind = false;
         for sample in data {
-            *sample = match consumer.pop() {
-                Ok(s) => s,
-                Err(err) => {
-                    input_fell_behind = Some(err);
+            *sample = match consumer.try_pop() {
+                Some(s) => s,
+                None => {
+                    input_fell_behind = true;
                     0.0
                 }
             };
         }
-        if let Some(err) = input_fell_behind {
-            eprintln!(
-                "input stream fell behind: {:?}: try increasing latency",
-                err
-            );
+        if input_fell_behind {
+            eprintln!("input stream fell behind: try increasing latency");
         }
     };
 

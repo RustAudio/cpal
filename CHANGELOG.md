@@ -1,10 +1,12 @@
 # Unreleased
 
 - Add `Sample::bits_per_sample` method.
+- Update `audio_thread_priority` to 0.34.
 - ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- ALSA: Update `alsa` to 0.10.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - CI: Added native ARM64 Linux support in GitHub Actions.
@@ -15,9 +17,11 @@
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
 - CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
+- CoreAudio: Update `mach2` to 0.5.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- WASAPI: Update `windows` to 0.62.
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
 
 # Version 0.16.0 (2025-06-07)

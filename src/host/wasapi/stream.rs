@@ -348,12 +348,10 @@ fn boost_current_thread_priority(_: BufferSize, _: crate::SampleRate) {
     use windows::Win32::Foundation::HANDLE;
 
     unsafe {
-        let thread_id = Threading::GetCurrentThreadId();
+        let thread_handle = Threading::GetCurrentThread();
 
-        let _ = Threading::SetThreadPriority(
-            HANDLE(thread_id as isize),
-            Threading::THREAD_PRIORITY_TIME_CRITICAL,
-        );
+        let _ =
+            Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL);
     }
 }
 
