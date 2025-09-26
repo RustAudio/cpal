@@ -25,10 +25,10 @@ dasp_sample = "0.11"
 anyhow = "1.0"
 hound = "3.5"
 ringbuf = "0.4.1"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.54.0", features = [
+windows = { version = "0.62", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
@@ -41,18 +41,18 @@ windows = { version = "0.54.0", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-audio_thread_priority = { version = "0.33.0", optional = true }
+audio_thread_priority = { version = "0.34.0", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2.6", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.9"
+alsa = "0.10"
 libc = "0.2"
-audio_thread_priority = { version = "0.33.0", optional = true }
+audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-mach2 = "0.4" # For access to mach_timebase type.
+mach2 = "0.5" # For access to mach_timebase type.
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 coreaudio-rs = { version = "0.13.0", default-features = false, features = [
