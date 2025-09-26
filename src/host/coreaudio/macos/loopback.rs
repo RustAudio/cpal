@@ -1,9 +1,7 @@
 //! Manages loopback recording (recording system audio output)
 
 use super::device::Device;
-use crate::{
-    host::coreaudio::check_os_status, traits::DeviceTrait, BackendSpecificError, BuildStreamError,
-};
+use crate::{host::coreaudio::check_os_status, BackendSpecificError, BuildStreamError};
 use objc2::{rc::Retained, AnyThread};
 use objc2_core_audio::{
     kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
