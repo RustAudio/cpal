@@ -18,6 +18,7 @@
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- Wasm: Removed optional `wee-alloc` feature for security reasons.
 
 # Version 0.16.0 (2025-06-07)
 
