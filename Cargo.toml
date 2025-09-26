@@ -24,7 +24,7 @@ dasp_sample = "0.11"
 [dev-dependencies]
 anyhow = "1.0"
 hound = "3.5"
-ringbuf = "0.4.1"
+ringbuf = "0.4.8"
 clap = { version = "4.5", features = ["derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -48,7 +48,7 @@ num-traits = { version = "0.2.6", optional = true }
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.10"
 libc = "0.2"
-audio_thread_priority = { version = "0.34", optional = true }
+audio_thread_priority = { version = "0.34.0", optional = true }
 jack = { version = "0.13.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
