@@ -223,7 +223,7 @@ pub type FrameCount = u32;
 /// Currently only supports macOS and Windows (WASAPI)
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceId {
-    CoreAudio(u32),
+    CoreAudio(String),
     WASAPI(String),
     ALSA(String),
     AAudio(i32),
@@ -252,13 +252,7 @@ impl std::str::FromStr for DeviceId {
 
         match platform {
             "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
-            "coreaudio" => {
-                if let Ok(id) = data.parse::<u32>() {
-                    Ok(DeviceId::CoreAudio(id))
-                } else {
-                    Err(DeviceIdError::ParseError)
-                }
-            }
+            "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
             "alsa" => Ok(DeviceId::ALSA(data.to_string())),
             "aaudio" => {
                 let id = data.parse().map_err(|_| DeviceIdError::ParseError)?;

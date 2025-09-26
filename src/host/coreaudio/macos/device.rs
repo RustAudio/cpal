@@ -10,12 +10,18 @@ use crate::{
     OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
+use objc2_core_foundation::Type;
+use objc2_core_foundation::{
+    CFString
+};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_StreamFormat,
 };
+use objc2_core_audio::kAudioDevicePropertyDeviceUID;
+use objc2_core_audio::kAudioObjectPropertyElementMain;
 use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
@@ -29,6 +35,7 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
+
 
 pub use super::enumerate::{
     default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
@@ -44,6 +51,9 @@ use std::time::{Duration, Instant};
 
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
+
+type CFStringRef = *mut std::os::raw::c_void;
+
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
 fn set_sample_rate(
@@ -397,7 +407,33 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::CoreAudio(self.audio_device_id))
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut name: CFStringRef = std::ptr::null_mut();
+        let data_size = size_of::<CFStringRef>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                self.audio_device_id,
+                NonNull::from(&property_address),
+                0,
+                null(),
+                NonNull::from(&data_size),
+                NonNull::from(&mut name).cast(),
+            )
+        };
+        if status == 0 {
+            let name_string = unsafe {CFString::wrap_under_get_rule(name as *mut CFString).to_string()};
+            Ok(DeviceId::CoreAudio(name_string))
+        } else {
+            Err(DeviceIdError::BackendSpecific { 
+                err: BackendSpecificError {
+                    description: "Device UID not found".to_string(),
+                } 
+            })
+        }
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
