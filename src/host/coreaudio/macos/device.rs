@@ -422,7 +422,7 @@ impl Device {
             )
         };
         check_os_status(status)?;
-        if !uid.is_null(){
+        if !uid.is_null() {
             let uid_string =
                 unsafe { CFString::wrap_under_get_rule(uid as *mut CFString).to_string() };
             Ok(DeviceId::CoreAudio(uid_string))
