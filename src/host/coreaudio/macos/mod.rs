@@ -12,6 +12,9 @@ use std::rc::Rc;
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
+use coreaudio::sys::{
+    kAudioDevicePropertyLatency, kAudioDevicePropertySafetyOffset, kAudioStreamPropertyLatency,
+};
 use property_listener::AudioObjectPropertyListener;
 
 mod device;
@@ -118,6 +121,55 @@ impl StreamTrait for Stream {
         let mut stream = self.inner.borrow_mut();
 
         stream.pause()
+    }
+
+    fn latency(&self) -> Option<u32> {
+        let stream = self.inner.lock().unwrap();
+        let audio_unit = &stream.audio_unit;
+
+        // device presentation latency
+        let device_latency: u32 = match audio_unit.get_property(
+            kAudioDevicePropertyLatency,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(device_latency) => device_latency,
+            Err(_) => return None,
+        };
+
+        // stream presentation latency
+        let stream_latency: u32 = match audio_unit.get_property(
+            kAudioStreamPropertyLatency,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(stream_latency) => stream_latency,
+            Err(_) => return None,
+        };
+
+        // device safety offset
+        let safety_offset: u32 = match audio_unit.get_property(
+            kAudioDevicePropertySafetyOffset,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(safety_offset) => safety_offset,
+            Err(_) => return None,
+        };
+
+        // IO buffer frame size
+        let buffer_size: u32 = match audio_unit.get_property(
+            kAudioDevicePropertyBufferFrameSize,
+            Scope::Global,
+            Element::Output,
+        ) {
+            Ok(buffer_size) => buffer_size,
+            Err(_) => return None,
+        };
+
+        let latency = device_latency + stream_latency + safety_offset + buffer_size;
+
+        Some(latency)
     }
 }
 

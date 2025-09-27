@@ -503,6 +503,17 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn latency(&self) -> Option<u32> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInner::$HostVariant(ref s) => {
+                            s.latency()
+                        }
+                    )*
+                }
+            }
         }
 
         impl From<DeviceInner> for Device {
