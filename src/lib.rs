@@ -225,6 +225,7 @@ pub type FrameCount = u32;
 pub enum DeviceId {
     CoreAudio(String),
     WASAPI(String),
+    ASIO(String),
     ALSA(String),
     AAudio(i32),
     Jack(String),
@@ -235,6 +236,7 @@ impl std::fmt::Display for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
+            DeviceId::ASIO(guid) => write!(f, "asio:{}", guid),
             DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
             DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
             DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
@@ -252,6 +254,7 @@ impl std::str::FromStr for DeviceId {
 
         match platform {
             "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
+            "asio" => Ok(DeviceId::ASIO(data.to_string())),
             "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
             "alsa" => Ok(DeviceId::ALSA(data.to_string())),
             "aaudio" => {

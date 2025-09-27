@@ -57,7 +57,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedPlatform)
+        Ok(DeviceId::ASIO(self.driver.name().to_string()))  
     }
 
     /// Gets the supported input configs.

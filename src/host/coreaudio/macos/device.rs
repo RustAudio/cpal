@@ -409,7 +409,7 @@ impl Device {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain,
         };
-        let mut name: CFStringRef = std::ptr::null_mut();
+        let mut uid: CFStringRef = std::ptr::null_mut();
         let data_size = size_of::<CFStringRef>() as u32;
         let status = unsafe {
             AudioObjectGetPropertyData(
@@ -418,13 +418,14 @@ impl Device {
                 0,
                 null(),
                 NonNull::from(&data_size),
-                NonNull::from(&mut name).cast(),
+                NonNull::from(&mut uid).cast(),
             )
         };
-        if status == 0 {
-            let name_string =
-                unsafe { CFString::wrap_under_get_rule(name as *mut CFString).to_string() };
-            Ok(DeviceId::CoreAudio(name_string))
+        check_os_status(status)?;
+        if !uid.is_null(){
+            let uid_string =
+                unsafe { CFString::wrap_under_get_rule(uid as *mut CFString).to_string() };
+            Ok(DeviceId::CoreAudio(uid_string))
         } else {
             Err(DeviceIdError::BackendSpecific {
                 err: BackendSpecificError {
