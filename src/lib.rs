@@ -229,6 +229,9 @@ pub enum DeviceId {
     ALSA(String),
     AAudio(i32),
     Jack(String),
+    WebAudio(String),
+    Emscripten(String),
+    IOS(String),
     Null,
 }
 
@@ -241,6 +244,9 @@ impl std::fmt::Display for DeviceId {
             DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
             DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
             DeviceId::Jack(name) => write!(f, "jack:{}", name),
+            DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
+            DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
+            DeviceId::IOS(default) => write!(f, "ios:{}", default),
             DeviceId::Null => write!(f, "null"),
         }
     }
@@ -262,6 +268,9 @@ impl std::str::FromStr for DeviceId {
                 Ok(DeviceId::AAudio(id))
             }
             "jack" => Ok(DeviceId::Jack(data.to_string())),
+            "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
+            "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
+            "ios" => Ok(DeviceId::IOS(data.to_string())),
             _ => Err(DeviceIdError::UnsupportedPlatform),
         }
     }

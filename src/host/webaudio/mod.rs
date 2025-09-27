@@ -87,7 +87,7 @@ impl Device {
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedPlatform)
+        Ok(DeviceId::WebAudio("default".to_string()))
     }
 
     #[inline]

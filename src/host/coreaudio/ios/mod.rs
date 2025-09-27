@@ -76,7 +76,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Err(DeviceIdError::UnsupportedPlatform)
+        Ok(DeviceId::IOS("default".to_string()))
     }
 
     #[inline]
