@@ -698,25 +698,35 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Set the buffersize
+        // Configure device buffer to ensure predictable callback behavior.
+        //
+        // CoreAudio automatically delivers callbacks with buffer_size = 2 * device_buffer_size.
+        // To ensure applications receive callbacks of the size they requested,
+        // we configure device_buffer_size = requested_buffer_size / 2.
+        //
+        // This provides:
+        // - Predictable callback buffer sizes matching application requests
+        // - Efficient double-buffering (device buffer + callback buffer)
+        // - Low latency determined by the device buffer size
         match config.buffer_size {
-            BufferSize::Fixed(v) => {
+            BufferSize::Fixed(cpal_buffer_size) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                match buffer_size_range {
-                    SupportedBufferSize::Range { min, max } => {
-                        if v >= min && v <= max {
-                            audio_unit.set_property(
-                                kAudioDevicePropertyBufferFrameSize,
-                                scope,
-                                element,
-                                Some(&v),
-                            )?
-                        } else {
-                            return Err(BuildStreamError::StreamConfigNotSupported);
-                        }
+                let device_buffer_size = cpal_buffer_size / 2;
+
+                if let SupportedBufferSize::Range { min, max } = buffer_size_range {
+                    if !(min..=max).contains(&device_buffer_size) {
+                        // The calculated device buffer size doesn't fit in the supported range
+                        // or is zero (due to integer division). This means the requested
+                        // cpal_buffer_size is too small or too large for this device.
+                        return Err(BuildStreamError::StreamConfigNotSupported);
                     }
-                    SupportedBufferSize::Unknown => (),
                 }
+                audio_unit.set_property(
+                    kAudioDevicePropertyBufferFrameSize,
+                    scope,
+                    element,
+                    Some(&device_buffer_size),
+                )?;
             }
             BufferSize::Default => (),
         }
@@ -806,25 +816,35 @@ impl Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
-        // Set the buffersize
+        // Configure device buffer to ensure predictable callback behavior.
+        //
+        // CoreAudio automatically delivers callbacks with buffer_size = 2 * device_buffer_size.
+        // To ensure applications receive callbacks of the size they requested,
+        // we configure device_buffer_size = requested_buffer_size / 2.
+        //
+        // This provides:
+        // - Predictable callback buffer sizes matching application requests
+        // - Efficient double-buffering (device buffer + callback buffer)
+        // - Low latency determined by the device buffer size
         match config.buffer_size {
-            BufferSize::Fixed(v) => {
+            BufferSize::Fixed(cpal_buffer_size) => {
                 let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                match buffer_size_range {
-                    SupportedBufferSize::Range { min, max } => {
-                        if v >= min && v <= max {
-                            audio_unit.set_property(
-                                kAudioDevicePropertyBufferFrameSize,
-                                scope,
-                                element,
-                                Some(&v),
-                            )?
-                        } else {
-                            return Err(BuildStreamError::StreamConfigNotSupported);
-                        }
+                let device_buffer_size = cpal_buffer_size / 2;
+
+                if let SupportedBufferSize::Range { min, max } = buffer_size_range {
+                    if !(min..=max).contains(&device_buffer_size) {
+                        // The calculated device buffer size doesn't fit in the supported range
+                        // or is zero (due to integer division). This means the requested
+                        // cpal_buffer_size is too small or too large for this device.
+                        return Err(BuildStreamError::StreamConfigNotSupported);
                     }
-                    SupportedBufferSize::Unknown => (),
                 }
+                audio_unit.set_property(
+                    kAudioDevicePropertyBufferFrameSize,
+                    scope,
+                    element,
+                    Some(&device_buffer_size),
+                )?;
             }
             BufferSize::Default => (),
         }
