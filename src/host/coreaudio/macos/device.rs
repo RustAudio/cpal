@@ -694,24 +694,7 @@ impl Device {
             audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
         };
 
-        // Configure device buffer to ensure predictable callback behavior and accurate latency.
-        //
-        // CoreAudio double-buffering model:
-        // - CPAL buffer size (from user) = total buffer size that CPAL manages
-        // - Device buffer size = actual hardware buffer size (CPAL buffer size / 2)
-        // - Callback buffer size = size of each callback invocation (≈ device buffer size)
-        //
-        // CoreAudio automatically delivers callbacks with buffer_size ≈ device_buffer_size.
-        // To ensure applications receive callbacks of the size they requested,
-        // we configure device_buffer_size = requested_buffer_size / 2.
-        //
-        // This provides:
-        // - Predictable callback buffer sizes matching application requests
-        // - Efficient double-buffering (device buffer + callback buffer)
-        // - Low latency determined by the device buffer size
-        //
-        // For latency calculation, we need the device buffer size, not the callback buffer size,
-        // because latency represents the delay from when audio is written to when it's heard.
+        // Configure stream format and buffer size for predictable callback behavior.
         configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
         let error_callback = Arc::new(Mutex::new(error_callback));
@@ -890,27 +873,21 @@ fn configure_stream_format_and_buffer(
     audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
     // Configure device buffer size if requested
-    match config.buffer_size {
-        BufferSize::Fixed(cpal_buffer_size) => {
-            let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
-            let device_buffer_size = cpal_buffer_size / 2;
+    if let BufferSize::Fixed(buffer_size) = config.buffer_size {
+        let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
 
-            if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-                if !(min..=max).contains(&device_buffer_size) {
-                    // The calculated device buffer size doesn't fit in the supported range.
-                    // This means the requested cpal_buffer_size is too small or too large for this
-                    // device.
-                    return Err(BuildStreamError::StreamConfigNotSupported);
-                }
+        if let SupportedBufferSize::Range { min, max } = buffer_size_range {
+            if !(min..=max).contains(&buffer_size) {
+                return Err(BuildStreamError::StreamConfigNotSupported);
             }
-            audio_unit.set_property(
-                kAudioDevicePropertyBufferFrameSize,
-                scope,
-                element,
-                Some(&device_buffer_size),
-            )?;
         }
-        BufferSize::Default => (),
+
+        audio_unit.set_property(
+            kAudioDevicePropertyBufferFrameSize,
+            scope,
+            element,
+            Some(&buffer_size),
+        )?;
     }
 
     Ok(())
@@ -929,9 +906,7 @@ fn setup_callback_vars(
     let bytes_per_channel = sample_format.sample_size();
     let sample_rate = config.sample_rate;
 
-    // Query the actual device buffer size for latency calculation.
-    // For Fixed: verifies CoreAudio actually set what we requested
-    // For Default: gets the device's current buffer size
+    // Query device buffer size for latency calculation
     let device_buffer_frames = get_device_buffer_frame_size(audio_unit, scope, element).ok();
 
     (bytes_per_channel, sample_rate, device_buffer_frames)

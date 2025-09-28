@@ -234,14 +234,13 @@ mod test {
         let host = default_host();
         let device = host.default_output_device().unwrap();
 
-        // First, test with BufferSize::Default to see what we get
+        // Step 1: Open stream with BufferSize::Default and measure callback size
         let default_config = StreamConfig {
             channels: 2,
             sample_rate: SampleRate(48000),
             buffer_size: BufferSize::Default,
         };
 
-        // Capture actual buffer sizes from callbacks
         let default_buffer_sizes = Arc::new(Mutex::new(Vec::new()));
         let default_buffer_sizes_clone = default_buffer_sizes.clone();
 
@@ -250,8 +249,7 @@ mod test {
                 &default_config,
                 move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
                     let mut sizes = default_buffer_sizes_clone.lock().unwrap();
-                    if sizes.len() < 10 {
-                        // Collect first 10 callback buffer sizes
+                    if sizes.len() < 5 {
                         sizes.push(data.len());
                     }
                     write_silence(data, info);
@@ -262,7 +260,7 @@ mod test {
             .unwrap();
 
         default_stream.play().unwrap();
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(100));
         default_stream.pause().unwrap();
 
         let default_sizes = default_buffer_sizes.lock().unwrap().clone();
@@ -271,16 +269,14 @@ mod test {
             "Should have captured some buffer sizes"
         );
 
-        // Get the typical buffer size (most streams should be consistent)
-        let typical_buffer_size = default_sizes[0];
+        let x = default_sizes[0]; // This is the callback size we got with Default
+        println!("Default stream callback size: {} samples", x);
 
-        // Now test with BufferSize::Fixed using double the callback buffer size
-        // Based on our theory: cpal_buffer_size = 2 * device_buffer_size ≈ 2 * callback_buffer_size
-        let fixed_cpal_buffer_size = typical_buffer_size * 2;
+        // Step 2: Open stream with BufferSize::Fixed(x) and verify we get callback size x again
         let fixed_config = StreamConfig {
             channels: 2,
             sample_rate: SampleRate(48000),
-            buffer_size: BufferSize::Fixed(fixed_cpal_buffer_size as u32),
+            buffer_size: BufferSize::Fixed(x as u32),
         };
 
         let fixed_buffer_sizes = Arc::new(Mutex::new(Vec::new()));
@@ -291,7 +287,7 @@ mod test {
                 &fixed_config,
                 move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
                     let mut sizes = fixed_buffer_sizes_clone.lock().unwrap();
-                    if sizes.len() < 10 {
+                    if sizes.len() < 5 {
                         sizes.push(data.len());
                     }
                     write_silence(data, info);
@@ -302,7 +298,7 @@ mod test {
             .unwrap();
 
         fixed_stream.play().unwrap();
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(100));
         fixed_stream.pause().unwrap();
 
         let fixed_sizes = fixed_buffer_sizes.lock().unwrap().clone();
@@ -311,19 +307,27 @@ mod test {
             "Should have captured some buffer sizes"
         );
 
-        let fixed_typical_size = fixed_sizes[0];
-
-        // The key test: verify that the callback buffer sizes are approximately equal
-        // This validates our fallback assumption: callback_buffer_size ≈ device_buffer_size
-        let size_difference = (typical_buffer_size as i32 - fixed_typical_size as i32).abs();
-        let tolerance = typical_buffer_size / 10; // 10% tolerance
-
-        assert!(
-            size_difference <= tolerance as i32,
-            "Buffer sizes should be approximately equal: Default={}, Fixed={}, Difference={}",
-            typical_buffer_size,
-            fixed_typical_size,
-            size_difference
+        let fixed_callback_size = fixed_sizes[0];
+        println!(
+            "Fixed stream callback size: {} samples",
+            fixed_callback_size
         );
+
+        // Step 3: Verify that BufferSize::Fixed(x) gives us callback size x
+        assert_eq!(
+            x, fixed_callback_size,
+            "BufferSize::Fixed({}) should produce callback size {}, but got {}",
+            x, x, fixed_callback_size
+        );
+
+        // Also verify consistency within each stream
+        for &size in default_sizes.iter() {
+            assert_eq!(size, x, "Default stream had inconsistent callback sizes");
+        }
+        for &size in fixed_sizes.iter() {
+            assert_eq!(size, x, "Fixed stream had inconsistent callback sizes");
+        }
+
+        println!("Buffer size equivalence test passed: Default and Fixed({}) both produce callback size {}", x, x);
     }
 }
