@@ -23,6 +23,7 @@
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
 - CoreAudio: Make `Stream` implement `Send` on macOS by refactoring internal synchronization.
+- CoreAudio: Remove `Clone` impl from `Stream`.
 - iOS: Fix example by properly activating audio session.
 - iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
