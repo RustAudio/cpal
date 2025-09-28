@@ -216,16 +216,23 @@ where
     }
 }
 
-/// The desired number of frames for the hardware buffer.
+/// A frame represents one sample for each channel. For example, with stereo audio,
+/// one frame contains two samples (left and right channels).
 pub type FrameCount = u32;
 
 /// The buffer size controls the latency between your application and the audio hardware.
 ///
-/// [`Default`] is used when no specific buffer size is set and uses the default
-/// behavior of the given host. Note, the default buffer size may be surprisingly
-/// large, leading to latency issues. If low latency is desired, [`Fixed(FrameCount)`]
-/// should be used in accordance with the [`SupportedBufferSize`] range produced by
-/// the [`SupportedStreamConfig`] API.
+/// This controls the size of the software buffer that cpal uses to transfer audio
+/// data between your application and the hardware device. This is distinct from
+/// end-to-end audio latency, which includes additional processing delays.
+///
+/// [`Default`] uses the host's default buffer size, which may be surprisingly
+/// large, leading to higher buffering latency. If low latency is desired,
+/// [`Fixed(FrameCount)`] should be used in accordance with the [`SupportedBufferSize`]
+/// range produced by the [`SupportedStreamConfig`] API.
+///
+/// Smaller buffer sizes reduce latency but may increase CPU usage and risk audio
+/// dropouts if the callback cannot keep up with the requested buffer size.
 ///
 /// [`Default`]: BufferSize::Default
 /// [`Fixed(FrameCount)`]: BufferSize::Fixed
