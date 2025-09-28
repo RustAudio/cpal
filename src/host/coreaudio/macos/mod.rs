@@ -249,9 +249,7 @@ mod test {
                 &default_config,
                 move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
                     let mut sizes = default_buffer_sizes_clone.lock().unwrap();
-                    if sizes.len() < 5 {
-                        sizes.push(data.len());
-                    }
+                    sizes.push(data.len());
                     write_silence(data, info);
                 },
                 move |err| println!("Error: {err}"),
@@ -287,9 +285,7 @@ mod test {
                 &fixed_config,
                 move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
                     let mut sizes = fixed_buffer_sizes_clone.lock().unwrap();
-                    if sizes.len() < 5 {
-                        sizes.push(data.len());
-                    }
+                    sizes.push(data.len());
                     write_silence(data, info);
                 },
                 move |err| println!("Error: {err}"),
