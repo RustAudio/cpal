@@ -694,10 +694,6 @@ impl Device {
             audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
         };
 
-        // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config, sample_format);
-        audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
-
         // Configure device buffer to ensure predictable callback behavior and accurate latency.
         //
         // CoreAudio double-buffering model:
@@ -716,41 +712,15 @@ impl Device {
         //
         // For latency calculation, we need the device buffer size, not the callback buffer size,
         // because latency represents the delay from when audio is written to when it's heard.
-        match config.buffer_size {
-            BufferSize::Fixed(cpal_buffer_size) => {
-                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                let device_buffer_size = cpal_buffer_size / 2;
-
-                if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-                    if !(min..=max).contains(&device_buffer_size) {
-                        // The calculated device buffer size doesn't fit in the supported range
-                        // or is zero (due to integer division). This means the requested
-                        // cpal_buffer_size is too small or too large for this device.
-                        return Err(BuildStreamError::StreamConfigNotSupported);
-                    }
-                }
-                audio_unit.set_property(
-                    kAudioDevicePropertyBufferFrameSize,
-                    scope,
-                    element,
-                    Some(&device_buffer_size),
-                )?;
-            }
-            BufferSize::Default => (),
-        }
+        configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
         let error_callback = Arc::new(Mutex::new(error_callback));
         let error_callback_disconnect = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let bytes_per_channel = sample_format.sample_size();
-        let sample_rate = config.sample_rate;
-
-        // Query the actual device buffer size for latency calculation.
-        // For Fixed: verifies CoreAudio actually set what we requested
-        // For Default: gets the device's current buffer size
-        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit, scope, element).ok();
+        let (bytes_per_channel, sample_rate, device_buffer_frames) =
+            setup_callback_vars(&audio_unit, config, sample_format, scope, element);
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
@@ -831,46 +801,16 @@ impl Device {
         let scope = Scope::Input;
         let element = Element::Output;
 
-        // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config, sample_format);
-        audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
-
         // Configure device buffer (see comprehensive documentation in input stream above)
-        match config.buffer_size {
-            BufferSize::Fixed(cpal_buffer_size) => {
-                let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-                let device_buffer_size = cpal_buffer_size / 2;
-
-                if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-                    if !(min..=max).contains(&device_buffer_size) {
-                        // The calculated device buffer size doesn't fit in the supported range
-                        // or is zero (due to integer division). This means the requested
-                        // cpal_buffer_size is too small or too large for this device.
-                        return Err(BuildStreamError::StreamConfigNotSupported);
-                    }
-                }
-                audio_unit.set_property(
-                    kAudioDevicePropertyBufferFrameSize,
-                    scope,
-                    element,
-                    Some(&device_buffer_size),
-                )?;
-            }
-            BufferSize::Default => (),
-        }
+        configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
         let error_callback = Arc::new(Mutex::new(error_callback));
         let error_callback_disconnect = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
-        let bytes_per_channel = sample_format.sample_size();
-        let sample_rate = config.sample_rate;
-
-        // Query the actual device buffer size for latency calculation.
-        // For Fixed: verifies CoreAudio actually set what we requested
-        // For Default: gets the device's current buffer size
-        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit, scope, element).ok();
+        let (bytes_per_channel, sample_rate, device_buffer_frames) =
+            setup_callback_vars(&audio_unit, config, sample_format, scope, element);
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
@@ -930,6 +870,71 @@ impl Device {
 
         Ok(stream)
     }
+}
+
+/// Configure stream format and buffer size for CoreAudio stream.
+///
+/// This handles the common setup tasks for both input and output streams:
+/// - Sets the stream format (ASBD)
+/// - Configures buffer size for Fixed buffer size requests
+/// - Validates buffer size ranges
+fn configure_stream_format_and_buffer(
+    audio_unit: &mut AudioUnit,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    scope: Scope,
+    element: Element,
+) -> Result<(), BuildStreamError> {
+    // Set the stream in interleaved mode
+    let asbd = asbd_from_config(config, sample_format);
+    audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
+
+    // Configure device buffer size if requested
+    match config.buffer_size {
+        BufferSize::Fixed(cpal_buffer_size) => {
+            let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
+            let device_buffer_size = cpal_buffer_size / 2;
+
+            if let SupportedBufferSize::Range { min, max } = buffer_size_range {
+                if !(min..=max).contains(&device_buffer_size) {
+                    // The calculated device buffer size doesn't fit in the supported range
+                    // or is zero (due to integer division). This means the requested
+                    // cpal_buffer_size is too small or too large for this device.
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+            }
+            audio_unit.set_property(
+                kAudioDevicePropertyBufferFrameSize,
+                scope,
+                element,
+                Some(&device_buffer_size),
+            )?;
+        }
+        BufferSize::Default => (),
+    }
+
+    Ok(())
+}
+
+/// Setup common callback variables and query device buffer size.
+///
+/// Returns (bytes_per_channel, sample_rate, device_buffer_frames)
+fn setup_callback_vars(
+    audio_unit: &AudioUnit,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    scope: Scope,
+    element: Element,
+) -> (usize, crate::SampleRate, Option<usize>) {
+    let bytes_per_channel = sample_format.sample_size();
+    let sample_rate = config.sample_rate;
+
+    // Query the actual device buffer size for latency calculation.
+    // For Fixed: verifies CoreAudio actually set what we requested
+    // For Default: gets the device's current buffer size
+    let device_buffer_frames = get_device_buffer_frame_size(audio_unit, scope, element).ok();
+
+    (bytes_per_channel, sample_rate, device_buffer_frames)
 }
 
 /// Query the current device buffer frame size from CoreAudio.
