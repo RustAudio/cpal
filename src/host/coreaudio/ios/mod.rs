@@ -1,17 +1,31 @@
 //!
-//! coreaudio on iOS looks a bit different from macOS. A lot of configuration needs to use
-//! the AVAudioSession objc API which doesn't exist on macOS.
+//! CoreAudio implementation for iOS using RemoteIO Audio Units.
 //!
-//! TODO:
-//! - Use AVAudioSession to enumerate buffer size / sample rate / number of channels and set
-//!   buffer size.
+//! ## Implementation Details
 //!
+//! This implementation uses **RemoteIO Audio Units** to interface with iOS audio hardware:
+//!
+//! - **RemoteIO**: A special Audio Unit that acts as a proxy to the actual hardware
+//! - **Direct queries**: Buffer sizes are queried directly from the RemoteIO unit
+//! - **System control**: iOS controls buffer sizes, sample rates, and device routing
+//! - **Single device model**: iOS presents audio as a single system-managed device
+//!
+//! ## Limitations
+//!
+//! - **No device enumeration**: iOS doesn't allow direct hardware device access
+//! - **No fixed buffer sizes**: `BufferSize::Fixed` returns `StreamConfigNotSupported`
+//! - **System-determined parameters**: Buffer sizes and sample rates are set by iOS
+
+// TODO:
+// - Use AVAudioSession to enumerate buffer size / sample rate / number of channels and set
+//   buffer size.
 
 use std::cell::RefCell;
 
 use coreaudio::audio_unit::render_callback::data;
 use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
+use objc2_core_audio::kAudioDevicePropertyBufferFrameSize;
 use objc2_core_audio_types::{AudioBuffer, AudioStreamBasicDescription};
 
 use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
@@ -197,6 +211,10 @@ impl DeviceTrait for Device {
             BufferSize::Default => (),
         }
 
+        // Query the actual device buffer size for more accurate latency calculation. On iOS,
+        // BufferSize::Fixed is not supported, so this always gets the current device buffer size.
+        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit).ok();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -218,7 +236,6 @@ impl DeviceTrait for Device {
             let len = (data_byte_size as usize / bytes_per_channel) as usize;
             let data = Data::from_parts(data, len, sample_format);
 
-            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
                     error_callback(err.into());
@@ -227,7 +244,12 @@ impl DeviceTrait for Device {
                 Ok(cb) => cb,
             };
             let buffer_frames = len / channels as usize;
-            let delay = frames_to_duration(buffer_frames, sample_rate);
+            // Use device buffer size for latency calculation if available
+            let latency_frames = device_buffer_frames.unwrap_or(
+                // Fallback to callback buffer size if device buffer size is unknown
+                buffer_frames,
+            );
+            let delay = frames_to_duration(latency_frames, sample_rate);
             let capture = callback
                 .sub(delay)
                 .expect("`capture` occurs before origin of alsa `StreamInstant`");
@@ -276,6 +298,10 @@ impl DeviceTrait for Device {
         let asbd = asbd_from_config(config, sample_format);
         audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
+        // Query the actual device buffer size for more accurate latency calculation. On iOS,
+        // BufferSize::Fixed is not supported, so this always gets the current device buffer size.
+        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit).ok();
+
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let bytes_per_channel = sample_format.sample_size();
@@ -302,9 +328,13 @@ impl DeviceTrait for Device {
                 }
                 Ok(cb) => cb,
             };
-            // TODO: Need a better way to get delay, for now we assume a double-buffer offset.
             let buffer_frames = len / channels as usize;
-            let delay = frames_to_duration(buffer_frames, sample_rate);
+            // Use device buffer size for latency calculation if available
+            let latency_frames = device_buffer_frames.unwrap_or(
+                // Fallback to callback buffer size if device buffer size is unknown
+                buffer_frames,
+            );
+            let delay = frames_to_duration(latency_frames, sample_rate);
             let playback = callback
                 .add(delay)
                 .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -426,4 +456,19 @@ fn stream_config_from_asbd(asbd: AudioStreamBasicDescription) -> SupportedStream
         buffer_size: buffer_size.clone(),
         sample_format: SUPPORTED_SAMPLE_FORMAT,
     }
+}
+
+/// Query the current device buffer frame size from CoreAudio.
+///
+/// On iOS, this queries the RemoteIO audio unit which acts as a proxy to the hardware.
+/// RemoteIO uses Global scope because it represents the system-wide audio session,
+/// not a specific hardware device like on macOS.
+fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
+    // For iOS RemoteIO, we query the global scope since RemoteIO represents
+    // the system audio session rather than direct hardware access
+    audio_unit.get_property::<usize>(
+        kAudioDevicePropertyBufferFrameSize,
+        Scope::Global,
+        Element::Output,
+    )
 }

@@ -223,4 +223,107 @@ mod test {
             *sample = Sample::EQUILIBRIUM;
         }
     }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_buffer_size_equivalence() {
+        use crate::{BufferSize, SampleRate, StreamConfig};
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+
+        let host = default_host();
+        let device = host.default_output_device().unwrap();
+
+        // First, test with BufferSize::Default to see what we get
+        let default_config = StreamConfig {
+            channels: 2,
+            sample_rate: SampleRate(48000),
+            buffer_size: BufferSize::Default,
+        };
+
+        // Capture actual buffer sizes from callbacks
+        let default_buffer_sizes = Arc::new(Mutex::new(Vec::new()));
+        let default_buffer_sizes_clone = default_buffer_sizes.clone();
+
+        let default_stream = device
+            .build_output_stream(
+                &default_config,
+                move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
+                    let mut sizes = default_buffer_sizes_clone.lock().unwrap();
+                    if sizes.len() < 10 {
+                        // Collect first 10 callback buffer sizes
+                        sizes.push(data.len());
+                    }
+                    write_silence(data, info);
+                },
+                move |err| println!("Error: {err}"),
+                None,
+            )
+            .unwrap();
+
+        default_stream.play().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        default_stream.pause().unwrap();
+
+        let default_sizes = default_buffer_sizes.lock().unwrap().clone();
+        assert!(
+            !default_sizes.is_empty(),
+            "Should have captured some buffer sizes"
+        );
+
+        // Get the typical buffer size (most streams should be consistent)
+        let typical_buffer_size = default_sizes[0];
+
+        // Now test with BufferSize::Fixed using double the callback buffer size
+        // Based on our theory: cpal_buffer_size = 2 * device_buffer_size ≈ 2 * callback_buffer_size
+        let fixed_cpal_buffer_size = typical_buffer_size * 2;
+        let fixed_config = StreamConfig {
+            channels: 2,
+            sample_rate: SampleRate(48000),
+            buffer_size: BufferSize::Fixed(fixed_cpal_buffer_size as u32),
+        };
+
+        let fixed_buffer_sizes = Arc::new(Mutex::new(Vec::new()));
+        let fixed_buffer_sizes_clone = fixed_buffer_sizes.clone();
+
+        let fixed_stream = device
+            .build_output_stream(
+                &fixed_config,
+                move |data: &mut [f32], info: &crate::OutputCallbackInfo| {
+                    let mut sizes = fixed_buffer_sizes_clone.lock().unwrap();
+                    if sizes.len() < 10 {
+                        sizes.push(data.len());
+                    }
+                    write_silence(data, info);
+                },
+                move |err| println!("Error: {err}"),
+                None,
+            )
+            .unwrap();
+
+        fixed_stream.play().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        fixed_stream.pause().unwrap();
+
+        let fixed_sizes = fixed_buffer_sizes.lock().unwrap().clone();
+        assert!(
+            !fixed_sizes.is_empty(),
+            "Should have captured some buffer sizes"
+        );
+
+        let fixed_typical_size = fixed_sizes[0];
+
+        // The key test: verify that the callback buffer sizes are approximately equal
+        // This validates our fallback assumption: callback_buffer_size ≈ device_buffer_size
+        let size_difference = (typical_buffer_size as i32 - fixed_typical_size as i32).abs();
+        let tolerance = typical_buffer_size / 10; // 10% tolerance
+
+        assert!(
+            size_difference <= tolerance as i32,
+            "Buffer sizes should be approximately equal: Default={}, Fixed={}, Difference={}",
+            typical_buffer_size,
+            fixed_typical_size,
+            size_difference
+        );
+    }
 }
