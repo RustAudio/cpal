@@ -19,6 +19,7 @@
 - CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
 - CoreAudio: Update `mach2` to 0.5.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
+- CoreAudio: Fix timestamp accuracy.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
