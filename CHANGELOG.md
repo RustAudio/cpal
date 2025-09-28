@@ -2,6 +2,7 @@
 
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
+- AAudio: Configure buffer to ensure consistent callback buffer sizes.
 - ALSA: Improve `BufferSize::Fixed` latency precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
