@@ -241,7 +241,7 @@ struct LocalProcessHandler {
 }
 
 impl LocalProcessHandler {
-    #[allow(too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
