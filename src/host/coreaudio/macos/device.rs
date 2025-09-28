@@ -225,6 +225,7 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
         )?;
     }
 
+    // Device selection is a device-level property: always use Scope::Global + Element::Output
     audio_unit.set_property(
         kAudioOutputUnitProperty_CurrentDevice,
         Scope::Global,
@@ -238,6 +239,8 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 fn get_io_buffer_frame_size_range(
     audio_unit: &AudioUnit,
 ) -> Result<SupportedBufferSize, coreaudio::Error> {
+    // Device-level property: always use Scope::Global + Element::Output
+    // regardless of whether this audio unit is configured for input or output
     let buffer_size_range: AudioValueRange = audio_unit.get_property(
         kAudioDevicePropertyBufferFrameSizeRange,
         Scope::Global,
@@ -703,7 +706,7 @@ impl Device {
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let (bytes_per_channel, sample_rate, device_buffer_frames) =
-            setup_callback_vars(&audio_unit, config, sample_format, scope, element);
+            setup_callback_vars(&audio_unit, config, sample_format);
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
@@ -793,7 +796,7 @@ impl Device {
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
         let (bytes_per_channel, sample_rate, device_buffer_frames) =
-            setup_callback_vars(&audio_unit, config, sample_format, scope, element);
+            setup_callback_vars(&audio_unit, config, sample_format);
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
@@ -868,7 +871,9 @@ fn configure_stream_format_and_buffer(
     scope: Scope,
     element: Element,
 ) -> Result<(), BuildStreamError> {
-    // Set the stream in interleaved mode
+    // Set the stream format using stream-specific scope/element
+    // - Input streams: scope=Output, element=Input (configuring output format of input element)
+    // - Output streams: scope=Input, element=Output (configuring input format of output element)
     let asbd = asbd_from_config(config, sample_format);
     audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
 
@@ -882,10 +887,18 @@ fn configure_stream_format_and_buffer(
             }
         }
 
+        // IMPORTANT: Buffer frame size is a DEVICE-LEVEL property, not stream-specific.
+        // Unlike stream format above, we ALWAYS use Scope::Global + Element::Output
+        // for device properties, regardless of whether this is an input or output stream.
+        // This is consistent with other device properties like:
+        // - kAudioOutputUnitProperty_CurrentDevice
+        // - kAudioDevicePropertyBufferFrameSizeRange
+        // The Element::Output here doesn't mean "output stream only" - it's the
+        // canonical element used for device-wide properties in Core Audio.
         audio_unit.set_property(
             kAudioDevicePropertyBufferFrameSize,
-            scope,
-            element,
+            Scope::Global,
+            Element::Output,
             Some(&buffer_size),
         )?;
     }
@@ -900,23 +913,26 @@ fn setup_callback_vars(
     audio_unit: &AudioUnit,
     config: &StreamConfig,
     sample_format: SampleFormat,
-    scope: Scope,
-    element: Element,
 ) -> (usize, crate::SampleRate, Option<usize>) {
     let bytes_per_channel = sample_format.sample_size();
     let sample_rate = config.sample_rate;
 
     // Query device buffer size for latency calculation
-    let device_buffer_frames = get_device_buffer_frame_size(audio_unit, scope, element).ok();
+    let device_buffer_frames = get_device_buffer_frame_size(audio_unit).ok();
 
     (bytes_per_channel, sample_rate, device_buffer_frames)
 }
 
 /// Query the current device buffer frame size from CoreAudio.
-fn get_device_buffer_frame_size(
-    audio_unit: &AudioUnit,
-    scope: Scope,
-    element: Element,
-) -> Result<usize, coreaudio::Error> {
-    audio_unit.get_property::<usize>(kAudioDevicePropertyBufferFrameSize, scope, element)
+///
+/// Buffer frame size is a device-level property that always uses Scope::Global + Element::Output,
+/// regardless of whether the audio unit is configured for input or output streams.
+fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
+    // Device-level property: always use Scope::Global + Element::Output
+    // This is consistent with how we set the buffer size and query the buffer size range
+    audio_unit.get_property::<usize>(
+        kAudioDevicePropertyBufferFrameSize,
+        Scope::Global,
+        Element::Output,
+    )
 }
