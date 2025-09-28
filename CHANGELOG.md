@@ -19,6 +19,7 @@
 - CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
 - CoreAudio: Update `mach2` to 0.5.
 - CoreAudio: Make `Stream` implement `Send` on macOS by refactoring internal synchronization.
+- CoreAudio: Remove `Clone` impl from `Stream`.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
