@@ -1102,8 +1102,9 @@ impl Drop for Stream {
                     // TODO: Use SND_PCM_WAIT_DRAIN (-10002) when alsa-rs supports it properly,
                     // although it requires ALSA 1.2.8+ which may not be available everywhere.
                     // For now, calculate timeout based on buffer latency.
-                    let buffer_duration_ms =
-                        (self.inner.period_frames as u32 * 1000) / self.inner.conf.sample_rate.0;
+                    let buffer_duration_ms = ((self.inner.period_frames as f64 * 1000.0)
+                        / self.inner.conf.sample_rate.0 as f64)
+                        as u32;
 
                     // This is safe: snd_pcm_wait() checks device state first and returns
                     // immediately with error codes like -ENODEV for disconnected devices.
