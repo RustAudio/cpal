@@ -345,8 +345,6 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: crate::Sa
 
 #[cfg(not(feature = "audio_thread_priority"))]
 fn boost_current_thread_priority(_: BufferSize, _: crate::SampleRate) {
-    use windows::Win32::Foundation::HANDLE;
-
     unsafe {
         let thread_handle = Threading::GetCurrentThread();
 
