@@ -196,14 +196,8 @@ jobs:
         with:
           tool: cross
 
-      - name: Check without features
-        run: cross check --target ${{ matrix.target }} --workspace --no-default-features --verbose
-
       - name: Test without features
         run: cross test --target ${{ matrix.target }} --workspace --no-default-features --verbose
-
-      - name: Check all features
-        run: cross check --target ${{ matrix.target }} --workspace --all-features --verbose
 
       - name: Test all features
         run: cross test --target ${{ matrix.target }} --workspace --all-features --verbose
