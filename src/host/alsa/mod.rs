@@ -19,7 +19,7 @@ use crate::{
     DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
     StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, I24,
+    SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
 
 // ALSA Latency Model and Period Configuration
@@ -1188,7 +1188,7 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
         SampleFormat::I64 => fill_typed!(i64),
         SampleFormat::U8 => fill_typed!(u8),
         SampleFormat::U16 => fill_typed!(u16),
-        // SampleFormat::U24 => fill_typed!(U24),
+        SampleFormat::U24 => fill_typed!(U24),
         SampleFormat::U32 => fill_typed!(u32),
         // SampleFormat::U48 => fill_typed!(U48),
         SampleFormat::U64 => fill_typed!(u64),
