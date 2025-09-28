@@ -7,7 +7,7 @@ use crate::traits::{HostTrait, StreamTrait};
 use crate::{BackendSpecificError, DevicesError, PauseStreamError, PlayStreamError};
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::AudioDeviceID;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{mpsc, Arc, Mutex, Weak};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
@@ -58,38 +58,50 @@ impl HostTrait for Host {
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = Box<dyn FnMut(crate::StreamError) + Send + 'static>;
 
-/// Manages device disconnection listener separately from StreamInner to allow Stream to be Send.
-/// The AudioObjectPropertyListener contains non-Send closures, so we keep it separate and
-/// manage its lifetime independently.
+/// Manages device disconnection listener on a dedicated thread to ensure the
+/// AudioObjectPropertyListener is always created and dropped on the same thread.
+/// This avoids potential threading issues with CoreAudio APIs.
 struct DisconnectManager {
-    _listener: AudioObjectPropertyListener,
+    _shutdown_tx: mpsc::Sender<()>,
 }
 
 impl DisconnectManager {
-    /// Create a new DisconnectManager that monitors device disconnection
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure:
-    /// - `device_id` is a valid AudioDeviceID
-    /// - The error callback is Send + 'static
+    /// Create a new DisconnectManager that monitors device disconnection on a dedicated thread
     fn new(
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
-    ) -> Result<Arc<Self>, crate::BuildStreamError> {
-        let property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
+    ) -> Result<Self, crate::BuildStreamError> {
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let (disconnect_tx, disconnect_rx) = mpsc::channel();
 
-        let callback = {
-            let stream_weak = stream_weak.clone();
-            let error_callback = error_callback.clone();
-            move || {
+        // Spawn dedicated thread to own the AudioObjectPropertyListener
+        let disconnect_tx_clone = disconnect_tx.clone();
+        std::thread::spawn(move || {
+            let property_address = AudioObjectPropertyAddress {
+                mSelector: kAudioDevicePropertyDeviceIsAlive,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+
+            // Create the listener on this dedicated thread
+            let _listener =
+                AudioObjectPropertyListener::new(device_id, property_address, move || {
+                    let _ = disconnect_tx_clone.send(());
+                })
+                .unwrap();
+
+            // Drop the listener on this thread after receiving a shutdown signal
+            let _ = shutdown_rx.recv();
+        });
+
+        // Handle disconnect events on the main thread pool
+        let stream_weak_clone = stream_weak.clone();
+        let error_callback_clone = error_callback.clone();
+        std::thread::spawn(move || {
+            while disconnect_rx.recv().is_ok() {
                 // Check if stream still exists
-                if let Some(stream_arc) = stream_weak.upgrade() {
+                if let Some(stream_arc) = stream_weak_clone.upgrade() {
                     // First, try to pause the stream to stop playback
                     match stream_arc.lock() {
                         Ok(mut stream_inner) => {
@@ -104,32 +116,21 @@ impl DisconnectManager {
                     }
 
                     // Call the error callback to notify about device disconnection
-                    if let Ok(mut cb) = error_callback.lock() {
+                    if let Ok(mut cb) = error_callback_clone.lock() {
                         cb(crate::StreamError::DeviceNotAvailable);
                     }
+                } else {
+                    // Stream is gone, exit the handler thread
+                    break;
                 }
             }
-        };
+        });
 
-        let listener = AudioObjectPropertyListener::new(device_id, property_address, callback)
-            .map_err(|e| {
-                let description = format!("Failed to create disconnect listener: {e}");
-                crate::BuildStreamError::BackendSpecific {
-                    err: crate::BackendSpecificError { description },
-                }
-            })?;
-
-        Ok(Arc::new(DisconnectManager {
-            _listener: listener,
-        }))
+        Ok(DisconnectManager {
+            _shutdown_tx: shutdown_tx,
+        })
     }
 }
-
-// SAFETY: DisconnectManager is only used to keep the AudioObjectPropertyListener alive
-// and is never actually accessed across threads. The AudioObjectPropertyListener
-// itself handles thread safety for the CoreAudio callback internally.
-unsafe impl Send for DisconnectManager {}
-unsafe impl Sync for DisconnectManager {}
 
 struct StreamInner {
     playing: bool,
@@ -171,12 +172,11 @@ impl StreamInner {
     }
 }
 
-#[derive(Clone)]
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
     // Manages the device disconnection listener separately to allow Stream to be Send.
     // The DisconnectManager contains the non-Send AudioObjectPropertyListener.
-    _disconnect_manager: Arc<DisconnectManager>,
+    _disconnect_manager: DisconnectManager,
 }
 
 impl Stream {
@@ -205,7 +205,7 @@ impl StreamTrait for Stream {
             .lock()
             .map_err(|_| PlayStreamError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Failed to acquire stream lock".to_string(),
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
                 },
             })?;
 
@@ -218,7 +218,7 @@ impl StreamTrait for Stream {
             .lock()
             .map_err(|_| PauseStreamError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Failed to acquire stream lock".to_string(),
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
                 },
             })?;
 
