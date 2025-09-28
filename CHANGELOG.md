@@ -13,6 +13,7 @@
 - CI: Fix cargo publish to trigger on GitHub releases instead of every master commit.
 - CI: Replace cargo install commands with cached tool installation for faster builds.
 - CI: Update actions to latest versions (checkout@v5, rust-cache@v2).
+- CI: Verify compatibility with windows crates since v0.58.
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
