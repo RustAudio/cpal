@@ -22,7 +22,7 @@
 - CoreAudio: Update `mach2` to 0.5.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
-- CoreAudio: Make `Stream` implement `Send` on macOS by refactoring internal synchronization.
+- CoreAudio: Make `Stream` implement `Send`.
 - CoreAudio: Remove `Clone` impl from `Stream`.
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
 - iOS: Fix example by properly activating audio session.

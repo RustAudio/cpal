@@ -1,6 +1,6 @@
 //! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use coreaudio::audio_unit::render_callback::data;
 use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
@@ -212,20 +212,27 @@ impl DeviceTrait for Device {
 }
 
 pub struct Stream {
-    inner: RefCell<StreamInner>,
+    inner: Mutex<StreamInner>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: RefCell::new(inner),
+            inner: Mutex::new(inner),
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self
+            .inner
+            .lock()
+            .map_err(|_| PlayStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?;
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -239,7 +246,14 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self
+            .inner
+            .lock()
+            .map_err(|_| PauseStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?;
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
