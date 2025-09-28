@@ -897,9 +897,9 @@ fn configure_stream_format_and_buffer(
 
             if let SupportedBufferSize::Range { min, max } = buffer_size_range {
                 if !(min..=max).contains(&device_buffer_size) {
-                    // The calculated device buffer size doesn't fit in the supported range
-                    // or is zero (due to integer division). This means the requested
-                    // cpal_buffer_size is too small or too large for this device.
+                    // The calculated device buffer size doesn't fit in the supported range.
+                    // This means the requested cpal_buffer_size is too small or too large for this
+                    // device.
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
             }
