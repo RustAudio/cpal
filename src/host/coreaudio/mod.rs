@@ -129,7 +129,6 @@ pub(crate) type OSStatus = i32;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
         default_host,
         traits::{DeviceTrait, HostTrait, StreamTrait},
