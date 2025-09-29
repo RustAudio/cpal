@@ -1256,7 +1256,7 @@ fn set_hw_params_from_format(
     }
 
     // We shouldn't fail if the driver isn't happy here.
-    // `default` pcm sometimes fails here, but there no reason to as we
+    // `default` pcm sometimes fails here, but there's no reason to as we
     // provide a direction and 2 is strictly the minimum number of periods.
     let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
 
