@@ -429,6 +429,7 @@ fn get_device_buffer_frames(audio_unit: &AudioUnit) -> Option<usize> {
 /// - `args.data.data` points to valid AudioBufferList
 /// - For input: AudioBufferList has at least one buffer
 /// - Buffer data remains valid for the callback duration
+#[inline]
 unsafe fn extract_audio_buffer(
     args: &render_callback::Args<data::Raw>,
     bytes_per_channel: usize,
