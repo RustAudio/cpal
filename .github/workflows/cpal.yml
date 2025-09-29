@@ -1,268 +1,320 @@
 name: cpal
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  release:
+    types: [published]
 
 jobs:
-
-  clippy-test:
+  rustfmt:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Update apt
-      run: sudo apt update
-    - name: Install alsa
-      run: sudo apt-get install libasound2-dev
-    - name: Install libjack
-      run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
-    - name: Install dbus
-      run: sudo apt-get install libdbus-1-dev
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
-        target: armv7-linux-androideabi
-    - name: Run clippy
-      run: cargo clippy --all --all-features
-    - name: Run clippy for Android target
-      run: cargo clippy --all --features asio --target armv7-linux-androideabi
+      - uses: actions/checkout@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-  rustfmt-check:
+  clippy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt
-    - name: Run rustfmt
-      run: cargo fmt --all -- --check
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: armv7-linux-androideabi
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --all --all-features
+      - name: Run clippy for Android target
+        run: cargo clippy --all --features asio --target armv7-linux-androideabi
 
   cargo-publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'release'
+    needs: [test-native, test-cross, test-wasm, test-android, test-ios]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@stable
-    - name: Update apt
-      run: sudo apt update
-    - name: Install alsa
-      run: sudo apt-get install libasound2-dev
-    - name: Verify publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        dry-run: true
-        ignore-unpublished-changes: true
-    - name: Publish crate
-      uses: katyo/publish-crates@v2
-      with:
-        ignore-unpublished-changes: true
-        registry-token: ${{ secrets.CRATESIO_TOKEN }}
+      - uses: actions/checkout@v5
 
-  ubuntu-test:
-    runs-on: ubuntu-latest
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Verify the release tag matches Cargo.toml version
+      - name: Verify release version
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Release tag version: $RELEASE_VERSION"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version mismatch! Cargo.toml has $CARGO_VERSION but release tag is v$RELEASE_VERSION"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CRATESIO_TOKEN }}
+
+  # Native platform testing
+  test-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            name: linux-x64
+
+          # Linux ARM64 native
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+
+          # Windows x86_64
+          - os: windows-latest
+            name: windows-x64
+            target: x86_64-pc-windows-msvc
+            deps: |
+              curl -L -o asio.zip https://www.steinberg.net/asiosdk
+              7z x -oasio asio.zip
+              move asio\*\* asio\
+              choco install asio4all
+              choco install llvm
+            asio-env: true
+
+          # Windows i686
+          - os: windows-latest
+            name: windows-x86
+            target: i686-pc-windows-msvc
+            deps: |
+              curl -L -o asio.zip https://www.steinberg.net/asiosdk
+              7z x -oasio asio.zip
+              move asio\*\* asio\
+              choco install asio4all
+              choco install llvm
+            asio-env: true
+
+          # macOS (ARM64 M1/M2)
+          - os: macOS-latest
+            name: macos-arm64
+            deps: brew install llvm
+            build-beep: true
+
+    runs-on: ${{ matrix.os }}
+    name: test-${{ matrix.name }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Update apt
-      run: sudo apt update
-    - name: Install alsa
-      run: sudo apt-get install libasound2-dev
-    - name: Install libjack
-      run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
-    - name: Install dbus
-      run: sudo apt-get install libdbus-1-dev
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-    - name: Run without features
-      run: cargo test --all --no-default-features --verbose
-    - name: Run all features
-      run: cargo test --all --all-features --verbose
+      - uses: actions/checkout@v5
 
-  linux-check-and-test-armv7:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+      - name: Cache Linux audio packages
+        if: runner.os == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-      - name: Install stable toolchain
+      - name: Install non-Linux dependencies
+        if: runner.os != 'Linux'
+        run: ${{ matrix.deps }}
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: armv7-unknown-linux-gnueabihf
+          target: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build beep example (macOS only)
+        if: matrix.build-beep
+        run: cargo build --example beep
+
+      - name: Run tests without features
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests with all features
+        shell: bash
+        run: |
+          if [[ "${{ matrix.asio-env }}" == "true" ]]; then
+            export CPAL_ASIO_DIR="$GITHUB_WORKSPACE/asio"
+          fi
+          cargo test --all --all-features --verbose
+
+  # Cross-compilation for architectures without native runners
+  test-cross:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [armv7-unknown-linux-gnueabihf]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-${{ matrix.target }}
 
       - name: Install cross
-        run: cargo install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
-      - name: Check without features for armv7
-        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+      - name: Check without features
+        run: cross check --target ${{ matrix.target }} --workspace --no-default-features --verbose
 
-      - name: Test without features for armv7
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+      - name: Test without features
+        run: cross test --target ${{ matrix.target }} --workspace --no-default-features --verbose
 
-      - name: Check all features for armv7
-        run: cross check --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+      - name: Check all features
+        run: cross check --target ${{ matrix.target }} --workspace --all-features --verbose
 
-      - name: Test all features for armv7
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+      - name: Test all features
+        run: cross test --target ${{ matrix.target }} --workspace --all-features --verbose
 
-  asmjs-wasm32-test:
-    strategy:
-      matrix:
-        target: [wasm32-unknown-emscripten]
+  # WebAssembly builds
+  test-wasm:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Setup Emscripten toolchain
-      uses: mymindstorm/setup-emsdk@v14
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        target: ${{ matrix.target }}
-    - name: Build beep example
-      run: cargo build --example beep --release --target ${{ matrix.target }}
-
-  wasm32-bindgen-test:
-
     strategy:
+      fail-fast: false
       matrix:
-        target: [wasm32-unknown-unknown]
-
-    runs-on: ubuntu-latest
+        include:
+          - target: wasm32-unknown-emscripten
+            setup-emscripten: true
+            args: --release
+          - target: wasm32-unknown-unknown
+            setup-emscripten: false
+            args: --features=wasm-bindgen
+            build-wasm-beep: true
+          - target: wasm32-wasip1
+            setup-emscripten: false
+            args: ""
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Install stable
+      - uses: actions/checkout@v5
+
+      - name: Setup Emscripten toolchain
+        if: matrix.setup-emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
-      - name: Build beep example
-        run: cargo build --example beep --target ${{ matrix.target }} --features=wasm-bindgen
 
-  wasm32-wasi-test:
-
-    strategy:
-      matrix:
-        target: [wasm32-wasip1]
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
         with:
-          target: ${{ matrix.target }}
+          key: wasm-${{ matrix.target }}
+
       - name: Build beep example
-        run: cargo build --example beep --target ${{ matrix.target }}
+        run: cargo build --example beep --target ${{ matrix.target }} ${{ matrix.args }}
 
-  windows-test:
-    strategy:
-      matrix:
-        version: [x86_64, i686]
-    runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install ASIO SDK
-      env:
-        LINK: https://www.steinberg.net/asiosdk
-      run: |
-        curl -L -o asio.zip $env:LINK
-        7z x -oasio asio.zip
-        move asio\*\* asio\
-    - name: Install ASIO4ALL
-      run: choco install asio4all
-    - name: Install llvm and clang
-      run: choco install llvm
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        target: ${{ matrix.version }}-pc-windows-msvc
-    - name: Run without features
-      run: cargo test --all --no-default-features --verbose
-    - name: Run all features
-      run: |
-        $Env:CPAL_ASIO_DIR = "$Env:GITHUB_WORKSPACE\asio"
-        cargo test --all --all-features --verbose
-
-  macos-test:
-    runs-on: macOS-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install llvm and clang
-      run: brew install llvm
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
-    - name: Build beep example
-      run: cargo build --example beep
-    - name: Run without features
-      run: cargo test --all --no-default-features --verbose
-    - name: Run all features
-      run: cargo test --all --all-features --verbose
-
-  android-check:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install stable (Android target)
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        target: armv7-linux-androideabi
-    - name: Check android
-      working-directory: examples/android
-      run: cargo check --target armv7-linux-androideabi --verbose
-    - name: Check beep
-      run: cargo check --example beep --target armv7-linux-androideabi --verbose
-    - name: Check enumerate
-      run: cargo check --example enumerate --target armv7-linux-androideabi --verbose
-    - name: Check feedback
-      run: cargo check --example feedback --target armv7-linux-androideabi --verbose
-    - name: Check record_wav
-      run: cargo check --example record_wav --target armv7-linux-androideabi --verbose
-
-  android-apk-build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install stable (Android targets)
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
-    - name: Set Up Android tools
-      run: |
-        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --install "build-tools;30.0.2" "platforms;android-30"
-    - name: Install Cargo APK
-      run: cargo install cargo-apk
-    - name: Build APK
-      working-directory: examples/android
-      run: cargo apk build
-
-  ios-build:
-    runs-on: macOS-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install llvm and clang
-      run: brew install llvm
-    - name: Install stable (iOS targets)
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: aarch64-apple-ios,x86_64-apple-ios
-    - name: Install cargo lipo
-      run: cargo install cargo-lipo
-    - name: Build iphonesimulator feedback example
-      run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
-
-  wasm-beep-build:
-    # this only confirms that the Rust source builds
-    # and checks to prevent regressions like #721.
-    #
-    # It does not test the javascript/web integration
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable (wasm32 target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Cargo Build
+      - name: Build wasm-beep example
+        if: matrix.build-wasm-beep
         working-directory: ./examples/wasm-beep
-        run: cargo build --target wasm32-unknown-unknown
+        run: cargo build --target ${{ matrix.target }}
 
+  # Android cross-compilation
+  test-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: Check Android examples
+        run: |
+          cargo check --example beep --target armv7-linux-androideabi --verbose
+          cargo check --example enumerate --target armv7-linux-androideabi --verbose
+          cargo check --example feedback --target armv7-linux-androideabi --verbose
+          cargo check --example record_wav --target armv7-linux-androideabi --verbose
+
+      - name: Check Android project
+        working-directory: examples/android
+        run: cargo check --target armv7-linux-androideabi --verbose
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-30 build-tools;30.0.3
+
+      - name: Install cargo-apk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-apk
+
+      - name: Build APK
+        working-directory: examples/android
+        run: cargo apk build
+
+  # iOS cross-compilation
+  test-ios:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: brew install llvm
+
+      - name: Install Rust toolchain (iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - name: Install cargo-lipo
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-lipo
+
+      - name: Build iOS example
+        run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator

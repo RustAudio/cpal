@@ -217,7 +217,9 @@ fn configure_for_device(
     builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
     match &config.buffer_size {
         BufferSize::Default => builder,
-        BufferSize::Fixed(size) => builder.buffer_capacity_in_frames(*size as i32),
+        BufferSize::Fixed(size) => builder
+            .frames_per_data_callback(*size as i32)
+            .buffer_capacity_in_frames((*size * 2) as i32), // Double-buffering
     }
 }
 

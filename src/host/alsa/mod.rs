@@ -17,10 +17,52 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat,
     SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
+
+// ALSA Latency Model and Period Configuration
+// ===========================================
+//
+// ## ALSA Latency Model
+//
+// **Hardware vs Software Buffer**: ALSA maintains a software buffer in memory that feeds
+// a hardware buffer in the audio device. Audio latency is determined by how much data
+// sits in the software buffer before being transferred to hardware.
+//
+// **Period-Based Transfer**: ALSA transfers data in chunks called "periods". When one
+// period worth of data has been consumed by hardware, ALSA triggers a callback to refill
+// that period in the software buffer.
+//
+// **Effective Latency**: With N periods total, (N-1) periods contain "latency" (data waiting
+// to be played), while 1 period is always being transferred to/from hardware. Therefore:
+// `effective_latency = (total_periods - 1) × period_size`
+//
+// **User Expectation**: When user requests buffer size X, they expect ~X frames of latency,
+// not ~X frames of total buffering. Our goal is: `period_size × (periods - 1) ≈ user_buffer`
+//
+// ## Period Configuration Strategy
+//
+// **Goal**: Achieve user-requested latency with precision and device compatibility.
+//
+// **Step 1 - Query Device Limits**: Check the device's maximum period size to determine
+// which approaches are viable.
+//
+// **Step 2 - Prefer Double Buffering**: When user_buffer ≤ max_period_size, configure
+// 2 periods of user_buffer size each. This is the simplest configuration with direct
+// period size control.
+//
+// **Step 3 - Multi-Period When Required**: When user_buffer > max_period_size, calculate
+// the minimum periods needed and distribute the latency across them. This maintains
+// precision while respecting hardware constraints.
+//
+// **Step 4 - Fallback for Compatibility**: If precise approaches fail device validation,
+// use buffer-size-only configuration. Accept latency deviation to ensure functional audio.
+//
+// **Validation**: Accept exact matches for even period sizes, and ±1 for odd period sizes
+// (due to hardware alignment constraints). Reject results that deviate significantly
+// from the target latency.
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -269,7 +311,7 @@ impl Device {
             Ok(handle) => handle,
         };
         let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let period_len = set_sw_params_from_format(&handle, conf, stream_type)?;
+        let period_samples = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
 
@@ -292,13 +334,25 @@ impl Device {
             handle.start()?;
         }
 
+        // Pre-compute a period-sized buffer filled with silence values.
+        let period_frames = period_samples / conf.channels as usize;
+        let period_bytes = period_samples * sample_format.sample_size();
+        let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
+
+        // Only fill buffer for unsigned formats that don't have a zero value for silence.
+        if sample_format.is_uint() {
+            fill_with_equilibrium(&mut silence_template, sample_format);
+        }
+
         let stream_inner = StreamInner {
             dropping: Cell::new(false),
             channel: handle,
             sample_format,
             num_descriptors,
             conf: conf.clone(),
-            period_len,
+            period_samples,
+            period_frames,
+            silence_template,
             can_pause,
             creation_instant,
         };
@@ -529,8 +583,10 @@ struct StreamInner {
     // The configuration used to open this stream.
     conf: StreamConfig,
 
-    // Minimum number of samples to put in the buffer.
-    period_len: usize,
+    // Cached values for performance in audio callback hot path
+    period_samples: usize,
+    period_frames: usize,
+    silence_template: Box<[u8]>,
 
     #[allow(dead_code)]
     // Whether or not the hardware supports pausing the stream.
@@ -570,22 +626,53 @@ pub struct Stream {
 }
 
 struct StreamWorkerContext {
-    descriptors: Vec<libc::pollfd>,
-    buffer: Vec<u8>,
+    descriptors: Box<[libc::pollfd]>,
+    transfer_buffer: Box<[u8]>,
     poll_timeout: i32,
 }
 
 impl StreamWorkerContext {
-    fn new(poll_timeout: &Option<Duration>) -> Self {
+    fn new(poll_timeout: &Option<Duration>, stream: &StreamInner, rx: &TriggerReceiver) -> Self {
         let poll_timeout: i32 = if let Some(d) = poll_timeout {
             d.as_millis().try_into().unwrap()
         } else {
-            -1
+            -1 // Don't timeout, wait forever.
         };
 
+        // Pre-allocate buffer to exactly one period size with proper equilibrium values.
+        let transfer_buffer = stream.silence_template.clone();
+
+        // Pre-allocate and initialize descriptors vector: 1 for self-pipe + stream.num_descriptors
+        // for ALSA. The descriptor count is constant for the lifetime of stream parameters, and
+        // poll() overwrites revents on each call, so we only need to set up fd and events once.
+        let total_descriptors = 1 + stream.num_descriptors;
+        let mut descriptors = vec![
+            libc::pollfd {
+                fd: 0,
+                events: 0,
+                revents: 0
+            };
+            total_descriptors
+        ]
+        .into_boxed_slice();
+
+        // Set up self-pipe descriptor at index 0
+        descriptors[0] = libc::pollfd {
+            fd: rx.0,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        // Set up ALSA descriptors starting at index 1
+        let filled = stream
+            .channel
+            .fill(&mut descriptors[1..])
+            .expect("Failed to fill ALSA descriptors");
+        debug_assert_eq!(filled, stream.num_descriptors);
+
         Self {
-            descriptors: Vec::new(),
-            buffer: Vec::new(),
+            descriptors,
+            transfer_buffer,
             poll_timeout,
         }
     }
@@ -600,7 +687,7 @@ fn input_stream_worker(
 ) {
     boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
 
-    let mut ctxt = StreamWorkerContext::new(&timeout);
+    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -621,7 +708,6 @@ fn input_stream_worker(
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
-                avail_frames: _,
                 delay_frames,
                 stream_type,
             } => {
@@ -632,7 +718,7 @@ fn input_stream_worker(
                 );
                 if let Err(err) = process_input(
                     stream,
-                    &mut ctxt.buffer,
+                    &mut ctxt.transfer_buffer,
                     status,
                     delay_frames,
                     data_callback,
@@ -653,7 +739,15 @@ fn output_stream_worker(
 ) {
     boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
 
-    let mut ctxt = StreamWorkerContext::new(&timeout);
+    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
+
+    // As first period, always write one buffer with equilibrium values.
+    // This ensures we start with a full period of silence, giving the user their
+    // requested latency while avoiding underruns on the first callback.
+    if let Err(err) = stream.channel.io_bytes().writei(&ctxt.transfer_buffer) {
+        error_callback(err.into());
+    }
+
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -672,7 +766,6 @@ fn output_stream_worker(
             PollDescriptorsFlow::Return => return,
             PollDescriptorsFlow::Ready {
                 status,
-                avail_frames,
                 delay_frames,
                 stream_type,
             } => {
@@ -683,9 +776,8 @@ fn output_stream_worker(
                 );
                 if let Err(err) = process_output(
                     stream,
-                    &mut ctxt.buffer,
+                    &mut ctxt.transfer_buffer,
                     status,
-                    avail_frames,
                     delay_frames,
                     data_callback,
                     error_callback,
@@ -722,7 +814,6 @@ enum PollDescriptorsFlow {
     Ready {
         stream_type: StreamType,
         status: alsa::pcm::Status,
-        avail_frames: usize,
         delay_frames: usize,
     },
     XRun,
@@ -742,33 +833,10 @@ fn poll_descriptors_and_prepare_buffer(
 
     let StreamWorkerContext {
         ref mut descriptors,
-        ref mut buffer,
         ref poll_timeout,
+        ..
     } = *ctxt;
 
-    descriptors.clear();
-
-    // Add the self-pipe for signaling termination.
-    descriptors.push(libc::pollfd {
-        fd: rx.0,
-        events: libc::POLLIN,
-        revents: 0,
-    });
-
-    // Add ALSA polling fds.
-    let len = descriptors.len();
-    descriptors.resize(
-        stream.num_descriptors + len,
-        libc::pollfd {
-            fd: 0,
-            events: 0,
-            revents: 0,
-        },
-    );
-    let filled = stream.channel.fill(&mut descriptors[len..])?;
-    debug_assert_eq!(filled, stream.num_descriptors);
-
-    // Don't timeout, wait forever.
     let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
         let description = String::from("`alsa::poll()` spuriously returned");
@@ -807,19 +875,14 @@ fn poll_descriptors_and_prepare_buffer(
     };
     let available_samples = avail_frames * stream.conf.channels as usize;
 
-    // Only go on if there is at least `stream.period_len` samples.
-    if available_samples < stream.period_len {
+    // Only go on if there is at least one period's worth of space available.
+    if available_samples < stream.period_samples {
         return Ok(PollDescriptorsFlow::Continue);
     }
-
-    // Prepare the data buffer.
-    let buffer_size = stream.sample_format.sample_size() * available_samples;
-    buffer.resize(buffer_size, 0u8);
 
     Ok(PollDescriptorsFlow::Ready {
         stream_type,
         status,
-        avail_frames,
         delay_frames,
     })
 }
@@ -833,10 +896,8 @@ fn process_input(
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), BackendSpecificError> {
     stream.channel.io_bytes().readi(buffer)?;
-    let sample_format = stream.sample_format;
     let data = buffer.as_mut_ptr() as *mut ();
-    let len = buffer.len() / sample_format.sample_size();
-    let data = unsafe { Data::from_parts(data, len, sample_format) };
+    let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
     let callback = stream_timestamp(&status, stream.creation_instant)?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
@@ -856,17 +917,16 @@ fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
-    available_frames: usize,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut dyn FnMut(StreamError),
 ) -> Result<(), BackendSpecificError> {
+    // Buffer is always pre-filled with equilibrium, user overwrites what they want
+    buffer.copy_from_slice(&stream.silence_template);
     {
-        // We're now sure that we're ready to write data.
-        let sample_format = stream.sample_format;
         let data = buffer.as_mut_ptr() as *mut ();
-        let len = buffer.len() / sample_format.sample_size();
-        let mut data = unsafe { Data::from_parts(data, len, sample_format) };
+        let mut data =
+            unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
         let callback = stream_timestamp(&status, stream.creation_instant)?;
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
         let playback = callback
@@ -876,6 +936,7 @@ fn process_output(
         let info = crate::OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
     }
+
     loop {
         match stream.channel.io_bytes().writei(buffer) {
             Err(err) if err.errno() == libc::EPIPE => {
@@ -893,10 +954,11 @@ fn process_output(
                 error_callback(err.into());
                 continue;
             }
-            Ok(result) if result != available_frames => {
+            Ok(result) if result as usize != stream.period_frames => {
                 let description = format!(
-                    "unexpected number of frames written: expected {available_frames}, \
-                     result {result} (this should never happen)"
+                    "unexpected number of frames written: expected {}, \
+                        result {result} (this should never happen)",
+                    stream.period_frames
                 );
                 error_callback(BackendSpecificError { description }.into());
                 continue;
@@ -1038,6 +1100,33 @@ impl Drop for Stream {
         self.inner.dropping.set(true);
         self.trigger.wakeup();
         self.thread.take().unwrap().join().unwrap();
+
+        // State-based drop behavior: drain if playing, drop if paused. This allows audio to
+        // complete naturally when stopping during playback, but provides immediate termination
+        // when already paused.
+        match self.inner.channel.state() {
+            alsa::pcm::State::Running => {
+                // Audio is actively playing - attempt graceful drain.
+                if let Ok(()) = self.inner.channel.drain() {
+                    // TODO: Use SND_PCM_WAIT_DRAIN (-10002) when alsa-rs supports it properly,
+                    // although it requires ALSA 1.2.8+ which may not be available everywhere.
+                    // For now, calculate timeout based on buffer latency.
+                    let buffer_duration_ms = ((self.inner.period_frames as f64 * 1000.0)
+                        / self.inner.conf.sample_rate.0 as f64)
+                        as u32;
+
+                    // This is safe: snd_pcm_wait() checks device state first and returns
+                    // immediately with error codes like -ENODEV for disconnected devices.
+                    let _ = self.inner.channel.wait(Some(buffer_duration_ms));
+                }
+                // If drain fails or device has errors, stream terminates naturally
+            }
+            _ => {
+                // Not actively playing (paused, stopped, etc.) - immediate drop and discard any
+                // buffered audio data for immediate termination.
+                let _ = self.inner.channel.drop();
+            }
+        }
     }
 }
 
@@ -1067,6 +1156,158 @@ fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount
         .map(clamp_frame_count)
         .unwrap_or(FrameCount::MAX);
     (min_buf, max_buf)
+}
+
+// Fill a buffer with equilibrium values for any sample format.
+// Works with any buffer size, even if not perfectly aligned to sample boundaries.
+fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
+    macro_rules! fill_typed {
+        ($sample_type:ty) => {{
+            let sample_size = std::mem::size_of::<$sample_type>();
+
+            assert_eq!(
+                buffer.len() % sample_size,
+                0,
+                "Buffer size must be aligned to sample size for format {:?}",
+                sample_format
+            );
+
+            let num_samples = buffer.len() / sample_size;
+            let equilibrium = <$sample_type as Sample>::EQUILIBRIUM;
+
+            // Safety: We verified the buffer size is correctly aligned for the sample type
+            let samples = unsafe {
+                std::slice::from_raw_parts_mut(
+                    buffer.as_mut_ptr() as *mut $sample_type,
+                    num_samples,
+                )
+            };
+
+            for sample in samples {
+                *sample = equilibrium;
+            }
+        }};
+    }
+
+    match sample_format {
+        SampleFormat::I8 => fill_typed!(i8),
+        SampleFormat::I16 => fill_typed!(i16),
+        SampleFormat::I24 => fill_typed!(I24),
+        SampleFormat::I32 => fill_typed!(i32),
+        // SampleFormat::I48 => fill_typed!(I48),
+        SampleFormat::I64 => fill_typed!(i64),
+        SampleFormat::U8 => fill_typed!(u8),
+        SampleFormat::U16 => fill_typed!(u16),
+        SampleFormat::U24 => fill_typed!(U24),
+        SampleFormat::U32 => fill_typed!(u32),
+        // SampleFormat::U48 => fill_typed!(U48),
+        SampleFormat::U64 => fill_typed!(u64),
+        SampleFormat::F32 => fill_typed!(f32),
+        SampleFormat::F64 => fill_typed!(f64),
+    }
+}
+
+// Try period configuration with specified period size and count
+fn try_period_configuration(
+    pcm_handle: &alsa::pcm::PCM,
+    hw_params: &alsa::pcm::HwParams,
+    target_period_size: u32,
+    target_periods: u32,
+) -> Option<usize> {
+    hw_params
+        .set_period_size_near(target_period_size as _, alsa::ValueOr::Nearest)
+        .ok()?;
+    hw_params
+        .set_periods(target_periods, alsa::ValueOr::Nearest)
+        .ok()?;
+    pcm_handle.hw_params(hw_params).ok()?;
+
+    let device_period_size = hw_params.get_period_size().ok()? as u32;
+    let device_periods = hw_params.get_periods().ok()? as u32;
+
+    // Period count must be exactly what we requested
+    if device_periods != target_periods {
+        return None;
+    }
+
+    // Period size validation: exact for even, ±1 for odd
+    let period_size_ok = if target_period_size % 2 == 0 {
+        device_period_size == target_period_size
+    } else {
+        let acceptable_range = (target_period_size.saturating_sub(1))..=(target_period_size + 1);
+        acceptable_range.contains(&device_period_size)
+    };
+
+    if period_size_ok {
+        Some(device_period_size as usize)
+    } else {
+        None // Device constraint issue
+    }
+}
+
+// Configure periods based on device capabilities
+fn configure_periods(
+    pcm_handle: &alsa::pcm::PCM,
+    hw_params: &alsa::pcm::HwParams,
+    user_buffer_frames: u32,
+    config: &StreamConfig,
+) -> Result<(), BackendSpecificError> {
+    // Query device maximum period size to determine approach
+    let max_period_size = hw_params
+        .get_period_size_max()
+        .map_err(|_| BackendSpecificError {
+            description: "Could not query device period size limits".to_string(),
+        })? as u32;
+
+    // Approach 1: Double buffering if user buffer fits within device limits
+    if user_buffer_frames <= max_period_size {
+        if let Some(_) = try_period_configuration(&pcm_handle, &hw_params, user_buffer_frames, 2) {
+            return Ok(());
+        }
+    }
+
+    // Approach 2: Multi-period with calculated period count and size
+    if user_buffer_frames > max_period_size {
+        // Calculate minimum periods needed: ceil(user_buffer / max_period_size) + 1
+        let min_periods = (user_buffer_frames + max_period_size - 1) / max_period_size + 1;
+        let target_period_size = user_buffer_frames / std::cmp::max(min_periods - 1, 1);
+
+        if let Some(_) =
+            try_period_configuration(&pcm_handle, &hw_params, target_period_size, min_periods)
+        {
+            return Ok(());
+        }
+    }
+
+    // Approach 3: Fallback - let ALSA choose everything based on buffer size
+    fallback_buffer_size(&pcm_handle, &hw_params, user_buffer_frames, config)
+}
+
+// Fallback: Use ALSA's buffer size approach when period-based approaches fail
+fn fallback_buffer_size(
+    pcm_handle: &alsa::pcm::PCM,
+    base_hw_params: &alsa::pcm::HwParams,
+    user_buffer_frames: u32,
+    config: &StreamConfig,
+) -> Result<(), BackendSpecificError> {
+    // Create fresh hw_params to avoid inheriting period constraints from previous attempts
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    hw_params.set_access(base_hw_params.get_access()?)?;
+    hw_params.set_format(base_hw_params.get_format()?)?;
+    hw_params.set_rate(base_hw_params.get_rate()?, alsa::ValueOr::Nearest)?;
+    hw_params.set_channels(base_hw_params.get_channels()?)?;
+
+    // Only set buffer size - let ALSA choose optimal period size and count
+    hw_params
+        .set_buffer_size_near(user_buffer_frames as _)
+        .map_err(|_| BackendSpecificError {
+            description: format!(
+                "Buffer size '{:?}' is not supported by this backend",
+                config.buffer_size
+            ),
+        })?;
+
+    pcm_handle.hw_params(&hw_params).map_err(Into::into)
 }
 
 fn set_hw_params_from_format(
@@ -1132,22 +1373,13 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // Set buffer size if requested. ALSA will calculate the period size from this buffer size as:
-    // period_size = nearest_set_buffer_size / default_periods
-    //
-    // If not requested, ALSA will calculate the period size from the device defaults:
-    // period_size = default_buffer_size / default_periods
-    if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-        hw_params
-            .set_buffer_size_near(buffer_size as _)
-            .map_err(|_| BackendSpecificError {
-                description: format!(
-                    "Buffer size '{:?}' is not supported by this backend",
-                    config.buffer_size
-                ),
-            })?;
+    // Smart period configuration: adapt to device capabilities for consistent latency
+    if let BufferSize::Fixed(user_buffer_frames) = config.buffer_size {
+        configure_periods(&pcm_handle, &hw_params, user_buffer_frames, config)?;
+    } else {
+        // Default buffer size - let device choose everything
+        pcm_handle.hw_params(&hw_params)?;
     }
-    pcm_handle.hw_params(&hw_params)?;
 
     Ok(hw_params.can_pause())
 }
@@ -1159,7 +1391,7 @@ fn set_sw_params_from_format(
 ) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;
 
-    let period_len = {
+    let period_samples = {
         let (buffer, period) = pcm_handle.get_params()?;
         if buffer == 0 {
             return Err(BackendSpecificError {
@@ -1169,12 +1401,11 @@ fn set_sw_params_from_format(
         sw_params.set_avail_min(period as alsa::pcm::Frames)?;
 
         let start_threshold = match stream_type {
-            alsa::Direction::Playback => buffer - period,
-
-            // For capture streams, the start threshold is irrelevant and ignored,
-            // because build_stream_inner() starts the stream before process_input()
-            // reads from it. Set it anyway I guess, since it's better than leaving
-            // it at an unspecified default value.
+            alsa::Direction::Playback => {
+                // Start when ALSA buffer has enough data to maintain consistent playback
+                // while preserving user's expected latency across different period counts
+                buffer - period
+            }
             alsa::Direction::Capture => 1,
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
@@ -1193,7 +1424,7 @@ fn set_sw_params_from_format(
         pcm_handle.sw_params(&sw_params)?;
     }
 
-    Ok(period_len)
+    Ok(period_samples)
 }
 
 impl From<alsa::Error> for BackendSpecificError {

@@ -3,19 +3,31 @@
 - Add `HostTrait::id` method that returns a stable audio device ID.
 - Add `HostTrait::device_by_id` to select a device by its stable ID.
 - Add `Sample::bits_per_sample` method.
-- ALSA: Fix `BufferSize::Fixed` by selecting the nearest supported frame count.
+- Update `audio_thread_priority` to 0.34.
+- AAudio: Configure buffer to ensure consistent callback buffer sizes.
+- ALSA: Improve `BufferSize::Fixed` latency precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- ALSA: Update `alsa` to 0.10.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
+- CI: Added native ARM64 Linux support in GitHub Actions.
+- CI: Fix cargo publish to trigger on GitHub releases instead of every master commit.
+- CI: Replace cargo install commands with cached tool installation for faster builds.
+- CI: Update actions to latest versions (checkout@v5, rust-cache@v2).
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
 - CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
+- CoreAudio: Update `mach2` to 0.5.
+- CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
+- CoreAudio: Fix timestamp accuracy.
 - iOS: Fix example by properly activating audio session.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- WASAPI: Update `windows` to 0.62.
+- Wasm: Removed optional `wee-alloc` feature for security reasons.
 
 # Version 0.16.0 (2025-06-07)
 

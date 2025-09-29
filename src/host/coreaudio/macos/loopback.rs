@@ -1,9 +1,7 @@
 //! Manages loopback recording (recording system audio output)
 
 use super::device::Device;
-use crate::{
-    host::coreaudio::check_os_status, traits::DeviceTrait, BackendSpecificError, BuildStreamError,
-};
+use crate::{host::coreaudio::check_os_status, BackendSpecificError, BuildStreamError};
 use objc2::{rc::Retained, AnyThread};
 use objc2_core_audio::{
     kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
@@ -91,7 +89,7 @@ impl LoopbackDevice {
         let tap_desc = unsafe {
             CATapDescription::initWithProcesses_andDeviceUID_withStream(
                 CATapDescription::alloc(),
-                &*processes,
+                &processes,
                 device_uid.as_ref(),
                 0,
             )
