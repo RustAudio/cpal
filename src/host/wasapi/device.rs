@@ -337,7 +337,7 @@ impl Device {
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
     fn ensure_future_audio_client(
         &self,
-    ) -> Result<MutexGuard<Option<IAudioClientWrapper>>, windows::core::Error> {
+    ) -> Result<MutexGuard<'_, Option<IAudioClientWrapper>>, windows::core::Error> {
         let mut lock = self.future_audio_client.lock().unwrap();
         if lock.is_some() {
             return Ok(lock);

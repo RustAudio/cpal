@@ -27,8 +27,11 @@ hound = "3.5"
 ringbuf = "0.4.8"
 clap = { version = "4.5", features = ["derive"] }
 
+# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
+# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
+# When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = [
+windows = { version = ">=0.58, <=0.62", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
