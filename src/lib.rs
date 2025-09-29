@@ -272,6 +272,7 @@ impl std::str::FromStr for DeviceId {
             "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
             "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
             "ios" => Ok(DeviceId::IOS(data.to_string())),
+            "null" => Ok(DeviceId::Null),
             _ => Err(DeviceIdError::UnsupportedPlatform),
         }
     }
