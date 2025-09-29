@@ -220,22 +220,36 @@ where
 /// one frame contains two samples (left and right channels).
 pub type FrameCount = u32;
 
-/// The buffer size controls the latency between your application and the audio hardware.
+/// The buffer size requests the callback size for audio streams.
 ///
-/// This controls the size of the software buffer that cpal uses to transfer audio
-/// data between your application and the hardware device. This is distinct from
-/// end-to-end audio latency, which includes additional processing delays.
+/// This controls the approximate size of the audio buffer passed to your callback.
+/// The actual callback size depends on the host/platform implementation and hardware
+/// constraints, and may differ from or vary around the requested size.
 ///
-/// [`Default`] uses the host's default buffer size, which may be surprisingly
-/// large, leading to higher buffering latency. If low latency is desired,
-/// [`Fixed(FrameCount)`] should be used in accordance with the [`SupportedBufferSize`]
-/// range produced by the [`SupportedStreamConfig`] API.
+/// ## Callback Size Expectations
+///
+/// When you specify [`BufferSize::Fixed(x)`], you are **requesting** that callbacks
+/// receive approximately `x` frames of audio data. However, **no guarantees can be
+/// made** about the actual callback size:
+///
+/// - The host may round to hardware-supported values
+/// - Different devices have different constraints
+/// - The callback size may vary between calls (especially on mobile platforms)
+/// - The actual size might be larger or smaller than requested
+///
+/// ## Latency Considerations
+///
+/// [`BufferSize::Default`] uses the host's default buffer size, which may be
+/// surprisingly large, leading to higher latency. If low latency is desired,
+/// [`BufferSize::Fixed`] should be used with a small value in accordance with
+/// the [`SupportedBufferSize`] range from [`SupportedStreamConfig`].
 ///
 /// Smaller buffer sizes reduce latency but may increase CPU usage and risk audio
-/// dropouts if the callback cannot keep up with the requested buffer size.
+/// dropouts if the callback cannot process audio quickly enough.
 ///
-/// [`Default`]: BufferSize::Default
-/// [`Fixed(FrameCount)`]: BufferSize::Fixed
+/// [`BufferSize::Default`]: BufferSize::Default
+/// [`BufferSize::Fixed`]: BufferSize::Fixed
+/// [`BufferSize::Fixed(x)`]: BufferSize::Fixed
 /// [`SupportedBufferSize`]: SupportedStreamConfig::buffer_size
 /// [`SupportedStreamConfig`]: SupportedStreamConfig
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

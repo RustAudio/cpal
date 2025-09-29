@@ -22,8 +22,8 @@ use crate::{
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
 
-// ALSA Latency Model and Period Configuration
-// ===========================================
+// ALSA Buffer Size Behavior
+// =========================
 //
 // ## ALSA Latency Model
 //
@@ -35,34 +35,20 @@ use crate::{
 // period worth of data has been consumed by hardware, ALSA triggers a callback to refill
 // that period in the software buffer.
 //
-// **Effective Latency**: With N periods total, (N-1) periods contain "latency" (data waiting
-// to be played), while 1 period is always being transferred to/from hardware. Therefore:
-// `effective_latency = (total_periods - 1) × period_size`
+// ## BufferSize::Fixed Behavior
 //
-// **User Expectation**: When user requests buffer size X, they expect ~X frames of latency,
-// not ~X frames of total buffering. Our goal is: `period_size × (periods - 1) ≈ user_buffer`
+// When `BufferSize::Fixed(x)` is specified, cpal attempts to configure the period size
+// to approximately `x` frames to achieve the requested callback size. However, the
+// actual callback size may differ from the request:
 //
-// ## Period Configuration Strategy
+// - ALSA may round the period size to hardware-supported values
+// - Different devices have different period size constraints
+// - The callback size is not guaranteed to exactly match the request
+// - If the requested size cannot be accommodated, ALSA will choose the nearest
+//   supported configuration
 //
-// **Goal**: Achieve user-requested latency with precision and device compatibility.
-//
-// **Step 1 - Query Device Limits**: Check the device's maximum period size to determine
-// which approaches are viable.
-//
-// **Step 2 - Prefer Double Buffering**: When user_buffer ≤ max_period_size, configure
-// 2 periods of user_buffer size each. This is the simplest configuration with direct
-// period size control.
-//
-// **Step 3 - Multi-Period When Required**: When user_buffer > max_period_size, calculate
-// the minimum periods needed and distribute the latency across them. This maintains
-// precision while respecting hardware constraints.
-//
-// **Step 4 - Fallback for Compatibility**: If precise approaches fail device validation,
-// use buffer-size-only configuration. Accept latency deviation to ensure functional audio.
-//
-// **Validation**: Accept exact matches for even period sizes, and ±1 for odd period sizes
-// (due to hardware alignment constraints). Reject results that deviate significantly
-// from the target latency.
+// This mirrors the behavior documented in the cpal API where `BufferSize::Fixed(x)`
+// requests but does not guarantee a specific callback size.
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -945,7 +931,7 @@ fn process_output(
                 error_callback(err.into());
                 continue;
             }
-            Ok(result) if result as usize != stream.period_frames => {
+            Ok(result) if result != stream.period_frames => {
                 let description = format!(
                     "unexpected number of frames written: expected {}, \
                         result {result} (this should never happen)",
@@ -1198,109 +1184,6 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
     }
 }
 
-// Try period configuration with specified period size and count
-fn try_period_configuration(
-    pcm_handle: &alsa::pcm::PCM,
-    hw_params: &alsa::pcm::HwParams,
-    target_period_size: u32,
-    target_periods: u32,
-) -> Option<usize> {
-    hw_params
-        .set_period_size_near(target_period_size as _, alsa::ValueOr::Nearest)
-        .ok()?;
-    hw_params
-        .set_periods(target_periods, alsa::ValueOr::Nearest)
-        .ok()?;
-    pcm_handle.hw_params(hw_params).ok()?;
-
-    let device_period_size = hw_params.get_period_size().ok()? as u32;
-    let device_periods = hw_params.get_periods().ok()? as u32;
-
-    // Period count must be exactly what we requested
-    if device_periods != target_periods {
-        return None;
-    }
-
-    // Period size validation: exact for even, ±1 for odd
-    let period_size_ok = if target_period_size % 2 == 0 {
-        device_period_size == target_period_size
-    } else {
-        let acceptable_range = (target_period_size.saturating_sub(1))..=(target_period_size + 1);
-        acceptable_range.contains(&device_period_size)
-    };
-
-    if period_size_ok {
-        Some(device_period_size as usize)
-    } else {
-        None // Device constraint issue
-    }
-}
-
-// Configure periods based on device capabilities
-fn configure_periods(
-    pcm_handle: &alsa::pcm::PCM,
-    hw_params: &alsa::pcm::HwParams,
-    user_buffer_frames: u32,
-    config: &StreamConfig,
-) -> Result<(), BackendSpecificError> {
-    // Query device maximum period size to determine approach
-    let max_period_size = hw_params
-        .get_period_size_max()
-        .map_err(|_| BackendSpecificError {
-            description: "Could not query device period size limits".to_string(),
-        })? as u32;
-
-    // Approach 1: Double buffering if user buffer fits within device limits
-    if user_buffer_frames <= max_period_size {
-        if let Some(_) = try_period_configuration(&pcm_handle, &hw_params, user_buffer_frames, 2) {
-            return Ok(());
-        }
-    }
-
-    // Approach 2: Multi-period with calculated period count and size
-    if user_buffer_frames > max_period_size {
-        // Calculate minimum periods needed: ceil(user_buffer / max_period_size) + 1
-        let min_periods = (user_buffer_frames + max_period_size - 1) / max_period_size + 1;
-        let target_period_size = user_buffer_frames / std::cmp::max(min_periods - 1, 1);
-
-        if let Some(_) =
-            try_period_configuration(&pcm_handle, &hw_params, target_period_size, min_periods)
-        {
-            return Ok(());
-        }
-    }
-
-    // Approach 3: Fallback - let ALSA choose everything based on buffer size
-    fallback_buffer_size(&pcm_handle, &hw_params, user_buffer_frames, config)
-}
-
-// Fallback: Use ALSA's buffer size approach when period-based approaches fail
-fn fallback_buffer_size(
-    pcm_handle: &alsa::pcm::PCM,
-    base_hw_params: &alsa::pcm::HwParams,
-    user_buffer_frames: u32,
-    config: &StreamConfig,
-) -> Result<(), BackendSpecificError> {
-    // Create fresh hw_params to avoid inheriting period constraints from previous attempts
-    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
-    hw_params.set_access(base_hw_params.get_access()?)?;
-    hw_params.set_format(base_hw_params.get_format()?)?;
-    hw_params.set_rate(base_hw_params.get_rate()?, alsa::ValueOr::Nearest)?;
-    hw_params.set_channels(base_hw_params.get_channels()?)?;
-
-    // Only set buffer size - let ALSA choose optimal period size and count
-    hw_params
-        .set_buffer_size_near(user_buffer_frames as _)
-        .map_err(|_| BackendSpecificError {
-            description: format!(
-                "Buffer size '{:?}' is not supported by this backend",
-                config.buffer_size
-            ),
-        })?;
-
-    pcm_handle.hw_params(&hw_params).map_err(Into::into)
-}
-
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
@@ -1364,13 +1247,21 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // Smart period configuration: adapt to device capabilities for consistent latency
-    if let BufferSize::Fixed(user_buffer_frames) = config.buffer_size {
-        configure_periods(&pcm_handle, &hw_params, user_buffer_frames, config)?;
-    } else {
-        // Default buffer size - let device choose everything
-        pcm_handle.hw_params(&hw_params)?;
+    // Configure period size based on buffer size request
+    // When BufferSize::Fixed(x) is specified, we request a period size of x frames
+    // to achieve approximately x-sized callbacks. ALSA may adjust this to the nearest
+    // supported value based on hardware constraints.
+    if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
+        hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
     }
+
+    // We shouldn't fail if the driver isn't happy here.
+    // `default` pcm sometimes fails here, but there no reason to as we
+    // provide a direction and 2 is strictly the minimum number of periods.
+    let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
+
+    // Apply hardware parameters
+    pcm_handle.hw_params(&hw_params)?;
 
     Ok(hw_params.can_pause())
 }
