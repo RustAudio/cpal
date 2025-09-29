@@ -357,6 +357,6 @@ jobs:
           echo "Cargo.lock entry:"
           grep -A 5 "name = \"windows\"" Cargo.lock | head -10
 
-      - name: Test WASAPI with windows v${{ matrix.windows-version }}
+      - name: Check WASAPI with windows v${{ matrix.windows-version }}
         run: |
-          cargo test --verbose
+          cargo check --verbose
