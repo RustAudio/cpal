@@ -647,7 +647,11 @@ mod platform_impl {
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
     pub use crate::host::webaudio::Host as WebAudioHost;
-    impl_platform_host!(WebAudio => WebAudioHost);
+
+    #[cfg(feature = "web_audio_worklet")]
+    pub use crate::host::web_audio_worklet::Host as WebAudioWorkletHost;
+
+    impl_platform_host!(WebAudio => WebAudioHost, #[cfg(feature = "web_audio_worklet")]WebAudioWorklet => WebAudioWorkletHost);
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
