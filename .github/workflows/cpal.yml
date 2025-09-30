@@ -60,7 +60,7 @@ jobs:
 
   cargo-publish:
     if: github.event_name == 'release'
-    needs: [test-native, test-cross, test-wasm, test-android, test-ios]
+    needs: [test-native, test-cross, test-wasm, test-android, test-ios, test-windows-versions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -196,14 +196,8 @@ jobs:
         with:
           tool: cross
 
-      - name: Check without features
-        run: cross check --target ${{ matrix.target }} --workspace --no-default-features --verbose
-
       - name: Test without features
         run: cross test --target ${{ matrix.target }} --workspace --no-default-features --verbose
-
-      - name: Check all features
-        run: cross check --target ${{ matrix.target }} --workspace --all-features --verbose
 
       - name: Test all features
         run: cross test --target ${{ matrix.target }} --workspace --all-features --verbose
@@ -318,3 +312,51 @@ jobs:
 
       - name: Build iOS example
         run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
+
+  # Windows crate compatibility testing
+  test-windows-versions:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - windows-version: "0.59.0"
+          - windows-version: "0.60.0"
+          - windows-version: "0.61.3"
+          # Skip 0.62.x since we already test current version in test-native
+    name: test-windows-v${{ matrix.windows-version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          choco install llvm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-v${{ matrix.windows-version }}
+
+      - name: Lock windows crate to specific version
+        shell: bash
+        run: |
+          # Generate Cargo.lock first if it doesn't exist
+          cargo generate-lockfile
+
+          # Use cargo update --precise to lock the windows crate to a specific version
+          cargo update --precise ${{ matrix.windows-version }} windows
+
+          # Verify the version was locked correctly
+          echo "Locked windows crate version:"
+          cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
+
+          # Also check Cargo.lock
+          echo "Cargo.lock entry:"
+          grep -A 5 "name = \"windows\"" Cargo.lock | head -10
+
+      - name: Check WASAPI with windows v${{ matrix.windows-version }}
+        run: |
+          cargo check --verbose
