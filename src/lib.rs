@@ -273,7 +273,7 @@ impl std::str::FromStr for DeviceId {
             "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
             "ios" => Ok(DeviceId::IOS(data.to_string())),
             "null" => Ok(DeviceId::Null),
-            _ => Err(DeviceIdError::UnsupportedPlatform),
+            &_ => todo!("implement DeviceId::FromStr for {platform}"),
         }
     }
 }
