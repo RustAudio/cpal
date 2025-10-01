@@ -31,7 +31,12 @@ clap = { version = "4.5", features = ["derive"] }
 # versions when bumping to a new release, and only increase the minimum when absolutely necessary.
 # When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = ">=0.58, <=0.62", features = [
+# The `implement` feature was removed in windows-0.61, which means that we can't
+# use older versions of the `windows` crate without explicitly activating `implement`
+# for them, which will cause problems for >=0.61.
+#
+# See <https://github.com/microsoft/windows-rs/pull/3333>.
+windows = { version = ">=0.61, <=0.62", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",

@@ -320,8 +320,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - windows-version: "0.59.0"
-          - windows-version: "0.60.0"
           - windows-version: "0.61.3"
           # Skip 0.62.x since we already test current version in test-native
     name: test-windows-v${{ matrix.windows-version }}
