@@ -286,7 +286,12 @@ fn retrieve_result(
         operation.GetActivateResult(&mut result, &mut interface)?;
     }
     result.ok()?;
-    Ok(interface.unwrap())
+    interface.ok_or_else(|| {
+        windows::core::Error::new(
+            Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+            "audio interface could not be retrieved during activation",
+        )
+    })
 }
 
 impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
@@ -294,7 +299,7 @@ impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_
         &self,
         operation: windows::core::Ref<Audio::IActivateAudioInterfaceAsyncOperation>,
     ) -> windows::core::Result<()> {
-        let result = retrieve_result(operation.ok()?);
+        let result = operation.ok().and_then(retrieve_result);
         let _ = self.0.send(result);
         Ok(())
     }
