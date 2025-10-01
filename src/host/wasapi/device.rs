@@ -11,21 +11,20 @@ use std::mem;
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::Sender;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
+use windows::core::Interface;
 use windows::core::GUID;
-use windows::core::{implement, IUnknown, Interface, HRESULT, PCWSTR};
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::{CoTaskMemFree, StringFromIID, StructuredStorage, STGM_READ};
+use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_LPWSTR;
 
@@ -274,53 +273,50 @@ unsafe fn format_from_waveformatex_ptr(
     Some(format)
 }
 
-#[implement(Audio::IActivateAudioInterfaceCompletionHandler)]
-struct CompletionHandler(Sender<windows::core::Result<IUnknown>>);
+#[cfg(feature = "wasapi-virtual-default-devices")]
+unsafe fn activate_audio_interface_sync(
+    deviceinterfacepath: windows::core::PWSTR,
+) -> windows::core::Result<Audio::IAudioClient> {
+    use windows::core::IUnknown;
 
-fn retrieve_result(
-    operation: &Audio::IActivateAudioInterfaceAsyncOperation,
-) -> windows::core::Result<IUnknown> {
-    let mut result = HRESULT::default();
-    let mut interface: Option<IUnknown> = None;
-    unsafe {
-        operation.GetActivateResult(&mut result, &mut interface)?;
+    #[windows::core::implement(Audio::IActivateAudioInterfaceCompletionHandler)]
+    struct CompletionHandler(std::sync::mpsc::Sender<windows::core::Result<IUnknown>>);
+
+    fn retrieve_result(
+        operation: &Audio::IActivateAudioInterfaceAsyncOperation,
+    ) -> windows::core::Result<IUnknown> {
+        let mut result = windows::core::HRESULT::default();
+        let mut interface: Option<IUnknown> = None;
+        unsafe {
+            operation.GetActivateResult(&mut result, &mut interface)?;
+        }
+        result.ok()?;
+        interface.ok_or_else(|| {
+            windows::core::Error::new(
+                Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                "audio interface could not be retrieved during activation",
+            )
+        })
     }
-    result.ok()?;
-    interface.ok_or_else(|| {
-        windows::core::Error::new(
-            Audio::AUDCLNT_E_DEVICE_INVALIDATED,
-            "audio interface could not be retrieved during activation",
-        )
-    })
-}
 
-impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
-    fn ActivateCompleted(
-        &self,
-        operation: windows::core::Ref<Audio::IActivateAudioInterfaceAsyncOperation>,
-    ) -> windows::core::Result<()> {
-        let result = operation.ok().and_then(retrieve_result);
-        let _ = self.0.send(result);
-        Ok(())
+    impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
+        fn ActivateCompleted(
+            &self,
+            operation: windows::core::Ref<Audio::IActivateAudioInterfaceAsyncOperation>,
+        ) -> windows::core::Result<()> {
+            let result = operation.ok().and_then(retrieve_result);
+            let _ = self.0.send(result);
+            Ok(())
+        }
     }
-}
 
-#[allow(non_snake_case)]
-unsafe fn ActivateAudioInterfaceSync<P0, T>(
-    deviceinterfacepath: P0,
-    activationparams: Option<*const StructuredStorage::PROPVARIANT>,
-) -> windows::core::Result<T>
-where
-    P0: windows::core::Param<PCWSTR>,
-    T: Interface,
-{
     let (sender, receiver) = std::sync::mpsc::channel();
     let completion: Audio::IActivateAudioInterfaceCompletionHandler =
         CompletionHandler(sender).into();
     Audio::ActivateAudioInterfaceAsync(
         deviceinterfacepath,
-        &T::IID,
-        activationparams,
+        &Audio::IAudioClient::IID,
+        None,
         &completion,
     )?;
     let result = receiver.recv_timeout(Duration::from_secs(2)).unwrap()?;
@@ -439,18 +435,25 @@ impl Device {
             return Ok(lock);
         }
 
+        // When using virtual default devices, we use `ActivateAudioInterfaceAsync` to get
+        // an `IAudioClient` for the default output or input device. When retrieved this way,
+        // streams will be automatically rerouted if the default device is changed.
+        //
+        // Otherwise, we use `Activate` to get an `IAudioClient` for the current device.
+
+        #[cfg(feature = "wasapi-virtual-default-devices")]
         let audio_client: Audio::IAudioClient = unsafe {
             match &self.device {
                 DeviceType::DefaultOutput => {
-                    let default_audio = StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?;
-                    let result = ActivateAudioInterfaceSync(PCWSTR(default_audio.as_ptr()), None);
-                    CoTaskMemFree(Some(default_audio.as_ptr() as _));
+                    let default_audio = Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?;
+                    let result = activate_audio_interface_sync(default_audio);
+                    Com::CoTaskMemFree(Some(default_audio.as_ptr() as _));
                     result?
                 }
                 DeviceType::DefaultInput => {
-                    let default_audio = StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?;
-                    let result = ActivateAudioInterfaceSync(PCWSTR(default_audio.as_ptr()), None);
-                    CoTaskMemFree(Some(default_audio.as_ptr() as _));
+                    let default_audio = Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?;
+                    let result = activate_audio_interface_sync(default_audio);
+                    Com::CoTaskMemFree(Some(default_audio.as_ptr() as _));
                     result?
                 }
                 DeviceType::Specific(device) => {
@@ -459,6 +462,16 @@ impl Device {
                     device.Activate(Com::CLSCTX_ALL, None)?
                 }
             }
+        };
+
+        #[cfg(not(feature = "wasapi-virtual-default-devices"))]
+        let audio_client = unsafe {
+            self.immdevice()
+                .ok_or(windows::core::Error::new(
+                    Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                    "device not found while getting audio client",
+                ))?
+                .Activate(Com::CLSCTX_ALL, None)?
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));

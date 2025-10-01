@@ -10,10 +10,19 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
+default = ["wasapi-virtual-default-devices"]
+
 asio = [
     "asio-sys",
     "num-traits",
 ] # Only available on Windows. See README for setup instructions.
+
+# Enable virtual default devices for WASAPI, so that audio will be
+# automatically rerouted when the default input or output device is changed.
+#
+# Note that this only works on Windows 8 and above. It is turned on by default,
+# but consider turning it off if you are supporting an older version of Windows.
+wasapi-virtual-default-devices = []
 
 # Deprecated, the `oboe` backend has been removed
 oboe-shared-stdcxx = []
