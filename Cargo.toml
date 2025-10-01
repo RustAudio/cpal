@@ -59,7 +59,6 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 # Explicitly depend on windows-core for use with the `windows::core::implement` macro.
-# Ensure this is the same version as the `windows` dependency.
 windows-core = "*"
 audio_thread_priority = { version = "0.34.0", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }

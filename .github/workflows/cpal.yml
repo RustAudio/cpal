@@ -347,6 +347,12 @@ jobs:
           # Use cargo update --precise to lock the windows crate to a specific version
           cargo update --precise ${{ matrix.windows-version }} windows
 
+          # Remove and re-add `windows-core` to force Cargo to re-resolve it
+          # I'd prefer a more surgical approach, but things get complicated once multiple `windows-core`
+          # versions are in play
+          cargo rm --target='cfg(target_os = "windows")' windows-core
+          cargo add --target='cfg(target_os = "windows")' windows-core@*
+
           # Verify the version was locked correctly
           echo "Locked windows crate version:"
           cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
