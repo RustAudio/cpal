@@ -327,57 +327,59 @@ unsafe impl Sync for Device {}
 
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
-        match &self.device {
-            DeviceType::DefaultOutput => Ok("Default Output".to_string()),
-            DeviceType::DefaultInput => Ok("Default Input".to_string()),
-            DeviceType::Specific(device) => unsafe {
-                // Open the device's property store.
-                let property_store = device
-                    .OpenPropertyStore(STGM_READ)
-                    .expect("could not open property store");
+        let device = self
+            .immdevice()
+            .ok_or(DeviceNameError::from(BackendSpecificError {
+                description: "device not found while getting name".to_string(),
+            }))?;
 
-                // Get the endpoint's friendly-name property.
-                let mut property_value = property_store
-                    .GetValue(&Properties::DEVPKEY_Device_FriendlyName as *const _ as *const _)
-                    .map_err(|err| {
-                        let description =
-                            format!("failed to retrieve name from property store: {}", err);
-                        let err = BackendSpecificError { description };
-                        DeviceNameError::from(err)
-                    })?;
+        unsafe {
+            // Open the device's property store.
+            let property_store = device
+                .OpenPropertyStore(STGM_READ)
+                .expect("could not open property store");
 
-                let prop_variant = &property_value.Anonymous.Anonymous;
-
-                // Read the friendly-name from the union data field, expecting a *const u16.
-                if prop_variant.vt != VT_LPWSTR {
-                    let description = format!(
-                        "property store produced invalid data: {:?}",
-                        prop_variant.vt
-                    );
+            // Get the endpoint's friendly-name property.
+            let mut property_value = property_store
+                .GetValue(&Properties::DEVPKEY_Device_FriendlyName as *const _ as *const _)
+                .map_err(|err| {
+                    let description =
+                        format!("failed to retrieve name from property store: {}", err);
                     let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-                let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
+                    DeviceNameError::from(err)
+                })?;
 
-                // Find the length of the friendly name.
-                let mut len = 0;
-                while *ptr_utf16.offset(len) != 0 {
-                    len += 1;
-                }
+            let prop_variant = &property_value.Anonymous.Anonymous;
 
-                // Create the utf16 slice and convert it into a string.
-                let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
-                let name_os_string: OsString = OsStringExt::from_wide(name_slice);
-                let name_string = match name_os_string.into_string() {
-                    Ok(string) => string,
-                    Err(os_string) => os_string.to_string_lossy().into(),
-                };
+            // Read the friendly-name from the union data field, expecting a *const u16.
+            if prop_variant.vt != VT_LPWSTR {
+                let description = format!(
+                    "property store produced invalid data: {:?}",
+                    prop_variant.vt
+                );
+                let err = BackendSpecificError { description };
+                return Err(err.into());
+            }
+            let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
 
-                // Clean up the property.
-                StructuredStorage::PropVariantClear(&mut property_value).ok();
+            // Find the length of the friendly name.
+            let mut len = 0;
+            while *ptr_utf16.offset(len) != 0 {
+                len += 1;
+            }
 
-                Ok(name_string)
-            },
+            // Create the utf16 slice and convert it into a string.
+            let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
+            let name_os_string: OsString = OsStringExt::from_wide(name_slice);
+            let name_string = match name_os_string.into_string() {
+                Ok(string) => string,
+                Err(os_string) => os_string.to_string_lossy().into(),
+            };
+
+            // Clean up the property.
+            StructuredStorage::PropVariantClear(&mut property_value).ok();
+
+            Ok(name_string)
         }
     }
 
@@ -405,9 +407,23 @@ impl Device {
         }
     }
 
-    // pub fn immdevice(&self) -> &Audio::IMMDevice {
-    //     &self.device
-    // }
+    pub fn immdevice(&self) -> Option<Audio::IMMDevice> {
+        match &self.device {
+            DeviceType::DefaultOutput => unsafe {
+                get_enumerator()
+                    .0
+                    .GetDefaultAudioEndpoint(Audio::eRender, Audio::eConsole)
+                    .ok()
+            },
+            DeviceType::DefaultInput => unsafe {
+                get_enumerator()
+                    .0
+                    .GetDefaultAudioEndpoint(Audio::eCapture, Audio::eConsole)
+                    .ok()
+            },
+            DeviceType::Specific(device) => Some(device.clone()),
+        }
+    }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
     fn ensure_future_audio_client(
@@ -1015,24 +1031,11 @@ impl Iterator for Devices {
     }
 }
 
-//fn default_device(data_flow: Audio::EDataFlow) -> Option<Device> {
-//    unsafe {
-//        let device = get_enumerator()
-//            .0
-//            .GetDefaultAudioEndpoint(data_flow, Audio::eConsole)
-//            .ok()?;
-//        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
-//        Some(Device::from_immdevice(device))
-//    }
-//}
-
 pub fn default_input_device() -> Option<Device> {
-    //default_device(Audio::eCapture)
     Some(Device::default_input())
 }
 
 pub fn default_output_device() -> Option<Device> {
-    //default_device(Audio::eRender)
     Some(Device::default_output())
 }
 
