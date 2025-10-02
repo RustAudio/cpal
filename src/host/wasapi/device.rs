@@ -559,6 +559,23 @@ impl Device {
                 }
             };
 
+            // RAW (unprocessed) mode can be requested by setting the environment variable
+            // `CPAL_WASAPI_REQUEST_FORCE_RAW=1`. When enabled, we ask the driver to bypass pre-processing such
+            // as AGC or noise suppression. If the OS/driver rejects the call
+            // we simply continue with the normal shared-mode stream.
+            if force_raw_enabled() {
+                if let Ok(client3) = audio_client.cast::<Audio::IAudioClient3>() {
+                    use windows::Win32::Media::Audio::{AudioClientProperties, AudioCategory_Other, AUDCLNT_STREAMOPTIONS_RAW};
+                    let props = AudioClientProperties {
+                        cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
+                        bIsOffload: Foundation::BOOL(0),
+                        eCategory: AudioCategory_Other,
+                        Options: AUDCLNT_STREAMOPTIONS_RAW,
+                    };
+                    let _ = client3.SetClientProperties(&props);
+                }
+            }
+
             let buffer_duration =
                 buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
 
@@ -1024,4 +1041,14 @@ fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: u32) -> i64 {
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: u32) -> FrameCount {
     (buffer_duration * sample_rate as i64 * 100 / 1_000_000_000) as FrameCount
+}
+
+// Global once-initialized flag that indicates whether RAW mode is requested via environment.
+static REQUEST_FORCE_RAW: OnceLock<bool> = OnceLock::new();
+
+#[inline]
+fn force_raw_enabled() -> bool {
+    *REQUEST_FORCE_RAW.get_or_init(|| {
+        std::env::var("CPAL_WASAPI_REQUEST_FORCE_RAW").map_or(false, |v| v != "0")
+    })
 }
