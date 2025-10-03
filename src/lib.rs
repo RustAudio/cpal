@@ -222,7 +222,8 @@ pub type FrameCount = u32;
 
 /// The device ID of the audio device, on supported OSs
 /// Currently only supports macOS and Windows (WASAPI)
-#[derive(Clone, Debug, Eq, PartialEq)]
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceId {
     CoreAudio(String),
     WASAPI(String),
@@ -248,7 +249,7 @@ impl std::fmt::Display for DeviceId {
             DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
             DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
             DeviceId::IOS(default) => write!(f, "ios:{}", default),
-            DeviceId::Null => write!(f, "null"),
+            DeviceId::Null => write!(f, "null:null"),
         }
     }
 }

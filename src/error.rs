@@ -66,7 +66,7 @@ impl From<BackendSpecificError> for DevicesError {
 }
 
 /// An error that may occur while attempting to retrieve a device id.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceIdError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific {
