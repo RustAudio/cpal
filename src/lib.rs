@@ -220,6 +220,65 @@ where
 /// one frame contains two samples (left and right channels).
 pub type FrameCount = u32;
 
+/// The device ID of the audio device, on supported OSs
+/// Currently only supports macOS and Windows (WASAPI)
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DeviceId {
+    CoreAudio(String),
+    WASAPI(String),
+    ASIO(String),
+    ALSA(String),
+    AAudio(i32),
+    Jack(String),
+    WebAudio(String),
+    Emscripten(String),
+    IOS(String),
+    Null,
+}
+
+impl std::fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
+            DeviceId::ASIO(guid) => write!(f, "asio:{}", guid),
+            DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
+            DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
+            DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
+            DeviceId::Jack(name) => write!(f, "jack:{}", name),
+            DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
+            DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
+            DeviceId::IOS(default) => write!(f, "ios:{}", default),
+            DeviceId::Null => write!(f, "null:null"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeviceId {
+    type Err = DeviceIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (platform, data) = s.split_once(':').ok_or(DeviceIdError::ParseError)?;
+
+        match platform {
+            "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
+            "asio" => Ok(DeviceId::ASIO(data.to_string())),
+            "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
+            "alsa" => Ok(DeviceId::ALSA(data.to_string())),
+            "aaudio" => {
+                let id = data.parse().map_err(|_| DeviceIdError::ParseError)?;
+                Ok(DeviceId::AAudio(id))
+            }
+            "jack" => Ok(DeviceId::Jack(data.to_string())),
+            "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
+            "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
+            "ios" => Ok(DeviceId::IOS(data.to_string())),
+            "null" => Ok(DeviceId::Null),
+            &_ => todo!("implement DeviceId::FromStr for {platform}"),
+        }
+    }
+}
+
 /// The buffer size requests the callback size for audio streams.
 ///
 /// This controls the approximate size of the audio buffer passed to your callback.

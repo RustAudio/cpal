@@ -4,6 +4,8 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 use super::sys;
 use crate::BackendSpecificError;
 use crate::DefaultStreamConfigError;
+use crate::DeviceId;
+use crate::DeviceIdError;
 use crate::DeviceNameError;
 use crate::DevicesError;
 use crate::SampleFormat;
@@ -52,6 +54,10 @@ impl Hash for Device {
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
         Ok(self.driver.name().to_string())
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::ASIO(self.driver.name().to_string()))
     }
 
     /// Gets the supported input configs.
