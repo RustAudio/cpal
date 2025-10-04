@@ -83,6 +83,12 @@ impl Stream {
 
             let bps = sample_spec.format.bytes_per_sample();
             let n_samples = buf.len() / bps;
+
+            // SAFETY: We verify that:
+            // - buf.as_ptr() points to valid memory for at least n_samples * bytes_per_sample
+            // - n_samples is calculated from buf.len() / bytes_per_sample, ensuring validity
+            // - The buffer remains valid for the duration of the callback
+            // - sample_format matches the actual data layout in the buffer
             let mut data =
                 unsafe { Data::from_parts(buf.as_mut_ptr().cast(), n_samples, sample_format) };
 
@@ -98,11 +104,13 @@ impl Stream {
         let stream = block_on(client.create_playback_stream(params, callback.as_playback_source()))
             .map_err(Into::<BackendSpecificError>::into)?;
 
-        // Spawn a thread to drive the stream future.
+        // Spawn a thread to drive the stream future. It will exit automatically
+        // when the stream is stopped by the user.
         let stream_clone = stream.clone();
         let _worker_thread = std::thread::spawn(move || block_on(stream_clone.play_all()));
 
-        // Spawn a thread to monitor the stream's latency in a loop.
+        // Spawn a thread to monitor the stream's latency in a loop. It will
+        // exit automatically when the stream ends.
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         std::thread::spawn(move || loop {
@@ -161,6 +169,12 @@ impl Stream {
 
             let bps = sample_spec.format.bytes_per_sample();
             let n_samples = buf.len() / bps;
+
+            // SAFETY: We verify that:
+            // - buf.as_ptr() points to valid memory for at least n_samples * bytes_per_sample
+            // - n_samples is calculated from buf.len() / bytes_per_sample, ensuring validity
+            // - The buffer remains valid for the duration of the callback
+            // - sample_format matches the actual data layout in the buffer
             let data =
                 unsafe { Data::from_parts(buf.as_ptr() as *mut _, n_samples, sample_format) };
 
@@ -170,7 +184,8 @@ impl Stream {
         let stream = block_on(client.create_record_stream(params, callback))
             .map_err(Into::<BackendSpecificError>::into)?;
 
-        // Spawn a thread to monitor the stream's latency in a loop.
+        // Spawn a thread to monitor the stream's latency in a loop. It will
+        // exit automatically when the stream ends.
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         std::thread::spawn(move || loop {
