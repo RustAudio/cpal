@@ -686,7 +686,17 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    // Try to invoke error callback, recovering from poison if needed
+                    match error_callback.try_lock() {
+                        Ok(mut cb) => cb(err.into()),
+                        Err(std::sync::TryLockError::Poisoned(guard)) => {
+                            // Recover from poisoned lock to still report this error
+                            guard.into_inner()(err.into());
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            // Skip if callback is busy
+                        }
+                    }
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -715,8 +725,15 @@ impl Device {
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
             Box::new(move |err: StreamError| {
-                if let Ok(mut cb) = error_callback_clone.lock() {
-                    cb(err);
+                match error_callback_clone.try_lock() {
+                    Ok(mut cb) => cb(err),
+                    Err(std::sync::TryLockError::Poisoned(guard)) => {
+                        // Recover from poisoned lock to still report this error
+                        guard.into_inner()(err);
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        // Skip if callback is busy
+                    }
                 }
             })
         };
@@ -736,7 +753,7 @@ impl Device {
             .lock()
             .map_err(|_| BuildStreamError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Failed to acquire stream lock".to_string(),
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
                 },
             })?
             .audio_unit
@@ -791,7 +808,17 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    // Try to invoke error callback, recovering from poison if needed
+                    match error_callback.try_lock() {
+                        Ok(mut cb) => cb(err.into()),
+                        Err(std::sync::TryLockError::Poisoned(guard)) => {
+                            // Recover from poisoned lock to still report this error
+                            guard.into_inner()(err.into());
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            // Skip if callback is busy
+                        }
+                    }
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -820,8 +847,15 @@ impl Device {
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
             Box::new(move |err: StreamError| {
-                if let Ok(mut cb) = error_callback_clone.lock() {
-                    cb(err);
+                match error_callback_clone.try_lock() {
+                    Ok(mut cb) => cb(err),
+                    Err(std::sync::TryLockError::Poisoned(guard)) => {
+                        // Recover from poisoned lock to still report this error
+                        guard.into_inner()(err);
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        // Skip if callback is busy
+                    }
                 }
             })
         };
@@ -841,7 +875,7 @@ impl Device {
             .lock()
             .map_err(|_| BuildStreamError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Failed to acquire stream lock".to_string(),
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
                 },
             })?
             .audio_unit
