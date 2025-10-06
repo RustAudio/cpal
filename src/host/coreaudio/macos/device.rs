@@ -40,6 +40,7 @@ use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 /// Attempt to set the device sample rate to the provided rate.
@@ -669,16 +670,14 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr();
-            let len = (*args.data.data).mNumberBuffers as usize;
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
-
-            // TODO: Perhaps loop over all buffers instead?
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
-            } = buffers[0];
+            } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;
@@ -686,17 +685,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    // Try to invoke error callback, recovering from poison if needed
-                    match error_callback.try_lock() {
-                        Ok(mut cb) => cb(err.into()),
-                        Err(std::sync::TryLockError::Poisoned(guard)) => {
-                            // Recover from poisoned lock to still report this error
-                            guard.into_inner()(err.into());
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => {
-                            // Skip if callback is busy
-                        }
-                    }
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -725,16 +714,7 @@ impl Device {
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
             Box::new(move |err: StreamError| {
-                match error_callback_clone.try_lock() {
-                    Ok(mut cb) => cb(err),
-                    Err(std::sync::TryLockError::Poisoned(guard)) => {
-                        // Recover from poisoned lock to still report this error
-                        guard.into_inner()(err);
-                    }
-                    Err(std::sync::TryLockError::WouldBlock) => {
-                        // Skip if callback is busy
-                    }
-                }
+                invoke_error_callback(&error_callback_clone, err);
             })
         };
 
@@ -793,9 +773,9 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
-            // If `run()` is currently running, then a callback will be available from this list.
-            // Otherwise, we just fill the buffer with zeroes and return.
-
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
@@ -808,17 +788,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    // Try to invoke error callback, recovering from poison if needed
-                    match error_callback.try_lock() {
-                        Ok(mut cb) => cb(err.into()),
-                        Err(std::sync::TryLockError::Poisoned(guard)) => {
-                            // Recover from poisoned lock to still report this error
-                            guard.into_inner()(err.into());
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => {
-                            // Skip if callback is busy
-                        }
-                    }
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -847,16 +817,7 @@ impl Device {
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
             Box::new(move |err: StreamError| {
-                match error_callback_clone.try_lock() {
-                    Ok(mut cb) => cb(err),
-                    Err(std::sync::TryLockError::Poisoned(guard)) => {
-                        // Recover from poisoned lock to still report this error
-                        guard.into_inner()(err);
-                    }
-                    Err(std::sync::TryLockError::WouldBlock) => {
-                        // Skip if callback is busy
-                    }
-                }
+                invoke_error_callback(&error_callback_clone, err);
             })
         };
 
