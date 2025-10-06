@@ -61,6 +61,12 @@ type ErrorCallback = Box<dyn FnMut(crate::StreamError) + Send + 'static>;
 /// Manages device disconnection listener on a dedicated thread to ensure the
 /// AudioObjectPropertyListener is always created and dropped on the same thread.
 /// This avoids potential threading issues with CoreAudio APIs.
+///
+/// When a device disconnects, this manager:
+/// 1. Attempts to pause the stream to stop audio I/O
+/// 2. Calls the error callback with `StreamError::DeviceNotAvailable`
+///
+/// The dedicated thread architecture ensures `Stream` can implement `Send`.
 struct DisconnectManager {
     _shutdown_tx: mpsc::Sender<()>,
 }
@@ -74,6 +80,7 @@ impl DisconnectManager {
     ) -> Result<Self, crate::BuildStreamError> {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let (disconnect_tx, disconnect_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
 
         // Spawn dedicated thread to own the AudioObjectPropertyListener
         let disconnect_tx_clone = disconnect_tx.clone();
@@ -85,15 +92,28 @@ impl DisconnectManager {
             };
 
             // Create the listener on this dedicated thread
-            let _listener =
-                AudioObjectPropertyListener::new(device_id, property_address, move || {
-                    let _ = disconnect_tx_clone.send(());
-                })
-                .unwrap();
-
-            // Drop the listener on this thread after receiving a shutdown signal
-            let _ = shutdown_rx.recv();
+            match AudioObjectPropertyListener::new(device_id, property_address, move || {
+                let _ = disconnect_tx_clone.send(());
+            }) {
+                Ok(_listener) => {
+                    let _ = ready_tx.send(Ok(()));
+                    // Drop the listener on this thread after receiving a shutdown signal
+                    let _ = shutdown_rx.recv();
+                }
+                Err(e) => {
+                    let _ = ready_tx.send(Err(e));
+                }
+            }
         });
+
+        // Wait for listener creation to complete or fail
+        ready_rx
+            .recv()
+            .map_err(|_| crate::BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Disconnect listener thread terminated unexpectedly".to_string(),
+                },
+            })??;
 
         // Handle disconnect events on the main thread pool
         let stream_weak_clone = stream_weak.clone();
@@ -103,21 +123,24 @@ impl DisconnectManager {
                 // Check if stream still exists
                 if let Some(stream_arc) = stream_weak_clone.upgrade() {
                     // First, try to pause the stream to stop playback
-                    match stream_arc.lock() {
-                        Ok(mut stream_inner) => {
-                            let _ = stream_inner.pause();
-                        }
-                        Err(_) => {
-                            // Could not acquire lock. This can occur if there are
-                            // overlapping locks, if the stream is already in use, or if a panic
-                            // occurred during a previous lock. Still notify about device
-                            // disconnection even if we can't pause.
-                        }
+                    if let Ok(mut stream_inner) = stream_arc.try_lock() {
+                        let _ = stream_inner.pause();
                     }
 
-                    // Call the error callback to notify about device disconnection
-                    if let Ok(mut cb) = error_callback_clone.lock() {
-                        cb(crate::StreamError::DeviceNotAvailable);
+                    // Always try to notify about device disconnection
+                    match error_callback_clone.try_lock() {
+                        Ok(mut cb) => {
+                            cb(crate::StreamError::DeviceNotAvailable);
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            // Error callback is being invoked - skip this notification
+                        }
+                        Err(std::sync::TryLockError::Poisoned(guard)) => {
+                            // Error callback panicked - try to recover and still notify
+                            // This is critical: device disconnected AND callback is broken
+                            let mut cb = guard.into_inner();
+                            cb(crate::StreamError::DeviceNotAvailable);
+                        }
                     }
                 } else {
                     // Stream is gone, exit the handler thread
