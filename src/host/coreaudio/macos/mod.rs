@@ -58,6 +58,30 @@ impl HostTrait for Host {
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = Box<dyn FnMut(crate::StreamError) + Send + 'static>;
 
+/// Invoke error callback, recovering from poisoned mutex if needed.
+/// Returns true if callback was invoked, false if skipped due to WouldBlock.
+#[inline]
+fn invoke_error_callback<E>(error_callback: &Arc<Mutex<E>>, err: crate::StreamError) -> bool
+where
+    E: FnMut(crate::StreamError) + Send,
+{
+    match error_callback.try_lock() {
+        Ok(mut cb) => {
+            cb(err);
+            true
+        }
+        Err(std::sync::TryLockError::Poisoned(guard)) => {
+            // Recover from poisoned lock to still report this error
+            guard.into_inner()(err);
+            true
+        }
+        Err(std::sync::TryLockError::WouldBlock) => {
+            // Skip if callback is busy
+            false
+        }
+    }
+}
+
 /// Manages device disconnection listener on a dedicated thread to ensure the
 /// AudioObjectPropertyListener is always created and dropped on the same thread.
 /// This avoids potential threading issues with CoreAudio APIs.
@@ -128,20 +152,10 @@ impl DisconnectManager {
                     }
 
                     // Always try to notify about device disconnection
-                    match error_callback_clone.try_lock() {
-                        Ok(mut cb) => {
-                            cb(crate::StreamError::DeviceNotAvailable);
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => {
-                            // Error callback is being invoked - skip this notification
-                        }
-                        Err(std::sync::TryLockError::Poisoned(guard)) => {
-                            // Error callback panicked - try to recover and still notify
-                            // This is critical: device disconnected AND callback is broken
-                            let mut cb = guard.into_inner();
-                            cb(crate::StreamError::DeviceNotAvailable);
-                        }
-                    }
+                    invoke_error_callback(
+                        &error_callback_clone,
+                        crate::StreamError::DeviceNotAvailable,
+                    );
                 } else {
                     // Stream is gone, exit the handler thread
                     break;
