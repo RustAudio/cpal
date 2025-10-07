@@ -1,6 +1,6 @@
 # Unreleased
 
-- Add `HostTrait::id` method that returns a stable audio device ID.
+- Add `DeviceTrait::id` method that returns a stable audio device ID.
 - Add `HostTrait::device_by_id` to select a device by its stable ID.
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
