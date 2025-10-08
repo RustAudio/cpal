@@ -12,8 +12,8 @@ pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRang
 pub struct Devices(VecIntoIter<Device>);
 
 impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        Ok(Self::default())
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
