@@ -1,3 +1,4 @@
+use crate::host::wasapi::com::ComString;
 use crate::FrameCount;
 use crate::{
     BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
@@ -319,7 +320,16 @@ unsafe fn activate_audio_interface_sync(
         None,
         &completion,
     )?;
-    let result = receiver.recv_timeout(Duration::from_secs(2)).unwrap()?;
+    // The choice of 2 seconds here is arbitrary; it is a failsafe in the event that
+    // `ActivateAudioInterfaceAsync` never resolves.
+    let result = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .map_err(|_| {
+            windows::core::Error::new(
+                Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                "timeout waiting for audio interface activation",
+            )
+        })??;
     result.cast()
 }
 
@@ -445,16 +455,14 @@ impl Device {
         let audio_client: Audio::IAudioClient = unsafe {
             match &self.device {
                 DeviceType::DefaultOutput => {
-                    let default_audio = Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?;
-                    let result = activate_audio_interface_sync(default_audio);
-                    Com::CoTaskMemFree(Some(default_audio.as_ptr() as _));
-                    result?
+                    let default_audio =
+                        ComString(Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?);
+                    activate_audio_interface_sync(default_audio.0)?
                 }
                 DeviceType::DefaultInput => {
-                    let default_audio = Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?;
-                    let result = activate_audio_interface_sync(default_audio);
-                    Com::CoTaskMemFree(Some(default_audio.as_ptr() as _));
-                    result?
+                    let default_audio =
+                        ComString(Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?);
+                    activate_audio_interface_sync(default_audio.0)?
                 }
                 DeviceType::Specific(device) => {
                     // can fail if the device has been disconnected since we enumerated it, or if
@@ -909,19 +917,12 @@ impl PartialEq for Device {
                 // In this code section we're trying to use the GetId method for the device comparison, cf.
                 // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
                 unsafe {
-                    struct IdRAII(windows::core::PWSTR);
-                    /// RAII for device IDs.
-                    impl Drop for IdRAII {
-                        fn drop(&mut self) {
-                            unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
-                        }
-                    }
                     // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
                     // Plus it won't do to change the device comparison logic unexpectedly.
                     let id1 = dev1.GetId().expect("cpal: GetId failure");
-                    let id1 = IdRAII(id1);
+                    let id1 = ComString(id1);
                     let id2 = dev2.GetId().expect("cpal: GetId failure");
-                    let id2 = IdRAII(id2);
+                    let id2 = ComString(id2);
                     // 16-bit null-terminated comparison.
                     let mut offset = 0;
                     loop {

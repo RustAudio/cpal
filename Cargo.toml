@@ -17,11 +17,12 @@ asio = [
     "num-traits",
 ] # Only available on Windows. See README for setup instructions.
 
-# Enable virtual default devices for WASAPI, so that audio will be
-# automatically rerouted when the default input or output device is changed.
+# Enable virtual default devices for WASAPI. When enabled:
+# - Audio automatically reroutes when the default device changes
+# - Streams survive device changes (e.g., plugging in headphones)
+# - Requires Windows 8 or later
 #
-# Note that this only works on Windows 8 and above. It is turned on by default,
-# but consider turning it off if you are supporting an older version of Windows.
+# Disable this feature if supporting Windows 7 or earlier.
 wasapi-virtual-default-devices = []
 
 # Deprecated, the `oboe` backend has been removed
