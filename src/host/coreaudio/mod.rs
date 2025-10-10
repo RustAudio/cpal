@@ -127,54 +127,5 @@ impl From<coreaudio::Error> for DefaultStreamConfigError {
 
 pub(crate) type OSStatus = i32;
 
-#[cfg(test)]
-mod tests {
-    use crate::{
-        default_host,
-        traits::{DeviceTrait, HostTrait, StreamTrait},
-        Sample,
-    };
-
-    #[test]
-    fn test_stream_thread_transfer() {
-        let host = default_host();
-        let device = host.default_output_device().unwrap();
-
-        let mut supported_configs_range = device.supported_output_configs().unwrap();
-        let supported_config = supported_configs_range
-            .next()
-            .unwrap()
-            .with_max_sample_rate();
-        let config = supported_config.config();
-
-        let stream = device
-            .build_output_stream(
-                &config,
-                write_silence::<f32>,
-                move |err| println!("Error: {err}"),
-                None,
-            )
-            .unwrap();
-
-        // Move stream to another thread and back - this should compile and work
-        let handle = std::thread::spawn(move || {
-            // Stream is now owned by this thread
-            stream.play().unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            stream.pause().unwrap();
-            stream // Return stream back to main thread
-        });
-
-        let stream = handle.join().unwrap();
-        // Stream is back in main thread
-        stream.play().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        stream.pause().unwrap();
-    }
-
-    fn write_silence<T: Sample>(data: &mut [T], _: &crate::OutputCallbackInfo) {
-        for sample in data.iter_mut() {
-            *sample = Sample::EQUILIBRIUM;
-        }
-    }
-}
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
