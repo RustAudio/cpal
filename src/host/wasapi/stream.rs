@@ -31,6 +31,9 @@ pub struct Stream {
     pending_scheduled_event: Foundation::HANDLE,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 struct RunContext {
     // Streams that have been created in this event loop.
     stream: StreamInner,

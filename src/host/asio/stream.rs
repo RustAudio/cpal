@@ -22,6 +22,9 @@ pub struct Stream {
     callback_id: sys::CallbackId,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 impl Stream {
     pub fn play(&self) -> Result<(), PlayStreamError> {
         self.playing.store(true, Ordering::SeqCst);

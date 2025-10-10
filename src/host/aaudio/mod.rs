@@ -49,6 +49,9 @@ pub enum Stream {
 // TODO: Is this still in-progress? https://github.com/rust-mobile/ndk/pull/497
 unsafe impl Send for Stream {}
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type Devices = VecIntoIter<Device>;
