@@ -49,8 +49,6 @@ use std::time::{Duration, Instant};
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 
-type CFStringRef = *mut std::os::raw::c_void;
-
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
 fn set_sample_rate(
@@ -412,8 +410,13 @@ impl Device {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain,
         };
-        let mut uid: CFStringRef = std::ptr::null_mut();
-        let data_size = size_of::<CFStringRef>() as u32;
+
+        // CFString is retained by the audio object, use wrap_under_get_rule    
+        let mut uid: *mut CFString = std::ptr::null_mut();
+        let data_size = size_of::<*mut CFString>() as u32;
+
+        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer  
+        // for kAudioDevicePropertyDeviceUID. We check the status code before use.
         let status = unsafe {
             AudioObjectGetPropertyData(
                 self.audio_device_id,
@@ -425,14 +428,16 @@ impl Device {
             )
         };
         check_os_status(status)?;
+        
+        // SAFETY: We verified uid is non-null and the status was successful  
         if !uid.is_null() {
             let uid_string =
-                unsafe { CFString::wrap_under_get_rule(uid as *mut CFString).to_string() };
+                unsafe { CFString::wrap_under_get_rule(uid).to_string() };
             Ok(DeviceId::CoreAudio(uid_string))
         } else {
             Err(DeviceIdError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Device UID not found".to_string(),
+                    description: "Device UID is null".to_string(),
                 },
             })
         }
