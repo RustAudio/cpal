@@ -31,6 +31,10 @@ pub struct Stream {
     pending_scheduled_event: Foundation::HANDLE,
 }
 
+// Windows Event HANDLEs are safe to send between threads - they are designed for synchronization.
+// See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
+unsafe impl Send for Stream {}
+
 // Compile-time assertion that Stream is Send
 crate::assert_stream_send!(Stream);
 
