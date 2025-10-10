@@ -411,11 +411,11 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        // CFString is retained by the audio object, use wrap_under_get_rule    
+        // CFString is retained by the audio object, use wrap_under_get_rule
         let mut uid: *mut CFString = std::ptr::null_mut();
         let data_size = size_of::<*mut CFString>() as u32;
 
-        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer  
+        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
         // for kAudioDevicePropertyDeviceUID. We check the status code before use.
         let status = unsafe {
             AudioObjectGetPropertyData(
@@ -428,11 +428,10 @@ impl Device {
             )
         };
         check_os_status(status)?;
-        
-        // SAFETY: We verified uid is non-null and the status was successful  
+
+        // SAFETY: We verified uid is non-null and the status was successful
         if !uid.is_null() {
-            let uid_string =
-                unsafe { CFString::wrap_under_get_rule(uid).to_string() };
+            let uid_string = unsafe { CFString::wrap_under_get_rule(uid).to_string() };
             Ok(DeviceId::CoreAudio(uid_string))
         } else {
             Err(DeviceIdError::BackendSpecific {
