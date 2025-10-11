@@ -31,7 +31,9 @@
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.58, <= 0.62.
+- WASAPI: Make `Stream` implement `Send`.
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
+- Wasm: Make `Stream` implement `Send`.
 - WebAudio: Add `BufferSize::Fixed` validation against supported range.
 
 # Version 0.16.0 (2025-06-07)
