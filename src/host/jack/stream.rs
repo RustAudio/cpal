@@ -21,6 +21,9 @@ pub struct Stream {
     output_port_names: Vec<String>,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 impl Stream {
     // TODO: Return error messages
     pub fn new_input<D, E>(

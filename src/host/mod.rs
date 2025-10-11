@@ -28,3 +28,13 @@ pub(crate) mod null;
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 pub(crate) mod webaudio;
+
+/// Compile-time assertion that a type implements Send.
+/// Use this macro in each host module to ensure Stream is Send.
+#[macro_export]
+macro_rules! assert_stream_send {
+    ($t:ty) => {
+        const fn _assert_stream_send<T: Send>() {}
+        const _: () = _assert_stream_send::<$t>();
+    };
+}

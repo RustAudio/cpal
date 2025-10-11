@@ -34,6 +34,12 @@ pub struct Stream {
     audio_ctxt: AudioContext,
 }
 
+// WASM runs in a single-threaded environment, so Send is safe by design.
+unsafe impl Send for Stream {}
+
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 // Index within the `streams` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);

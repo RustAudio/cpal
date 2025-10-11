@@ -602,6 +602,9 @@ pub struct Stream {
     trigger: TriggerSender,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
     transfer_buffer: Box<[u8]>,
