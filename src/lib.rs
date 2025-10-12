@@ -182,11 +182,14 @@ pub mod platform;
 mod samples_formats;
 pub mod traits;
 
+/// Iterator of devices wrapped in a filter to only include certain device types
+pub type DevicesFiltered<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+
 /// A host's device iterator yielding only *input* devices.
-pub type InputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+pub type InputDevices<I> = DevicesFiltered<I>;
 
 /// A host's device iterator yielding only *output* devices.
-pub type OutputDevices<I> = std::iter::Filter<I, fn(&<I as Iterator>::Item) -> bool>;
+pub type OutputDevices<I> = DevicesFiltered<I>;
 
 /// Number of channels.
 pub type ChannelCount = u16;
