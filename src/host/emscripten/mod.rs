@@ -197,11 +197,10 @@ impl DeviceTrait for Device {
 
         let buffer_size_frames = match config.buffer_size {
             BufferSize::Fixed(v) => {
-                if v == 0 {
+                if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
                     return Err(BuildStreamError::StreamConfigNotSupported);
-                } else {
-                    v as usize
                 }
+                v as usize
             }
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
