@@ -863,7 +863,6 @@ impl Device {
 /// This handles the common setup tasks for both input and output streams:
 /// - Sets the stream format (ASBD)
 /// - Configures buffer size for Fixed buffer size requests
-/// - Validates buffer size ranges
 fn configure_stream_format_and_buffer(
     audio_unit: &mut AudioUnit,
     config: &StreamConfig,
@@ -879,14 +878,6 @@ fn configure_stream_format_and_buffer(
 
     // Configure device buffer size if requested
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-        let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
-
-        if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-            if !(min..=max).contains(&buffer_size) {
-                return Err(BuildStreamError::StreamConfigNotSupported);
-            }
-        }
-
         // IMPORTANT: Buffer frame size is a DEVICE-LEVEL property, not stream-specific.
         // Unlike stream format above, we ALWAYS use Scope::Global + Element::Output
         // for device properties, regardless of whether this is an input or output stream.

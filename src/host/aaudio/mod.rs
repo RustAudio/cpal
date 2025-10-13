@@ -215,6 +215,9 @@ fn configure_for_device(
         builder
     };
     builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
+
+    // Note: Buffer size validation is not needed - the native AAudio API validates buffer sizes
+    // when `open_stream()` is called.
     match &config.buffer_size {
         BufferSize::Default => builder,
         BufferSize::Fixed(size) => builder
