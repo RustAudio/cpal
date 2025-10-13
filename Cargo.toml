@@ -17,6 +17,10 @@ asio = [
 
 # Deprecated, the `oboe` backend has been removed
 oboe-shared-stdcxx = []
+# Enable the creation of custom hosts.
+custom = []
+
+default = ["custom"]
 
 [dependencies]
 dasp_sample = "0.11"

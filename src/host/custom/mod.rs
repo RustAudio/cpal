@@ -18,6 +18,8 @@ use core::time::Duration;
 /// let custom = cpal::platform::CustomHost::from_host(/* ... */);
 /// let host = cpal::Host::from(custom);
 /// ```
+///
+/// Custom hosts are marked as unavailable and will not appear in [`cpal::available_hosts`](crate::available_hosts).
 pub struct Host(Box<dyn HostErased>);
 
 impl Host {
