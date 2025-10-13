@@ -7,13 +7,26 @@ use crate::{
 };
 use core::time::Duration;
 
+/// A host that can be used to write custom [`HostTrait`] implementations.
+///
+/// # Usage
+///
+/// A [`CustomHost`](Host) can be used on its own, but most crates that depend on `cpal` use a [`cpal::Host`](crate::Host) instead.
+/// You can turn a `CustomHost` into a `Host` fairly easily:
+///
+/// ```no_run
+/// let custom = cpal::platform::CustomHost::from_host(/* ... */);
+/// let host = cpal::Host::from(custom);
+/// ```
 pub struct Host(Box<dyn HostErased>);
 
 impl Host {
+    // this only exists for impl_platform_host, which requires it
     pub(crate) fn new() -> Result<Self, crate::HostUnavailable> {
         Err(crate::HostUnavailable)
     }
 
+    /// Construct a custom host from an arbitrary [`HostTrait`] implementation.
     pub fn from_host<T>(host: T) -> Self
     where
         T: HostTrait + 'static,
@@ -25,7 +38,38 @@ impl Host {
     }
 }
 
+/// A device that can be used to write custom [`DeviceTrait`] implementations.
+///
+/// # Usage
+///
+/// A [`CustomDevice`](Device) can be used on its own, but most crates that depend on `cpal` use a [`cpal::Device`](crate::Device) instead.
+/// You can turn a `Device` into a `Device` fairly easily:
+///
+/// ```no_run
+/// let custom = cpal::platform::Device::from_device(/* ... */);
+/// let device = cpal::Device::from(custom);
+/// ```
+///
+/// `rodio`, for example, lets you build an `OutputStream` with a [`cpal::Device`](crate::Device):
+/// ```no_run
+/// let custom = cpal::platform::Device::from_device(/* ... */);
+/// let device = cpal::Device::from(custom);
+///
+/// let stream_builder = rodio::OutputStreamBuilder::from_device(device).expect("failed to build stream");
+/// ```
 pub struct Device(Box<dyn DeviceErased>);
+
+impl Device {
+    /// Construct a custom device from an arbitrary [`DeviceTrait`] implementation.
+    pub fn from_device<T>(device: T) -> Self
+    where
+        T: DeviceTrait + Clone + 'static,
+        T::SupportedInputConfigs: Clone,
+        T::SupportedOutputConfigs: Clone,
+    {
+        Self(Box::new(device))
+    }
+}
 
 impl Clone for Device {
     fn clone(&self) -> Self {
@@ -33,7 +77,18 @@ impl Clone for Device {
     }
 }
 
+/// A stream that can be used with custom [`StreamTrait`] implementations.
 pub struct Stream(Box<dyn StreamErased>);
+
+impl Stream {
+    /// Construct a custom stream from an arbitrary [`StreamTrait`] implementation.
+    pub fn from_stream<T>(stream: T) -> Self
+    where
+        T: StreamTrait + 'static,
+    {
+        Self(Box::new(stream))
+    }
+}
 
 // -----
 
