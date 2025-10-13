@@ -14,7 +14,7 @@ use core::time::Duration;
 /// A [`CustomHost`](Host) can be used on its own, but most crates that depend on `cpal` use a [`cpal::Host`](crate::Host) instead.
 /// You can turn a `CustomHost` into a `Host` fairly easily:
 ///
-/// ```no_run
+/// ```ignore
 /// let custom = cpal::platform::CustomHost::from_host(/* ... */);
 /// let host = cpal::Host::from(custom);
 /// ```
@@ -47,14 +47,14 @@ impl Host {
 /// A [`CustomDevice`](Device) can be used on its own, but most crates that depend on `cpal` use a [`cpal::Device`](crate::Device) instead.
 /// You can turn a `Device` into a `Device` fairly easily:
 ///
-/// ```no_run
-/// let custom = cpal::platform::Device::from_device(/* ... */);
+/// ```ignore
+/// let custom = cpal::platform::CustomDevice::from_device(/* ... */);
 /// let device = cpal::Device::from(custom);
 /// ```
 ///
 /// `rodio`, for example, lets you build an `OutputStream` with a [`cpal::Device`](crate::Device):
-/// ```no_run
-/// let custom = cpal::platform::Device::from_device(/* ... */);
+/// ```ignore
+/// let custom = cpal::platform::CustomDevice::from_device(/* ... */);
 /// let device = cpal::Device::from(custom);
 ///
 /// let stream_builder = rodio::OutputStreamBuilder::from_device(device).expect("failed to build stream");
