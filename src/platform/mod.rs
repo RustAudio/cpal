@@ -602,12 +602,14 @@ macro_rules! impl_platform_host {
 ))]
 mod platform_impl {
     pub use crate::host::alsa::Host as AlsaHost;
+    pub use crate::host::custom::Host as CustomHost;
     #[cfg(feature = "jack")]
     pub use crate::host::jack::Host as JackHost;
 
     impl_platform_host!(
         #[cfg(feature = "jack")] Jack => JackHost,
         Alsa => AlsaHost,
+        Custom => CustomHost
     );
 
     /// The default host for the current compilation target platform.
@@ -621,7 +623,11 @@ mod platform_impl {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform_impl {
     pub use crate::host::coreaudio::Host as CoreAudioHost;
-    impl_platform_host!(CoreAudio => CoreAudioHost);
+    pub use crate::host::custom::Host as CustomHost;
+    impl_platform_host!(
+        CoreAudio => CoreAudioHost,
+        Custom => CustomHost
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -633,8 +639,12 @@ mod platform_impl {
 
 #[cfg(target_os = "emscripten")]
 mod platform_impl {
+    pub use crate::host::custom::Host as CustomHost;
     pub use crate::host::emscripten::Host as EmscriptenHost;
-    impl_platform_host!(Emscripten => EmscriptenHost);
+    impl_platform_host!(
+        Emscripten => EmscriptenHost,
+        Custom => CustomHost
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -646,8 +656,12 @@ mod platform_impl {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
+    pub use crate::host::custom::Host as CustomHost;
     pub use crate::host::webaudio::Host as WebAudioHost;
-    impl_platform_host!(WebAudio => WebAudioHost);
+    impl_platform_host!(
+        WebAudio => WebAudioHost,
+        Custom => CustomHost
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -661,11 +675,13 @@ mod platform_impl {
 mod platform_impl {
     #[cfg(feature = "asio")]
     pub use crate::host::asio::Host as AsioHost;
+    pub use crate::host::custom::Host as CustomHost;
     pub use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio => AsioHost,
         Wasapi => WasapiHost,
+        Custom => CustomHost,
     );
 
     /// The default host for the current compilation target platform.
@@ -679,7 +695,11 @@ mod platform_impl {
 #[cfg(target_os = "android")]
 mod platform_impl {
     pub use crate::host::aaudio::Host as AAudioHost;
-    impl_platform_host!(AAudio => AAudioHost);
+    pub use crate::host::custom::Host as CustomHost;
+    impl_platform_host!(
+        AAudio => AAudioHost,
+        Custom => CustomHost
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
@@ -702,9 +722,13 @@ mod platform_impl {
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
 mod platform_impl {
+    pub use crate::host::custom::Host as CustomHost;
     pub use crate::host::null::Host as NullHost;
 
-    impl_platform_host!(Null => NullHost);
+    impl_platform_host!(
+        Null => NullHost,
+        Custom => CustomHost,
+    );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
