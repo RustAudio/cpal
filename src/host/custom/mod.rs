@@ -103,9 +103,7 @@ trait HostErased {
 
 pub struct SupportedConfigs(Box<dyn SupportedConfigsErased>);
 
-trait SupportedConfigsErased {
-    fn next(&mut self) -> Option<SupportedStreamConfigRange>;
-
+trait SupportedConfigsErased: Iterator<Item = SupportedStreamConfigRange> {
     fn clone(&self) -> SupportedConfigs;
 }
 
@@ -113,10 +111,6 @@ impl<T> SupportedConfigsErased for T
 where
     T: Iterator<Item = SupportedStreamConfigRange> + Clone + 'static,
 {
-    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
-        <Self as Iterator>::next(self)
-    }
-
     fn clone(&self) -> SupportedConfigs {
         SupportedConfigs(Box::new(Clone::clone(self)))
     }
