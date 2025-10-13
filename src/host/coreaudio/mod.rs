@@ -3,6 +3,7 @@ use objc2_core_audio_types::{
     kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
 
+use crate::host::coreaudio::macos::Stream;
 use crate::DefaultStreamConfigError;
 use crate::{BuildStreamError, SupportedStreamConfigsError};
 
