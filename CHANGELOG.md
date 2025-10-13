@@ -22,6 +22,8 @@
 - CoreAudio: Update `mach2` to 0.5.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
+- CoreAudio: Make `Stream` implement `Send`.
+- CoreAudio: Remove `Clone` impl from `Stream`.
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
 - iOS: Fix example by properly activating audio session.
 - iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
@@ -29,7 +31,9 @@
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.58, <= 0.62.
+- WASAPI: Make `Stream` implement `Send`.
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
+- Wasm: Make `Stream` implement `Send`.
 - WebAudio: Add `BufferSize::Fixed` validation against supported range.
 
 # Version 0.16.0 (2025-06-07)

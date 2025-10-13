@@ -126,3 +126,6 @@ impl From<coreaudio::Error> for DefaultStreamConfigError {
 }
 
 pub(crate) type OSStatus = i32;
+
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
