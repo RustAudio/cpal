@@ -22,6 +22,9 @@ pub struct Stream {
     callback_id: sys::CallbackId,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 impl Stream {
     pub fn play(&self) -> Result<(), PlayStreamError> {
         self.playing.store(true, Ordering::SeqCst);
@@ -661,7 +664,7 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
 
 /// Check whether or not the desired config is supported by the stream.
 ///
-/// Checks sample rate, data type and then finally the number of channels.
+/// Checks sample rate, data type, number of channels, and buffer size.
 fn check_config(
     driver: &sys::Driver,
     config: &StreamConfig,
@@ -671,8 +674,21 @@ fn check_config(
     let StreamConfig {
         channels,
         sample_rate,
-        buffer_size: _,
+        buffer_size,
     } = config;
+
+    // Validate buffer size if `Fixed` is specified. This is necessary because ASIO's
+    // `create_buffers` only validates the upper bound (returns `InvalidBufferSize` if > max) but
+    // does NOT validate the lower bound. Passing a buffer size below min would be accepted but
+    // behavior is unspecified.
+    if let BufferSize::Fixed(requested_size) = buffer_size {
+        let (min, max) = driver.buffersize_range().map_err(build_stream_err)?;
+        let requested_size_i32 = *requested_size as i32;
+        if !(min..=max).contains(&requested_size_i32) {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+    }
+
     // Try and set the sample rate to what the user selected.
     let sample_rate = sample_rate.0.into();
     if sample_rate != driver.sample_rate().map_err(build_stream_err)? {

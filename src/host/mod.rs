@@ -31,3 +31,13 @@ pub(crate) mod webaudio;
 #[cfg(feature = "custom")]
 pub(crate) mod custom;
 pub(crate) mod null;
+
+/// Compile-time assertion that a type implements Send.
+/// Use this macro in each host module to ensure Stream is Send.
+#[macro_export]
+macro_rules! assert_stream_send {
+    ($t:ty) => {
+        const fn _assert_stream_send<T: Send>() {}
+        const _: () = _assert_stream_send::<$t>();
+    };
+}

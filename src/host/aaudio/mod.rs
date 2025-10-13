@@ -49,6 +49,9 @@ pub enum Stream {
 // TODO: Is this still in-progress? https://github.com/rust-mobile/ndk/pull/497
 unsafe impl Send for Stream {}
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type Devices = VecIntoIter<Device>;
@@ -215,6 +218,9 @@ fn configure_for_device(
         builder
     };
     builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
+
+    // Note: Buffer size validation is not needed - the native AAudio API validates buffer sizes
+    // when `open_stream()` is called.
     match &config.buffer_size {
         BufferSize::Default => builder,
         BufferSize::Fixed(size) => builder
