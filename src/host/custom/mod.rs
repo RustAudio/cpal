@@ -92,7 +92,8 @@ impl Stream {
     }
 }
 
-// -----
+// dyn-compatible versions of DeviceTrait, HostTrait, and StreamTrait
+// these only accept/return things via trait objects
 
 type Devices = Box<dyn Iterator<Item = Device>>;
 trait HostErased {
@@ -103,6 +104,8 @@ trait HostErased {
 
 pub struct SupportedConfigs(Box<dyn SupportedConfigsErased>);
 
+// A trait for supported configs. This only adds a dyn compatible clone function
+// This is required because `SupportedInputConfigsInner` & `SupportedOutputConfigsInner` are `Clone`
 trait SupportedConfigsErased: Iterator<Item = SupportedStreamConfigRange> {
     fn clone(&self) -> SupportedConfigs;
 }
@@ -158,7 +161,7 @@ trait DeviceErased {
         error_callback: ErrorCallback,
         timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>;
-
+    // Required because `DeviceInner` is clone
     fn clone(&self) -> Device;
 }
 
@@ -293,7 +296,7 @@ where
     }
 }
 
-// -----
+// implementations of HostTrait, DeviceTrait, and StreamTrait for custom versions
 
 impl HostTrait for Host {
     type Devices = Devices;
