@@ -139,6 +139,20 @@ impl Device {
     pub fn is_output(&self) -> bool {
         matches!(self.device_type, DeviceType::OutputDevice)
     }
+
+    /// Validate buffer size if Fixed is specified. This is necessary because JACK buffer size
+    /// is controlled by the JACK server and cannot be changed by clients. Without validation,
+    /// cpal would silently use the server's buffer size even if a different value was requested.
+    fn validate_buffer_size(&self, conf: &StreamConfig) -> Result<(), BuildStreamError> {
+        if let crate::BufferSize::Fixed(requested_size) = conf.buffer_size {
+            if let SupportedBufferSize::Range { min, max } = self.buffer_size {
+                if !(min..=max).contains(&requested_size) {
+                    return Err(BuildStreamError::StreamConfigNotSupported);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl DeviceTrait for Device {
@@ -199,6 +213,8 @@ impl DeviceTrait for Device {
         if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
+        self.validate_buffer_size(conf)?;
+
         // The settings should be fine, create a Client
         let client_options = super::get_client_options(self.start_server_automatically);
         let client;
@@ -238,6 +254,7 @@ impl DeviceTrait for Device {
         if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
+        self.validate_buffer_size(conf)?;
 
         // The settings should be fine, create a Client
         let client_options = super::get_client_options(self.start_server_automatically);

@@ -283,6 +283,28 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
+        // Validate buffer size if Fixed is specified. This is necessary because
+        // `set_period_size_near()` with `ValueOr::Nearest` will accept ANY value and return the
+        // "nearest" supported value, which could be wildly different (e.g., requesting 4096 frames
+        // might return 512 frames if that's "nearest").
+        if let BufferSize::Fixed(requested_size) = conf.buffer_size {
+            // Note: We use `default_input_config`/`default_output_config` to get the buffer size
+            // range. This queries the CURRENT device (`self.pcm_id`), not the default device. The
+            // buffer size range is the same across all format configurations for a given device
+            // (see `supported_configs()`).
+            let supported_config = match stream_type {
+                alsa::Direction::Capture => self.default_input_config(),
+                alsa::Direction::Playback => self.default_output_config(),
+            };
+            if let Ok(config) = supported_config {
+                if let SupportedBufferSize::Range { min, max } = config.buffer_size {
+                    if !(min..=max).contains(&requested_size) {
+                        return Err(BuildStreamError::StreamConfigNotSupported);
+                    }
+                }
+            }
+        }
+
         let handle_result = self
             .handles
             .lock()
@@ -610,6 +632,9 @@ pub struct Stream {
     /// Used to signal to stop processing.
     trigger: TriggerSender,
 }
+
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
 
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
