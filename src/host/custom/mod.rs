@@ -31,10 +31,11 @@ impl Host {
     /// Construct a custom host from an arbitrary [`HostTrait`] implementation.
     pub fn from_host<T>(host: T) -> Self
     where
-        T: HostTrait + 'static,
-        T::Device: Clone,
+        T: HostTrait + Send + Sync + 'static,
+        T::Device: Send + Sync + Clone,
         <T::Device as DeviceTrait>::SupportedInputConfigs: Clone,
         <T::Device as DeviceTrait>::SupportedOutputConfigs: Clone,
+        <T::Device as DeviceTrait>::Stream: Send + Sync,
     {
         Self(Box::new(host))
     }
@@ -65,9 +66,10 @@ impl Device {
     /// Construct a custom device from an arbitrary [`DeviceTrait`] implementation.
     pub fn from_device<T>(device: T) -> Self
     where
-        T: DeviceTrait + Clone + 'static,
+        T: DeviceTrait + Send + Sync + Clone + 'static,
         T::SupportedInputConfigs: Clone,
         T::SupportedOutputConfigs: Clone,
+        T::Stream: Send + Sync,
     {
         Self(Box::new(device))
     }
@@ -86,7 +88,7 @@ impl Stream {
     /// Construct a custom stream from an arbitrary [`StreamTrait`] implementation.
     pub fn from_stream<T>(stream: T) -> Self
     where
-        T: StreamTrait + 'static,
+        T: StreamTrait + Send + Sync + 'static,
     {
         Self(Box::new(stream))
     }
@@ -96,7 +98,7 @@ impl Stream {
 // these only accept/return things via trait objects
 
 type Devices = Box<dyn Iterator<Item = Device>>;
-trait HostErased {
+trait HostErased: Send + Sync {
     fn devices(&self) -> Result<Devices, DevicesError>;
     fn default_input_device(&self) -> Option<Device>;
     fn default_output_device(&self) -> Option<Device>;
@@ -137,7 +139,7 @@ type ErrorCallback = Box<dyn FnMut(StreamError) + Send + 'static>;
 type InputCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
 type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
 
-trait DeviceErased {
+trait DeviceErased: Send + Sync {
     fn name(&self) -> Result<String, DeviceNameError>;
     fn supports_input(&self) -> bool;
     fn supports_output(&self) -> bool;
@@ -165,7 +167,7 @@ trait DeviceErased {
     fn clone(&self) -> Device;
 }
 
-trait StreamErased {
+trait StreamErased: Send + Sync {
     fn play(&self) -> Result<(), PlayStreamError>;
     fn pause(&self) -> Result<(), PauseStreamError>;
 }
@@ -176,7 +178,7 @@ fn device_to_erased(d: impl DeviceErased + 'static) -> Device {
 
 impl<T> HostErased for T
 where
-    T: HostTrait,
+    T: HostTrait + Send + Sync,
     T::Devices: 'static,
     T::Device: DeviceErased + 'static,
 {
@@ -201,16 +203,16 @@ fn supported_configs_to_erased(
     SupportedConfigs(Box::new(i))
 }
 
-fn stream_to_erased(s: impl StreamTrait + 'static) -> Stream {
+fn stream_to_erased(s: impl StreamTrait + Send + Sync + 'static) -> Stream {
     Stream(Box::new(s))
 }
 
 impl<T> DeviceErased for T
 where
-    T: DeviceTrait + Clone + 'static,
+    T: DeviceTrait + Send + Sync + Clone + 'static,
     T::SupportedInputConfigs: Clone + 'static,
     T::SupportedOutputConfigs: Clone + 'static,
-    T::Stream: 'static,
+    T::Stream: Send + Sync + 'static,
 {
     fn name(&self) -> Result<String, DeviceNameError> {
         <T as DeviceTrait>::name(self)
@@ -285,7 +287,7 @@ where
 
 impl<T> StreamErased for T
 where
-    T: StreamTrait,
+    T: StreamTrait + Send + Sync,
 {
     fn play(&self) -> Result<(), PlayStreamError> {
         <T as StreamTrait>::play(self)
