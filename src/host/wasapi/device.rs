@@ -331,7 +331,11 @@ impl Device {
             match self.device.GetId() {
                 Ok(pwstr) => match pwstr.to_string() {
                     Ok(id_str) => Ok(DeviceId::WASAPI(id_str)),
-                    Err(e) => Err(DeviceIdError::BackendSpecific { err: BackendSpecificError { description: format!("Failed to convert device ID to string: {}", e) }, }),
+                    Err(e) => Err(DeviceIdError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: format!("Failed to convert device ID to string: {}", e),
+                        },
+                    }),
                 },
                 Err(e) => Err(DeviceIdError::BackendSpecific { err: e.into() }),
             }
