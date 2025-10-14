@@ -764,13 +764,6 @@ fn output_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
-    // As first period, always write one buffer with equilibrium values.
-    // This ensures we start with a full period of silence, giving the user their
-    // requested latency while avoiding underruns on the first callback.
-    if let Err(err) = stream.channel.io_bytes().writei(&ctxt.transfer_buffer) {
-        error_callback(err.into());
-    }
-
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -898,7 +891,10 @@ fn poll_descriptors_and_prepare_buffer(
     };
     let available_samples = avail_frames * stream.conf.channels as usize;
 
-    // Only go on if there is at least one period's worth of space available.
+    // ALSA can have spurious wakeups where poll returns but avail < avail_min.
+    // This is documented to occur with dmix (timer-driven) and other plugins.
+    // Verify we have room for at least one full period before processing.
+    // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
     if available_samples < stream.period_samples {
         return Ok(PollDescriptorsFlow::Continue);
     }
@@ -1346,18 +1342,23 @@ fn set_sw_params_from_format(
                 description: "initialization resulted in a null buffer".to_string(),
             });
         }
-        sw_params.set_avail_min(period as alsa::pcm::Frames)?;
-
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
                 // Use double-buffering (2 periods) to start playback, but cap at `buffer - period`
                 // to handle 2-period buffers gracefully (avoids requiring the entire buffer to be
                 // full).
-                cmp::min(2 * period, buffer.saturating_sub(period))
+                cmp::min(2 * period, buffer - period)
             }
             alsa::Direction::Capture => 1,
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
+
+        // Set avail_min to maintain our target latency (start_threshold).
+        // For large buffers (e.g., PipeWire's 1024 periods), setting avail_min to just 1 period
+        // causes poll to wake us continuously. Instead, only wake when we actually need to refill.
+        // For small buffers (2-3 periods), ensure small buffers wake every period.
+        let target_avail = cmp::max(period, buffer - start_threshold + 1);
+        sw_params.set_avail_min(target_avail as alsa::pcm::Frames)?;
 
         period as usize * config.channels as usize
     };
