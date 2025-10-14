@@ -49,6 +49,27 @@ use crate::{
 //
 // This mirrors the behavior documented in the cpal API where `BufferSize::Fixed(x)`
 // requests but does not guarantee a specific callback size.
+//
+// ## BufferSize::Default Behavior
+//
+// When `BufferSize::Default` is specified, cpal does NOT set explicit period size or
+// period count constraints, allowing the device/driver to choose sensible defaults.
+//
+// **Why not set defaults?** Different audio systems have different behaviors:
+//
+// - **Native ALSA hardware**: Typically chooses reasonable defaults (e.g., 1024-2048
+//   frame periods with 2-4 periods)
+//
+// - **PipeWire-ALSA plugin**: Allocates a large buffer (~1M frames at 48kHz) but uses
+//   small periods (~1024 frames). Critically, if you request `set_periods(2)` without
+//   specifying period size, PipeWire calculates period = buffer/2, resulting in
+//   pathologically large periods (~524K frames = 10 seconds). See issue #1029.
+//
+// By not constraining period configuration, PipeWire-ALSA can use its optimized defaults
+// (small periods with many-period buffer), while native ALSA hardware uses its own defaults.
+//
+// **Startup latency**: Regardless of buffer size, cpal uses double-buffering for startup
+// (start_threshold = 2 periods), ensuring low latency even with large multi-period buffers.
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -1288,17 +1309,22 @@ fn set_hw_params_from_format(
     hw_params.set_channels(config.channels as u32)?;
 
     // Configure period size based on buffer size request
-    // When BufferSize::Fixed(x) is specified, we request a period size of x frames
-    // to achieve approximately x-sized callbacks. ALSA may adjust this to the nearest
-    // supported value based on hardware constraints.
-    if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
-        hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
+    match config.buffer_size {
+        BufferSize::Fixed(buffer_frames) => {
+            // When BufferSize::Fixed(x) is specified, we request two periods with size of x frames
+            // to achieve approximately x-sized double-buffered callbacks. ALSA may adjust this to
+            // the nearest supported value based on hardware constraints.
+            hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
+            // We shouldn't fail if the driver isn't happy here - some devices may use more periods.
+            let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
+        }
+        BufferSize::Default => {
+            // For BufferSize::Default, we don't set period size or count, allowing the device
+            // to choose sensible defaults. This is important for PipeWire-ALSA compatibility:
+            // setting periods=2 without a period size causes PipeWire to create massive periods
+            // (buffer_size/2), resulting in multi-second latency. See issue #1029.
+        }
     }
-
-    // We shouldn't fail if the driver isn't happy here.
-    // `default` pcm sometimes fails here, but there's no reason to as we
-    // provide a direction and 2 is strictly the minimum number of periods.
-    let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
 
     // Apply hardware parameters
     pcm_handle.hw_params(&hw_params)?;
@@ -1324,9 +1350,10 @@ fn set_sw_params_from_format(
 
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Start when ALSA buffer has enough data to maintain consistent playback
-                // while preserving user's expected latency across different period counts
-                buffer - period
+                // Use double-buffering (2 periods) to start playback, but cap at `buffer - period`
+                // to handle 2-period buffers gracefully (avoids requiring the entire buffer to be
+                // full).
+                cmp::min(2 * period, buffer.saturating_sub(period))
             }
             alsa::Direction::Capture => 1,
         };
