@@ -1344,20 +1344,19 @@ fn set_sw_params_from_format(
         }
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Use double-buffering (2 periods) to start playback, but cap at `buffer - period`
-                // to handle 2-period buffers gracefully (avoids requiring the entire buffer to be
-                // full).
-                cmp::min(2 * period, buffer - period)
+                // Always use 2-period double-buffering: one period playing from hardware, one
+                // period queued in the software buffer. This ensures consistent low latency
+                // regardless of the total buffer size.
+                2 * period
             }
             alsa::Direction::Capture => 1,
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
 
-        // Set avail_min to maintain our target latency (start_threshold).
-        // For large buffers (e.g., PipeWire's 1024 periods), setting avail_min to just 1 period
-        // causes poll to wake us continuously. Instead, only wake when we actually need to refill.
-        // For small buffers (2-3 periods), ensure small buffers wake every period.
-        let target_avail = cmp::max(period, buffer - start_threshold + 1);
+        // We want to wake when one period has been consumed from our 2-period target level.
+        // This prevents filling PipeWire-ALSA's huge buffer beyond 2 periods, which could lead
+        // to pathological latency (21+ seconds at 48 kHz with a 1M buffer).
+        let target_avail = buffer - period;
         sw_params.set_avail_min(target_avail as alsa::pcm::Frames)?;
 
         period as usize * config.channels as usize
