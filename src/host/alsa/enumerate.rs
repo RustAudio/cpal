@@ -81,15 +81,12 @@ impl TryFrom<alsa::device_name::Hint> for Device {
             description: "ALSA hint missing PCM ID".to_string(),
         })?;
 
-        // Try to open handles during enumeration
-        let handles = DeviceHandles::open(&pcm_id).unwrap_or_else(|_| {
-            // If opening fails during enumeration, create default handles
-            // The actual opening will be attempted when the device is used
-            DeviceHandles::default()
-        });
+        // Don't try to open handles during enumeration to avoid ALSA logging errors
+        // for device templates (e.g., with $CARD placeholders) or unavailable devices.
+        // Opening will be attempted when the device is actually used.
+        let handles = DeviceHandles::default();
 
         // Include all devices from ALSA hints (matches `aplay -L` behavior)
-        // Even devices that can't be opened during enumeration are valid for selection
         Ok(Self {
             pcm_id: pcm_id.to_owned(),
             desc: hint.desc,
