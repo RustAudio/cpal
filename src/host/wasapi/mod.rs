@@ -25,6 +25,25 @@ impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
     }
+    
+    fn supported_output_configs(&self, device: &Device) -> Result<SupportedOutputConfigs, DevicesError> {
+        Ok(device.supported_output_configs()?)
+    }
+    
+    fn supported_input_configs(&self, device: &Device) -> Result<SupportedInputConfigs, DevicesError> {
+        Ok(device.supported_input_configs()?)
+    }
+    
+}
+
+impl From<SupportedStreamConfigsError> for DevicesError {
+    fn from(err: SupportedStreamConfigsError) -> DevicesError {
+        DevicesError::BackendSpecific {
+            err: BackendSpecificError {
+                description: format!("SupportedStreamConfigsError: {}", err),
+            },
+        }
+    }
 }
 
 impl HostTrait for Host {
@@ -39,7 +58,7 @@ impl HostTrait for Host {
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
         Devices::new()
     }
-
+    
     fn default_input_device(&self) -> Option<Self::Device> {
         default_input_device()
     }
@@ -47,6 +66,7 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
+    
 }
 
 impl From<windows::core::Error> for BackendSpecificError {
