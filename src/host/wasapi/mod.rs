@@ -6,6 +6,7 @@ pub use self::stream::Stream;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
+use crate::SupportedStreamConfigsError;
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
@@ -25,15 +26,20 @@ impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
     }
-    
-    fn supported_output_configs(&self, device: &Device) -> Result<SupportedOutputConfigs, DevicesError> {
-        Ok(device.supported_output_configs()?)
-    }
-    
-    fn supported_input_configs(&self, device: &Device) -> Result<SupportedInputConfigs, DevicesError> {
+
+    fn supported_input_configs(
+        &self,
+        device: &Device,
+    ) -> Result<SupportedInputConfigs, DevicesError> {
         Ok(device.supported_input_configs()?)
     }
-    
+
+    fn supported_output_configs(
+        &self,
+        device: &Device,
+    ) -> Result<SupportedInputConfigs, DevicesError> {
+        Ok(device.supported_input_configs()?)
+    }
 }
 
 impl From<SupportedStreamConfigsError> for DevicesError {
@@ -58,7 +64,7 @@ impl HostTrait for Host {
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
         Devices::new()
     }
-    
+
     fn default_input_device(&self) -> Option<Self::Device> {
         default_input_device()
     }
@@ -66,7 +72,6 @@ impl HostTrait for Host {
     fn default_output_device(&self) -> Option<Self::Device> {
         default_output_device()
     }
-    
 }
 
 impl From<windows::core::Error> for BackendSpecificError {
