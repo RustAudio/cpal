@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
@@ -7,14 +6,14 @@ use std::vec::IntoIter as VecIntoIter;
 extern crate ndk;
 
 use convert::{stream_instant, to_stream_instant};
-use java_interface::{AudioDeviceDirection, AudioDeviceInfo};
+use java_interface::{AudioDeviceDirection, AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -22,7 +21,6 @@ mod android_media;
 mod convert;
 mod java_interface;
 
-use self::android_media::{get_audio_record_min_buffer_size, get_audio_track_min_buffer_size};
 use self::ndk::audio::AudioStream;
 
 // Android Java API supports up to 8 channels
@@ -91,17 +89,13 @@ impl HostTrait for Host {
     }
 }
 
-fn buffer_size_range_for_params(
-    is_output: bool,
-    sample_rate: i32,
-    channel_mask: i32,
-    android_format: i32,
-) -> SupportedBufferSize {
-    let min_buffer_size = if is_output {
-        get_audio_track_min_buffer_size(sample_rate, channel_mask, android_format)
+fn buffer_size_range() -> SupportedBufferSize {
+    let min_buffer_size = if let Ok(min_buffer_size) = AudioManager::get_frames_per_buffer() {
+        min_buffer_size
     } else {
-        get_audio_record_min_buffer_size(sample_rate, channel_mask, android_format)
+        0
     };
+
     if min_buffer_size > 0 {
         SupportedBufferSize::Range {
             min: min_buffer_size as u32,
@@ -112,26 +106,16 @@ fn buffer_size_range_for_params(
     }
 }
 
-fn default_supported_configs(is_output: bool) -> VecIntoIter<SupportedStreamConfigRange> {
+fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
     // Have to "brute force" the parameter combinations with getMinBufferSize
     const FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
 
     let mut output = Vec::with_capacity(SAMPLE_RATES.len() * CHANNEL_MASKS.len() * FORMATS.len());
     for sample_format in &FORMATS {
-        let android_format = if *sample_format == SampleFormat::I16 {
-            android_media::ENCODING_PCM_16BIT
-        } else {
-            android_media::ENCODING_PCM_FLOAT
-        };
-        for (mask_idx, channel_mask) in CHANNEL_MASKS.iter().enumerate() {
+        for (mask_idx, _) in CHANNEL_MASKS.iter().enumerate() {
             let channel_count = mask_idx + 1;
             for sample_rate in &SAMPLE_RATES {
-                if let SupportedBufferSize::Range { min, max } = buffer_size_range_for_params(
-                    is_output,
-                    *sample_rate,
-                    *channel_mask,
-                    android_format,
-                ) {
+                if let SupportedBufferSize::Range { min, max } = buffer_size_range() {
                     output.push(SupportedStreamConfigRange {
                         channels: channel_count as u16,
                         min_sample_rate: SampleRate(*sample_rate as u32),
@@ -147,10 +131,7 @@ fn default_supported_configs(is_output: bool) -> VecIntoIter<SupportedStreamConf
     output.into_iter()
 }
 
-fn device_supported_configs(
-    device: &AudioDeviceInfo,
-    is_output: bool,
-) -> VecIntoIter<SupportedStreamConfigRange> {
+fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedStreamConfigRange> {
     let sample_rates = if !device.sample_rates.is_empty() {
         device.sample_rates.as_slice()
     } else {
@@ -180,19 +161,13 @@ fn device_supported_configs(
                 // TODO: more channels available in native AAudio
                 continue;
             }
-            let channel_mask = CHANNEL_MASKS[*channel_count as usize - 1];
             for format in formats {
-                let (android_format, sample_format) = match format {
+                let (_, sample_format) = match format {
                     SampleFormat::I16 => (android_media::ENCODING_PCM_16BIT, SampleFormat::I16),
                     SampleFormat::F32 => (android_media::ENCODING_PCM_FLOAT, SampleFormat::F32),
                     _ => panic!("Unexpected format"),
                 };
-                let buffer_size = buffer_size_range_for_params(
-                    is_output,
-                    *sample_rate,
-                    channel_mask,
-                    android_format,
-                );
+                let buffer_size = buffer_size_range();
                 output.push(SupportedStreamConfigRange {
                     channels: cmp::min(*channel_count as u16, 2u16),
                     min_sample_rate: SampleRate(*sample_rate as u32),
@@ -339,9 +314,9 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info, false))
+            Ok(device_supported_configs(info))
         } else {
-            Ok(default_supported_configs(false))
+            Ok(default_supported_configs())
         }
     }
 
@@ -349,9 +324,9 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info, true))
+            Ok(device_supported_configs(info))
         } else {
-            Ok(default_supported_configs(true))
+            Ok(default_supported_configs())
         }
     }
 
