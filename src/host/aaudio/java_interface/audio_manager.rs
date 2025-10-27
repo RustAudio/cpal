@@ -1,6 +1,6 @@
 use super::{
     utils::{
-        get_context, get_property, get_system_service, with_attached, JNIEnv, JObject, JResult,
+        get_context, get_property, get_system_service, with_attached, JNIEnv, JObject, JResult
     },
     AudioManager, Context,
 };
@@ -24,9 +24,11 @@ fn get_frames_per_buffer<'j>(env: &mut JNIEnv<'j>, context: &JObject<'j>) -> JRe
         env,
         &audio_manager,
         AudioManager::PROPERTY_OUTPUT_FRAMES_PER_BUFFER,
-    );
+    )?;
 
     let frames_per_buffer_string = String::from(env.get_string(&frames_per_buffer)?);
 
-    frames_per_buffer_string.parse::<i32>()
+    frames_per_buffer_string
+        .parse::<i32>()
+        .map_err(|e| jni::errors::Error::JniCall(jni::errors::JniError::Unknown))
 }
