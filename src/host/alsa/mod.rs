@@ -1314,7 +1314,7 @@ fn set_hw_params_from_format(
             // Set buffer_size first to constrain total latency. Without this, some
             // implementations (notably PipeWire-ALSA) allocate very large buffers (~1M frames),
             // defeating the latency control that Fixed buffer size provides.
-            hw_params.set_buffer_size_near((2 * buffer_frames) as _, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_size_near((2 * buffer_frames) as _)?;
             // Then set period_size to control callback granularity and ensure the buffer
             // is divided into two periods for double-buffering.
             hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
