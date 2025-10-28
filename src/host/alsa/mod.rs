@@ -1304,15 +1304,20 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // Configure period size based on buffer size request
+    // Configure buffer and period size based on buffer size request
     match config.buffer_size {
         BufferSize::Fixed(buffer_frames) => {
-            // When BufferSize::Fixed(x) is specified, we request two periods with size of x frames
-            // to achieve approximately x-sized double-buffered callbacks. ALSA may adjust this to
-            // the nearest supported value based on hardware constraints.
+            // When BufferSize::Fixed(x) is specified, we configure double-buffering with
+            // buffer_size = 2x and period_size = x. This provides consistent low-latency
+            // behavior across different ALSA implementations and hardware.
+            //
+            // Set buffer_size first to constrain total latency. Without this, some
+            // implementations (notably PipeWire-ALSA) allocate very large buffers (~1M frames),
+            // defeating the latency control that Fixed buffer size provides.
+            hw_params.set_buffer_size_near((2 * buffer_frames) as _, alsa::ValueOr::Nearest)?;
+            // Then set period_size to control callback granularity and ensure the buffer
+            // is divided into two periods for double-buffering.
             hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
-            // We shouldn't fail if the driver isn't happy here - some devices may use more periods.
-            let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
         }
         BufferSize::Default => {
             // For BufferSize::Default, we don't set period size or count, allowing the device
@@ -1353,10 +1358,22 @@ fn set_sw_params_from_format(
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
 
-        // We want to wake when one period has been consumed from our 2-period target level.
-        // This prevents filling PipeWire-ALSA's huge buffer beyond 2 periods, which could lead
-        // to pathological latency (21+ seconds at 48 kHz with a 1M buffer).
-        let target_avail = buffer - period;
+        // Set avail_min based on stream direction. For playback, "avail" means space available
+        // for writing (buffer_size - frames_queued). For capture, "avail" means data available
+        // for reading (frames_captured). These opposite semantics require different values.
+        let target_avail = match stream_type {
+            alsa::Direction::Playback => {
+                // Wake when buffer level drops to one period remaining (avail >= buffer - period).
+                // This maintains double-buffering by refilling when we're down to one period.
+                buffer - period
+            }
+            alsa::Direction::Capture => {
+                // Wake when one period of data is available to read (avail >= period).
+                // Using buffer - period here would cause excessive latency as capture would
+                // wait for nearly the entire buffer to fill before reading.
+                period
+            }
+        };
         sw_params.set_avail_min(target_avail as alsa::pcm::Frames)?;
 
         period as usize * config.channels as usize
