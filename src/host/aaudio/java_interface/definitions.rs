@@ -21,10 +21,8 @@ impl PackageManager {
 pub(crate) struct AudioManager;
 
 impl AudioManager {
-    pub const PROPERTY_OUTPUT_SAMPLE_RATE: &'static str =
-        "android.media.property.OUTPUT_SAMPLE_RATE";
     pub const PROPERTY_OUTPUT_FRAMES_PER_BUFFER: &'static str =
-        "android.media.property.OUTPUT_FRAMES_PER_BUFFER";
+    "android.media.property.OUTPUT_FRAMES_PER_BUFFER";
 
     pub const GET_DEVICES_INPUTS: i32 = 1 << 0;
     pub const GET_DEVICES_OUTPUTS: i32 = 1 << 1;

@@ -6,9 +6,7 @@ use super::{
 };
 
 impl AudioManager {
-    /**
-     * Get the frames per buffer using Android Java API
-     */
+    /// Get the frames per buffer using Android Java API
     pub fn get_frames_per_buffer() -> Result<i32, String> {
         let context = get_context();
 

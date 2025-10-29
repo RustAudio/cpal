@@ -6,8 +6,6 @@ use self::jni::Executor;
 use self::jni::{errors::Result as JResult, JNIEnv, JavaVM};
 
 // constants from android.media.AudioFormat
-pub const ENCODING_PCM_16BIT: i32 = 2;
-pub const ENCODING_PCM_FLOAT: i32 = 4;
 pub const CHANNEL_OUT_MONO: i32 = 4;
 pub const CHANNEL_OUT_STEREO: i32 = 12;
 

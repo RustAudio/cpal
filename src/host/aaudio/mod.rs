@@ -25,9 +25,10 @@ use self::ndk::audio::AudioStream;
 
 // Android Java API supports up to 8 channels
 // TODO: more channels available in native AAudio
-const CHANNEL_MASKS: [i32; 2] = [
-    android_media::CHANNEL_OUT_MONO,
-    android_media::CHANNEL_OUT_STEREO,
+// Maps channel masks to their corresponding channel counts
+const CHANNEL_CONFIGS: [(i32, u16); 2] = [
+    (android_media::CHANNEL_OUT_MONO, 1),
+    (android_media::CHANNEL_OUT_STEREO, 2),
 ];
 
 const SAMPLE_RATES: [i32; 13] = [
@@ -90,13 +91,7 @@ impl HostTrait for Host {
 }
 
 fn buffer_size_range() -> SupportedBufferSize {
-    let min_buffer_size = if let Ok(min_buffer_size) = AudioManager::get_frames_per_buffer() {
-        min_buffer_size
-    } else {
-        0
-    };
-
-    if min_buffer_size > 0 {
+    if let Ok(min_buffer_size) = AudioManager::get_frames_per_buffer() {
         SupportedBufferSize::Range {
             min: min_buffer_size as u32,
             max: i32::MAX as u32,
@@ -107,23 +102,20 @@ fn buffer_size_range() -> SupportedBufferSize {
 }
 
 fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
-    // Have to "brute force" the parameter combinations with getMinBufferSize
     const FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
 
-    let mut output = Vec::with_capacity(SAMPLE_RATES.len() * CHANNEL_MASKS.len() * FORMATS.len());
+    let buffer_size = buffer_size_range();
+    let mut output = Vec::with_capacity(SAMPLE_RATES.len() * CHANNEL_CONFIGS.len() * FORMATS.len());
     for sample_format in &FORMATS {
-        for (mask_idx, _) in CHANNEL_MASKS.iter().enumerate() {
-            let channel_count = mask_idx + 1;
+        for (_channel_mask, channel_count) in &CHANNEL_CONFIGS {
             for sample_rate in &SAMPLE_RATES {
-                if let SupportedBufferSize::Range { min, max } = buffer_size_range() {
-                    output.push(SupportedStreamConfigRange {
-                        channels: channel_count as u16,
-                        min_sample_rate: SampleRate(*sample_rate as u32),
-                        max_sample_rate: SampleRate(*sample_rate as u32),
-                        buffer_size: SupportedBufferSize::Range { min, max },
-                        sample_format: *sample_format,
-                    });
-                }
+                output.push(SupportedStreamConfigRange {
+                    channels: *channel_count,
+                    min_sample_rate: SampleRate(*sample_rate as u32),
+                    max_sample_rate: SampleRate(*sample_rate as u32),
+                    buffer_size: buffer_size.clone(),
+                    sample_format: *sample_format,
+                });
             }
         }
     }
@@ -152,6 +144,7 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
         &ALL_FORMATS
     };
 
+    let buffer_size = buffer_size_range();
     let mut output = Vec::with_capacity(sample_rates.len() * channel_counts.len() * formats.len());
     for sample_rate in sample_rates {
         for channel_count in channel_counts {
@@ -162,18 +155,12 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
                 continue;
             }
             for format in formats {
-                let (_, sample_format) = match format {
-                    SampleFormat::I16 => (android_media::ENCODING_PCM_16BIT, SampleFormat::I16),
-                    SampleFormat::F32 => (android_media::ENCODING_PCM_FLOAT, SampleFormat::F32),
-                    _ => panic!("Unexpected format"),
-                };
-                let buffer_size = buffer_size_range();
                 output.push(SupportedStreamConfigRange {
                     channels: cmp::min(*channel_count as u16, 2u16),
                     min_sample_rate: SampleRate(*sample_rate as u32),
                     max_sample_rate: SampleRate(*sample_rate as u32),
-                    buffer_size,
-                    sample_format,
+                    buffer_size: buffer_size.clone(),
+                    sample_format: *format,
                 });
             }
         }
