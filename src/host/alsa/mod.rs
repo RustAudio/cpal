@@ -1134,33 +1134,6 @@ impl Drop for Stream {
         self.inner.dropping.set(true);
         self.trigger.wakeup();
         self.thread.take().unwrap().join().unwrap();
-
-        // State-based drop behavior: drain if playing, drop if paused. This allows audio to
-        // complete naturally when stopping during playback, but provides immediate termination
-        // when already paused.
-        match self.inner.channel.state() {
-            alsa::pcm::State::Running => {
-                // Audio is actively playing - attempt graceful drain.
-                if let Ok(()) = self.inner.channel.drain() {
-                    // TODO: Use SND_PCM_WAIT_DRAIN (-10002) when alsa-rs supports it properly,
-                    // although it requires ALSA 1.2.8+ which may not be available everywhere.
-                    // For now, calculate timeout based on buffer latency.
-                    let buffer_duration_ms = ((self.inner.period_frames as f64 * 1000.0)
-                        / self.inner.conf.sample_rate.0 as f64)
-                        as u32;
-
-                    // This is safe: snd_pcm_wait() checks device state first and returns
-                    // immediately with error codes like -ENODEV for disconnected devices.
-                    let _ = self.inner.channel.wait(Some(buffer_duration_ms));
-                }
-                // If drain fails or device has errors, stream terminates naturally
-            }
-            _ => {
-                // Not actively playing (paused, stopped, etc.) - immediate drop and discard any
-                // buffered audio data for immediate termination.
-                let _ = self.inner.channel.drop();
-            }
-        }
     }
 }
 
