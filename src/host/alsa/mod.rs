@@ -1287,11 +1287,12 @@ fn set_hw_params_from_format(
             hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
         }
         BufferSize::Default => {
-            // For BufferSize::Default, let the device choose the period size, then configure
-            // the buffer to 2 periods. This prevents excessive memory allocation while
-            // respecting the device's period size preference.
-            let period = hw_params.get_period_size()?;
-            hw_params.set_buffer_size_near((2 * period) as _)?;
+            // For BufferSize::Default, try to use the minimum buffer size the device reports.
+            // This prevents excessive memory allocation (e.g., PipeWire's 524K frames) while
+            // respecting device constraints.
+            if let Ok(buffer_min) = hw_params.get_buffer_size_min() {
+                let _ = hw_params.set_buffer_size_near(buffer_min as _);
+            }
         }
     }
 
