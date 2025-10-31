@@ -1277,27 +1277,24 @@ fn set_hw_params_from_format(
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
 
-    // Configure buffer and period size based on buffer size request
-    match config.buffer_size {
-        BufferSize::Fixed(buffer_frames) => {
-            // When BufferSize::Fixed(x) is specified, we configure double-buffering with
-            // buffer_size = 2x and period_size = x. This provides consistent low-latency
-            // behavior across different ALSA implementations and hardware.
-            hw_params.set_buffer_size_near((2 * buffer_frames) as _)?;
-            hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
-        }
-        BufferSize::Default => {
-            // For BufferSize::Default, try to use the minimum buffer size the device reports.
-            // This prevents excessive memory allocation (e.g., PipeWire's 524K frames) while
-            // respecting device constraints.
-            if let Ok(buffer_min) = hw_params.get_buffer_size_min() {
-                let _ = hw_params.set_buffer_size_near(buffer_min as _);
-            }
-        }
+    // When BufferSize::Fixed(x) is specified, we configure double-buffering with
+    // buffer_size = 2x and period_size = x. This provides consistent low-latency
+    // behavior across different ALSA implementations and hardware.
+    if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
+        hw_params.set_buffer_size_near((2 * buffer_frames) as _)?;
+        hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
     }
 
     // Apply hardware parameters
     pcm_handle.hw_params(&hw_params)?;
+
+    // For BufferSize::Default, trim the buffer to 2 periods for double-buffering
+    if config.buffer_size == BufferSize::Default {
+        if let Ok(period) = hw_params.get_period_size() {
+            hw_params.set_buffer_size_near(2 * period)?;
+            pcm_handle.hw_params(&hw_params)?;
+        }
+    }
 
     Ok(hw_params.can_pause())
 }
