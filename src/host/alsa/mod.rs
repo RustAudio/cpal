@@ -1283,20 +1283,15 @@ fn set_hw_params_from_format(
             // When BufferSize::Fixed(x) is specified, we configure double-buffering with
             // buffer_size = 2x and period_size = x. This provides consistent low-latency
             // behavior across different ALSA implementations and hardware.
-            //
-            // Set buffer_size first to constrain total latency. Without this, some
-            // implementations (notably PipeWire-ALSA) allocate very large buffers (~1M frames),
-            // defeating the latency control that Fixed buffer size provides.
             hw_params.set_buffer_size_near((2 * buffer_frames) as _)?;
-            // Then set period_size to control callback granularity and ensure the buffer
-            // is divided into two periods for double-buffering.
             hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
         }
         BufferSize::Default => {
-            // For BufferSize::Default, we don't set period size or count, allowing the device
-            // to choose sensible defaults. This is important for PipeWire-ALSA compatibility:
-            // setting periods=2 without a period size causes PipeWire to create massive periods
-            // (buffer_size/2), resulting in multi-second latency. See issue #1029.
+            // For BufferSize::Default, let the device choose the period size, then configure
+            // the buffer to 2 periods. This prevents excessive memory allocation while
+            // respecting the device's period size preference.
+            let period = hw_params.get_period_size()?;
+            hw_params.set_buffer_size_near((2 * period) as _)?;
         }
     }
 
