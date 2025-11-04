@@ -71,6 +71,7 @@ fn asbd_from_config(
     }
 }
 
+#[inline]
 fn host_time_to_stream_instant(
     m_host_time: u64,
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
@@ -84,6 +85,7 @@ fn host_time_to_stream_instant(
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+#[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
     let secsf = frames as f64 / rate.0 as f64;
     let secs = secsf as u64;
@@ -124,3 +126,6 @@ impl From<coreaudio::Error> for DefaultStreamConfigError {
 }
 
 pub(crate) type OSStatus = i32;
+
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);

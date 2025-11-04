@@ -34,6 +34,12 @@ pub struct Stream {
     audio_ctxt: AudioContext,
 }
 
+// WASM runs in a single-threaded environment, so Send is safe by design.
+unsafe impl Send for Stream {}
+
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 // Index within the `streams` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamId(usize);
@@ -197,11 +203,10 @@ impl DeviceTrait for Device {
 
         let buffer_size_frames = match config.buffer_size {
             BufferSize::Fixed(v) => {
-                if v == 0 {
+                if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
                     return Err(BuildStreamError::StreamConfigNotSupported);
-                } else {
-                    v as usize
                 }
+                v as usize
             }
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };

@@ -1,32 +1,14 @@
-//!
-//! CoreAudio implementation for iOS using RemoteIO Audio Units.
-//!
-//! ## Implementation Details
-//!
-//! This implementation uses **RemoteIO Audio Units** to interface with iOS audio hardware:
-//!
-//! - **RemoteIO**: A special Audio Unit that acts as a proxy to the actual hardware
-//! - **Direct queries**: Buffer sizes are queried directly from the RemoteIO unit
-//! - **System control**: iOS controls buffer sizes, sample rates, and device routing
-//! - **Single device model**: iOS presents audio as a single system-managed device
-//!
-//! ## Limitations
-//!
-//! - **No device enumeration**: iOS doesn't allow direct hardware device access
-//! - **No fixed buffer sizes**: `BufferSize::Fixed` returns `StreamConfigNotSupported`
-//! - **System-determined parameters**: Buffer sizes and sample rates are set by iOS
+//! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
-// TODO:
-// - Use AVAudioSession to enumerate buffer size / sample rate / number of channels and set
-//   buffer size.
-
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use coreaudio::audio_unit::render_callback::data;
 use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
 use objc2_core_audio::kAudioDevicePropertyBufferFrameSize;
-use objc2_core_audio_types::{AudioBuffer, AudioStreamBasicDescription};
+use objc2_core_audio_types::AudioBuffer;
+
+use objc2_avf_audio::AVAudioSession;
 
 use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -70,7 +52,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+        Ok(Devices::new())
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -92,55 +74,32 @@ impl Device {
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
-        // TODO: query AVAudioSession for parameters, some values like sample rate and buffer size
-        // probably need to actually be set to see if it works, but channels can be enumerated.
-
-        let asbd: AudioStreamBasicDescription = default_input_asbd()?;
-        let stream_config = stream_config_from_asbd(asbd);
-        Ok(vec![SupportedStreamConfigRange {
-            channels: stream_config.channels,
-            min_sample_rate: stream_config.sample_rate,
-            max_sample_rate: stream_config.sample_rate,
-            buffer_size: stream_config.buffer_size.clone(),
-            sample_format: SUPPORTED_SAMPLE_FORMAT,
-        }]
-        .into_iter())
+        Ok(get_supported_stream_configs(true))
     }
 
     #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
-        // TODO: query AVAudioSession for parameters, some values like sample rate and buffer size
-        // probably need to actually be set to see if it works, but channels can be enumerated.
-
-        let asbd: AudioStreamBasicDescription = default_output_asbd()?;
-        let stream_config = stream_config_from_asbd(asbd);
-
-        let configs: Vec<_> = (1..=asbd.mChannelsPerFrame as u16)
-            .map(|channels| SupportedStreamConfigRange {
-                channels,
-                min_sample_rate: stream_config.sample_rate,
-                max_sample_rate: stream_config.sample_rate,
-                buffer_size: stream_config.buffer_size.clone(),
-                sample_format: SUPPORTED_SAMPLE_FORMAT,
-            })
-            .collect();
-        Ok(configs.into_iter())
+        Ok(get_supported_stream_configs(false))
     }
 
     #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let asbd: AudioStreamBasicDescription = default_input_asbd()?;
-        let stream_config = stream_config_from_asbd(asbd);
-        Ok(stream_config)
+        // Get the primary (exact channel count) config from supported configs
+        get_supported_stream_configs(true)
+            .next()
+            .map(|range| range.with_max_sample_rate())
+            .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
     #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let asbd: AudioStreamBasicDescription = default_output_asbd()?;
-        let stream_config = stream_config_from_asbd(asbd);
-        Ok(stream_config)
+        // Get the maximum channel count config from supported configs
+        get_supported_stream_configs(false)
+            .last()
+            .map(|range| range.with_max_sample_rate())
+            .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
     }
 }
 
@@ -182,83 +141,29 @@ impl DeviceTrait for Device {
         &self,
         config: &StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
-        mut error_callback: E,
+        data_callback: D,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        // The scope and element for working with a device's input stream.
-        let scope = Scope::Output;
-        let element = Element::Input;
+        // Configure buffer size and create audio unit
+        let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
 
-        let mut audio_unit = create_audio_unit()?;
-        audio_unit.uninitialize()?;
-        configure_for_recording(&mut audio_unit)?;
-        audio_unit.initialize()?;
+        // Query device buffer size for latency calculation
+        let device_buffer_frames = Some(get_device_buffer_frames());
 
-        // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config, sample_format);
-        audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
-
-        // Set the buffersize
-        match config.buffer_size {
-            BufferSize::Fixed(_) => {
-                return Err(BuildStreamError::StreamConfigNotSupported);
-            }
-            BufferSize::Default => (),
-        }
-
-        // Query the actual device buffer size for more accurate latency calculation. On iOS,
-        // BufferSize::Fixed is not supported, so this always gets the current device buffer size.
-        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit).ok();
-
-        // Register the callback that is being called by coreaudio whenever it needs data to be
-        // fed to the audio buffer.
-        let bytes_per_channel = sample_format.sample_size();
-        let sample_rate = config.sample_rate;
-        type Args = render_callback::Args<data::Raw>;
-        audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
-            let len = (*args.data.data).mNumberBuffers as usize;
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
-
-            // There is only 1 buffer when using interleaved channels
-            let AudioBuffer {
-                mNumberChannels: channels,
-                mDataByteSize: data_byte_size,
-                mData: data,
-            } = buffers[0];
-
-            let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
-            let data = Data::from_parts(data, len, sample_format);
-
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
-                Err(err) => {
-                    error_callback(err.into());
-                    return Err(());
-                }
-                Ok(cb) => cb,
-            };
-            let buffer_frames = len / channels as usize;
-            // Use device buffer size for latency calculation if available
-            let latency_frames = device_buffer_frames.unwrap_or(
-                // Fallback to callback buffer size if device buffer size is unknown
-                buffer_frames,
-            );
-            let delay = frames_to_duration(latency_frames, sample_rate);
-            let capture = callback
-                .sub(delay)
-                .expect("`capture` occurs before origin of alsa `StreamInstant`");
-            let timestamp = crate::InputStreamTimestamp { callback, capture };
-
-            let info = InputCallbackInfo { timestamp };
-            data_callback(&data, &info);
-            Ok(())
-        })?;
+        // Set up input callback
+        setup_input_callback(
+            &mut audio_unit,
+            sample_format,
+            config.sample_rate,
+            device_buffer_frames,
+            data_callback,
+            error_callback,
+        )?;
 
         audio_unit.start()?;
 
@@ -273,77 +178,29 @@ impl DeviceTrait for Device {
         &self,
         config: &StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
-        mut error_callback: E,
+        data_callback: D,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        match config.buffer_size {
-            BufferSize::Fixed(_) => {
-                return Err(BuildStreamError::StreamConfigNotSupported);
-            }
-            BufferSize::Default => (),
-        };
+        // Configure buffer size and create audio unit
+        let mut audio_unit = setup_stream_audio_unit(config, sample_format, false)?;
 
-        let mut audio_unit = create_audio_unit()?;
+        // Query device buffer size for latency calculation
+        let device_buffer_frames = Some(get_device_buffer_frames());
 
-        // The scope and element for working with a device's output stream.
-        let scope = Scope::Input;
-        let element = Element::Output;
-
-        // Set the stream in interleaved mode.
-        let asbd = asbd_from_config(config, sample_format);
-        audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
-
-        // Query the actual device buffer size for more accurate latency calculation. On iOS,
-        // BufferSize::Fixed is not supported, so this always gets the current device buffer size.
-        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit).ok();
-
-        // Register the callback that is being called by coreaudio whenever it needs data to be
-        // fed to the audio buffer.
-        let bytes_per_channel = sample_format.sample_size();
-        let sample_rate = config.sample_rate;
-        type Args = render_callback::Args<data::Raw>;
-        audio_unit.set_render_callback(move |args: Args| unsafe {
-            // If `run()` is currently running, then a callback will be available from this list.
-            // Otherwise, we just fill the buffer with zeroes and return.
-
-            let AudioBuffer {
-                mNumberChannels: channels,
-                mDataByteSize: data_byte_size,
-                mData: data,
-            } = (*args.data.data).mBuffers[0];
-
-            let data = data as *mut ();
-            let len = (data_byte_size as usize / bytes_per_channel) as usize;
-            let mut data = Data::from_parts(data, len, sample_format);
-
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
-                Err(err) => {
-                    error_callback(err.into());
-                    return Err(());
-                }
-                Ok(cb) => cb,
-            };
-            let buffer_frames = len / channels as usize;
-            // Use device buffer size for latency calculation if available
-            let latency_frames = device_buffer_frames.unwrap_or(
-                // Fallback to callback buffer size if device buffer size is unknown
-                buffer_frames,
-            );
-            let delay = frames_to_duration(latency_frames, sample_rate);
-            let playback = callback
-                .add(delay)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-            let timestamp = crate::OutputStreamTimestamp { callback, playback };
-
-            let info = OutputCallbackInfo { timestamp };
-            data_callback(&mut data, &info);
-            Ok(())
-        })?;
+        // Set up output callback
+        setup_output_callback(
+            &mut audio_unit,
+            sample_format,
+            config.sample_rate,
+            device_buffer_frames,
+            data_callback,
+            error_callback,
+        )?;
 
         audio_unit.start()?;
 
@@ -355,20 +212,27 @@ impl DeviceTrait for Device {
 }
 
 pub struct Stream {
-    inner: RefCell<StreamInner>,
+    inner: Mutex<StreamInner>,
 }
 
 impl Stream {
     fn new(inner: StreamInner) -> Self {
         Self {
-            inner: RefCell::new(inner),
+            inner: Mutex::new(inner),
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self
+            .inner
+            .lock()
+            .map_err(|_| PlayStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?;
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -382,7 +246,14 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.borrow_mut();
+        let mut stream = self
+            .inner
+            .lock()
+            .map_err(|_| PauseStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?;
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {
@@ -428,47 +299,263 @@ fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::
     Ok(())
 }
 
-fn default_output_asbd() -> Result<AudioStreamBasicDescription, coreaudio::Error> {
-    let audio_unit = create_audio_unit()?;
-    let id = kAudioUnitProperty_StreamFormat;
-    let asbd: AudioStreamBasicDescription =
-        audio_unit.get_property(id, Scope::Output, Element::Output)?;
-    Ok(asbd)
+/// Configure AVAudioSession with the requested buffer size.
+///
+/// Note: iOS may not honor the exact request due to system constraints.
+fn set_audio_session_buffer_size(
+    buffer_size: u32,
+    sample_rate: crate::SampleRate,
+) -> Result<(), BuildStreamError> {
+    // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
+    let audio_session = unsafe { AVAudioSession::sharedInstance() };
+
+    // Calculate preferred buffer duration in seconds
+    let buffer_duration = buffer_size as f64 / sample_rate.0 as f64;
+
+    // Set the preferred IO buffer duration
+    // SAFETY: setPreferredIOBufferDuration_error is safe to call with valid duration
+    unsafe {
+        audio_session
+            .setPreferredIOBufferDuration_error(buffer_duration)
+            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+    }
+
+    Ok(())
 }
 
-fn default_input_asbd() -> Result<AudioStreamBasicDescription, coreaudio::Error> {
-    let mut audio_unit = create_audio_unit()?;
-    audio_unit.uninitialize()?;
-    configure_for_recording(&mut audio_unit)?;
-    audio_unit.initialize()?;
-
-    let id = kAudioUnitProperty_StreamFormat;
-    let asbd: AudioStreamBasicDescription =
-        audio_unit.get_property(id, Scope::Input, Element::Input)?;
-    Ok(asbd)
-}
-
-fn stream_config_from_asbd(asbd: AudioStreamBasicDescription) -> SupportedStreamConfig {
-    let buffer_size = SupportedBufferSize::Range { min: 0, max: 0 };
-    SupportedStreamConfig {
-        channels: asbd.mChannelsPerFrame as u16,
-        sample_rate: SampleRate(asbd.mSampleRate as u32),
-        buffer_size: buffer_size.clone(),
-        sample_format: SUPPORTED_SAMPLE_FORMAT,
+/// Get the actual buffer size from AVAudioSession.
+///
+/// This queries the current IO buffer duration from AVAudioSession and converts
+/// it to frames based on the current sample rate.
+fn get_device_buffer_frames() -> usize {
+    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
+    unsafe {
+        let audio_session = AVAudioSession::sharedInstance();
+        let buffer_duration = audio_session.IOBufferDuration();
+        let sample_rate = audio_session.sampleRate();
+        (buffer_duration * sample_rate) as usize
     }
 }
 
-/// Query the current device buffer frame size from CoreAudio.
+/// Get supported stream config ranges for input (is_input=true) or output (is_input=false).
+fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedStreamConfigRange> {
+    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
+    let (sample_rate, max_channels) = unsafe {
+        let audio_session = AVAudioSession::sharedInstance();
+        let sample_rate = audio_session.sampleRate() as u32;
+        let max_channels = if is_input {
+            audio_session.inputNumberOfChannels() as u16
+        } else {
+            audio_session.outputNumberOfChannels() as u16
+        };
+        (sample_rate, max_channels)
+    };
+
+    // Typical iOS hardware buffer frame limits according to Apple Technical Q&A QA1631.
+    let buffer_size = SupportedBufferSize::Range {
+        min: 256,
+        max: 4096,
+    };
+
+    // For input, only return the exact channel count (no flexibility)
+    // For output, support flexible channel counts up to the hardware maximum
+    let min_channels = if is_input { max_channels } else { 1 };
+
+    let configs: Vec<_> = (min_channels..=max_channels)
+        .map(|channels| SupportedStreamConfigRange {
+            channels,
+            min_sample_rate: SampleRate(sample_rate),
+            max_sample_rate: SampleRate(sample_rate),
+            buffer_size: buffer_size.clone(),
+            sample_format: SUPPORTED_SAMPLE_FORMAT,
+        })
+        .collect();
+
+    configs.into_iter()
+}
+
+/// Setup audio unit with common configuration for input or output streams.
+fn setup_stream_audio_unit(
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    is_input: bool,
+) -> Result<AudioUnit, BuildStreamError> {
+    // Configure buffer size via AVAudioSession
+    if let BufferSize::Fixed(buffer_size) = config.buffer_size {
+        set_audio_session_buffer_size(buffer_size, config.sample_rate)?;
+    }
+
+    let mut audio_unit = create_audio_unit()?;
+
+    if is_input {
+        audio_unit.uninitialize()?;
+        configure_for_recording(&mut audio_unit)?;
+        audio_unit.initialize()?;
+    }
+
+    // Set the stream format in interleaved mode
+    // For input: Output scope of Input element (data coming out of input)
+    // For output: Input scope of Output element (data going into output)
+    let (scope, element) = if is_input {
+        (Scope::Output, Element::Input)
+    } else {
+        (Scope::Input, Element::Output)
+    };
+
+    let asbd = asbd_from_config(config, sample_format);
+    audio_unit.set_property(kAudioUnitProperty_StreamFormat, scope, element, Some(&asbd))?;
+
+    Ok(audio_unit)
+}
+
+/// Extract AudioBuffer and convert to Data, handling differences between input and output.
 ///
-/// On iOS, this queries the RemoteIO audio unit which acts as a proxy to the hardware.
-/// RemoteIO uses Global scope because it represents the system-wide audio session,
-/// not a specific hardware device like on macOS.
-fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
-    // For iOS RemoteIO, we query the global scope since RemoteIO represents
-    // the system audio session rather than direct hardware access
-    audio_unit.get_property::<usize>(
-        kAudioDevicePropertyBufferFrameSize,
-        Scope::Global,
-        Element::Output,
-    )
+/// # Safety
+///
+/// Caller must ensure:
+/// - `args.data.data` points to valid AudioBufferList
+/// - For input: AudioBufferList has at least one buffer
+/// - Buffer data remains valid for the callback duration
+#[inline]
+unsafe fn extract_audio_buffer(
+    args: &render_callback::Args<data::Raw>,
+    bytes_per_channel: usize,
+    sample_format: SampleFormat,
+    is_input: bool,
+) -> (AudioBuffer, Data) {
+    let buffer = if is_input {
+        // Input: access through buffer array
+        let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
+        let len = (*args.data.data).mNumberBuffers as usize;
+        let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
+        buffers[0]
+    } else {
+        // Output: direct access
+        (*args.data.data).mBuffers[0]
+    };
+
+    let data = buffer.mData as *mut ();
+    let len = (buffer.mDataByteSize as usize / bytes_per_channel) as usize;
+    let data = Data::from_parts(data, len, sample_format);
+
+    (buffer, data)
+}
+
+/// Setup input callback with proper latency calculation.
+fn setup_input_callback<D, E>(
+    audio_unit: &mut AudioUnit,
+    sample_format: SampleFormat,
+    sample_rate: SampleRate,
+    device_buffer_frames: Option<usize>,
+    mut data_callback: D,
+    mut error_callback: E,
+) -> Result<(), BuildStreamError>
+where
+    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let bytes_per_channel = sample_format.sample_size();
+    type Args = render_callback::Args<data::Raw>;
+
+    audio_unit.set_input_callback(move |args: Args| {
+        // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
+        let (buffer, data) =
+            unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, true) };
+
+        let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            Err(err) => {
+                error_callback(err.into());
+                return Err(());
+            }
+            Ok(cb) => cb,
+        };
+
+        let latency_frames =
+            device_buffer_frames.unwrap_or_else(|| data.len() / buffer.mNumberChannels as usize);
+        let delay = frames_to_duration(latency_frames, sample_rate);
+        let capture = callback
+            .sub(delay)
+            .expect("`capture` occurs before origin of alsa `StreamInstant`");
+        let timestamp = crate::InputStreamTimestamp { callback, capture };
+
+        let info = InputCallbackInfo { timestamp };
+        data_callback(&data, &info);
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
+/// Setup output callback with proper latency calculation.
+fn setup_output_callback<D, E>(
+    audio_unit: &mut AudioUnit,
+    sample_format: SampleFormat,
+    sample_rate: SampleRate,
+    device_buffer_frames: Option<usize>,
+    mut data_callback: D,
+    mut error_callback: E,
+) -> Result<(), BuildStreamError>
+where
+    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
+    let bytes_per_channel = sample_format.sample_size();
+    type Args = render_callback::Args<data::Raw>;
+
+    audio_unit.set_render_callback(move |args: Args| {
+        // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
+        let (buffer, mut data) =
+            unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, false) };
+
+        let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            Err(err) => {
+                error_callback(err.into());
+                return Err(());
+            }
+            Ok(cb) => cb,
+        };
+
+        let latency_frames =
+            device_buffer_frames.unwrap_or_else(|| data.len() / buffer.mNumberChannels as usize);
+        let delay = frames_to_duration(latency_frames, sample_rate);
+        let playback = callback
+            .add(delay)
+            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+        let timestamp = crate::OutputStreamTimestamp { callback, playback };
+
+        let info = OutputCallbackInfo { timestamp };
+        data_callback(&mut data, &info);
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{BufferSize, SampleRate, StreamConfig};
+
+    #[test]
+    fn test_ios_fixed_buffer_size() {
+        let host = crate::default_host();
+        let device = host.default_output_device().unwrap();
+
+        let config = StreamConfig {
+            channels: 2,
+            sample_rate: SampleRate(48000),
+            buffer_size: BufferSize::Fixed(512),
+        };
+
+        let result = device.build_output_stream(
+            &config,
+            |_data: &mut [f32], _info: &crate::OutputCallbackInfo| {},
+            |_err| {},
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "BufferSize::Fixed should be supported on iOS via AVAudioSession"
+        );
+    }
 }

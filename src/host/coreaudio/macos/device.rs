@@ -18,13 +18,12 @@ use objc2_audio_toolbox::{
 };
 use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput, AudioDeviceID,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -36,12 +35,12 @@ pub use super::enumerate::{
 use std::fmt;
 use std::mem::{self};
 use std::ptr::{null, NonNull};
-use std::rc::Rc;
 use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 /// Attempt to set the device sample rate to the provided rate.
@@ -251,45 +250,6 @@ fn get_io_buffer_frame_size_range(
         min: buffer_size_range.mMinimum as u32,
         max: buffer_size_range.mMaximum as u32,
     })
-}
-
-/// Register the on-disconnect callback.
-/// This will both stop the stream and call the error callback with DeviceNotAvailable.
-/// This function should only be called once per stream.
-fn add_disconnect_listener<E>(
-    stream: &Stream,
-    error_callback: Arc<Mutex<E>>,
-) -> Result<(), BuildStreamError>
-where
-    E: FnMut(StreamError) + Send + 'static,
-{
-    let stream_inner_weak = Rc::downgrade(&stream.inner);
-    let mut stream_inner = stream.inner.borrow_mut();
-    stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
-        stream_inner.device_id,
-        AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMaster,
-        },
-        move || {
-            if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
-                match stream_inner_strong.try_borrow_mut() {
-                    Ok(mut stream_inner) => {
-                        let _ = stream_inner.pause();
-                    }
-                    Err(_) => {
-                        // Could not acquire mutable borrow. This can occur if there are
-                        // overlapping borrows, if the stream is already in use, or if a panic
-                        // occurred during a previous borrow. Still notify about device
-                        // disconnection even if we can't pause.
-                    }
-                }
-                (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
-            }
-        },
-    )?);
-    Ok(())
 }
 
 impl DeviceTrait for Device {
@@ -710,16 +670,14 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr();
-            let len = (*args.data.data).mNumberBuffers as usize;
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
-
-            // TODO: Perhaps loop over all buffers instead?
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
-            } = buffers[0];
+            } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;
@@ -727,7 +685,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -750,21 +708,36 @@ impl Device {
             Ok(())
         })?;
 
-        let stream = Stream::new(StreamInner {
-            playing: true,
-            _disconnect_listener: None,
-            audio_unit,
-            device_id: self.audio_device_id,
-            _loopback_device: loopback_aggregate,
-        });
+        // Create error callback for stream - either dummy or real based on device type
+        let error_callback_for_stream: super::ErrorCallback = if is_default_device(self) {
+            Box::new(|_: StreamError| {})
+        } else {
+            let error_callback_clone = error_callback_disconnect.clone();
+            Box::new(move |err: StreamError| {
+                invoke_error_callback(&error_callback_clone, err);
+            })
+        };
 
-        // If we didn't request the default device, stop the stream if the
-        // device disconnects.
-        if !is_default_device(self) {
-            add_disconnect_listener(&stream, error_callback_disconnect)?;
-        }
+        let stream = Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+                device_id: self.audio_device_id,
+                _loopback_device: loopback_aggregate,
+            },
+            error_callback_for_stream,
+        )?;
 
-        stream.inner.borrow_mut().audio_unit.start()?;
+        stream
+            .inner
+            .lock()
+            .map_err(|_| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?
+            .audio_unit
+            .start()?;
 
         Ok(stream)
     }
@@ -800,9 +773,9 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
-            // If `run()` is currently running, then a callback will be available from this list.
-            // Otherwise, we just fill the buffer with zeroes and return.
-
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
@@ -815,7 +788,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -838,21 +811,36 @@ impl Device {
             Ok(())
         })?;
 
-        let stream = Stream::new(StreamInner {
-            playing: true,
-            _disconnect_listener: None,
-            audio_unit,
-            device_id: self.audio_device_id,
-            _loopback_device: None,
-        });
+        // Create error callback for stream - either dummy or real based on device type
+        let error_callback_for_stream: super::ErrorCallback = if is_default_device(self) {
+            Box::new(|_: StreamError| {})
+        } else {
+            let error_callback_clone = error_callback_disconnect.clone();
+            Box::new(move |err: StreamError| {
+                invoke_error_callback(&error_callback_clone, err);
+            })
+        };
 
-        // If we didn't request the default device, stop the stream if the
-        // device disconnects.
-        if !is_default_device(self) {
-            add_disconnect_listener(&stream, error_callback_disconnect)?;
-        }
+        let stream = Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+                device_id: self.audio_device_id,
+                _loopback_device: None,
+            },
+            error_callback_for_stream,
+        )?;
 
-        stream.inner.borrow_mut().audio_unit.start()?;
+        stream
+            .inner
+            .lock()
+            .map_err(|_| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?
+            .audio_unit
+            .start()?;
 
         Ok(stream)
     }
@@ -863,7 +851,6 @@ impl Device {
 /// This handles the common setup tasks for both input and output streams:
 /// - Sets the stream format (ASBD)
 /// - Configures buffer size for Fixed buffer size requests
-/// - Validates buffer size ranges
 fn configure_stream_format_and_buffer(
     audio_unit: &mut AudioUnit,
     config: &StreamConfig,
@@ -879,14 +866,6 @@ fn configure_stream_format_and_buffer(
 
     // Configure device buffer size if requested
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-        let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
-
-        if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-            if !(min..=max).contains(&buffer_size) {
-                return Err(BuildStreamError::StreamConfigNotSupported);
-            }
-        }
-
         // IMPORTANT: Buffer frame size is a DEVICE-LEVEL property, not stream-specific.
         // Unlike stream format above, we ALWAYS use Scope::Global + Element::Output
         // for device properties, regardless of whether this is an input or output stream.

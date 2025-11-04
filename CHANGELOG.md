@@ -3,7 +3,7 @@
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
-- ALSA: Improve `BufferSize::Fixed` latency precision and audio callback performance.
+- ALSA: Improve `BufferSize::Fixed` precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
@@ -18,15 +18,23 @@
 - CoreAudio: Change `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
-- CoreAudio: Add support for loopback recording (recording system audio output) on macOS.
+- CoreAudio: Add support for loopback recording (recording system audio output) on macOS > 14.6.
 - CoreAudio: Update `mach2` to 0.5.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
+- CoreAudio: Make `Stream` implement `Send`.
+- CoreAudio: Remove `Clone` impl from `Stream`.
+- Emscripten: Add `BufferSize::Fixed` validation against supported range.
 - iOS: Fix example by properly activating audio session.
+- iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
+- JACK: Add `BufferSize::Fixed` validation to reject requests that don't match server buffer size.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.58, <= 0.62.
+- WASAPI: Make `Stream` implement `Send`.
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
+- Wasm: Make `Stream` implement `Send`.
+- WebAudio: Add `BufferSize::Fixed` validation against supported range.
 
 # Version 0.16.0 (2025-06-07)
 

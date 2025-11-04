@@ -559,6 +559,8 @@ impl Device {
                 }
             };
 
+            // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
+            // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
             let buffer_duration =
                 buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
 
@@ -674,6 +676,8 @@ impl Device {
                 .build_audioclient()
                 .map_err(windows_err_to_cpal_err::<BuildStreamError>)?;
 
+            // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
+            // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
             let buffer_duration =
                 buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
 

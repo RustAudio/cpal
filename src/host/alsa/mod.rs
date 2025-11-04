@@ -279,6 +279,28 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
+        // Validate buffer size if Fixed is specified. This is necessary because
+        // `set_period_size_near()` with `ValueOr::Nearest` will accept ANY value and return the
+        // "nearest" supported value, which could be wildly different (e.g., requesting 4096 frames
+        // might return 512 frames if that's "nearest").
+        if let BufferSize::Fixed(requested_size) = conf.buffer_size {
+            // Note: We use `default_input_config`/`default_output_config` to get the buffer size
+            // range. This queries the CURRENT device (`self.pcm_id`), not the default device. The
+            // buffer size range is the same across all format configurations for a given device
+            // (see `supported_configs()`).
+            let supported_config = match stream_type {
+                alsa::Direction::Capture => self.default_input_config(),
+                alsa::Direction::Playback => self.default_output_config(),
+            };
+            if let Ok(config) = supported_config {
+                if let SupportedBufferSize::Range { min, max } = config.buffer_size {
+                    if !(min..=max).contains(&requested_size) {
+                        return Err(BuildStreamError::StreamConfigNotSupported);
+                    }
+                }
+            }
+        }
+
         let handle_result = self
             .handles
             .lock()
@@ -602,6 +624,9 @@ pub struct Stream {
     trigger: TriggerSender,
 }
 
+// Compile-time assertion that Stream is Send
+crate::assert_stream_send!(Stream);
+
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
     transfer_buffer: Box<[u8]>,
@@ -688,7 +713,7 @@ fn input_stream_worker(
                 delay_frames,
                 stream_type,
             } => {
-                assert_eq!(
+                debug_assert_eq!(
                     stream_type,
                     StreamType::Input,
                     "expected input stream, but polling descriptors indicated output",
@@ -746,7 +771,7 @@ fn output_stream_worker(
                 delay_frames,
                 stream_type,
             } => {
-                assert_eq!(
+                debug_assert_eq!(
                     stream_type,
                     StreamType::Output,
                     "expected output stream, but polling descriptors indicated input",
@@ -875,11 +900,17 @@ fn process_input(
     stream.channel.io_bytes().readi(buffer)?;
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback = stream_timestamp(&status, stream.creation_instant)?;
+    let callback = match stream.creation_instant {
+        None => stream_timestamp_hardware(&status)?,
+        Some(creation) => stream_timestamp_fallback(creation)?,
+    };
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
         .sub(delay_duration)
-        .expect("`capture` is earlier than representation supported by `StreamInstant`");
+        .ok_or_else(|| BackendSpecificError {
+            description: "`capture` is earlier than representation supported by `StreamInstant`"
+                .to_string(),
+        })?;
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = crate::InputCallbackInfo { timestamp };
     data_callback(&data, &info);
@@ -904,11 +935,17 @@ fn process_output(
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =
             unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-        let callback = stream_timestamp(&status, stream.creation_instant)?;
+        let callback = match stream.creation_instant {
+            None => stream_timestamp_hardware(&status)?,
+            Some(creation) => stream_timestamp_fallback(creation)?,
+        };
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
         let playback = callback
             .add(delay_duration)
-            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            .ok_or_else(|| BackendSpecificError {
+                description: "`playback` occurs beyond representation supported by `StreamInstant`"
+                    .to_string(),
+            })?;
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
         let info = crate::OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
@@ -948,42 +985,43 @@ fn process_output(
     Ok(())
 }
 
-// Use the elapsed duration since the start of the stream.
+// Use hardware timestamps from ALSA.
+//
+// This ensures accurate timestamps based on actual hardware timing.
+#[inline]
+fn stream_timestamp_hardware(
+    status: &alsa::pcm::Status,
+) -> Result<crate::StreamInstant, BackendSpecificError> {
+    let trigger_ts = status.get_trigger_htstamp();
+    let ts = status.get_htstamp();
+    let nanos = timespec_diff_nanos(ts, trigger_ts);
+    if nanos < 0 {
+        let description = format!(
+            "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
+            ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
+        );
+        return Err(BackendSpecificError { description });
+    }
+    Ok(crate::StreamInstant::from_nanos(nanos))
+}
+
+// Use elapsed duration since stream creation as fallback when hardware timestamps are unavailable.
 //
 // This ensures positive values that are compatible with our `StreamInstant` representation.
-fn stream_timestamp(
-    status: &alsa::pcm::Status,
-    creation_instant: Option<std::time::Instant>,
+#[inline]
+fn stream_timestamp_fallback(
+    creation: std::time::Instant,
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
-    match creation_instant {
-        None => {
-            let trigger_ts = status.get_trigger_htstamp();
-            let ts = status.get_htstamp();
-            let nanos = timespec_diff_nanos(ts, trigger_ts);
-            if nanos < 0 {
-                let description = format!(
-                    "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
-                    ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
-                );
-                return Err(BackendSpecificError { description });
-            }
-            Ok(crate::StreamInstant::from_nanos(nanos))
-        }
-        Some(creation) => {
-            let now = std::time::Instant::now();
-            let duration = now.duration_since(creation);
-            crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(
-                BackendSpecificError {
-                    description: "stream duration has exceeded `StreamInstant` representation"
-                        .to_string(),
-                },
-            )
-        }
-    }
+    let now = std::time::Instant::now();
+    let duration = now.duration_since(creation);
+    crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(BackendSpecificError {
+        description: "stream duration has exceeded `StreamInstant` representation".to_string(),
+    })
 }
 
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
+#[inline]
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
     let nanos = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
     #[cfg(target_pointer_width = "64")]
@@ -994,11 +1032,13 @@ fn timespec_to_nanos(ts: libc::timespec) -> i64 {
 
 // Adapted from `timediff` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
+#[inline]
 fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
     timespec_to_nanos(a) - timespec_to_nanos(b)
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+#[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
     let secsf = frames as f64 / rate.0 as f64;
     let secs = secsf as u64;
