@@ -1,5 +1,5 @@
 # Unreleased
-
+- ASIO: Add packed(4) to representation of asio time structs in bindings
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
