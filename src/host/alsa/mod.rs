@@ -57,19 +57,21 @@ use crate::{
 //
 // **Why not set defaults?** Different audio systems have different behaviors:
 //
-// - **Native ALSA hardware**: Typically chooses reasonable defaults (e.g., 1024-2048
+// - **Native ALSA hardware**: Typically chooses reasonable defaults (e.g., 512-2048
 //   frame periods with 2-4 periods)
 //
-// - **PipeWire-ALSA plugin**: Allocates a large buffer (~1M frames at 48kHz) but uses
-//   small periods (~1024 frames). Critically, if you request `set_periods(2)` without
-//   specifying period size, PipeWire calculates period = buffer/2, resulting in
-//   pathologically large periods (~524K frames = 10 seconds). See issue #1029.
+// - **PipeWire-ALSA plugin**: Allocates a large ring buffer (~1M frames at 48kHz) but
+//   uses small periods (512-1024 frames). Critically, if you request `set_periods(2)`
+//   without specifying period size, PipeWire calculates period = buffer/2, resulting
+//   in pathologically large periods (~524K frames = 10 seconds). See issues #1029 and
+//   #1036.
 //
 // By not constraining period configuration, PipeWire-ALSA can use its optimized defaults
 // (small periods with many-period buffer), while native ALSA hardware uses its own defaults.
 //
 // **Startup latency**: Regardless of buffer size, cpal uses double-buffering for startup
-// (start_threshold = 2 periods), ensuring low latency even with large multi-period buffers.
+// (start_threshold = 2 periods), ensuring low latency even with large multi-period ring
+// buffers.
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -1214,68 +1216,25 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
     }
 }
 
+fn init_hw_params<'a>(
+    pcm_handle: &'a alsa::pcm::PCM,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
+    hw_params.set_format(sample_format.try_into()?)?;
+    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
+    hw_params.set_channels(config.channels as u32)?;
+    Ok(hw_params)
+}
+
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
-    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
-    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
-
-    let sample_format = if cfg!(target_endian = "big") {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            SampleFormat::I24 => alsa::pcm::Format::S24BE,
-            SampleFormat::I32 => alsa::pcm::Format::S32BE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48BE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64BE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            SampleFormat::U24 => alsa::pcm::Format::U24BE,
-            SampleFormat::U32 => alsa::pcm::Format::U32BE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48BE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64BE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        }
-    } else {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            SampleFormat::I24 => alsa::pcm::Format::S24LE,
-            SampleFormat::I32 => alsa::pcm::Format::S32LE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48LE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64LE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            SampleFormat::U24 => alsa::pcm::Format::U24LE,
-            SampleFormat::U32 => alsa::pcm::Format::U32LE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48LE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64LE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        }
-    };
-
-    // Set the sample format, rate, and channels - if this fails, the format is not supported.
-    hw_params.set_format(sample_format)?;
-    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
-    hw_params.set_channels(config.channels as u32)?;
+    let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
     // When BufferSize::Fixed(x) is specified, we configure double-buffering with
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
@@ -1288,10 +1247,19 @@ fn set_hw_params_from_format(
     // Apply hardware parameters
     pcm_handle.hw_params(&hw_params)?;
 
-    // For BufferSize::Default, trim the buffer to 2 periods for double-buffering
+    // For BufferSize::Default, constrain to device's configured period with 2-period buffering.
+    // PipeWire-ALSA picks a good period size but pairs it with many periods (huge buffer).
+    // We need to re-initialize hw_params and set BOTH period and buffer to constrain properly.
     if config.buffer_size == BufferSize::Default {
         if let Ok(period) = hw_params.get_period_size() {
+            // Re-initialize hw_params to clear previous constraints
+            let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
+
+            // Set both period (to device's chosen value) and buffer (to 2 periods)
+            hw_params.set_period_size_near(period as _, alsa::ValueOr::Nearest)?;
             hw_params.set_buffer_size_near(2 * period)?;
+
+            // Re-apply with new constraints
             pcm_handle.hw_params(&hw_params)?;
         }
     }
@@ -1357,6 +1325,56 @@ fn set_sw_params_from_format(
     }
 
     Ok(period_samples)
+}
+
+impl TryFrom<SampleFormat> for alsa::pcm::Format {
+    type Error = BackendSpecificError;
+
+    #[cfg(target_endian = "big")]
+    fn try_from(sample_format: SampleFormat) -> Result<Self, Self::Error> {
+        Ok(match sample_format {
+            SampleFormat::I8 => alsa::pcm::Format::S8,
+            SampleFormat::I16 => alsa::pcm::Format::S16BE,
+            SampleFormat::I24 => alsa::pcm::Format::S24BE,
+            SampleFormat::I32 => alsa::pcm::Format::S32BE,
+            SampleFormat::U8 => alsa::pcm::Format::U8,
+            SampleFormat::U16 => alsa::pcm::Format::U16BE,
+            SampleFormat::U24 => alsa::pcm::Format::U24BE,
+            SampleFormat::U32 => alsa::pcm::Format::U32BE,
+            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
+            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{sample_format}' is not supported by this backend"
+                    ),
+                })
+            }
+        })
+    }
+
+    #[cfg(target_endian = "little")]
+    fn try_from(sample_format: SampleFormat) -> Result<Self, Self::Error> {
+        Ok(match sample_format {
+            SampleFormat::I8 => alsa::pcm::Format::S8,
+            SampleFormat::I16 => alsa::pcm::Format::S16LE,
+            SampleFormat::I24 => alsa::pcm::Format::S24LE,
+            SampleFormat::I32 => alsa::pcm::Format::S32LE,
+            SampleFormat::U8 => alsa::pcm::Format::U8,
+            SampleFormat::U16 => alsa::pcm::Format::U16LE,
+            SampleFormat::U24 => alsa::pcm::Format::U24LE,
+            SampleFormat::U32 => alsa::pcm::Format::U32LE,
+            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
+            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
+            sample_format => {
+                return Err(BackendSpecificError {
+                    description: format!(
+                        "Sample format '{sample_format}' is not supported by this backend"
+                    ),
+                })
+            }
+        })
+    }
 }
 
 impl From<alsa::Error> for BackendSpecificError {
