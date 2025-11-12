@@ -17,7 +17,6 @@ asio = [
 
 custom = []
 
-default = ["custom"]
 
 [dependencies]
 dasp_sample = "0.11"

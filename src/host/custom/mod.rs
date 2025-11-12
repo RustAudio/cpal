@@ -231,7 +231,7 @@ where
     }
 
     fn supported_output_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError> {
-        <T as DeviceTrait>::supported_input_configs(self).map(supported_configs_to_erased)
+        <T as DeviceTrait>::supported_output_configs(self).map(supported_configs_to_erased)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
