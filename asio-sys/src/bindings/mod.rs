@@ -161,7 +161,7 @@ pub enum AsioSampleType {
 /// Gives information about buffers
 /// Receives pointers to buffers
 #[derive(Debug, Copy, Clone)]
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioBufferInfo {
     /// 0 for output 1 for input
     pub is_input: c_long,
@@ -172,7 +172,7 @@ pub struct AsioBufferInfo {
 }
 
 /// Callbacks that ASIO calls
-#[repr(C)]
+#[repr(C, packed(4))]
 struct AsioCallbacks {
     buffer_switch: extern "C" fn(double_buffer_index: c_long, direct_process: c_long) -> (),
     sample_rate_did_change: extern "C" fn(s_rate: c_double) -> (),
@@ -244,7 +244,7 @@ pub enum AsioMessageSelectors {
 }
 
 /// A rust-usable version of the `ASIOTime` type that does not contain a binary blob for fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTime {
     /// Must be `0`.
     pub reserved: [c_long; 4],
@@ -256,7 +256,7 @@ pub struct AsioTime {
 
 /// A rust-compatible version of the `ASIOTimeInfo` type that does not contain a binary blob for
 /// fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTimeInfo {
     /// Absolute speed (1. = nominal).
     pub speed: c_double,
@@ -276,7 +276,7 @@ pub struct AsioTimeInfo {
 
 /// A rust-compatible version of the `ASIOTimeCode` type that does not use a binary blob for its
 /// fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTimeCode {
     /// Speed relation (fraction of nominal speed) optional.
     ///
