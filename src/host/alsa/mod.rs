@@ -1150,9 +1150,9 @@ impl StreamTrait for Stream {
     }
 }
 
-// Overly safe clamp because alsa Frames are i64
+// Overly safe clamp because alsa Frames are i64 (64-bit) or i32 (32-bit)
 fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
-    buffer_size.clamp(1, FrameCount::MAX as _) as _
+    buffer_size.clamp(1, FrameCount::MAX as alsa::pcm::Frames) as FrameCount
 }
 
 fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
@@ -1240,8 +1240,9 @@ fn set_hw_params_from_format(
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
     // behavior across different ALSA implementations and hardware.
     if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
-        hw_params.set_buffer_size_near((2 * buffer_frames) as _)?;
-        hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
+        hw_params.set_buffer_size_near((2 * buffer_frames) as alsa::pcm::Frames)?;
+        hw_params
+            .set_period_size_near(buffer_frames as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
     }
 
     // Apply hardware parameters
@@ -1256,7 +1257,7 @@ fn set_hw_params_from_format(
             let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
             // Set both period (to device's chosen value) and buffer (to 2 periods)
-            hw_params.set_period_size_near(period as _, alsa::ValueOr::Nearest)?;
+            hw_params.set_period_size_near(period, alsa::ValueOr::Nearest)?;
             hw_params.set_buffer_size_near(2 * period)?;
 
             // Re-apply with new constraints
