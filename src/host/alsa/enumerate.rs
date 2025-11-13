@@ -3,9 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{
-    alsa, {Device, DeviceHandles},
-};
+use super::{alsa, Device};
 use crate::{BackendSpecificError, DevicesError};
 
 /// ALSA's implementation for `Devices`.
@@ -26,16 +24,13 @@ impl Devices {
     }
 }
 
-unsafe impl Send for Devices {}
-unsafe impl Sync for Devices {}
-
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         loop {
             let hint = self.hint_iter.next()?;
-            if let Ok(device) = Device::try_from(hint) {
+            if let Ok(device) = Self::Item::try_from(hint) {
                 if self.enumerated_pcm_ids.insert(device.pcm_id.clone()) {
                     return Some(device);
                 } else {
@@ -77,23 +72,15 @@ impl TryFrom<alsa::device_name::Hint> for Device {
     type Error = BackendSpecificError;
 
     fn try_from(hint: alsa::device_name::Hint) -> Result<Self, Self::Error> {
-        let pcm_id = hint.name.ok_or_else(|| BackendSpecificError {
+        let pcm_id = hint.name.ok_or_else(|| Self::Error {
             description: "ALSA hint missing PCM ID".to_string(),
         })?;
 
-        // Try to open handles during enumeration
-        let handles = DeviceHandles::open(&pcm_id).unwrap_or_else(|_| {
-            // If opening fails during enumeration, create default handles
-            // The actual opening will be attempted when the device is used
-            DeviceHandles::default()
-        });
-
         // Include all devices from ALSA hints (matches `aplay -L` behavior)
-        // Even devices that can't be opened during enumeration are valid for selection
         Ok(Self {
             pcm_id: pcm_id.to_owned(),
             desc: hint.desc,
-            handles: Arc::new(Mutex::new(handles)),
+            handles: Arc::new(Mutex::new(Default::default())),
         })
     }
 }

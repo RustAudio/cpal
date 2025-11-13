@@ -12,6 +12,7 @@
 - ALSA: Update `alsa` to 0.10.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
+- ASIO: Add packed(4) to representation of ASIO time structs in bindings.
 - CI: Added native ARM64 Linux support in GitHub Actions.
 - CI: Fix cargo publish to trigger on GitHub releases instead of every master commit.
 - CI: Replace cargo install commands with cached tool installation for faster builds.
