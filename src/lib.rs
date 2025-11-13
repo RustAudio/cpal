@@ -604,20 +604,16 @@ impl OutputCallbackInfo {
 
 #[allow(clippy::len_without_is_empty)]
 impl Data {
-    // Internal constructor for host implementations to use.
-    //
-    // The following requirements must be met in order for the safety of `Data`'s public API.
-    //
-    // - The `data` pointer must point to the first sample in the slice containing all samples.
-    // - The `len` must describe the length of the buffer as a number of samples in the expected
-    //   format specified via the `sample_format` argument.
-    // - The `sample_format` must correctly represent the underlying sample data delivered/expected
-    //   by the stream.
-    pub(crate) unsafe fn from_parts(
-        data: *mut (),
-        len: usize,
-        sample_format: SampleFormat,
-    ) -> Self {
+    /// Constructor for host implementations to use.
+    ///
+    /// # Safety
+    /// The following requirements must be met in order for the safety of `Data`'s API.
+    /// - The `data` pointer must point to the first sample in the slice containing all samples.
+    /// - The `len` must describe the length of the buffer as a number of samples in the expected
+    ///   format specified via the `sample_format` argument.
+    /// - The `sample_format` must correctly represent the underlying sample data delivered/expected
+    ///   by the stream.
+    pub unsafe fn from_parts(data: *mut (), len: usize, sample_format: SampleFormat) -> Self {
         Data {
             data,
             len,
