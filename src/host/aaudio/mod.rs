@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::IntoIter as VecIntoIter;
 
@@ -39,18 +40,26 @@ const SAMPLE_RATES: [i32; 13] = [
 pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
+
+/// Stream wraps AudioStream in Arc<Mutex<>> to provide Sync semantics.
+///
+/// While the underlying ndk::audio::AudioStream is Send but not Sync
+/// (see https://developer.android.com/ndk/guides/audio/aaudio/aaudio#thread-safety),
+/// we wrap it in a mutex to enable safe concurrent access. This is acceptable because:
+/// - Stream operations (play, pause) are infrequent control operations
+/// - Audio callbacks execute on a dedicated thread and don't access the Stream directly
+/// - The mutex overhead is negligible for control operations
+#[derive(Clone)]
 pub enum Stream {
-    Input(AudioStream),
-    Output(AudioStream),
+    Input(Arc<Mutex<AudioStream>>),
+    Output(Arc<Mutex<AudioStream>>),
 }
 
-// AAudioStream is safe to be send, but not sync.
-// See https://developer.android.com/ndk/guides/audio/aaudio/aaudio
-// TODO: Is this still in-progress? https://github.com/rust-mobile/ndk/pull/497
-unsafe impl Send for Stream {}
-
-// Compile-time assertion that Stream is Send
+// SAFETY: Arc<Mutex<T>> is Send + Sync when T is Send.
+// AudioStream is Send (even though not Sync), and Arc<Mutex<_>> provides Sync.
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -268,7 +277,7 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
-    Ok(Stream::Input(stream))
+    Ok(Stream::Input(Arc::new(Mutex::new(stream))))
 }
 
 fn build_output_stream<D, E>(
@@ -310,7 +319,7 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
-    Ok(Stream::Output(stream))
+    Ok(Stream::Output(Arc::new(Mutex::new(stream))))
 }
 
 impl DeviceTrait for Device {
@@ -479,8 +488,16 @@ impl DeviceTrait for Device {
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Self::Input(stream) => stream.request_start().map_err(PlayStreamError::from),
-            Self::Output(stream) => stream.request_start().map_err(PlayStreamError::from),
+            Self::Input(stream) => stream
+                .lock()
+                .unwrap()
+                .request_start()
+                .map_err(PlayStreamError::from),
+            Self::Output(stream) => stream
+                .lock()
+                .unwrap()
+                .request_start()
+                .map_err(PlayStreamError::from),
         }
     }
 
@@ -490,7 +507,11 @@ impl StreamTrait for Stream {
                 description: "Pause called on the input stream.".to_owned(),
             }
             .into()),
-            Self::Output(stream) => stream.request_pause().map_err(PauseStreamError::from),
+            Self::Output(stream) => stream
+                .lock()
+                .unwrap()
+                .request_pause()
+                .map_err(PauseStreamError::from),
         }
     }
 }

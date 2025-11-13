@@ -31,12 +31,26 @@ pub struct Stream {
     pending_scheduled_event: Foundation::HANDLE,
 }
 
-// Windows Event HANDLEs are safe to send between threads - they are designed for synchronization.
+// SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
+// synchronization. All fields of Stream are Send:
+// - JoinHandle<()> is Send
+// - Sender<Command> is Send
+// - Foundation::HANDLE is Send (Windows synchronization primitive)
 // See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
 unsafe impl Send for Stream {}
 
-// Compile-time assertion that Stream is Send
+// SAFETY: Windows Event HANDLEs are safe to access from multiple threads simultaneously.
+// All synchronization operations (SetEvent, WaitForSingleObject) are thread-safe.
+// All fields of Stream are Sync:
+// - JoinHandle<()> is Sync
+// - Sender<Command> is Sync (uses internal synchronization)
+// - Foundation::HANDLE for event objects supports concurrent access
+// The audio thread owns all COM objects, so no cross-thread COM access occurs.
+unsafe impl Sync for Stream {}
+
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 struct RunContext {
     // Streams that have been created in this event loop.
