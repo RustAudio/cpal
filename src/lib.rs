@@ -262,7 +262,13 @@ impl std::str::FromStr for DeviceId {
     type Err = DeviceIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (platform, data) = s.split_once(':').ok_or(DeviceIdError::ParseError)?;
+        let (platform, data) = s.split_once(':').ok_or(
+        DeviceIdError::BackendSpecific { 
+                err: BackendSpecificError { 
+                    description: format!("Failed to parse device id from: {}\nCheck if format matches Audio_API:DeviceId", s) 
+                } 
+            }
+        )?;
 
         match platform {
             "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
@@ -270,7 +276,13 @@ impl std::str::FromStr for DeviceId {
             "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
             "alsa" => Ok(DeviceId::ALSA(data.to_string())),
             "aaudio" => {
-                let id = data.parse().map_err(|_| DeviceIdError::ParseError)?;
+                let id = data.parse().map_err(|_| 
+                    DeviceIdError::BackendSpecific { 
+                        err: BackendSpecificError { 
+                            description: format!("Failed to parse aaudio device id: {}", data) 
+                        } 
+                    }
+                )?;
                 Ok(DeviceId::AAudio(id))
             }
             "jack" => Ok(DeviceId::Jack(data.to_string())),

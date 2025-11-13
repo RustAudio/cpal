@@ -73,7 +73,6 @@ pub enum DeviceIdError {
         err: BackendSpecificError,
     },
     UnsupportedPlatform,
-    ParseError,
 }
 
 impl Display for DeviceIdError {
@@ -81,7 +80,6 @@ impl Display for DeviceIdError {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
             Self::UnsupportedPlatform => f.write_str("Device ids are unsupported for this OS"),
-            Self::ParseError => f.write_str("Failed to parse the device_id"),
         }
     }
 }
