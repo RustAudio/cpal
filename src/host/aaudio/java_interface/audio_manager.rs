@@ -26,10 +26,6 @@ fn get_frames_per_buffer<'j>(env: &mut JNIEnv<'j>, context: &JObject<'j>) -> JRe
 
     let frames_per_buffer_string = String::from(env.get_string(&frames_per_buffer)?);
 
-    frames_per_buffer_string.parse::<i32>().map_err(|e| {
-        jni::errors::Error::ParseFailed(
-            combine::error::StringStreamError::UnexpectedParse,
-            format!("Failed to parse frames per buffer: {}", e),
-        )
-    })
+    // TODO: Use jni::errors::Error::ParseFailed instead of jni::errors::Error::JniCall once jni > v0.21.1 is released
+    frames_per_buffer_string.parse::<i32>().map_err(|e| jni::errors::Error::JniCall(jni::errors::JniError::Unknown))
 }

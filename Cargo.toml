@@ -16,7 +16,6 @@ asio = [
 ] # Only available on Windows. See README for setup instructions.
 
 [dependencies]
-combine = "4.6.7"
 dasp_sample = "0.11"
 
 [dev-dependencies]
