@@ -276,13 +276,11 @@ impl std::str::FromStr for DeviceId {
             "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
             "alsa" => Ok(DeviceId::ALSA(data.to_string())),
             "aaudio" => {
-                let id = data.parse().map_err(|_| 
-                    DeviceIdError::BackendSpecific { 
-                        err: BackendSpecificError { 
-                            description: format!("Failed to parse aaudio device id: {}", data) 
-                        } 
-                    }
-                )?;
+                let id = data.parse().map_err(|_| DeviceIdError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: format!("Failed to parse aaudio device id: {}", data),
+                    },
+                })?;
                 Ok(DeviceId::AAudio(id))
             }
             "jack" => Ok(DeviceId::Jack(data.to_string())),
