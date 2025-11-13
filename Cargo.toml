@@ -15,6 +15,10 @@ asio = [
     "num-traits",
 ] # Only available on Windows. See README for setup instructions.
 
+# Support for user-defined custom hosts, devices, and streams
+# See examples/custom.rs for usage
+custom = []
+
 [dependencies]
 dasp_sample = "0.11"
 
