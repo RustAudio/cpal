@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::cmp;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -15,7 +14,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    SizedSample, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -41,22 +40,35 @@ pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
 
-/// Stream wraps AudioStream in Arc<Mutex<>> to provide Sync semantics.
+/// Stream wraps AudioStream in Arc<Mutex<>> to provide Send + Sync semantics.
 ///
-/// While the underlying ndk::audio::AudioStream is Send but not Sync
+/// While the underlying ndk::audio::AudioStream is neither Send nor Sync in ndk 0.9.0
 /// (see https://developer.android.com/ndk/guides/audio/aaudio/aaudio#thread-safety),
-/// we wrap it in a mutex to enable safe concurrent access. This is acceptable because:
-/// - Stream operations (play, pause) are infrequent control operations
-/// - Audio callbacks execute on a dedicated thread and don't access the Stream directly
-/// - The mutex overhead is negligible for control operations
+/// we wrap it in a mutex to enable safe concurrent access and manually implement Send + Sync.
+///
+/// # Safety
+///
+/// This is safe because:
+/// - AAudio functions are designed to be called from any thread (the Android docs state
+///   "AAudio is not thread-safe" meaning it lacks internal locking, not that it's unsafe)
+/// - Audio callbacks are called on a dedicated AAudio thread and don't access Stream
+/// - The Mutex ensures exclusive access for control operations (play, pause)
+/// - The pointer in AudioStream (NonNull<AAudioStreamStruct>) is valid for the lifetime
+///   of the stream and AAudio C API functions are thread-safe at the C level
 #[derive(Clone)]
 pub enum Stream {
     Input(Arc<Mutex<AudioStream>>),
     Output(Arc<Mutex<AudioStream>>),
 }
 
-// SAFETY: Arc<Mutex<T>> is Send + Sync when T is Send.
-// AudioStream is Send (even though not Sync), and Arc<Mutex<_>> provides Sync.
+// SAFETY: AudioStream can be safely sent between threads. The AAudio C API is thread-safe
+// for moving stream ownership between threads. The NonNull pointer remains valid.
+unsafe impl Send for Stream {}
+
+// SAFETY: AudioStream can be safely shared between threads when protected by a Mutex.
+// All operations on the stream go through the mutex, ensuring exclusive access.
+unsafe impl Sync for Stream {}
+
 // Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
@@ -273,7 +285,7 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
@@ -315,7 +327,7 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
@@ -414,7 +426,10 @@ impl DeviceTrait for Device {
             channels => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
+                    description: format!(
+                        "{} channels are not supported yet (only 1 or 2).",
+                        channels
+                    ),
                 }
                 .into());
             }
@@ -463,7 +478,10 @@ impl DeviceTrait for Device {
             channels => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
+                    description: format!(
+                        "{} channels are not supported yet (only 1 or 2).",
+                        channels
+                    ),
                 }
                 .into());
             }
