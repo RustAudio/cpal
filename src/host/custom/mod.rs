@@ -1,8 +1,8 @@
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 use core::time::Duration;
@@ -141,6 +141,7 @@ type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'st
 
 trait DeviceErased: Send + Sync {
     fn name(&self) -> Result<String, DeviceNameError>;
+    fn id(&self) -> Result<DeviceId, DeviceIdError>;
     fn supports_input(&self) -> bool;
     fn supports_output(&self) -> bool;
     fn supported_input_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError>;
