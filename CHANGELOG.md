@@ -26,6 +26,7 @@
 - CoreAudio: Make `Stream` implement `Send`.
 - CoreAudio: Remove `Clone` impl from `Stream`.
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
+- Emscripten: Implement input stream support using `getUserMedia()`.
 - iOS: Fix example by properly activating audio session.
 - iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
 - JACK: Add `BufferSize::Fixed` validation to reject requests that don't match server buffer size.
@@ -36,6 +37,7 @@
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
 - Wasm: Make `Stream` implement `Send`.
 - WebAudio: Add `BufferSize::Fixed` validation against supported range.
+- WebAudio: Implement input stream support using `getUserMedia()`.
 
 # Version 0.16.0 (2025-06-07)
 
