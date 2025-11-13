@@ -218,6 +218,10 @@ where
         <T as DeviceTrait>::name(self)
     }
 
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        <T as DeviceTrait>::id(self)
+    }
+
     fn supports_input(&self) -> bool {
         <T as DeviceTrait>::supports_input(self)
     }
@@ -330,6 +334,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        self.0.id()
     }
 
     fn supports_input(&self) -> bool {
