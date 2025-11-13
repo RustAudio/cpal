@@ -223,8 +223,9 @@ where
 /// one frame contains two samples (left and right channels).
 pub type FrameCount = u32;
 
-/// The device ID of the audio device, on supported OSs
-/// Currently only supports macOS and Windows (WASAPI)
+/// A stable identifier for an audio device across all supported platforms.
+///
+/// Device IDs should remain stable across application restarts and can be serialized using `Display`/`FromStr`.
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceId {

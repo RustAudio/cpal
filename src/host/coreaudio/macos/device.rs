@@ -389,7 +389,8 @@ impl Device {
         };
         check_os_status(status)?;
 
-        // SAFETY: We verified uid is non-null and the status was successful
+        // SAFETY: Status was successful, meaning the API call succeeded.
+        // We now check if the returned uid is non-null before use.
         if !uid.is_null() {
             let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
             Ok(DeviceId::CoreAudio(uid_string))
