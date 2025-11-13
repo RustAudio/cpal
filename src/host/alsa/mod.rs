@@ -153,7 +153,7 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = Stream::new_input(
+        let stream = Self::Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
@@ -176,7 +176,7 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
-        let stream = Stream::new_output(
+        let stream = Self::Stream::new_output(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
@@ -237,19 +237,6 @@ struct DeviceHandles {
 }
 
 impl DeviceHandles {
-    /// Create `DeviceHandles` for `name` and try to open a handle for both
-    /// directions. Returns `Ok` if either direction is opened successfully.
-    fn open(pcm_id: &str) -> Result<Self, alsa::Error> {
-        let mut handles = Self::default();
-        let playback_err = handles.try_open(pcm_id, alsa::Direction::Playback).err();
-        let capture_err = handles.try_open(pcm_id, alsa::Direction::Capture).err();
-        if let Some(err) = capture_err.and(playback_err) {
-            Err(err)
-        } else {
-            Ok(handles)
-        }
-    }
-
     /// Get a mutable reference to the `Option` for a specific `stream_type`.
     /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
     /// the `Option` before returning. If `handle_mut()` returns `Ok` the contained
@@ -1091,7 +1078,7 @@ impl Stream {
                 );
             })
             .unwrap();
-        Stream {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
@@ -1123,7 +1110,7 @@ impl Stream {
                 );
             })
             .unwrap();
-        Stream {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
@@ -1380,7 +1367,7 @@ impl TryFrom<SampleFormat> for alsa::pcm::Format {
 
 impl From<alsa::Error> for BackendSpecificError {
     fn from(err: alsa::Error) -> Self {
-        BackendSpecificError {
+        Self {
             description: err.to_string(),
         }
     }
