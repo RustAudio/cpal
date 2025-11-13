@@ -263,10 +263,10 @@ impl std::str::FromStr for DeviceId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (platform, data) = s.split_once(':').ok_or(
-        DeviceIdError::BackendSpecific { 
-                err: BackendSpecificError { 
+        DeviceIdError::BackendSpecific {
+                err: BackendSpecificError {
                     description: format!("Failed to parse device id from: {}\nCheck if format matches Audio_API:DeviceId", s) 
-                } 
+                }
             }
         )?;
 
