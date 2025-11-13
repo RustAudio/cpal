@@ -3,7 +3,6 @@ use objc2_core_audio_types::{
     kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
 
-use crate::host::coreaudio::macos::Stream;
 use crate::DefaultStreamConfigError;
 use crate::{BuildStreamError, SupportedStreamConfigsError};
 
@@ -21,7 +20,9 @@ pub use self::ios::{
 };
 
 #[cfg(target_os = "macos")]
-pub use self::macos::Host;
+pub use self::macos::{
+    Host, Stream,
+};
 
 // Common helper methods used by both macOS and iOS
 
