@@ -1,8 +1,8 @@
 use crate::FrameCount;
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
 use std::ffi::OsString;
@@ -56,6 +56,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supports_input(&self) -> bool {
@@ -319,6 +323,22 @@ impl Device {
             StructuredStorage::PropVariantClear(&mut property_value).ok();
 
             Ok(name_string)
+        }
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        unsafe {
+            match self.device.GetId() {
+                Ok(pwstr) => match pwstr.to_string() {
+                    Ok(id_str) => Ok(DeviceId::WASAPI(id_str)),
+                    Err(e) => Err(DeviceIdError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: format!("Failed to convert device ID to string: {}", e),
+                        },
+                    }),
+                },
+                Err(e) => Err(DeviceIdError::BackendSpecific { err: e.into() }),
+            }
         }
     }
 

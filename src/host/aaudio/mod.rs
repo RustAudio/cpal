@@ -10,10 +10,10 @@ use java_interface::{AudioDeviceDirection, AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
-    OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -295,6 +295,13 @@ impl DeviceTrait for Device {
                 };
                 Ok(name)
             }
+        }
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        match &self.0 {
+            None => Ok(DeviceId::AAudio(-1)), // Default device
+            Some(info) => Ok(DeviceId::AAudio(info.id)),
         }
     }
 

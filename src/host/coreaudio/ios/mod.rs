@@ -14,10 +14,11 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 use self::enumerate::{
@@ -70,6 +71,10 @@ impl Device {
         Ok("Default Device".to_owned())
     }
 
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::IOS("default".to_string()))
+    }
+
     #[inline]
     fn supported_input_configs(
         &self,
@@ -111,6 +116,11 @@ impl DeviceTrait for Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     #[inline]

@@ -3,10 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, PauseStreamError,
-    PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
+    PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -43,6 +43,15 @@ pub trait HostTrait {
     ///
     /// Can be empty if the system does not support audio in general.
     fn devices(&self) -> Result<Self::Devices, DevicesError>;
+
+    /// Fetches a [`Device`](DeviceTrait) based on a [`DeviceId`](DeviceId) if available
+    ///
+    /// Returns `None` if no device matching the id is found
+    fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
+        self.devices()
+            .ok()?
+            .find(|device| device.id().ok().as_ref() == Some(id))
+    }
 
     /// The default input audio device on the system.
     ///
@@ -88,6 +97,9 @@ pub trait DeviceTrait {
 
     /// The human-readable name of the device.
     fn name(&self) -> Result<String, DeviceNameError>;
+
+    /// The device-id of the device.
+    fn id(&self) -> Result<DeviceId, DeviceIdError>;
 
     /// True if the device supports audio input, otherwise false
     fn supports_input(&self) -> bool {

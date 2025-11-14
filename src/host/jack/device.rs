@@ -1,9 +1,9 @@
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
@@ -62,6 +62,10 @@ impl Device {
             }),
             Err(e) => Err(e),
         }
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::Jack(self.name.clone()))
     }
 
     pub fn default_output_device(
@@ -158,6 +162,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok(self.name.clone())
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(

@@ -56,6 +56,10 @@ impl DeviceTrait for MyDevice {
         Ok(String::from("custom device"))
     }
 
+    fn id(&self) -> Result<cpal::DeviceId, cpal::DeviceIdError> {
+        Err(cpal::DeviceIdError::UnsupportedPlatform)
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, cpal::SupportedStreamConfigsError> {
