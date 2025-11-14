@@ -20,10 +20,7 @@ pub use self::ios::{
 };
 
 #[cfg(target_os = "macos")]
-pub use self::macos::{
-    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
-    Device, Host, Stream,
-};
+pub use self::macos::{Host, Stream};
 
 // Common helper methods used by both macOS and iOS
 
@@ -127,5 +124,6 @@ impl From<coreaudio::Error> for DefaultStreamConfigError {
 
 pub(crate) type OSStatus = i32;
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);

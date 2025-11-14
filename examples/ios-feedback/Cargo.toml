@@ -12,5 +12,5 @@ crate-type = ["staticlib"]
 
 [dependencies]
 cpal = { path = "../.." }
-anyhow = "1.0.12"
-ringbuf = "0.4.8"
+anyhow = "1.0"
+ringbuf = "0.4"

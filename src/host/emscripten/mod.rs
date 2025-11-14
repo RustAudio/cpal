@@ -7,10 +7,10 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -34,11 +34,13 @@ pub struct Stream {
     audio_ctxt: AudioContext,
 }
 
-// WASM runs in a single-threaded environment, so Send is safe by design.
+// WASM runs in a single-threaded environment, so Send and Sync are safe by design.
 unsafe impl Send for Stream {}
+unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 // Index within the `streams` array of the events loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -73,6 +75,11 @@ impl Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok("Default Device".to_owned())
+    }
+
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::Emscripten("default".to_string()))
     }
 
     #[inline]
@@ -148,6 +155,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(

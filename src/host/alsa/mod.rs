@@ -16,9 +16,9 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
 
@@ -117,6 +117,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -379,6 +383,11 @@ impl Device {
         Ok(self.to_string())
     }
 
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::ALSA(self.pcm_id.clone()))
+    }
+
     fn supported_configs(
         &self,
         stream_t: alsa::Direction,
@@ -399,26 +408,28 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 10] = [
+        // Test both LE and BE formats to detect what the hardware actually supports.
+        // LE is listed first as it's the common case for most audio hardware.
+        // Hardware reports its supported formats regardless of CPU endianness.
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 18] = [
             (SampleFormat::I8, alsa::pcm::Format::S8),
             (SampleFormat::U8, alsa::pcm::Format::U8),
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
-            //SND_PCM_FORMAT_S16_BE,
+            (SampleFormat::I16, alsa::pcm::Format::S16BE),
             (SampleFormat::U16, alsa::pcm::Format::U16LE),
-            //SND_PCM_FORMAT_U16_BE,
+            (SampleFormat::U16, alsa::pcm::Format::U16BE),
             (SampleFormat::I24, alsa::pcm::Format::S24LE),
-            //SND_PCM_FORMAT_S24_BE,
+            (SampleFormat::I24, alsa::pcm::Format::S24BE),
             (SampleFormat::U24, alsa::pcm::Format::U24LE),
-            //SND_PCM_FORMAT_U24_BE,
+            (SampleFormat::U24, alsa::pcm::Format::U24BE),
             (SampleFormat::I32, alsa::pcm::Format::S32LE),
-            //SND_PCM_FORMAT_S32_BE,
+            (SampleFormat::I32, alsa::pcm::Format::S32BE),
             (SampleFormat::U32, alsa::pcm::Format::U32LE),
-            //SND_PCM_FORMAT_U32_BE,
+            (SampleFormat::U32, alsa::pcm::Format::U32BE),
             (SampleFormat::F32, alsa::pcm::Format::FloatLE),
-            //SND_PCM_FORMAT_FLOAT_BE,
+            (SampleFormat::F32, alsa::pcm::Format::FloatBE),
             (SampleFormat::F64, alsa::pcm::Format::Float64LE),
-            //SND_PCM_FORMAT_FLOAT64_BE,
+            (SampleFormat::F64, alsa::pcm::Format::Float64BE),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -441,9 +452,13 @@ impl Device {
             //SND_PCM_FORMAT_U18_3BE,
         ];
 
+        // Collect supported formats, deduplicating since we test both LE and BE variants.
+        // If hardware supports both endiannesses (rare), we only report the format once.
         let mut supported_formats = Vec::new();
         for &(sample_format, alsa_format) in FORMATS.iter() {
-            if hw_params.test_format(alsa_format).is_ok() {
+            if hw_params.test_format(alsa_format).is_ok()
+                && !supported_formats.contains(&sample_format)
+            {
                 supported_formats.push(sample_format);
             }
         }
@@ -634,8 +649,9 @@ pub struct Stream {
     trigger: TriggerSender,
 }
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
@@ -1210,10 +1226,84 @@ fn init_hw_params<'a>(
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
     hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
-    hw_params.set_format(sample_format.try_into()?)?;
+
+    // Determine which endianness the hardware actually supports for this format.
+    // We prefer native endian (no conversion needed) but fall back to the opposite
+    // endian if that's all the hardware supports (e.g., LE USB DAC on BE system).
+    let alsa_format = sample_format_to_alsa_format(&hw_params, sample_format)?;
+    hw_params.set_format(alsa_format)?;
+
     hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
     Ok(hw_params)
+}
+
+/// Convert SampleFormat to the appropriate alsa::pcm::Format based on what the hardware supports.
+/// Prefers native endian, falls back to non-native if that's all the hardware supports.
+fn sample_format_to_alsa_format(
+    hw_params: &alsa::pcm::HwParams,
+    sample_format: SampleFormat,
+) -> Result<alsa::pcm::Format, BackendSpecificError> {
+    use alsa::pcm::Format;
+
+    // For each sample format, define (native_endian_format, opposite_endian_format) pairs
+    let (native, opposite) = match sample_format {
+        SampleFormat::I8 => return Ok(Format::S8), // No endianness
+        SampleFormat::U8 => return Ok(Format::U8), // No endianness
+        #[cfg(target_endian = "little")]
+        SampleFormat::I16 => (Format::S16LE, Format::S16BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I16 => (Format::S16BE, Format::S16LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U16 => (Format::U16LE, Format::U16BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U16 => (Format::U16BE, Format::U16LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::I24 => (Format::S24LE, Format::S24BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I24 => (Format::S24BE, Format::S24LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U24 => (Format::U24LE, Format::U24BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U24 => (Format::U24BE, Format::U24LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::I32 => (Format::S32LE, Format::S32BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I32 => (Format::S32BE, Format::S32LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U32 => (Format::U32LE, Format::U32BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U32 => (Format::U32BE, Format::U32LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::F32 => (Format::FloatLE, Format::FloatBE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::F32 => (Format::FloatBE, Format::FloatLE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::F64 => (Format::Float64LE, Format::Float64BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::F64 => (Format::Float64BE, Format::Float64LE),
+        _ => {
+            return Err(BackendSpecificError {
+                description: format!("Sample format '{sample_format}' is not supported"),
+            })
+        }
+    };
+
+    // Try native endian first (optimal - no conversion needed)
+    if hw_params.test_format(native).is_ok() {
+        return Ok(native);
+    }
+
+    // Fall back to opposite endian if hardware only supports that
+    if hw_params.test_format(opposite).is_ok() {
+        return Ok(opposite);
+    }
+
+    Err(BackendSpecificError {
+        description: format!(
+            "Sample format '{sample_format}' is not supported by hardware in any endianness"
+        ),
+    })
 }
 
 fn set_hw_params_from_format(
@@ -1313,56 +1403,6 @@ fn set_sw_params_from_format(
     }
 
     Ok(period_samples)
-}
-
-impl TryFrom<SampleFormat> for alsa::pcm::Format {
-    type Error = BackendSpecificError;
-
-    #[cfg(target_endian = "big")]
-    fn try_from(sample_format: SampleFormat) -> Result<Self, Self::Error> {
-        Ok(match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            SampleFormat::I24 => alsa::pcm::Format::S24BE,
-            SampleFormat::I32 => alsa::pcm::Format::S32BE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            SampleFormat::U24 => alsa::pcm::Format::U24BE,
-            SampleFormat::U32 => alsa::pcm::Format::U32BE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        })
-    }
-
-    #[cfg(target_endian = "little")]
-    fn try_from(sample_format: SampleFormat) -> Result<Self, Self::Error> {
-        Ok(match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            SampleFormat::I24 => alsa::pcm::Format::S24LE,
-            SampleFormat::I32 => alsa::pcm::Format::S32LE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            SampleFormat::U24 => alsa::pcm::Format::U24LE,
-            SampleFormat::U32 => alsa::pcm::Format::U32LE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        })
-    }
 }
 
 impl From<alsa::Error> for BackendSpecificError {

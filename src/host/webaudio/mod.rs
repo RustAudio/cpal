@@ -7,10 +7,11 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
+    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
@@ -31,11 +32,13 @@ pub struct Stream {
     buffer_size_frames: usize,
 }
 
-// WASM runs in a single-threaded environment, so Send is safe by design.
+// WASM runs in a single-threaded environment, so Send and Sync are safe by design.
 unsafe impl Send for Stream {}
+unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
@@ -88,6 +91,11 @@ impl Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok("Default Device".to_owned())
+    }
+
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::WebAudio("default".to_string()))
     }
 
     #[inline]
@@ -146,6 +154,11 @@ impl DeviceTrait for Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     #[inline]

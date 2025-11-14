@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
     SupportedStreamConfigsError,
 };
 
@@ -19,8 +19,9 @@ pub struct Host;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 #[derive(Clone)]
 pub struct SupportedInputConfigs;
@@ -48,6 +49,11 @@ impl DeviceTrait for Device {
     #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok("null".to_owned())
+    }
+
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::Null)
     }
 
     #[inline]
