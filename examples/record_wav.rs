@@ -15,8 +15,8 @@ struct Opt {
     /// The audio device to use.
     /// For the default microphone, use "default".
     /// For recording system output, use "default-output".
-    #[arg(short, long, default_value_t = String::from("default"))]
-    device: String,
+    #[arg(short, long)]
+    device: Option<String>,
 
     /// How long to record, in seconds
     #[arg(long, default_value_t = 3)]
@@ -75,12 +75,11 @@ fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
 
     // Set up the input device and stream with the default input config.
-    let device = match opt.device.as_str() {
-        "default" => host.default_input_device(),
-        "default-output" => host.default_output_device(),
-        device => host
-            .input_devices()?
-            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == device)),
+    let device = if let Some(device) = opt.device {
+        let id = &device.parse().expect("failed to parse input device id");
+        host.device_by_id(id)
+    } else {
+        host.default_input_device()
     }
     .expect("failed to find input device");
 

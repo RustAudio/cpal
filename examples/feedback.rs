@@ -17,12 +17,12 @@ use ringbuf::{
 #[command(version, about = "CPAL feedback example", long_about = None)]
 struct Opt {
     /// The input audio device to use
-    #[arg(short, long, value_name = "IN", default_value_t = String::from("default"))]
-    input_device: String,
+    #[arg(short, long, value_name = "IN")]
+    input_device: Option<String>,
 
     /// The output audio device to use
-    #[arg(short, long, value_name = "OUT", default_value_t = String::from("default"))]
-    output_device: String,
+    #[arg(short, long, value_name = "OUT")]
+    output_device: Option<String>,
 
     /// Specify the delay between input and output
     #[arg(short, long, value_name = "DELAY_MS", default_value_t = 150.0)]
@@ -81,19 +81,19 @@ fn main() -> anyhow::Result<()> {
     let host = cpal::default_host();
 
     // Find devices.
-    let input_device = if opt.input_device == "default" {
-        host.default_input_device()
+    let input_device = if let Some(device) = opt.input_device {
+        let id = &device.parse().expect("failed to parse input device id");
+        host.device_by_id(id)
     } else {
-        host.output_devices()?
-            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.input_device))
+        host.default_input_device()
     }
     .expect("failed to find input device");
 
-    let output_device = if opt.output_device == "default" {
-        host.default_output_device()
+    let output_device = if let Some(device) = opt.output_device {
+        let id = &device.parse().expect("failed to parse output device id");
+        host.device_by_id(id)
     } else {
-        host.output_devices()?
-            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.output_device))
+        host.default_output_device()
     }
     .expect("failed to find output device");
 

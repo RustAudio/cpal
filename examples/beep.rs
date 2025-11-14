@@ -8,8 +8,8 @@ use cpal::{
 #[command(version, about = "CPAL beep example", long_about = None)]
 struct Opt {
     /// The audio device to use
-    #[arg(short, long, default_value_t = String::from("default"))]
-    device: String,
+    #[arg(short, long)]
+    device: Option<String>,
 
     /// Use the JACK host
     #[cfg(all(
@@ -63,11 +63,11 @@ fn main() -> anyhow::Result<()> {
     ))]
     let host = cpal::default_host();
 
-    let device = if opt.device == "default" {
-        host.default_output_device()
+    let device = if let Some(device) = opt.device {
+        let id = &device.parse().expect("failed to parse device id");
+        host.device_by_id(id)
     } else {
-        host.output_devices()?
-            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.device))
+        host.default_output_device()
     }
     .expect("failed to find output device");
     println!("Output device: {}", device.id()?);
