@@ -31,8 +31,9 @@ const CHANNEL_OUT_STEREO: i32 = 12;
 // Maps channel masks to their corresponding channel counts
 const CHANNEL_CONFIGS: [(i32, u16); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
 
-const SAMPLE_RATES: [i32; 13] = [
-    5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176_400, 192_000,
+const SAMPLE_RATES: [i32; 15] = [
+    5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
+    176_400, 192_000,
 ];
 
 pub struct Host;
