@@ -62,6 +62,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Device::description(self)
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }

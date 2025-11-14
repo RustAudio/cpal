@@ -46,36 +46,34 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok("null".to_owned())
     }
 
-    #[inline]
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Ok("Null Device".to_owned())
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Ok(DeviceId::Null)
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         unimplemented!()
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         unimplemented!()
     }
@@ -146,7 +144,6 @@ impl StreamTrait for Stream {
 impl Iterator for Devices {
     type Item = Device;
 
-    #[inline]
     fn next(&mut self) -> Option<Device> {
         None
     }
@@ -155,7 +152,6 @@ impl Iterator for Devices {
 impl Iterator for SupportedInputConfigs {
     type Item = SupportedStreamConfigRange;
 
-    #[inline]
     fn next(&mut self) -> Option<SupportedStreamConfigRange> {
         None
     }
@@ -164,7 +160,6 @@ impl Iterator for SupportedInputConfigs {
 impl Iterator for SupportedOutputConfigs {
     type Item = SupportedStreamConfigRange;
 
-    #[inline]
     fn next(&mut self) -> Option<SupportedStreamConfigRange> {
         None
     }

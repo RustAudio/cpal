@@ -66,8 +66,11 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
+        self.description()
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
         Ok("Default Device".to_owned())
     }
 
@@ -75,21 +78,18 @@ impl Device {
         Ok(DeviceId::IOS("default".to_string()))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         Ok(get_supported_stream_configs(true))
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         Ok(get_supported_stream_configs(false))
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // Get the primary (exact channel count) config from supported configs
         get_supported_stream_configs(true)
@@ -98,7 +98,6 @@ impl Device {
             .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // Get the maximum channel count config from supported configs
         get_supported_stream_configs(false)
@@ -113,36 +112,34 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    #[inline]
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Device::description(self)
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         Device::supported_input_configs(self)
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         Device::supported_output_configs(self)
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
     }

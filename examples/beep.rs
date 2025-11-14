@@ -67,10 +67,10 @@ fn main() -> anyhow::Result<()> {
         host.default_output_device()
     } else {
         host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.device))
     }
     .expect("failed to find output device");
-    println!("Output device: {}", device.name()?);
+    println!("Output device: {}", device.id()?);
 
     let config = device.default_output_config().unwrap();
     println!("Default output config: {config:?}");

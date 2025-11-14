@@ -166,7 +166,6 @@ impl Stream {
         }
     }
 
-    #[inline]
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
         self.commands.send(command)?;
         unsafe {
@@ -177,7 +176,6 @@ impl Stream {
 }
 
 impl Drop for Stream {
-    #[inline]
     fn drop(&mut self) {
         if self.push_command(Command::Terminate).is_ok() {
             self.thread.take().unwrap().join().unwrap();
@@ -194,6 +192,7 @@ impl StreamTrait for Stream {
             .map_err(|_| crate::error::PlayStreamError::DeviceNotAvailable)?;
         Ok(())
     }
+
     fn pause(&self) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
@@ -202,7 +201,6 @@ impl StreamTrait for Stream {
 }
 
 impl Drop for StreamInner {
-    #[inline]
     fn drop(&mut self) {
         unsafe {
             let _ = Foundation::CloseHandle(self.event);

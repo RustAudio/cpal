@@ -96,9 +96,19 @@ pub trait DeviceTrait {
     type Stream: StreamTrait;
 
     /// The human-readable name of the device.
+    #[deprecated(
+        since = "0.17.0",
+        note = "Use `id()` to get a unique identifier for the device, or `description()` for a human-readable description."
+    )]
     fn name(&self) -> Result<String, DeviceNameError>;
 
-    /// The device-id of the device.
+    /// The human-readable description of the device.
+    fn description(&self) -> Result<String, DeviceNameError>;
+
+    /// The ID of the device.
+    ///
+    /// This ID uniquely identifies the device on the host. It should be stable across program
+    /// runs, device disconnections, and system reboots where possible.
     fn id(&self) -> Result<DeviceId, DeviceIdError>;
 
     /// True if the device supports audio input, otherwise false

@@ -58,6 +58,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Device::description(self)
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
@@ -275,6 +279,10 @@ unsafe impl Sync for Device {}
 
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
+        self.description()
+    }
+
+    pub fn description(&self) -> Result<String, DeviceNameError> {
         unsafe {
             // Open the device's property store.
             let property_store = self
@@ -342,7 +350,6 @@ impl Device {
         }
     }
 
-    #[inline]
     fn from_immdevice(device: Audio::IMMDevice) -> Self {
         Device {
             device,
@@ -374,7 +381,6 @@ impl Device {
     }
 
     /// Returns an uninitialized `IAudioClient`.
-    #[inline]
     pub(crate) fn build_audioclient(&self) -> Result<Audio::IAudioClient, windows::core::Error> {
         let mut lock = self.ensure_future_audio_client()?;
         Ok(lock.take().unwrap().0)
@@ -788,7 +794,6 @@ impl Device {
 }
 
 impl PartialEq for Device {
-    #[inline]
     fn eq(&self, other: &Device) -> bool {
         // Use case: In order to check whether the default device has changed
         // the client code might need to compare the previous default device with the current one.
@@ -927,7 +932,6 @@ impl Iterator for Devices {
         }
     }
 
-    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let num = self.total_count - self.next_item;
         let num = num as usize;
