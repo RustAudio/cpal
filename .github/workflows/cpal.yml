@@ -213,11 +213,13 @@ jobs:
             setup-emscripten: true
             args: --release
           - target: wasm32-unknown-unknown
-            setup-emscripten: false
             args: --features=wasm-bindgen
             build-wasm-beep: true
+          - target: wasm32-unknown-unknown
+            args: --features=web_audio_worklet
+            build-web-audio-worklet-beep: true
+            rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
           - target: wasm32-wasip1
-            setup-emscripten: false
             args: ""
 
     steps:
@@ -228,9 +230,17 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
 
       - name: Install Rust toolchain
+        if: ${{ !matrix.build-web-audio-worklet-beep }}
         uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
+      
+      - name: Install nightly Rust (for build-std)
+        if: matrix.build-web-audio-worklet-beep
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          target: ${{ matrix.target }}
+          components: rust-src
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -238,12 +248,20 @@ jobs:
           key: wasm-${{ matrix.target }}
 
       - name: Build beep example
+        if: ${{ !matrix.build-web-audio-worklet-beep }}
         run: cargo build --example beep --target ${{ matrix.target }} ${{ matrix.args }}
 
       - name: Build wasm-beep example
         if: matrix.build-wasm-beep
         working-directory: ./examples/wasm-beep
         run: cargo build --target ${{ matrix.target }}
+
+      - name: Build web-audio-worklet-beep example
+        if: matrix.build-web-audio-worklet-beep
+        working-directory: ./examples/web-audio-worklet-beep
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo +nightly build --target ${{ matrix.target }} -Z build-std=std,panic_abort
 
   # Android cross-compilation
   test-android:
