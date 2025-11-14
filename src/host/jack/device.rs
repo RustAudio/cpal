@@ -161,6 +161,10 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
+        self.description()
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
         Ok(self.name.clone())
     }
 

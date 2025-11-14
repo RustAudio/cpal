@@ -78,13 +78,13 @@ fn main() -> Result<(), anyhow::Error> {
     let device = match opt.device.as_str() {
         "default" => host.default_input_device(),
         "default-output" => host.default_output_device(),
-        name => host
+        device => host
             .input_devices()?
-            .find(|x| x.name().map(|y| y == name).unwrap_or(false)),
+            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == device)),
     }
     .expect("failed to find input device");
 
-    println!("Input device: {}", device.name()?);
+    println!("Input device: {}", device.id()?);
 
     let config = if device.supports_input() {
         device.default_input_config()

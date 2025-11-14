@@ -53,6 +53,10 @@ impl Hash for Device {
 
 impl Device {
     pub fn name(&self) -> Result<String, DeviceNameError> {
+        self.description()
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
         Ok(self.driver.name().to_string())
     }
 

@@ -266,6 +266,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Device::description(self)
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
@@ -357,6 +361,10 @@ impl Device {
     }
 
     fn name(&self) -> Result<String, DeviceNameError> {
+        self.description()
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
         get_device_name(self.audio_device_id).map_err(|err| DeviceNameError::BackendSpecific {
             err: BackendSpecificError {
                 description: err.to_string(),

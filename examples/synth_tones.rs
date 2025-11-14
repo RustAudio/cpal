@@ -121,10 +121,10 @@ pub fn host_device_setup(
     let device = host
         .default_output_device()
         .ok_or_else(|| anyhow::Error::msg("Default output device is not available"))?;
-    println!("Output device : {}", device.name()?);
+    println!("Output device: {}", device.id()?);
 
     let config = device.default_output_config()?;
-    println!("Default output config : {config:?}");
+    println!("Default output config: {config:?}");
 
     Ok((host, device, config))
 }

@@ -42,17 +42,14 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 pub fn default_input_device() -> Option<Device> {
     Some(default_device())
 }
 
-#[inline]
 pub fn default_output_device() -> Option<Device> {
     Some(default_device())
 }
 
-#[inline]
 pub fn default_device() -> Device {
     Device {
         pcm_id: "default".to_string(),
