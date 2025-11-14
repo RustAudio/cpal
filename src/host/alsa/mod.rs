@@ -16,9 +16,9 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
 
@@ -117,6 +117,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -379,6 +383,11 @@ impl Device {
         Ok(self.to_string())
     }
 
+    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::ALSA(self.pcm_id.clone()))
+    }
+
     fn supported_configs(
         &self,
         stream_t: alsa::Direction,
@@ -460,9 +469,9 @@ impl Device {
         let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
             vec![(min_rate, max_rate)]
         } else {
-            const RATES: [libc::c_uint; 13] = [
-                5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
-                192000,
+            const RATES: [libc::c_uint; 19] = [
+                5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
+                96000, 176400, 192000, 352800, 384000, 705600, 768000,
             ];
 
             let mut rates = Vec::new();

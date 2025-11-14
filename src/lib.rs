@@ -223,6 +223,76 @@ where
 /// one frame contains two samples (left and right channels).
 pub type FrameCount = u32;
 
+/// A stable identifier for an audio device across all supported platforms.
+///
+/// Device IDs should remain stable across application restarts and can be serialized using `Display`/`FromStr`.
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DeviceId {
+    CoreAudio(String),
+    WASAPI(String),
+    ASIO(String),
+    ALSA(String),
+    AAudio(i32),
+    Jack(String),
+    WebAudio(String),
+    Emscripten(String),
+    IOS(String),
+    Null,
+}
+
+impl std::fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
+            DeviceId::ASIO(guid) => write!(f, "asio:{}", guid),
+            DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
+            DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
+            DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
+            DeviceId::Jack(name) => write!(f, "jack:{}", name),
+            DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
+            DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
+            DeviceId::IOS(default) => write!(f, "ios:{}", default),
+            DeviceId::Null => write!(f, "null:null"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeviceId {
+    type Err = DeviceIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (platform, data) = s.split_once(':').ok_or(
+        DeviceIdError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: format!("Failed to parse device id from: {}\nCheck if format matches Audio_API:DeviceId", s) 
+                }
+            }
+        )?;
+
+        match platform {
+            "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
+            "asio" => Ok(DeviceId::ASIO(data.to_string())),
+            "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
+            "alsa" => Ok(DeviceId::ALSA(data.to_string())),
+            "aaudio" => {
+                let id = data.parse().map_err(|_| DeviceIdError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: format!("Failed to parse aaudio device id: {}", data),
+                    },
+                })?;
+                Ok(DeviceId::AAudio(id))
+            }
+            "jack" => Ok(DeviceId::Jack(data.to_string())),
+            "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
+            "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
+            "ios" => Ok(DeviceId::IOS(data.to_string())),
+            "null" => Ok(DeviceId::Null),
+            &_ => todo!("implement DeviceId::FromStr for {platform}"),
+        }
+    }
+}
+
 /// The buffer size requests the callback size for audio streams.
 ///
 /// This controls the approximate size of the audio buffer passed to your callback.
@@ -534,20 +604,16 @@ impl OutputCallbackInfo {
 
 #[allow(clippy::len_without_is_empty)]
 impl Data {
-    // Internal constructor for host implementations to use.
-    //
-    // The following requirements must be met in order for the safety of `Data`'s public API.
-    //
-    // - The `data` pointer must point to the first sample in the slice containing all samples.
-    // - The `len` must describe the length of the buffer as a number of samples in the expected
-    //   format specified via the `sample_format` argument.
-    // - The `sample_format` must correctly represent the underlying sample data delivered/expected
-    //   by the stream.
-    pub(crate) unsafe fn from_parts(
-        data: *mut (),
-        len: usize,
-        sample_format: SampleFormat,
-    ) -> Self {
+    /// Constructor for host implementations to use.
+    ///
+    /// # Safety
+    /// The following requirements must be met in order for the safety of `Data`'s API.
+    /// - The `data` pointer must point to the first sample in the slice containing all samples.
+    /// - The `len` must describe the length of the buffer as a number of samples in the expected
+    ///   format specified via the `sample_format` argument.
+    /// - The `sample_format` must correctly represent the underlying sample data delivered/expected
+    ///   by the stream.
+    pub unsafe fn from_parts(data: *mut (), len: usize, sample_format: SampleFormat) -> Self {
         Data {
             data,
             len,
