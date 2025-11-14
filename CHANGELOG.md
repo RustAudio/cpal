@@ -1,13 +1,20 @@
 # Unreleased
 
+- Add `DeviceTrait::id` method that returns a stable audio device ID.
+- Add `HostTrait::device_by_id` to select a device by its stable ID.
+- Add support for custom `Host`s, `Device`s, and `Stream`s.
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
 - AAudio: Make `Stream` implement `Send` and `Sync`.
+- AAudio: Fix the buffer size range detection by querying the AudioService property correctly.
+- AAudio: Add support for 12 and 24 kHz sample rates.
 - ALSA: Improve `BufferSize::Fixed` precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
 - ALSA: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
+- ALSA: Fix format selection to probe hardware endianness instead of assuming native byte order.
+- ALSA: Add support for 12, 24, 352.8, 384, 705.6, and 768 kHz sample rates.
 - ALSA: Update `alsa` to 0.10.
 - ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.

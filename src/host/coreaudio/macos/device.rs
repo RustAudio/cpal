@@ -6,9 +6,9 @@ use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
@@ -16,6 +16,8 @@ use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_StreamFormat,
 };
+use objc2_core_audio::kAudioDevicePropertyDeviceUID;
+use objc2_core_audio::kAudioObjectPropertyElementMain;
 use objc2_core_audio::{
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyNominalSampleRate,
@@ -28,6 +30,8 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
+use objc2_core_foundation::CFString;
+use objc2_core_foundation::Type;
 
 pub use super::enumerate::{
     default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
@@ -43,6 +47,7 @@ use std::time::{Duration, Instant};
 use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
+
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
 fn set_sample_rate(
@@ -261,6 +266,10 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -353,6 +362,45 @@ impl Device {
                 description: err.to_string(),
             },
         })
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        // CFString is copied from the audio object, use wrap_under_create_rule
+        let mut uid: *mut CFString = std::ptr::null_mut();
+        let data_size = size_of::<*mut CFString>() as u32;
+
+        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
+        // for kAudioDevicePropertyDeviceUID. We check the status code before use.
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                self.audio_device_id,
+                NonNull::from(&property_address),
+                0,
+                null(),
+                NonNull::from(&data_size),
+                NonNull::from(&mut uid).cast(),
+            )
+        };
+        check_os_status(status)?;
+
+        // SAFETY: Status was successful, meaning the API call succeeded.
+        // We now check if the returned uid is non-null before use.
+        if !uid.is_null() {
+            let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
+            Ok(DeviceId::CoreAudio(uid_string))
+        } else {
+            Err(DeviceIdError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Device UID is null".to_string(),
+                },
+            })
+        }
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
