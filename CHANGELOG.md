@@ -6,6 +6,8 @@
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
+- AAudio: Fix the buffer size range detection by querying the AudioService property correctly.
+- AAudio: Add support for 12 and 24 kHz sample rates.
 - ALSA: Improve `BufferSize::Fixed` precision and audio callback performance.
 - ALSA: Change `BufferSize::Default` to use the device defaults.
 - ALSA: Change card enumeration to work like `aplay -L` does.
