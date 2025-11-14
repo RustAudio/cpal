@@ -32,11 +32,13 @@ pub struct Stream {
     buffer_size_frames: usize,
 }
 
-// WASM runs in a single-threaded environment, so Send is safe by design.
+// WASM runs in a single-threaded environment, so Send and Sync are safe by design.
 unsafe impl Send for Stream {}
+unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;

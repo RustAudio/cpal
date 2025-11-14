@@ -19,8 +19,9 @@ pub struct Host;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
-// Compile-time assertion that Stream is Send
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 #[derive(Clone)]
 pub struct SupportedInputConfigs;

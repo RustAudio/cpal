@@ -1,5 +1,6 @@
 use std::cmp;
 use std::convert::TryInto;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::IntoIter as VecIntoIter;
 
@@ -39,18 +40,39 @@ const SAMPLE_RATES: [i32; 15] = [
 pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
+
+/// Stream wraps AudioStream in Arc<Mutex<>> to provide Send + Sync semantics.
+///
+/// While the underlying ndk::audio::AudioStream is neither Send nor Sync in ndk 0.9.0
+/// (see https://developer.android.com/ndk/guides/audio/aaudio/aaudio#thread-safety),
+/// we wrap it in a mutex to enable safe concurrent access and manually implement Send + Sync.
+///
+/// # Safety
+///
+/// This is safe because:
+/// - AAudio functions are designed to be called from any thread (the Android docs state
+///   "AAudio is not thread-safe" meaning it lacks internal locking, not that it's unsafe)
+/// - Audio callbacks are called on a dedicated AAudio thread and don't access Stream
+/// - The Mutex ensures exclusive access for control operations (play, pause)
+/// - The pointer in AudioStream (NonNull<AAudioStreamStruct>) is valid for the lifetime
+///   of the stream and AAudio C API functions are thread-safe at the C level
+#[derive(Clone)]
 pub enum Stream {
-    Input(AudioStream),
-    Output(AudioStream),
+    Input(Arc<Mutex<AudioStream>>),
+    Output(Arc<Mutex<AudioStream>>),
 }
 
-// AAudioStream is safe to be send, but not sync.
-// See https://developer.android.com/ndk/guides/audio/aaudio/aaudio
-// TODO: Is this still in-progress? https://github.com/rust-mobile/ndk/pull/497
+// SAFETY: AudioStream can be safely sent between threads. The AAudio C API is thread-safe
+// for moving stream ownership between threads. The NonNull pointer remains valid.
 unsafe impl Send for Stream {}
 
-// Compile-time assertion that Stream is Send
+// SAFETY: AudioStream can be safely shared between threads when protected by a Mutex.
+// All operations on the stream go through the mutex, ensuring exclusive access.
+unsafe impl Sync for Stream {}
+
+// Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
@@ -227,11 +249,11 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
-    Ok(Stream::Input(stream))
+    Ok(Stream::Input(Arc::new(Mutex::new(stream))))
 }
 
 fn build_output_stream<D, E>(
@@ -269,11 +291,11 @@ where
             );
             ndk::audio::AudioCallbackResult::Continue
         }))
-        .error_callback(Box::new(move |stream, error| {
+        .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
-    Ok(Stream::Output(stream))
+    Ok(Stream::Output(Arc::new(Mutex::new(stream))))
 }
 
 impl DeviceTrait for Device {
@@ -375,7 +397,10 @@ impl DeviceTrait for Device {
             channels => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
+                    description: format!(
+                        "{} channels are not supported yet (only 1 or 2).",
+                        channels
+                    ),
                 }
                 .into());
             }
@@ -424,7 +449,10 @@ impl DeviceTrait for Device {
             channels => {
                 // TODO: more channels available in native AAudio
                 return Err(BackendSpecificError {
-                    description: "More than 2 channels are not supported yet.".to_owned(),
+                    description: format!(
+                        "{} channels are not supported yet (only 1 or 2).",
+                        channels
+                    ),
                 }
                 .into());
             }
@@ -449,8 +477,16 @@ impl DeviceTrait for Device {
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Self::Input(stream) => stream.request_start().map_err(PlayStreamError::from),
-            Self::Output(stream) => stream.request_start().map_err(PlayStreamError::from),
+            Self::Input(stream) => stream
+                .lock()
+                .unwrap()
+                .request_start()
+                .map_err(PlayStreamError::from),
+            Self::Output(stream) => stream
+                .lock()
+                .unwrap()
+                .request_start()
+                .map_err(PlayStreamError::from),
         }
     }
 
@@ -460,7 +496,11 @@ impl StreamTrait for Stream {
                 description: "Pause called on the input stream.".to_owned(),
             }
             .into()),
-            Self::Output(stream) => stream.request_pause().map_err(PauseStreamError::from),
+            Self::Output(stream) => stream
+                .lock()
+                .unwrap()
+                .request_pause()
+                .map_err(PauseStreamError::from),
         }
     }
 }

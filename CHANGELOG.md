@@ -6,6 +6,7 @@
 - Add `Sample::bits_per_sample` method.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
+- AAudio: Make `Stream` implement `Send` and `Sync`.
 - AAudio: Fix the buffer size range detection by querying the AudioService property correctly.
 - AAudio: Add support for 12 and 24 kHz sample rates.
 - ALSA: Improve `BufferSize::Fixed` precision and audio callback performance.
@@ -39,9 +40,9 @@
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.58, <= 0.62.
-- WASAPI: Make `Stream` implement `Send`.
+- WASAPI: Make `Stream` implement `Send` and `Sync`.
 - Wasm: Removed optional `wee-alloc` feature for security reasons.
-- Wasm: Make `Stream` implement `Send`.
+- Wasm: Make `Stream` implement `Send` and `Sync`.
 - WebAudio: Add `BufferSize::Fixed` validation against supported range.
 
 # Version 0.16.0 (2025-06-07)

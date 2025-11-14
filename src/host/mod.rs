@@ -41,3 +41,13 @@ macro_rules! assert_stream_send {
         const _: () = _assert_stream_send::<$t>();
     };
 }
+
+/// Compile-time assertion that a type implements Sync.
+/// Use this macro in each host module to ensure Stream is Sync.
+#[macro_export]
+macro_rules! assert_stream_sync {
+    ($t:ty) => {
+        const fn _assert_stream_sync<T: Sync>() {}
+        const _: () = _assert_stream_sync::<$t>();
+    };
+}
