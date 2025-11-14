@@ -15,6 +15,17 @@ asio = [
     "num-traits",
 ] # Only available on Windows. See README for setup instructions.
 
+# Only available on web when atomics are enabled. See README for what it does.
+web_audio_worklet = [
+    "dep:wasm-bindgen-futures",
+    "web-sys/Blob",
+    "web-sys/BlobPropertyBag",
+    "web-sys/Url",
+    "web-sys/AudioWorklet",
+    "web-sys/AudioWorkletNode",
+    "web-sys/AudioWorkletNodeOptions",
+]
+
 # Support for user-defined custom hosts, devices, and streams
 # See examples/custom.rs for usage
 custom = []
@@ -104,6 +115,7 @@ web-sys = { version = "0.3", features = [
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
     "AudioContext",
