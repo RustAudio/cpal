@@ -304,47 +304,58 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
-        match &self.0 {
-            None => Ok("default".to_owned()),
+        let name = match &self.0 {
+            None => "default".to_owned(),
             Some(info) => {
-                let name = if info.address.is_empty() {
+                if info.address.is_empty() {
                     format!("{}:{:?}", info.product_name, info.device_type)
                 } else {
                     format!(
                         "{}:{:?}:{}",
                         info.product_name, info.device_type, info.address
                     )
-                };
-                Ok(name)
+                }
             }
-        }
+        };
+        Ok(name)
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
+        let description = match &self.0 {
+            None => "Default Device".to_owned(),
+            Some(info) => format!("{}, {:?}", info.product_name, info.device_type),
+        };
+        Ok(description)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        match &self.0 {
-            None => Ok(DeviceId::AAudio(-1)), // Default device
-            Some(info) => Ok(DeviceId::AAudio(info.id)),
-        }
+        let id = match &self.0 {
+            None => DeviceId::AAudio(-1), // Default device
+            Some(info) => DeviceId::AAudio(info.id),
+        };
+        Ok(id)
     }
 
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info))
+        let configs = if let Some(info) = &self.0 {
+            device_supported_configs(info)
         } else {
-            Ok(default_supported_configs())
-        }
+            default_supported_configs()
+        };
+        Ok(configs)
     }
 
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info))
+        let configs = if let Some(info) = &self.0 {
+            device_supported_configs(info)
         } else {
-            Ok(default_supported_configs())
-        }
+            default_supported_configs()
+        };
+        Ok(configs)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {

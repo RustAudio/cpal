@@ -75,6 +75,7 @@ impl Devices {
 
 impl Iterator for Devices {
     type Item = Device;
+
     fn next(&mut self) -> Option<Device> {
         self.0.next().map(|id| Device {
             audio_device_id: id,

@@ -3,7 +3,7 @@ extern crate libc;
 
 use std::{
     cell::Cell,
-    cmp, fmt,
+    cmp,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
@@ -117,6 +117,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn description(&self) -> Result<String, DeviceNameError> {
+        Device::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -378,12 +382,21 @@ impl Device {
         Ok(stream_inner)
     }
 
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.to_string())
+        Ok(self.pcm_id.clone())
     }
 
-    #[inline]
+    fn description(&self) -> Result<String, DeviceNameError> {
+        self.desc
+            .clone()
+            .ok_or(DeviceNameError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: String::from("no description for this device"),
+                },
+            })
+            .map(|desc| desc.replace('\n', ", "))
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Ok(DeviceId::ALSA(self.pcm_id.clone()))
     }
@@ -1445,15 +1458,5 @@ impl From<alsa::Error> for StreamError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
-    }
-}
-
-impl fmt::Display for Device {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(desc) = &self.desc {
-            write!(f, "{} ({})", self.pcm_id, desc.replace('\n', ", "))
-        } else {
-            write!(f, "{}", self.pcm_id)
-        }
     }
 }

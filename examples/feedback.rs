@@ -84,8 +84,8 @@ fn main() -> anyhow::Result<()> {
     let input_device = if opt.input_device == "default" {
         host.default_input_device()
     } else {
-        host.input_devices()?
-            .find(|x| x.name().map(|y| y == opt.input_device).unwrap_or(false))
+        host.output_devices()?
+            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.input_device))
     }
     .expect("failed to find input device");
 
@@ -93,12 +93,12 @@ fn main() -> anyhow::Result<()> {
         host.default_output_device()
     } else {
         host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.output_device).unwrap_or(false))
+            .find(|dev| dev.id().is_ok_and(|id| id.to_string() == opt.output_device))
     }
     .expect("failed to find output device");
 
-    println!("Using input device: \"{}\"", input_device.name()?);
-    println!("Using output device: \"{}\"", output_device.name()?);
+    println!("Using input device: \"{}\"", input_device.id()?);
+    println!("Using output device: \"{}\"", output_device.id()?);
 
     // We'll try and use the same configuration between streams to keep it simple.
     let config: cpal::StreamConfig = input_device.default_input_config()?.into();

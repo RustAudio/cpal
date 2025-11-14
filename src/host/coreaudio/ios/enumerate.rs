@@ -26,18 +26,15 @@ impl Default for Devices {
 impl Iterator for Devices {
     type Item = Device;
 
-    #[inline]
     fn next(&mut self) -> Option<Device> {
         self.0.next()
     }
 }
 
-#[inline]
 pub fn default_input_device() -> Option<Device> {
     Some(Device)
 }
 
-#[inline]
 pub fn default_output_device() -> Option<Device> {
     Some(Device)
 }

@@ -53,7 +53,11 @@ impl DeviceTrait for MyDevice {
     type Stream = MyStream;
 
     fn name(&self) -> Result<String, cpal::DeviceNameError> {
-        Ok(String::from("custom device"))
+        Ok(String::from("custom"))
+    }
+
+    fn description(&self) -> Result<String, cpal::DeviceNameError> {
+        Ok(String::from("Custom Device"))
     }
 
     fn id(&self) -> Result<cpal::DeviceId, cpal::DeviceIdError> {
