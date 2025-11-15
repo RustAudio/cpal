@@ -381,15 +381,18 @@ impl DeviceTrait for Device {
                         .expect(
                         "Unable to connect the web audio buffer source to the context destination",
                     );
-                    source.set_onended(Some(
-                        on_ended_closure_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .unwrap()
-                            .as_ref()
-                            .unchecked_ref(),
-                    ));
+                    source
+                        .add_event_listener_with_callback(
+                            "ended",
+                            on_ended_closure_handle
+                                .read()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
+                                .unchecked_ref(),
+                        )
+                        .expect("Failed to add ended event listener");
 
                     source
                         .start_with_when(time_at_start_of_buffer)
