@@ -75,7 +75,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::IOS("default".to_string()))
+        Ok(DeviceId::CoreAudio("default".to_string()))
     }
 
     fn supported_input_configs(

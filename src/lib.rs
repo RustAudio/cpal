@@ -226,35 +226,32 @@ pub type FrameCount = u32;
 /// A stable identifier for an audio device across all supported platforms.
 ///
 /// Device IDs should remain stable across application restarts and can be serialized using `Display`/`FromStr`.
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceId {
     CoreAudio(String),
-    WASAPI(String),
-    ASIO(String),
-    ALSA(String),
+    Wasapi(String),
+    Asio(String),
+    Alsa(String),
     AAudio(i32),
     Jack(String),
     WebAudio(String),
     WebAudioWorklet(String),
     Emscripten(String),
-    IOS(String),
     Null,
 }
 
 impl std::fmt::Display for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
-            DeviceId::ASIO(guid) => write!(f, "asio:{}", guid),
+            DeviceId::Wasapi(guid) => write!(f, "wasapi:{}", guid),
+            DeviceId::Asio(guid) => write!(f, "asio:{}", guid),
             DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
-            DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
+            DeviceId::Alsa(pcm_id) => write!(f, "alsa:{}", pcm_id),
             DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
             DeviceId::Jack(name) => write!(f, "jack:{}", name),
             DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
             DeviceId::WebAudioWorklet(default) => write!(f, "webaudioworklet:{}", default),
             DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
-            DeviceId::IOS(default) => write!(f, "ios:{}", default),
             DeviceId::Null => write!(f, "null:null"),
         }
     }
@@ -264,19 +261,18 @@ impl std::str::FromStr for DeviceId {
     type Err = DeviceIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (platform, data) = s.split_once(':').ok_or(
-        DeviceIdError::BackendSpecific {
+        let (platform, data) = s.split_once(':').ok_or(DeviceIdError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: format!("Failed to parse device id from: {}\nCheck if format matches Audio_API:DeviceId", s) 
+                    description: format!("Failed to parse device id from: {s}\nCheck if format matches \"host:device_id\"")
                 }
             }
         )?;
 
         match platform {
-            "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
-            "asio" => Ok(DeviceId::ASIO(data.to_string())),
+            "wasapi" => Ok(DeviceId::Wasapi(data.to_string())),
+            "asio" => Ok(DeviceId::Asio(data.to_string())),
             "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
-            "alsa" => Ok(DeviceId::ALSA(data.to_string())),
+            "alsa" => Ok(DeviceId::Alsa(data.to_string())),
             "aaudio" => {
                 let id = data.parse().map_err(|_| DeviceIdError::BackendSpecific {
                     err: BackendSpecificError {
@@ -288,7 +284,6 @@ impl std::str::FromStr for DeviceId {
             "jack" => Ok(DeviceId::Jack(data.to_string())),
             "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
             "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
-            "ios" => Ok(DeviceId::IOS(data.to_string())),
             "null" => Ok(DeviceId::Null),
             &_ => todo!("implement DeviceId::FromStr for {platform}"),
         }
