@@ -287,6 +287,7 @@ impl std::str::FromStr for DeviceId {
             }
             "jack" => Ok(DeviceId::Jack(data.to_string())),
             "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
+            "webaudioworklet" => Ok(DeviceId::WebAudioWorklet(data.to_string())),
             "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
             "null" => Ok(DeviceId::Null),
             &_ => todo!("implement DeviceId::FromStr for {platform}"),

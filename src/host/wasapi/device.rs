@@ -33,12 +33,14 @@ use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
 use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::{VT_LPWSTR, VT_UI4};
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
 use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
@@ -49,18 +51,16 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 // PKEY_AudioEndpoint properties not yet in windows-rs
 
 /// PKEY_AudioEndpoint_FormFactor (PID 0) - VT_UI4 containing EndpointFormFactor enum
-const PKEY_AUDIOENDPOINT_FORMFACTOR: StructuredStorage::PROPERTYKEY =
-    StructuredStorage::PROPERTYKEY {
-        fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
-        pid: 0,
-    };
+const PKEY_AUDIOENDPOINT_FORMFACTOR: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
+    pid: 0,
+};
 
 /// PKEY_AudioEndpoint_JackSubType (PID 8) - VT_LPWSTR containing KS node type GUID
-const PKEY_AUDIOENDPOINT_JACKSUBTYPE: StructuredStorage::PROPERTYKEY =
-    StructuredStorage::PROPERTYKEY {
-        fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
-        pid: 8,
-    };
+const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
+    pid: 8,
+};
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
@@ -991,8 +991,8 @@ fn get_enumerator() -> &'static Enumerator {
 
 // Helper function to query a DWORD property from a WASAPI device property store
 unsafe fn get_property_u32(
-    property_store: &Com::IPropertyStore,
-    property_key: *const Com::StructuredStorage::PROPERTYKEY,
+    property_store: &IPropertyStore,
+    property_key: *const PROPERTYKEY,
 ) -> Option<u32> {
     let mut property_value = property_store.GetValue(property_key).ok()?;
     let prop_variant = &property_value.Anonymous.Anonymous;
@@ -1012,8 +1012,8 @@ unsafe fn get_property_u32(
 
 // Helper function to query a string property from a WASAPI device property store
 unsafe fn get_property_string(
-    property_store: &Com::IPropertyStore,
-    property_key: *const Com::StructuredStorage::PROPERTYKEY,
+    property_store: &IPropertyStore,
+    property_key: *const PROPERTYKEY,
 ) -> Option<String> {
     let mut property_value = property_store.GetValue(property_key).ok()?;
     let prop_variant = &property_value.Anonymous.Anonymous;
