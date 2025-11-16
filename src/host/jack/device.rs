@@ -127,11 +127,11 @@ impl Device {
     }
 
     pub fn is_input(&self) -> bool {
-        self.description().supports_input()
+        matches!(self.direction, DeviceDirection::Input)
     }
 
     pub fn is_output(&self) -> bool {
-        self.description().supports_output()
+        matches!(self.direction, DeviceDirection::Output)
     }
 
     /// Validate buffer size if Fixed is specified. This is necessary because JACK buffer size
@@ -202,7 +202,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if matches!(self.direction, DeviceDirection::Output) {
+        if self.is_output() {
             // Trying to create an input stream from an output device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
@@ -243,7 +243,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if matches!(self.direction, DeviceDirection::Input) {
+        if self.is_input() {
             // Trying to create an output stream from an input device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
