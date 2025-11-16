@@ -947,7 +947,7 @@ impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Device")
             .field("device", &self.device)
-            .field("name", &self.name())
+            .field("description", &self.description())
             .finish()
     }
 }

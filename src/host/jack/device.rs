@@ -12,34 +12,18 @@ use std::time::Duration;
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
 
-impl From<DeviceType> for DeviceDirection {
-    fn from(device_type: DeviceType) -> Self {
-        match device_type {
-            DeviceType::InputDevice => DeviceDirection::Input,
-            DeviceType::OutputDevice => DeviceDirection::Output,
-        }
-    }
-}
-
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
 
-/// If a device is for input or output.
-/// Until we have duplex stream support JACK clients and CPAL devices for JACK will be either input or output.
-#[derive(Clone, Debug)]
-pub enum DeviceType {
-    InputDevice,
-    OutputDevice,
-}
 #[derive(Clone, Debug)]
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
-    device_type: DeviceType,
+    direction: DeviceDirection,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
 }
@@ -49,7 +33,7 @@ impl Device {
         name: String,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-        device_type: DeviceType,
+        direction: DeviceDirection,
     ) -> Result<Self, String> {
         // ClientOptions are bit flags that you can set with the constants provided
         let client_options = super::get_client_options(start_server_automatically);
@@ -66,7 +50,7 @@ impl Device {
                     min: client.buffer_size(),
                     max: client.buffer_size(),
                 },
-                device_type,
+                direction,
                 start_server_automatically,
                 connect_ports_automatically,
             }),
@@ -88,7 +72,7 @@ impl Device {
             output_client_name,
             connect_ports_automatically,
             start_server_automatically,
-            DeviceType::OutputDevice,
+            DeviceDirection::Output,
         )
     }
 
@@ -102,7 +86,7 @@ impl Device {
             input_client_name,
             connect_ports_automatically,
             start_server_automatically,
-            DeviceType::InputDevice,
+            DeviceDirection::Input,
         )
     }
 
@@ -143,11 +127,11 @@ impl Device {
     }
 
     pub fn is_input(&self) -> bool {
-        matches!(self.device_type, DeviceType::InputDevice)
+        self.description().supports_input()
     }
 
     pub fn is_output(&self) -> bool {
-        matches!(self.device_type, DeviceType::OutputDevice)
+        self.description().supports_output()
     }
 
     /// Validate buffer size if Fixed is specified. This is necessary because JACK buffer size
@@ -172,7 +156,7 @@ impl DeviceTrait for Device {
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Ok(DeviceDescriptionBuilder::new(self.name.clone())
-            .direction(self.device_type.into())
+            .direction(self.direction)
             .build())
     }
 
@@ -218,7 +202,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::OutputDevice = &self.device_type {
+        if matches!(self.direction, DeviceDirection::Output) {
             // Trying to create an input stream from an output device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
@@ -259,7 +243,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::InputDevice = &self.device_type {
+        if matches!(self.direction, DeviceDirection::Input) {
             // Trying to create an output stream from an input device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }

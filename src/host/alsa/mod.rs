@@ -514,15 +514,10 @@ impl Device {
         let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
             vec![(min_rate, max_rate)]
         } else {
-            const RATES: [libc::c_uint; 19] = [
-                5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
-                96000, 176400, 192000, 352800, 384000, 705600, 768000,
-            ];
-
             let mut rates = Vec::new();
-            for &rate in RATES.iter() {
-                if hw_params.test_rate(rate).is_ok() {
-                    rates.push((rate, rate));
+            for &sample_rate in crate::COMMON_SAMPLE_RATES.iter() {
+                if hw_params.test_rate(sample_rate.0).is_ok() {
+                    rates.push((sample_rate.0, sample_rate.0));
                 }
             }
 

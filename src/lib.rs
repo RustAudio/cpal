@@ -938,16 +938,16 @@ impl From<SupportedStreamConfig> for StreamConfig {
 }
 
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
-// of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
-//
-// If a rate you desire is missing from this list, feel free to add it!
-#[cfg(target_os = "windows")]
-const COMMON_SAMPLE_RATES: &[SampleRate] = &[
+// of commonly used rates. This is always the case for WASAPI and is sometimes the case for ALSA.
+#[allow(dead_code)]
+pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(5512),
     SampleRate(8000),
     SampleRate(11025),
+    SampleRate(12000),
     SampleRate(16000),
     SampleRate(22050),
+    SampleRate(24000),
     SampleRate(32000),
     SampleRate(44100),
     SampleRate(48000),
@@ -956,6 +956,7 @@ const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(96000),
     SampleRate(176400),
     SampleRate(192000),
+    SampleRate(352800),
     SampleRate(384000),
 ];
 

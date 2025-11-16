@@ -57,7 +57,7 @@ impl Hash for Device {
 }
 
 impl Device {
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    pub fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         let driver_name = self.driver.name().to_string();
 
         let direction = crate::device_description::direction_from_counts(
@@ -71,8 +71,8 @@ impl Device {
             .build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::ASIO(self.driver.name().to_string()))
+    pub fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId::Asio(self.driver.name().to_string()))
     }
 
     /// Gets the supported input configs.
