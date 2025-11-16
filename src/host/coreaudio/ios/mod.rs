@@ -14,11 +14,11 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 use self::enumerate::{
@@ -66,12 +66,20 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    fn name(&self) -> Result<String, DeviceNameError> {
-        self.description()
-    }
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        // Query AVAudioSession to determine actual input/output availability
+        // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
+        let direction = unsafe {
+            let audio_session = AVAudioSession::sharedInstance();
+            let input_channels = Some(audio_session.inputNumberOfChannels() as ChannelCount);
+            let output_channels = Some(audio_session.outputNumberOfChannels() as ChannelCount);
 
-    fn description(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+            crate::device_description::direction_from_counts(input_channels, output_channels)
+        };
+
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(direction)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -112,11 +120,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
-    }
-
-    fn description(&self) -> Result<String, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
     }
 

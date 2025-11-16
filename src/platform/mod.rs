@@ -318,7 +318,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn description(&self) -> Result<String, crate::DeviceNameError> {
+            fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?

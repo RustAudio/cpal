@@ -1,15 +1,25 @@
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
+
+impl From<DeviceType> for DeviceDirection {
+    fn from(device_type: DeviceType) -> Self {
+        match device_type {
+            DeviceType::InputDevice => DeviceDirection::Input,
+            DeviceType::OutputDevice => DeviceDirection::Output,
+        }
+    }
+}
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
@@ -160,12 +170,10 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        self.description()
-    }
-
-    fn description(&self) -> Result<String, DeviceNameError> {
-        Ok(self.name.clone())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new(self.name.clone())
+            .direction(self.device_type.into())
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {

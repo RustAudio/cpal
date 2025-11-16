@@ -7,11 +7,11 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
@@ -88,12 +88,10 @@ impl Devices {
 }
 
 impl Device {
-    fn name(&self) -> Result<String, DeviceNameError> {
-        self.description()
-    }
-
-    fn description(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -149,11 +147,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
-    }
-
-    fn description(&self) -> Result<String, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
     }
 
@@ -231,7 +225,7 @@ impl DeviceTrait for Device {
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 
         // Create the WebAudio stream.
-        let mut stream_opts = AudioContextOptions::new();
+        let stream_opts = AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate.0 as f32);
         let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {

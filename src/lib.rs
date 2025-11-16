@@ -164,6 +164,9 @@ extern crate js_sys;
 #[cfg(target_os = "emscripten")]
 extern crate web_sys;
 
+pub use device_description::{
+    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
+};
 pub use error::*;
 pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
@@ -176,6 +179,7 @@ use std::time::Duration;
 #[cfg(target_os = "emscripten")]
 use wasm_bindgen::prelude::*;
 
+pub mod device_description;
 mod error;
 mod host;
 pub mod platform;

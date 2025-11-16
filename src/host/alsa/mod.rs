@@ -16,11 +16,30 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
+
+impl From<alsa::Direction> for DeviceDirection {
+    fn from(direction: alsa::Direction) -> Self {
+        match direction {
+            alsa::Direction::Capture => DeviceDirection::Input,
+            alsa::Direction::Playback => DeviceDirection::Output,
+        }
+    }
+}
+
+/// Parses ALSA multi-line description into separate lines.
+fn parse_alsa_description(description: &str) -> Vec<String> {
+    description
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
 
 // ALSA Buffer Size Behavior
 // =========================
@@ -115,11 +134,12 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
+    // ALSA overrides name() to return pcm_id directly instead of from description
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
     }
 
-    fn description(&self) -> Result<String, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
     }
 
@@ -287,6 +307,7 @@ impl DeviceHandles {
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
+    direction: Option<alsa::Direction>,
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
@@ -386,19 +407,30 @@ impl Device {
         Ok(self.pcm_id.clone())
     }
 
-    fn description(&self) -> Result<String, DeviceNameError> {
-        self.desc
-            .clone()
-            .ok_or(DeviceNameError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: String::from("no description for this device"),
-                },
-            })
-            .map(|desc| desc.replace('\n', ", "))
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        let name = self
+            .desc
+            .as_ref()
+            .and_then(|desc| desc.lines().next())
+            .unwrap_or(&self.pcm_id)
+            .to_string();
+
+        let mut builder = DeviceDescriptionBuilder::new(name).driver(self.pcm_id.clone());
+
+        if let Some(ref desc) = self.desc {
+            let lines = parse_alsa_description(desc);
+            builder = builder.extended(lines);
+        }
+
+        if let Some(dir) = self.direction {
+            builder = builder.direction(dir.into());
+        }
+
+        Ok(builder.build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::ALSA(self.pcm_id.clone()))
+        Ok(DeviceId::Alsa(self.pcm_id.clone()))
     }
 
     fn supported_configs(

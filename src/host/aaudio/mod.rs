@@ -11,17 +11,98 @@ use java_interface::{AudioDeviceDirection, AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
+    DeviceNameError, DeviceType, DevicesError, InputCallbackInfo, InputStreamTimestamp,
+    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 mod convert;
 mod java_interface;
 
 use self::ndk::audio::AudioStream;
+use java_interface::AudioDeviceType as AndroidDeviceType;
+
+impl From<AudioDeviceDirection> for DeviceDirection {
+    fn from(direction: AudioDeviceDirection) -> Self {
+        match direction {
+            AudioDeviceDirection::Input => DeviceDirection::Input,
+            AudioDeviceDirection::Output => DeviceDirection::Output,
+            AudioDeviceDirection::InputOutput => DeviceDirection::Duplex,
+            _ => DeviceDirection::Unknown,
+        }
+    }
+}
+
+impl From<AndroidDeviceType> for DeviceType {
+    fn from(device_type: AndroidDeviceType) -> Self {
+        match device_type {
+            AndroidDeviceType::BuiltinSpeaker
+            | AndroidDeviceType::BuiltinSpeakerSafe
+            | AndroidDeviceType::BleSpeaker => DeviceType::Speaker,
+
+            AndroidDeviceType::BuiltinMic => DeviceType::Microphone,
+
+            AndroidDeviceType::WiredHeadphones => DeviceType::Headphones,
+
+            AndroidDeviceType::WiredHeadset
+            | AndroidDeviceType::UsbHeadset
+            | AndroidDeviceType::BleHeadset
+            | AndroidDeviceType::BluetoothSCO => DeviceType::Headset,
+
+            AndroidDeviceType::BuiltinEarpiece => DeviceType::Earpiece,
+
+            AndroidDeviceType::HearingAid => DeviceType::HearingAid,
+
+            AndroidDeviceType::Dock => DeviceType::Dock,
+
+            AndroidDeviceType::Fm | AndroidDeviceType::FmTuner | AndroidDeviceType::TvTuner => {
+                DeviceType::Tuner
+            }
+
+            AndroidDeviceType::RemoteSubmix => DeviceType::Virtual,
+
+            _ => DeviceType::Unknown,
+        }
+    }
+}
+
+impl From<AndroidDeviceType> for InterfaceType {
+    fn from(device_type: AndroidDeviceType) -> Self {
+        match device_type {
+            AndroidDeviceType::UsbDevice
+            | AndroidDeviceType::UsbAccessory
+            | AndroidDeviceType::UsbHeadset => InterfaceType::Usb,
+
+            AndroidDeviceType::BluetoothA2DP
+            | AndroidDeviceType::BluetoothSCO
+            | AndroidDeviceType::BleHeadset
+            | AndroidDeviceType::BleSpeaker
+            | AndroidDeviceType::BleBroadcast => InterfaceType::Bluetooth,
+
+            AndroidDeviceType::Hdmi | AndroidDeviceType::HdmiArc | AndroidDeviceType::HdmiEarc => {
+                InterfaceType::Hdmi
+            }
+
+            AndroidDeviceType::LineAnalog
+            | AndroidDeviceType::LineDigital
+            | AndroidDeviceType::AuxLine => InterfaceType::Line,
+
+            AndroidDeviceType::BuiltinEarpiece
+            | AndroidDeviceType::BuiltinMic
+            | AndroidDeviceType::BuiltinSpeaker
+            | AndroidDeviceType::BuiltinSpeakerSafe => InterfaceType::BuiltIn,
+
+            AndroidDeviceType::Ip => InterfaceType::Network,
+
+            AndroidDeviceType::RemoteSubmix => InterfaceType::Virtual,
+
+            _ => InterfaceType::Unknown,
+        }
+    }
+}
 
 // constants from android.media.AudioFormat
 const CHANNEL_OUT_MONO: i32 = 4;
@@ -303,29 +384,23 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        let name = match &self.0 {
-            None => "default".to_owned(),
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        match &self.0 {
+            None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
-                if info.address.is_empty() {
-                    format!("{}:{:?}", info.product_name, info.device_type)
-                } else {
-                    format!(
-                        "{}:{:?}:{}",
-                        info.product_name, info.device_type, info.address
-                    )
-                }
-            }
-        };
-        Ok(name)
-    }
+                let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
+                    .device_type(info.device_type.into())
+                    .interface_type(info.device_type.into())
+                    .direction(info.direction.into());
 
-    fn description(&self) -> Result<String, DeviceNameError> {
-        let description = match &self.0 {
-            None => "Default Device".to_owned(),
-            Some(info) => format!("{}, {:?}", info.product_name, info.device_type),
-        };
-        Ok(description)
+                // Add address if not empty
+                if !info.address.is_empty() {
+                    builder = builder.address(info.address.clone());
+                }
+
+                Ok(builder.build())
+            }
+        }
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {

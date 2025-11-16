@@ -3,7 +3,10 @@ use std::sync::{
     Arc,
 };
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    DeviceDescription, DeviceDescriptionBuilder,
+};
 use cpal::{FromSample, Sample};
 
 #[allow(dead_code)]
@@ -56,8 +59,8 @@ impl DeviceTrait for MyDevice {
         Ok(String::from("custom"))
     }
 
-    fn description(&self) -> Result<String, cpal::DeviceNameError> {
-        Ok(String::from("Custom Device"))
+    fn description(&self) -> Result<DeviceDescription, cpal::DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Custom Device".to_string()).build())
     }
 
     fn id(&self) -> Result<cpal::DeviceId, cpal::DeviceIdError> {

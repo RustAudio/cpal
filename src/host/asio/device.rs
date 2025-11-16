@@ -3,7 +3,11 @@ pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>
 
 use super::sys;
 use crate::BackendSpecificError;
+use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
+use crate::DeviceDescription;
+use crate::DeviceDescriptionBuilder;
+use crate::DeviceDirection;
 use crate::DeviceId;
 use crate::DeviceIdError;
 use crate::DeviceNameError;
@@ -14,6 +18,7 @@ use crate::SupportedBufferSize;
 use crate::SupportedStreamConfig;
 use crate::SupportedStreamConfigRange;
 use crate::SupportedStreamConfigsError;
+
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, Mutex};
@@ -52,12 +57,18 @@ impl Hash for Device {
 }
 
 impl Device {
-    pub fn name(&self) -> Result<String, DeviceNameError> {
-        self.description()
-    }
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        let driver_name = self.driver.name().to_string();
 
-    fn description(&self) -> Result<String, DeviceNameError> {
-        Ok(self.driver.name().to_string())
+        let direction = crate::device_description::direction_from_counts(
+            self.driver.channels().ok().map(|c| c.ins as ChannelCount),
+            self.driver.channels().ok().map(|c| c.outs as ChannelCount),
+        );
+
+        Ok(DeviceDescriptionBuilder::new(driver_name.clone())
+            .driver(driver_name)
+            .direction(direction)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {

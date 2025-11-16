@@ -58,11 +58,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
-    }
-
-    fn description(&self) -> Result<String, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
     }
 
