@@ -287,10 +287,11 @@ impl std::str::FromStr for DeviceId {
             }
             "jack" => Ok(DeviceId::Jack(data.to_string())),
             "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
+            "webaudioworklet" => Ok(DeviceId::WebAudioWorklet(data.to_string())),
             "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
             "ios" => Ok(DeviceId::IOS(data.to_string())),
             "null" => Ok(DeviceId::Null),
-            &_ => todo!("implement DeviceId::FromStr for {platform}"),
+            _ => Err(DeviceIdError::UnsupportedPlatform),
         }
     }
 }
@@ -991,4 +992,65 @@ fn test_stream_instant() {
         Some(StreamInstant::new(1, 0))
     );
     assert_eq!(max.add(Duration::from_secs(1)), None);
+}
+
+#[test]
+fn test_device_id_from_str() {
+    use std::str::FromStr;
+    let cases = [
+        ("alsa:foo", Ok(DeviceId::ALSA("foo".to_string()))),
+        ("foo:bar", Err(DeviceIdError::UnsupportedPlatform)),
+        ("foobar", Err(DeviceIdError::BackendSpecific{
+            err: BackendSpecificError {
+                description: "Failed to parse device id from: foobar\nCheck if format matches Audio_API:DeviceId".to_owned()
+            },
+        })),
+    ];
+
+    for (input, expected) in cases {
+        let actual = DeviceId::from_str(input);
+        assert_eq!(actual, expected, "{input:?}");
+    }
+}
+
+#[test]
+fn test_device_id_display_from_str_identity() {
+    use std::str::FromStr;
+
+    // Just a friendly reminder to add a test case
+    // for every DeviceId variant.
+    match DeviceId::Null {
+        DeviceId::CoreAudio(_) => {}
+        DeviceId::WASAPI(_) => {}
+        DeviceId::ASIO(_) => {}
+        DeviceId::ALSA(_) => {}
+        DeviceId::AAudio(_) => {}
+        DeviceId::Jack(_) => {}
+        DeviceId::WebAudio(_) => {}
+        DeviceId::WebAudioWorklet(_) => {}
+        DeviceId::Emscripten(_) => {}
+        DeviceId::IOS(_) => {}
+        DeviceId::Null => {}
+    };
+
+    let cases = [
+        DeviceId::AAudio(42),
+        DeviceId::ALSA("foo".to_string()),
+        DeviceId::ASIO("bar".to_string()),
+        DeviceId::CoreAudio("baz".to_string()),
+        DeviceId::Emscripten("quux".to_string()),
+        DeviceId::IOS("alfa".to_string()),
+        DeviceId::Jack("bravo".to_string()),
+        DeviceId::WASAPI("charlie".to_string()),
+        DeviceId::WebAudio("delta".to_string()),
+        DeviceId::WebAudioWorklet("foxtrot".to_string()),
+        DeviceId::Null,
+    ];
+
+    for input in cases {
+        let string = input.to_string();
+        let expected = Ok(input);
+        let actual = DeviceId::from_str(&string);
+        assert_eq!(expected, actual);
+    }
 }
