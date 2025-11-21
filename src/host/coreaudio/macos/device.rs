@@ -61,14 +61,14 @@ fn set_sample_rate(
         mElement: kAudioObjectPropertyElementMaster,
     };
     let mut sample_rate: f64 = 0.0;
-    let data_size = mem::size_of::<f64>() as u32;
+    let mut data_size = mem::size_of::<f64>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
             audio_device_id,
             NonNull::from(&property_address),
             0,
             null(),
-            NonNull::from(&data_size),
+            NonNull::from(&mut data_size),
             NonNull::from(&mut sample_rate).cast(),
         )
     };
@@ -78,14 +78,14 @@ fn set_sample_rate(
     if sample_rate as u32 != target_sample_rate.0 {
         // Get available sample rate ranges.
         property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-        let data_size = 0u32;
+        let mut data_size = 0u32;
         let status = unsafe {
             AudioObjectGetPropertyDataSize(
                 audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             )
         };
         coreaudio::Error::from_os_status(status)?;
@@ -98,7 +98,7 @@ fn set_sample_rate(
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             )
         };
@@ -125,7 +125,7 @@ fn set_sample_rate(
         // Send sample rate updates back on a channel.
         let sample_rate_handler = move || {
             let mut rate: f64 = 0.0;
-            let data_size = mem::size_of::<f64>() as u32;
+            let mut data_size = mem::size_of::<f64>() as u32;
 
             let result = unsafe {
                 AudioObjectGetPropertyData(
@@ -133,7 +133,7 @@ fn set_sample_rate(
                     NonNull::from(&sample_rate_address),
                     0,
                     null(),
-                    NonNull::from(&data_size),
+                    NonNull::from(&mut data_size),
                     NonNull::from(&mut rate).cast(),
                 )
             };
@@ -373,7 +373,7 @@ impl Device {
 
         // CFString is copied from the audio object, use wrap_under_create_rule
         let mut uid: *mut CFString = std::ptr::null_mut();
-        let data_size = size_of::<*mut CFString>() as u32;
+        let mut data_size = size_of::<*mut CFString>() as u32;
 
         // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
         // for kAudioDevicePropertyDeviceUID. We check the status code before use.
@@ -383,7 +383,7 @@ impl Device {
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::from(&mut uid).cast(),
             )
         };
@@ -417,13 +417,13 @@ impl Device {
 
         unsafe {
             // Retrieve the devices audio buffer list.
-            let data_size = 0u32;
+            let mut data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             );
             check_os_status(status)?;
 
@@ -434,7 +434,7 @@ impl Device {
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(audio_buffer_list.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
@@ -468,13 +468,13 @@ impl Device {
             // See https://github.com/thestk/rtaudio/blob/master/RtAudio.cpp#L1369C1-L1375C39
 
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-            let data_size = 0u32;
+            let mut data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             );
             check_os_status(status)?;
 
@@ -486,7 +486,7 @@ impl Device {
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
@@ -595,13 +595,13 @@ impl Device {
 
         unsafe {
             let mut asbd: AudioStreamBasicDescription = mem::zeroed();
-            let data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
+            let mut data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::from(&mut asbd).cast(),
             );
             default_config_error_from_os_status(status)?;
