@@ -13,8 +13,6 @@ use std::sync::{Arc, Mutex};
 #[command(version, about = "CPAL record_wav example", long_about = None)]
 struct Opt {
     /// The audio device to use.
-    /// For the default microphone, use "default".
-    /// For recording system output, use "default-output".
     #[arg(short, long)]
     device: Option<String>,
 

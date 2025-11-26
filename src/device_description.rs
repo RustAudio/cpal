@@ -301,9 +301,9 @@ impl DeviceDescriptionBuilder {
             name: name.into(),
             manufacturer: None,
             driver: None,
-            device_type: DeviceType::Unknown,
-            interface_type: InterfaceType::Unknown,
-            direction: DeviceDirection::Unknown,
+            device_type: DeviceType::default(),
+            interface_type: InterfaceType::default(),
+            direction: DeviceDirection::default(),
             address: None,
             extended: Vec::new(),
         }
