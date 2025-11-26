@@ -7,7 +7,7 @@ use std::vec::IntoIter as VecIntoIter;
 extern crate ndk;
 
 use convert::{stream_instant, to_stream_instant};
-use java_interface::{AudioDeviceDirection, AudioDeviceInfo, AudioManager};
+use java_interface::{AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
@@ -24,17 +24,6 @@ mod java_interface;
 
 use self::ndk::audio::AudioStream;
 use java_interface::AudioDeviceType as AndroidDeviceType;
-
-impl From<AudioDeviceDirection> for DeviceDirection {
-    fn from(direction: AudioDeviceDirection) -> Self {
-        match direction {
-            AudioDeviceDirection::Input => DeviceDirection::Input,
-            AudioDeviceDirection::Output => DeviceDirection::Output,
-            AudioDeviceDirection::InputOutput => DeviceDirection::Duplex,
-            _ => DeviceDirection::Unknown,
-        }
-    }
-}
 
 impl From<AndroidDeviceType> for DeviceType {
     fn from(device_type: AndroidDeviceType) -> Self {
@@ -174,7 +163,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        if let Ok(devices) = AudioDeviceInfo::request(AudioDeviceDirection::InputOutput) {
+        if let Ok(devices) = AudioDeviceInfo::request(DeviceDirection::Duplex) {
             Ok(devices
                 .into_iter()
                 .map(|d| Device(Some(d)))

@@ -372,6 +372,16 @@ impl DeviceDescriptionBuilder {
     }
 }
 
+/// Determines device direction from input/output capabilities.
+pub(crate) fn direction_from_caps(has_input: bool, has_output: bool) -> DeviceDirection {
+    match (has_input, has_output) {
+        (true, true) => DeviceDirection::Duplex,
+        (true, false) => DeviceDirection::Input,
+        (false, true) => DeviceDirection::Output,
+        (false, false) => DeviceDirection::Unknown,
+    }
+}
+
 /// Determines device direction from input/output channel counts.
 #[allow(dead_code)]
 pub(crate) fn direction_from_counts(
@@ -380,11 +390,5 @@ pub(crate) fn direction_from_counts(
 ) -> DeviceDirection {
     let has_input = input_channels.map(|n| n > 0).unwrap_or(false);
     let has_output = output_channels.map(|n| n > 0).unwrap_or(false);
-
-    match (has_input, has_output) {
-        (true, true) => DeviceDirection::Duplex,
-        (true, false) => DeviceDirection::Input,
-        (false, true) => DeviceDirection::Output,
-        (false, false) => DeviceDirection::Unknown,
-    }
+    direction_from_caps(has_input, has_output)
 }
