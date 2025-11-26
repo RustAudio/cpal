@@ -397,7 +397,7 @@ impl DeviceTrait for Device {
                 let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
                     .device_type(info.device_type.into())
                     .interface_type(info.device_type.into())
-                    .direction(info.direction.into());
+                    .direction(info.direction);
 
                 // Add address if not empty
                 if !info.address.is_empty() {

@@ -56,7 +56,7 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all --all-features
       - name: Run clippy for Android target
-        run: cargo clippy --all --features asio --target armv7-linux-androideabi
+        run: cargo clippy --all --target armv7-linux-androideabi
 
   cargo-publish:
     if: github.event_name == 'release'
