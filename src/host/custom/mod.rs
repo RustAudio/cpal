@@ -216,6 +216,7 @@ where
     T::SupportedOutputConfigs: Clone + 'static,
     T::Stream: Send + Sync + 'static,
 {
+    #[allow(deprecated)]
     fn name(&self) -> Result<String, DeviceNameError> {
         <T as DeviceTrait>::name(self)
     }
