@@ -410,11 +410,11 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        let id = match &self.0 {
-            None => DeviceId::AAudio(-1), // Default device
-            Some(info) => DeviceId::AAudio(info.id),
+        let device_str = match &self.0 {
+            None => "-1".to_string(), // Default device
+            Some(info) => info.id.to_string(),
         };
-        Ok(id)
+        Ok(DeviceId(crate::platform::HostId::AAudio, device_str))
     }
 
     fn supported_input_configs(

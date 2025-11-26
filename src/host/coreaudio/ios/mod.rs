@@ -83,7 +83,10 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::CoreAudio("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::CoreAudio,
+            "default".to_string(),
+        ))
     }
 
     fn supported_input_configs(

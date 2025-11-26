@@ -59,7 +59,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Jack(self.name.clone()))
+        Ok(DeviceId(crate::platform::HostId::Jack, self.name.clone()))
     }
 
     pub fn default_output_device(

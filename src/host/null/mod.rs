@@ -55,7 +55,7 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Null)
+        Ok(DeviceId(crate::platform::HostId::Null, String::new()))
     }
 
     fn supported_input_configs(

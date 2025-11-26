@@ -72,7 +72,10 @@ impl Device {
     }
 
     pub fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Asio(self.driver.name().to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::Asio,
+            self.driver.name().to_string(),
+        ))
     }
 
     /// Gets the supported input configs.

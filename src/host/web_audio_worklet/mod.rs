@@ -102,7 +102,10 @@ impl DeviceTrait for Device {
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::WebAudioWorklet("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::WebAudioWorklet,
+            "default".to_string(),
+        ))
     }
 
     #[inline]

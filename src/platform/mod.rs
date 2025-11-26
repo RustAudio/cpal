@@ -149,6 +149,26 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl std::fmt::Display for HostId {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.name().to_lowercase())
+            }
+        }
+
+        impl std::str::FromStr for HostId {
+            type Err = crate::HostUnavailable;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $(
+                    $(#[cfg($feat)])?
+                    if stringify!($HostVariant).eq_ignore_ascii_case(s) {
+                        return Ok(HostId::$HostVariant);
+                    }
+                )*
+                Err(crate::HostUnavailable)
+            }
+        }
+
         impl Devices {
             /// Returns a reference to the underlying platform specific implementation of this
             /// `Devices`.

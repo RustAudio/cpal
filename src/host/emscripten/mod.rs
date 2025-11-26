@@ -80,7 +80,10 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Emscripten("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::Emscripten,
+            "default".to_string(),
+        ))
     }
 
     fn supported_input_configs(
