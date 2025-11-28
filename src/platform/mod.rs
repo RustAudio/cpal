@@ -681,7 +681,6 @@ macro_rules! impl_platform_host {
     };
 }
 
-// TODO: Add pulseaudio here eventually.
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -713,8 +712,11 @@ mod platform_impl {
         )))
     )]
     pub use crate::host::jack::Host as JackHost;
+    #[cfg(feature = "pulseaudio")]
+    pub use crate::host::pulseaudio::Host as PulseAudioHost;
 
     impl_platform_host!(
+        #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
         #[cfg(feature = "jack")] Jack => JackHost,
         Alsa => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
