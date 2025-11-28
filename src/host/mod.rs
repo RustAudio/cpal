@@ -23,6 +23,16 @@ pub(crate) mod emscripten;
     feature = "jack"
 ))]
 pub(crate) mod jack;
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ),
+    feature = "pulseaudio"
+))]
+pub(crate) mod pulseaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(

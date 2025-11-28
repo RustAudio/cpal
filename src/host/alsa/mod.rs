@@ -1193,9 +1193,10 @@ impl StreamTrait for Stream {
     }
 }
 
-// Overly safe clamp because alsa Frames are i64 (64-bit) or i32 (32-bit)
+// Convert ALSA frames to FrameCount, clamping to valid range.
+// ALSA Frames are i64 (64-bit) or i32 (32-bit).
 fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
-    buffer_size.clamp(1, FrameCount::MAX as alsa::pcm::Frames) as FrameCount
+    buffer_size.max(1).try_into().unwrap_or(FrameCount::MAX)
 }
 
 fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
