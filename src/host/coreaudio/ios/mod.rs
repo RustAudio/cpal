@@ -14,11 +14,11 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 use self::enumerate::{
@@ -66,30 +66,41 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        // Query AVAudioSession to determine actual input/output availability
+        // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
+        let direction = unsafe {
+            let audio_session = AVAudioSession::sharedInstance();
+            let input_channels = Some(audio_session.inputNumberOfChannels() as ChannelCount);
+            let output_channels = Some(audio_session.outputNumberOfChannels() as ChannelCount);
+
+            crate::device_description::direction_from_counts(input_channels, output_channels)
+        };
+
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(direction)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::IOS("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::CoreAudio,
+            "default".to_string(),
+        ))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         Ok(get_supported_stream_configs(true))
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
         Ok(get_supported_stream_configs(false))
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // Get the primary (exact channel count) config from supported configs
         get_supported_stream_configs(true)
@@ -98,7 +109,6 @@ impl Device {
             .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // Get the maximum channel count config from supported configs
         get_supported_stream_configs(false)
@@ -113,36 +123,30 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         Device::supported_input_configs(self)
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         Device::supported_output_configs(self)
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
     }

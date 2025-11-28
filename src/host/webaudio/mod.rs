@@ -7,11 +7,11 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
@@ -88,17 +88,19 @@ impl Devices {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::WebAudio("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::WebAudio,
+            "default".to_string(),
+        ))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -106,7 +108,6 @@ impl Device {
         Ok(Vec::new().into_iter())
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
@@ -126,13 +127,11 @@ impl Device {
         Ok(configs.into_iter())
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // TODO
         Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
@@ -151,36 +150,30 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         Device::supported_input_configs(self)
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         Device::supported_output_configs(self)
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
     }
@@ -235,8 +228,8 @@ impl DeviceTrait for Device {
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 
         // Create the WebAudio stream.
-        let mut stream_opts = AudioContextOptions::new();
-        stream_opts.sample_rate(config.sample_rate.0 as f32);
+        let stream_opts = AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate.0 as f32);
         let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
                 let description = format!("{:?}", err);
@@ -482,6 +475,7 @@ impl Default for Devices {
 
 impl Iterator for Devices {
     type Item = Device;
+
     #[inline]
     fn next(&mut self) -> Option<Device> {
         if self.0 {
@@ -493,13 +487,11 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 fn default_input_device() -> Option<Device> {
     // TODO
     None
 }
 
-#[inline]
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)

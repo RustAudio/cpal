@@ -164,6 +164,9 @@ extern crate js_sys;
 #[cfg(target_os = "emscripten")]
 extern crate web_sys;
 
+pub use device_description::{
+    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
+};
 pub use error::*;
 pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
@@ -176,6 +179,7 @@ use std::time::Duration;
 #[cfg(target_os = "emscripten")]
 use wasm_bindgen::prelude::*;
 
+pub mod device_description;
 mod error;
 mod host;
 pub mod platform;
@@ -226,37 +230,14 @@ pub type FrameCount = u32;
 /// A stable identifier for an audio device across all supported platforms.
 ///
 /// Device IDs should remain stable across application restarts and can be serialized using `Display`/`FromStr`.
-
+///
+/// A device ID consists of a [`HostId`] identifying the audio backend and a device-specific identifier string.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum DeviceId {
-    CoreAudio(String),
-    WASAPI(String),
-    ASIO(String),
-    ALSA(String),
-    AAudio(i32),
-    Jack(String),
-    WebAudio(String),
-    WebAudioWorklet(String),
-    Emscripten(String),
-    IOS(String),
-    Null,
-}
+pub struct DeviceId(pub crate::platform::HostId, pub String);
 
 impl std::fmt::Display for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DeviceId::WASAPI(guid) => write!(f, "wasapi:{}", guid),
-            DeviceId::ASIO(guid) => write!(f, "asio:{}", guid),
-            DeviceId::CoreAudio(uid) => write!(f, "coreaudio:{}", uid),
-            DeviceId::ALSA(pcm_id) => write!(f, "alsa:{}", pcm_id),
-            DeviceId::AAudio(id) => write!(f, "aaudio:{}", id),
-            DeviceId::Jack(name) => write!(f, "jack:{}", name),
-            DeviceId::WebAudio(default) => write!(f, "webaudio:{}", default),
-            DeviceId::WebAudioWorklet(default) => write!(f, "webaudioworklet:{}", default),
-            DeviceId::Emscripten(default) => write!(f, "emscripten:{}", default),
-            DeviceId::IOS(default) => write!(f, "ios:{}", default),
-            DeviceId::Null => write!(f, "null:null"),
-        }
+        write!(f, "{}:{}", self.0, self.1)
     }
 }
 
@@ -264,34 +245,18 @@ impl std::str::FromStr for DeviceId {
     type Err = DeviceIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (platform, data) = s.split_once(':').ok_or(
-        DeviceIdError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: format!("Failed to parse device id from: {}\nCheck if format matches Audio_API:DeviceId", s) 
-                }
-            }
-        )?;
+        let (host_str, device_str) = s.split_once(':').ok_or(DeviceIdError::BackendSpecific {
+            err: BackendSpecificError {
+                description: format!(
+                    "Failed to parse device id from: {s}\nCheck if format matches \"host:device_id\""
+                ),
+            },
+        })?;
 
-        match platform {
-            "wasapi" => Ok(DeviceId::WASAPI(data.to_string())),
-            "asio" => Ok(DeviceId::ASIO(data.to_string())),
-            "coreaudio" => Ok(DeviceId::CoreAudio(data.to_string())),
-            "alsa" => Ok(DeviceId::ALSA(data.to_string())),
-            "aaudio" => {
-                let id = data.parse().map_err(|_| DeviceIdError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: format!("Failed to parse aaudio device id: {}", data),
-                    },
-                })?;
-                Ok(DeviceId::AAudio(id))
-            }
-            "jack" => Ok(DeviceId::Jack(data.to_string())),
-            "webaudio" => Ok(DeviceId::WebAudio(data.to_string())),
-            "emscripten" => Ok(DeviceId::Emscripten(data.to_string())),
-            "ios" => Ok(DeviceId::IOS(data.to_string())),
-            "null" => Ok(DeviceId::Null),
-            &_ => todo!("implement DeviceId::FromStr for {platform}"),
-        }
+        let host_id = crate::platform::HostId::from_str(host_str)
+            .map_err(|_| DeviceIdError::UnsupportedPlatform)?;
+
+        Ok(DeviceId(host_id, device_str.to_string()))
     }
 }
 
@@ -938,16 +903,16 @@ impl From<SupportedStreamConfig> for StreamConfig {
 }
 
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
-// of commonly used rates. This is always the case for wasapi and is sometimes the case for alsa.
-//
-// If a rate you desire is missing from this list, feel free to add it!
-#[cfg(target_os = "windows")]
-const COMMON_SAMPLE_RATES: &[SampleRate] = &[
+// of commonly used rates. This is always the case for WASAPI and is sometimes the case for ALSA.
+#[allow(dead_code)]
+pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(5512),
     SampleRate(8000),
     SampleRate(11025),
+    SampleRate(12000),
     SampleRate(16000),
     SampleRate(22050),
+    SampleRate(24000),
     SampleRate(32000),
     SampleRate(44100),
     SampleRate(48000),
@@ -956,6 +921,7 @@ const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     SampleRate(96000),
     SampleRate(176400),
     SampleRate(192000),
+    SampleRate(352800),
     SampleRate(384000),
 ];
 

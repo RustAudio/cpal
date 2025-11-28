@@ -6,11 +6,11 @@ use wasm_bindgen::prelude::*;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 use std::time::Duration;
@@ -94,13 +94,18 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
     #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::WebAudioWorklet("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::WebAudioWorklet,
+            "default".to_string(),
+        ))
     }
 
     #[inline]

@@ -7,10 +7,11 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -72,24 +73,25 @@ impl Devices {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Emscripten("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::Emscripten,
+            "default".to_string(),
+        ))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!();
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
@@ -153,8 +155,8 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -390,7 +392,7 @@ impl Default for Devices {
 }
 impl Iterator for Devices {
     type Item = Device;
-    #[inline]
+
     fn next(&mut self) -> Option<Device> {
         if self.0 {
             self.0 = false;
@@ -401,12 +403,10 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 fn default_input_device() -> Option<Device> {
     unimplemented!();
 }
 
-#[inline]
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)

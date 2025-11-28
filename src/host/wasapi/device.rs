@@ -1,10 +1,22 @@
-use crate::FrameCount;
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
-    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
+    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
+    DeviceType, DevicesError, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
 };
+
+impl From<Audio::EDataFlow> for DeviceDirection {
+    fn from(data_flow: Audio::EDataFlow) -> Self {
+        if data_flow == Audio::eCapture {
+            DeviceDirection::Input
+        } else if data_flow == Audio::eRender {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Unknown
+        }
+    }
+}
 use std::ffi::OsString;
 use std::fmt;
 use std::mem;
@@ -21,18 +33,34 @@ use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
 use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
 use windows::Win32::System::Threading;
-use windows::Win32::System::Variant::VT_LPWSTR;
+use windows::Win32::System::Variant::{VT_LPWSTR, VT_UI4};
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
 use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
 
 pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+
+// PKEY_AudioEndpoint properties not yet in windows-rs
+
+/// PKEY_AudioEndpoint_FormFactor (PID 0) - VT_UI4 containing EndpointFormFactor enum
+const PKEY_AUDIOENDPOINT_FORMFACTOR: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
+    pid: 0,
+};
+
+/// PKEY_AudioEndpoint_JackSubType (PID 8) - VT_LPWSTR containing KS node type GUID
+const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
+    pid: 8,
+};
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
@@ -54,8 +82,8 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -273,8 +301,53 @@ unsafe fn format_from_waveformatex_ptr(
 unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
+/// Maps PKEY_AudioEndpoint_JackSubType GUID to InterfaceType.
+///
+/// The JackSubType property contains a KS node type GUID string from Ksmedia.h
+/// that specifies the physical connector type.
+fn jacksubtype_to_interface_type(guid_str: &str) -> Option<crate::InterfaceType> {
+    let guid_upper = guid_str.to_uppercase();
+    let typ = match guid_upper.as_str() {
+        "{D9E55EA0-0C89-4692-84FF-EB3C4B0D172F}" => InterfaceType::Hdmi,
+        "{E47E4031-3EA6-418D-8F9B-B73843CCB2AD}" => InterfaceType::DisplayPort,
+        "{DFF21CE1-F70F-11D0-B917-00A0C9223196}" => InterfaceType::Spdif,
+        _ => return None,
+    };
+
+    Some(typ)
+}
+
+/// Maps WASAPI FormFactor values to DeviceType and optionally InterfaceType.
+fn form_factor_to_types(form_factor: u32) -> (crate::DeviceType, Option<crate::InterfaceType>) {
+    match form_factor {
+        0 => (DeviceType::Unknown, Some(InterfaceType::Network)), // RemoteNetworkDevice
+        1 => (DeviceType::Speaker, None),                         // Speakers
+        2 => (DeviceType::Unknown, Some(InterfaceType::Line)),    // LineLevel
+        3 => (DeviceType::Headphones, None),                      // Headphones
+        4 => (DeviceType::Microphone, None),                      // Microphone
+        5 => (DeviceType::Headset, None),                         // Headset
+        6 => (DeviceType::Handset, None),                         // Handset
+        7 => (DeviceType::Unknown, None),                         // UnknownDigitalPassthrough
+        8 => (DeviceType::Unknown, Some(InterfaceType::Spdif)),   // SPDIF
+        9 => (DeviceType::Unknown, Some(InterfaceType::Hdmi)),    // DigitalAudioDisplayDevice
+        _ => (DeviceType::Unknown, None), // UnknownFormFactor or future values
+    }
+}
+
+/// Maps WASAPI EnumeratorName to InterfaceType.
+fn enumerator_to_interface_type(enumerator: &str) -> Option<crate::InterfaceType> {
+    let typ = match enumerator.to_uppercase().as_str() {
+        "HDAUDIO" => InterfaceType::BuiltIn,
+        "USB" => InterfaceType::Usb,
+        "BTHENUM" => InterfaceType::Bluetooth,
+        "MMDEVAPI" | "SW" => InterfaceType::Virtual,
+        _ => return None,
+    };
+    Some(typ)
+}
+
 impl Device {
-    pub fn name(&self) -> Result<String, DeviceNameError> {
+    pub fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         unsafe {
             // Open the device's property store.
             let property_store = self
@@ -282,47 +355,90 @@ impl Device {
                 .OpenPropertyStore(STGM_READ)
                 .expect("could not open property store");
 
-            // Get the endpoint's friendly-name property.
-            let mut property_value = property_store
-                .GetValue(&Properties::DEVPKEY_Device_FriendlyName as *const _ as *const _)
-                .map_err(|err| {
-                    let description =
-                        format!("failed to retrieve name from property store: {}", err);
-                    let err = BackendSpecificError { description };
-                    DeviceNameError::from(err)
+            // Query all available properties
+            let friendly_name = get_property_string(
+                &property_store,
+                &Properties::DEVPKEY_Device_FriendlyName as *const _ as *const _,
+            );
+
+            let device_desc = get_property_string(
+                &property_store,
+                &Properties::DEVPKEY_Device_DeviceDesc as *const _ as *const _,
+            );
+
+            let interface_name = get_property_string(
+                &property_store,
+                &Properties::DEVPKEY_DeviceInterface_FriendlyName as *const _ as *const _,
+            );
+
+            let enumerator_name = get_property_string(
+                &property_store,
+                &Properties::DEVPKEY_Device_EnumeratorName as *const _ as *const _,
+            );
+
+            let form_factor = get_property_u32(
+                &property_store,
+                &PKEY_AUDIOENDPOINT_FORMFACTOR as *const _ as *const _,
+            );
+
+            let jack_subtype = get_property_string(
+                &property_store,
+                &PKEY_AUDIOENDPOINT_JACKSUBTYPE as *const _ as *const _,
+            );
+
+            // Prefer DeviceDesc for name, fall back to FriendlyName
+            let name = device_desc
+                .clone()
+                .or(friendly_name.clone())
+                .ok_or_else(|| DeviceNameError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "failed to retrieve device name".to_string(),
+                    },
                 })?;
 
-            let prop_variant = &property_value.Anonymous.Anonymous;
+            // Get direction from data flow (eCapture = Input, eRender = Output)
+            let direction = self.data_flow().into();
 
-            // Read the friendly-name from the union data field, expecting a *const u16.
-            if prop_variant.vt != VT_LPWSTR {
-                let description = format!(
-                    "property store produced invalid data: {:?}",
-                    prop_variant.vt
-                );
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
-            let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
+            // Determine device_type and initial interface_type from FormFactor
+            let (device_type, mut interface_type) = form_factor
+                .map(form_factor_to_types)
+                .unwrap_or((crate::DeviceType::Unknown, None));
 
-            // Find the length of the friendly name.
-            let mut len = 0;
-            while *ptr_utf16.offset(len) != 0 {
-                len += 1;
+            // Override interface_type from EnumeratorName if available
+            if let Some(ref enumerator) = enumerator_name {
+                if let Some(itype) = enumerator_to_interface_type(enumerator) {
+                    interface_type = Some(itype);
+                }
             }
 
-            // Create the utf16 slice and convert it into a string.
-            let name_slice = slice::from_raw_parts(ptr_utf16, len as usize);
-            let name_os_string: OsString = OsStringExt::from_wide(name_slice);
-            let name_string = match name_os_string.into_string() {
-                Ok(string) => string,
-                Err(os_string) => os_string.to_string_lossy().into(),
-            };
+            // JackSubType has highest priority for interface_type
+            if let Some(ref jack_guid) = jack_subtype {
+                if let Some(itype) = jacksubtype_to_interface_type(jack_guid) {
+                    interface_type = Some(itype);
+                }
+            }
 
-            // Clean up the property.
-            StructuredStorage::PropVariantClear(&mut property_value).ok();
+            let mut builder = DeviceDescriptionBuilder::new(name)
+                .direction(direction)
+                .device_type(device_type);
 
-            Ok(name_string)
+            if let Some(itype) = interface_type {
+                builder = builder.interface_type(itype);
+            }
+
+            // Add interface name to driver field if available
+            if let Some(iface_name) = interface_name {
+                builder = builder.driver(iface_name);
+            }
+
+            // Add FriendlyName to extended if different from the name we used
+            if let Some(fname) = friendly_name {
+                if device_desc.is_some() && Some(&fname) != device_desc.as_ref() {
+                    builder = builder.add_extended_line(fname);
+                }
+            }
+
+            Ok(builder.build())
         }
     }
 
@@ -330,7 +446,7 @@ impl Device {
         unsafe {
             match self.device.GetId() {
                 Ok(pwstr) => match pwstr.to_string() {
-                    Ok(id_str) => Ok(DeviceId::WASAPI(id_str)),
+                    Ok(id_str) => Ok(DeviceId(crate::platform::HostId::Wasapi, id_str)),
                     Err(e) => Err(DeviceIdError::BackendSpecific {
                         err: BackendSpecificError {
                             description: format!("Failed to convert device ID to string: {}", e),
@@ -342,7 +458,6 @@ impl Device {
         }
     }
 
-    #[inline]
     fn from_immdevice(device: Audio::IMMDevice) -> Self {
         Device {
             device,
@@ -374,7 +489,6 @@ impl Device {
     }
 
     /// Returns an uninitialized `IAudioClient`.
-    #[inline]
     pub(crate) fn build_audioclient(&self) -> Result<Audio::IAudioClient, windows::core::Error> {
         let mut lock = self.ensure_future_audio_client()?;
         Ok(lock.take().unwrap().0)
@@ -788,7 +902,6 @@ impl Device {
 }
 
 impl PartialEq for Device {
-    #[inline]
     fn eq(&self, other: &Device) -> bool {
         // Use case: In order to check whether the default device has changed
         // the client code might need to compare the previous default device with the current one.
@@ -834,7 +947,7 @@ impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Device")
             .field("device", &self.device)
-            .field("name", &self.name())
+            .field("description", &self.description())
             .finish()
     }
 }
@@ -874,6 +987,67 @@ fn get_enumerator() -> &'static Enumerator {
             Enumerator(enumerator)
         }
     })
+}
+
+// Helper function to query a DWORD property from a WASAPI device property store
+unsafe fn get_property_u32(
+    property_store: &IPropertyStore,
+    property_key: *const PROPERTYKEY,
+) -> Option<u32> {
+    let mut property_value = property_store.GetValue(property_key).ok()?;
+    let prop_variant = &property_value.Anonymous.Anonymous;
+
+    // Check if it's a UI4 (unsigned 32-bit integer)
+    if prop_variant.vt != VT_UI4 {
+        return None;
+    }
+
+    let value = *(&prop_variant.Anonymous as *const _ as *const u32);
+
+    // Clean up the property
+    StructuredStorage::PropVariantClear(&mut property_value).ok();
+
+    Some(value)
+}
+
+// Helper function to query a string property from a WASAPI device property store
+unsafe fn get_property_string(
+    property_store: &IPropertyStore,
+    property_key: *const PROPERTYKEY,
+) -> Option<String> {
+    let mut property_value = property_store.GetValue(property_key).ok()?;
+    let prop_variant = &property_value.Anonymous.Anonymous;
+
+    // Read the string from the union data field, expecting a *const u16.
+    if prop_variant.vt != VT_LPWSTR {
+        return None;
+    }
+    let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
+
+    // Find the length of the null-terminated string with a safety limit
+    const MAX_STRING_LEN: usize = 32768; // 32K characters should be more than enough
+    let mut len = 0;
+    while len < MAX_STRING_LEN && *ptr_utf16.add(len) != 0 {
+        len += 1;
+    }
+
+    // If we hit the limit, the string is likely malformed (not null-terminated)
+    if len >= MAX_STRING_LEN {
+        return None;
+    }
+
+    // Create the utf16 slice and convert it into a string.
+    let string_slice = slice::from_raw_parts(ptr_utf16, len);
+    let os_string: OsString = OsStringExt::from_wide(string_slice);
+    let result = match os_string.into_string() {
+        Ok(string) => Some(string),
+        Err(os_string) => Some(os_string.to_string_lossy().into()),
+    };
+
+    // Clean up the property.
+    StructuredStorage::PropVariantClear(&mut property_value).ok();
+
+    result
 }
 
 /// Send/Sync wrapper around `IMMDeviceEnumerator`.
@@ -927,7 +1101,6 @@ impl Iterator for Devices {
         }
     }
 
-    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let num = self.total_count - self.next_item;
         let num = num as usize;

@@ -3,10 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices,
-    PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig, StreamError,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo,
+    OutputDevices, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
+    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -96,9 +96,28 @@ pub trait DeviceTrait {
     type Stream: StreamTrait;
 
     /// The human-readable name of the device.
-    fn name(&self) -> Result<String, DeviceNameError>;
+    #[deprecated(
+        since = "0.17.0",
+        note = "Use `id()` to get a unique identifier for the device, or `description().name()` for a human-readable description."
+    )]
+    fn name(&self) -> Result<String, DeviceNameError> {
+        self.description().map(|desc| desc.name().to_string())
+    }
 
-    /// The device-id of the device.
+    /// Structured description of the device with metadata.
+    ///
+    /// This returns a [`DeviceDescription`] containing structured information about the device,
+    /// including name, manufacturer (if available), device type, bus type, and other
+    /// platform-specific metadata.
+    ///
+    /// For simple string representation, use `device.description().to_string()` or
+    /// `device.description().name()`.
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError>;
+
+    /// The ID of the device.
+    ///
+    /// This ID uniquely identifies the device on the host. It should be stable across program
+    /// runs, device disconnections, and system reboots where possible.
     fn id(&self) -> Result<DeviceId, DeviceIdError>;
 
     /// True if the device supports audio input, otherwise false

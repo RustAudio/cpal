@@ -1,9 +1,9 @@
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, StreamConfig, StreamError, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
+    PlayStreamError, SampleFormat, StreamConfig, StreamError, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use core::time::Duration;
 
@@ -141,6 +141,7 @@ type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'st
 
 trait DeviceErased: Send + Sync {
     fn name(&self) -> Result<String, DeviceNameError>;
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError>;
     fn id(&self) -> Result<DeviceId, DeviceIdError>;
     fn supports_input(&self) -> bool;
     fn supports_output(&self) -> bool;
@@ -215,8 +216,13 @@ where
     T::SupportedOutputConfigs: Clone + 'static,
     T::Stream: Send + Sync + 'static,
 {
+    #[allow(deprecated)]
     fn name(&self) -> Result<String, DeviceNameError> {
         <T as DeviceTrait>::name(self)
+    }
+
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        <T as DeviceTrait>::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -335,6 +341,10 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()
+    }
+
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        self.0.description()
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {

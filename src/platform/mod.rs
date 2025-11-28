@@ -81,6 +81,43 @@ macro_rules! impl_platform_host {
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
 
         /// Unique identifier for available hosts on the platform.
+        ///
+        /// Only the hosts supported by the current platform are available as enum variants.
+        /// For cross-platform code that needs to handle hosts from other platforms,
+        /// use the string representation via [`Display`]/[`FromStr`].
+        ///
+        /// # Available Host Strings
+        ///
+        /// For cross-platform matching, these host strings are available:
+        ///
+        /// - `"aaudio"` - Android Audio
+        /// - `"alsa"` - Advanced Linux Sound Architecture
+        /// - `"asio"` - ASIO
+        /// - `"coreaudio"` - CoreAudio
+        /// - `"custom"` - Custom host (requires `custom` feature)
+        /// - `"emscripten"` - Emscripten
+        /// - `"jack"` - JACK Audio Connection Kit
+        /// - `"null"` - Null host
+        /// - `"wasapi"` - Windows Audio Session API
+        /// - `"webaudio"` - Web Audio API
+        /// - `"webaudioworklet"` - Web Audio Worklet
+        ///
+        /// # Cross-Platform Example
+        ///
+        /// ```ignore
+        /// use cpal::{DeviceId, HostId};
+        ///
+        /// fn handle_device(device_id: DeviceId) {
+        ///     // String matching works on all platforms
+        ///     match device_id.0.to_string().as_str() {
+        ///         "alsa" => println!("ALSA device"),
+        ///         "coreaudio" => println!("CoreAudio device"),
+        ///         "jack" => println!("JACK device"),
+        ///         "wasapi" => println!("WASAPI device"),
+        ///         _ => println!("Other host"),
+        ///     }
+        /// }
+        /// ```
         #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
         pub enum HostId {
             $(
@@ -146,6 +183,26 @@ macro_rules! impl_platform_host {
                         HostId::$HostVariant => stringify!($HostVariant),
                     )*
                 }
+            }
+        }
+
+        impl std::fmt::Display for HostId {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.name().to_lowercase())
+            }
+        }
+
+        impl std::str::FromStr for HostId {
+            type Err = crate::HostUnavailable;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $(
+                    $(#[cfg($feat)])?
+                    if stringify!($HostVariant).eq_ignore_ascii_case(s) {
+                        return Ok(HostId::$HostVariant);
+                    }
+                )*
+                Err(crate::HostUnavailable)
             }
         }
 
@@ -308,11 +365,21 @@ macro_rules! impl_platform_host {
             type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
 
+            #[allow(deprecated)]
             fn name(&self) -> Result<String, crate::DeviceNameError> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
                         DeviceInner::$HostVariant(ref d) => d.name(),
+                    )*
+                }
+            }
+
+            fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d.description(),
                     )*
                 }
             }
