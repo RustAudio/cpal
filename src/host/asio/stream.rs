@@ -61,6 +61,22 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
+        // Register the message callback with the driver
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+
+        let message_callback_id = self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_callback_shared.lock() {
+                    cb(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "ASIO reset request.".to_string(),
+                        },
+                    });
+                }
+            }
+        });
+
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
@@ -72,25 +88,6 @@ impl Device {
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
-
-        // Wrap the error_callback in an Arc<Mutex<...>> so it can be shared with the static ASIO callback.
-        // The ASIO message callback is Fn (shared), but the user error callback is FnMut.
-        let error_callback_shared = Arc::new(Mutex::new(error_callback));
-        let error_cb_for_asio = error_callback_shared.clone();
-
-        // Register the message callback with the driver
-        let message_callback_id = self.driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_cb_for_asio.lock() {
-                    cb(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "ASIO Reset Request: The driver requests a reset. Please drop and recreate the stream.".to_string(),
-                        },
-                    });
-                }
-            }
-        });
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -305,6 +302,22 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
+        // Register the message callback with the driver
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+
+        let message_callback_id = self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_callback_shared.lock() {
+                    cb(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "ASIO reset request.".to_string(),
+                        },
+                    });
+                }
+            }
+        });
+
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
@@ -317,25 +330,6 @@ impl Device {
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
-
-        // Wrap the error_callback in an Arc<Mutex<...>> so it can be shared with the static ASIO callback.
-        // The ASIO message callback is Fn (shared), but the user error callback is FnMut.
-        let error_callback_shared = Arc::new(Mutex::new(error_callback));
-        let error_cb_for_asio = error_callback_shared.clone();
-
-        // Register the message callback with the driver
-        let message_callback_id = self.driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_cb_for_asio.lock() {
-                    cb(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "ASIO Reset Request: The driver requests a reset. Please drop and recreate the stream.".to_string(),
-                        },
-                    });
-                }
-            }
-        });
 
         let config = config.clone();
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
@@ -678,7 +672,6 @@ impl Device {
 impl Drop for Stream {
     fn drop(&mut self) {
         self.driver.remove_callback(self.callback_id);
-        // Unregister the message callback to prevent memory leaks and calling dropped callbacks
         self.driver
             .remove_message_callback(self.message_callback_id);
     }
