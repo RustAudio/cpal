@@ -20,6 +20,7 @@ pub struct Stream {
     #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::CallbackId,
+    message_callback_id: sys::MessageCallbackId,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -44,7 +45,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
@@ -71,6 +72,25 @@ impl Device {
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
+
+        // Wrap the error_callback in an Arc<Mutex<...>> so it can be shared with the static ASIO callback.
+        // The ASIO message callback is Fn (shared), but the user error callback is FnMut.
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+        let error_cb_for_asio = error_callback_shared.clone();
+
+        // Register the message callback with the driver
+        let message_callback_id = self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_cb_for_asio.lock() {
+                    cb(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "ASIO Reset Request: The driver requests a reset. Please drop and recreate the stream.".to_string(),
+                        },
+                    });
+                }
+            }
+        });
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -260,6 +280,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
+            message_callback_id,
         })
     }
 
@@ -268,7 +289,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
@@ -296,6 +317,25 @@ impl Device {
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
+
+        // Wrap the error_callback in an Arc<Mutex<...>> so it can be shared with the static ASIO callback.
+        // The ASIO message callback is Fn (shared), but the user error callback is FnMut.
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+        let error_cb_for_asio = error_callback_shared.clone();
+
+        // Register the message callback with the driver
+        let message_callback_id = self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_cb_for_asio.lock() {
+                    cb(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "ASIO Reset Request: The driver requests a reset. Please drop and recreate the stream.".to_string(),
+                        },
+                    });
+                }
+            }
+        });
 
         let config = config.clone();
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
@@ -534,6 +574,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
+            message_callback_id,
         })
     }
 
@@ -637,6 +678,9 @@ impl Device {
 impl Drop for Stream {
     fn drop(&mut self) {
         self.driver.remove_callback(self.callback_id);
+        // Unregister the message callback to prevent memory leaks and calling dropped callbacks
+        self.driver
+            .remove_message_callback(self.message_callback_id);
     }
 }
 
