@@ -275,7 +275,8 @@ impl DeviceTrait for Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        // Device::id() can never fail in this implementation
+        self.id().unwrap() == other.id().unwrap()
     }
 }
 
@@ -283,6 +284,7 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id().hash(state);
+        // Device::id() can never fail in this implementation
+        self.id().unwrap().hash(state);
     }
 }
