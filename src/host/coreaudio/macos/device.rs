@@ -1007,9 +1007,10 @@ fn setup_callback_vars(
 fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
     // Device-level property: always use Scope::Global + Element::Output
     // This is consistent with how we set the buffer size and query the buffer size range
-    audio_unit.get_property::<usize>(
+    let frames: u32 = audio_unit.get_property(
         kAudioDevicePropertyBufferFrameSize,
         Scope::Global,
         Element::Output,
-    )
+    )?;
+    Ok(frames as usize)
 }
