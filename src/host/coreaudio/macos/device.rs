@@ -40,7 +40,6 @@ pub use super::enumerate::{
 use std::fmt;
 use std::mem::{self, size_of};
 use std::ptr::{null, NonNull};
-use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -493,18 +492,22 @@ impl Device {
 
             let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
 
-            // If there's no buffers, skip.
-            if (*audio_buffer_list).mNumberBuffers == 0 {
+            // Read the number of buffers without assuming alignment (avoid UB).
+            let nb_ptr = core::ptr::addr_of!((*audio_buffer_list).mNumberBuffers);
+            let n_buffers = core::ptr::read_unaligned(nb_ptr) as usize;
+            // If there are no buffers, skip.
+            if n_buffers == 0 {
                 return Ok(vec![].into_iter());
             }
 
             // Count the number of channels as the sum of all channels in all output buffers.
-            let n_buffers = (*audio_buffer_list).mNumberBuffers as usize;
-            let first: *const AudioBuffer = (*audio_buffer_list).mBuffers.as_ptr();
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(first, n_buffers);
-            let mut n_channels = 0;
-            for buffer in buffers {
-                n_channels += buffer.mNumberChannels as usize;
+            let first_buf_ptr = core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
+            let mut n_channels = 0usize;
+            for i in 0..n_buffers {
+                let buf_ptr = first_buf_ptr.add(i);
+                // Read potentially unaligned
+                let buf: AudioBuffer = core::ptr::read_unaligned(buf_ptr);
+                n_channels += buf.mNumberChannels as usize;
             }
 
             // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
