@@ -102,7 +102,9 @@ fn set_sample_rate(
             )
         };
         coreaudio::Error::from_os_status(status)?;
-        unsafe { ranges.set_len(n_ranges); }
+        unsafe {
+            ranges.set_len(n_ranges);
+        }
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate.0;
@@ -503,7 +505,8 @@ impl Device {
             }
 
             // Count the number of channels as the sum of all channels in all output buffers.
-            let first_buf_ptr = core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
+            let first_buf_ptr =
+                core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
             let mut n_channels = 0usize;
             for i in 0..n_buffers {
                 let buf_ptr = first_buf_ptr.add(i);
