@@ -1,0 +1,127 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+
+jobs:
+  formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  lints-stable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux - ALSA/JACK backend
+          - target: x86_64-unknown-linux-gnu
+            name: Linux
+            features: --all-features
+
+          # Windows - WASAPI backend
+          - target: x86_64-pc-windows-msvc
+            name: Windows
+            features: --all-features
+
+          # macOS - CoreAudio backend
+          - target: aarch64-apple-darwin
+            name: macOS
+            features: --all-features
+
+          # Android - Oboe backend
+          - target: armv7-linux-androideabi
+            name: Android
+            features: ""
+
+          # iOS - CoreAudio (iOS) backend
+          - target: aarch64-apple-ios
+            name: iOS
+            features: ""
+
+          # WASM - wasm-bindgen feature
+          - target: wasm32-unknown-unknown
+            name: WASM-bindgen
+            features: --features wasm-bindgen
+
+          # WASM - Emscripten
+          - target: wasm32-unknown-emscripten
+            name: WASM-emscripten
+            features: ""
+
+          # WASM - WASI
+          - target: wasm32-wasip1
+            name: WASI
+            features: ""
+
+    name: clippy-${{ matrix.name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.target }}-${{ matrix.name }}
+
+      - name: Run clippy
+        run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
+
+  lints-nightly:
+    name: clippy-WASM-worklet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src
+          targets: wasm32-unknown-unknown
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-wasm32-worklet
+
+      - name: Run clippy (web_audio_worklet)
+        env:
+          RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+        run: cargo +nightly clippy --all --target wasm32-unknown-unknown --features web_audio_worklet -Z build-std=std,panic_abort -- -D warnings
