@@ -26,13 +26,13 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
         };
     }
 
-    let data_size = 0u32;
+    let mut data_size = 0u32;
     let status = AudioObjectGetPropertyDataSize(
         kAudioObjectSystemObject as AudioObjectID,
         NonNull::from(&property_address),
         0,
         null(),
-        NonNull::from(&data_size),
+        NonNull::from(&mut data_size),
     );
     try_status_or_return!(status);
 
@@ -45,7 +45,7 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
         NonNull::from(&property_address),
         0,
         null(),
-        NonNull::from(&data_size),
+        NonNull::from(&mut data_size),
         NonNull::new(audio_devices.as_mut_ptr()).unwrap().cast(),
     );
     try_status_or_return!(status);
