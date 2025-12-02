@@ -109,10 +109,9 @@ fn set_sample_rate(
         let maybe_index = ranges
             .iter()
             .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
-        let range_index = match maybe_index {
-            None => return Err(BuildStreamError::StreamConfigNotSupported),
-            Some(i) => i,
-        };
+        if maybe_index.is_none() {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
 
         let (send, recv) = channel::<Result<f64, coreaudio::Error>>();
         let sample_rate_address = AudioObjectPropertyAddress {
@@ -147,6 +146,9 @@ fn set_sample_rate(
 
         // Finally, set the sample rate.
         property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
+        // Set the nominal sample rate using a single f64 as required by CoreAudio.
+        let rate = sample_rate as f64;
+        let data_size = mem::size_of::<f64>() as u32;
         let status = unsafe {
             AudioObjectSetPropertyData(
                 audio_device_id,
@@ -154,7 +156,7 @@ fn set_sample_rate(
                 0,
                 null(),
                 data_size,
-                NonNull::from(&ranges[range_index]).cast(),
+                NonNull::from(&rate).cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;
