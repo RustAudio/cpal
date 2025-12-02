@@ -29,5 +29,5 @@ fn get_frames_per_buffer<'j>(env: &mut JNIEnv<'j>, context: &JObject<'j>) -> JRe
     // TODO: Use jni::errors::Error::ParseFailed instead of jni::errors::Error::JniCall once jni > v0.21.1 is released
     frames_per_buffer_string
         .parse::<i32>()
-        .map_err(|e| jni::errors::Error::JniCall(jni::errors::JniError::Unknown))
+        .map_err(|_| jni::errors::Error::JniCall(jni::errors::JniError::Unknown))
 }
