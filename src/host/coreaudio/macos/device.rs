@@ -91,8 +91,7 @@ fn set_sample_rate(
         };
         coreaudio::Error::from_os_status(status)?;
         let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-        let mut ranges: Vec<u8> = vec![];
-        ranges.reserve_exact(data_size as usize);
+        let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
         let status = unsafe {
             AudioObjectGetPropertyData(
                 audio_device_id,
@@ -104,8 +103,7 @@ fn set_sample_rate(
             )
         };
         coreaudio::Error::from_os_status(status)?;
-        let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-        let ranges: &[AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
+        unsafe { ranges.set_len(n_ranges); }
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate.0;
@@ -533,8 +531,7 @@ impl Device {
             check_os_status(status)?;
 
             let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-            let mut ranges: Vec<u8> = vec![];
-            ranges.reserve_exact(data_size as usize);
+            let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
                 NonNull::from(&property_address),
@@ -545,8 +542,7 @@ impl Device {
             );
             check_os_status(status)?;
 
-            let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-            let ranges: &[AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+            ranges.set_len(n_ranges);
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
