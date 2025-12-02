@@ -93,7 +93,7 @@ impl Device {
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
-        let buffer_size = self.buffer_size.clone();
+        let buffer_size = self.buffer_size;
         // The sample format for JACK audio ports is always "32-bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
@@ -119,7 +119,7 @@ impl Device {
                 channels,
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
-                buffer_size: f.buffer_size.clone(),
+                buffer_size: f.buffer_size,
                 sample_format: f.sample_format,
             });
         }
@@ -275,8 +275,7 @@ impl DeviceTrait for Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        // Device::name() can never fail in this implementation
-        self.name().unwrap() == other.name().unwrap()
+        self.id() == other.id()
     }
 }
 
@@ -284,6 +283,6 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name().unwrap().hash(state);
+        self.id().hash(state);
     }
 }

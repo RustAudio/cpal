@@ -4,14 +4,14 @@ use crate::traits::HostTrait;
 use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
 
 mod device;
-pub use self::device::Device;
-pub use self::stream::Stream;
 mod stream;
+
+pub use self::device::{Device, SupportedInputConfigs, SupportedOutputConfigs};
+#[allow(unused_imports)]
+pub use self::stream::Stream;
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type Devices = std::vec::IntoIter<Device>;
 
 /// The JACK Host type
