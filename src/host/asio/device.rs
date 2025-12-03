@@ -6,7 +6,6 @@ use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
 use crate::DeviceDescriptionBuilder;
-use crate::DeviceDirection;
 use crate::DeviceId;
 use crate::DeviceIdError;
 use crate::DeviceNameError;
