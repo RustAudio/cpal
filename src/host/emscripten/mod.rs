@@ -43,10 +43,6 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-// Index within the `streams` array of the events loop.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
-
 pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
 
@@ -104,7 +100,7 @@ impl Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -321,7 +317,7 @@ where
         let buffer = context
             .create_buffer(
                 config.channels as u32,
-                buffer_size_frames as u32,
+                buffer_size_frames,
                 sample_rate as f32,
             )
             .expect("Buffer could not be created");
@@ -354,7 +350,7 @@ where
             data_callback,
             &config,
             sample_format,
-            buffer_size_frames as u32,
+            buffer_size_frames,
         );
     }
 }
@@ -372,7 +368,7 @@ fn set_timeout<D>(
     let window = web_sys::window().expect("Not in a window somehow?");
     window
         .set_timeout_with_callback_and_timeout_and_arguments_4(
-            &Closure::once_into_js(audio_callback_fn(data_callback))
+            Closure::once_into_js(audio_callback_fn(data_callback))
                 .dyn_ref::<js_sys::Function>()
                 .expect("The function was somehow not a function"),
             time,

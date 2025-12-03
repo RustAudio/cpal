@@ -157,7 +157,6 @@
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
-#[macro_use]
 extern crate wasm_bindgen;
 #[cfg(target_os = "emscripten")]
 extern crate js_sys;
