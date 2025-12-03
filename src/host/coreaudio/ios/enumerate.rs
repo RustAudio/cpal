@@ -1,6 +1,5 @@
 use std::vec::IntoIter as VecIntoIter;
 
-use crate::DevicesError;
 use crate::SupportedStreamConfigRange;
 
 use super::Device;
