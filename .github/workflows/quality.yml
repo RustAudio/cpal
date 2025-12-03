@@ -94,6 +94,15 @@ jobs:
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
+      - name: Setup ASIO SDK
+        if: runner.os == 'Windows'
+        run: |
+          curl -L -o asio.zip https://www.steinberg.net/asiosdk
+          7z x -oasio asio.zip
+          move asio\*\* asio\
+          choco install asio4all
+          choco install llvm
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -106,6 +115,8 @@ jobs:
           key: clippy-${{ matrix.target }}-${{ matrix.name }}
 
       - name: Run clippy
+        env:
+          CPAL_ASIO_DIR: ${{ runner.os == 'Windows' && format('{0}/asio', github.workspace) || '' }}
         run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
 
   lints-nightly:

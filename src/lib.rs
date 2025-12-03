@@ -356,6 +356,7 @@ pub struct SupportedStreamConfigRange {
 /// Common iterator types used by backend implementations.
 ///
 /// All backends use these same concrete iterator types for supported stream configurations.
+#[allow(dead_code)]
 pub(crate) mod iter {
     use super::SupportedStreamConfigRange;
 
