@@ -144,9 +144,8 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type Devices = VecIntoIter<Device>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+pub type Devices = std::vec::IntoIter<Device>;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {

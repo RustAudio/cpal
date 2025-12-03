@@ -1,11 +1,8 @@
 use std::vec::IntoIter as VecIntoIter;
 
-use crate::SupportedStreamConfigRange;
-
 use super::Device;
 
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // TODO: Support enumerating earpiece vs headset vs speaker etc?
 pub struct Devices(VecIntoIter<Device>);

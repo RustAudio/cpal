@@ -45,8 +45,7 @@ use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use super::stream::{AudioClientFlow, Stream, StreamInner};
 use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // PKEY_AudioEndpoint properties not yet in windows-rs
 

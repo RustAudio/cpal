@@ -92,8 +92,7 @@ fn parse_alsa_description(description: &str) -> Vec<String> {
 // (start_threshold = 2 periods), ensuring low latency even with large multi-period ring
 // buffers.
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 mod enumerate;
 

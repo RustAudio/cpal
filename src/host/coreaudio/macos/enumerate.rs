@@ -1,5 +1,5 @@
 use super::{Device, OSStatus};
-use crate::{BackendSpecificError, DevicesError, SupportedStreamConfigRange};
+use crate::{BackendSpecificError, DevicesError};
 use objc2_core_audio::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
@@ -137,5 +137,4 @@ pub fn default_output_device() -> Option<Device> {
     Some(device)
 }
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};

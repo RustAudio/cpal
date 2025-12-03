@@ -157,9 +157,9 @@
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(target_os = "emscripten")]
-extern crate wasm_bindgen;
-#[cfg(target_os = "emscripten")]
 extern crate js_sys;
+#[cfg(target_os = "emscripten")]
+extern crate wasm_bindgen;
 #[cfg(target_os = "emscripten")]
 extern crate web_sys;
 
@@ -351,6 +351,25 @@ pub struct SupportedStreamConfigRange {
     pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
     pub(crate) sample_format: SampleFormat,
+}
+
+/// Common iterator types used by backend implementations.
+///
+/// All backends use these same concrete iterator types for supported stream configurations.
+pub(crate) mod iter {
+    use super::SupportedStreamConfigRange;
+
+    /// Iterator type for supported input stream configurations.
+    ///
+    /// This is the iterator type returned by all backend implementations of
+    /// [`DeviceTrait::supported_input_configs`](crate::traits::DeviceTrait::supported_input_configs).
+    pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+
+    /// Iterator type for supported output stream configurations.
+    ///
+    /// This is the iterator type returned by all backend implementations of
+    /// [`DeviceTrait::supported_output_configs`](crate::traits::DeviceTrait::supported_output_configs).
+    pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 }
 
 /// Describes a single supported stream configuration, retrieved via either a
