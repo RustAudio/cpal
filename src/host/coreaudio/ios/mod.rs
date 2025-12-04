@@ -489,8 +489,14 @@ where
             Ok(cb) => cb,
         };
 
-        let latency_frames =
-            device_buffer_frames.unwrap_or_else(|| data.len() / buffer.mNumberChannels as usize);
+        let latency_frames = device_buffer_frames.unwrap_or_else(|| {
+            let channels = buffer.mNumberChannels as usize;
+            if channels > 0 {
+                data.len() / channels
+            } else {
+                0
+            }
+        });
         let delay = frames_to_duration(latency_frames, sample_rate);
         let capture = callback
             .sub(delay)
@@ -534,8 +540,14 @@ where
             Ok(cb) => cb,
         };
 
-        let latency_frames =
-            device_buffer_frames.unwrap_or_else(|| data.len() / buffer.mNumberChannels as usize);
+        let latency_frames = device_buffer_frames.unwrap_or_else(|| {
+            let channels = buffer.mNumberChannels as usize;
+            if channels > 0 {
+                data.len() / channels
+            } else {
+                0
+            }
+        });
         let delay = frames_to_duration(latency_frames, sample_rate);
         let playback = callback
             .add(delay)
