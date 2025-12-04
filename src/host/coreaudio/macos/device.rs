@@ -108,10 +108,10 @@ fn set_sample_rate(
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate.0;
-        let maybe_index = ranges
+        if !ranges
             .iter()
-            .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
-        if maybe_index.is_none() {
+            .any(|r| sample_rate as f64 >= r.mMinimum && sample_rate as f64 <= r.mMaximum)
+        {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
