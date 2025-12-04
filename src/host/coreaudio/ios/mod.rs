@@ -5,7 +5,6 @@ use std::sync::Mutex;
 use coreaudio::audio_unit::render_callback::data;
 use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
-use objc2_core_audio::kAudioDevicePropertyBufferFrameSize;
 use objc2_core_audio_types::AudioBuffer;
 
 use objc2_avf_audio::AVAudioSession;
@@ -106,7 +105,7 @@ impl Device {
         get_supported_stream_configs(true)
             .next()
             .map(|range| range.with_max_sample_rate())
-            .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
@@ -114,7 +113,7 @@ impl Device {
         get_supported_stream_configs(false)
             .last()
             .map(|range| range.with_max_sample_rate())
-            .ok_or_else(|| DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 }
 
@@ -380,7 +379,7 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
             channels,
             min_sample_rate: SampleRate(sample_rate),
             max_sample_rate: SampleRate(sample_rate),
-            buffer_size: buffer_size.clone(),
+            buffer_size,
             sample_format: SUPPORTED_SAMPLE_FORMAT,
         })
         .collect();
@@ -439,7 +438,7 @@ unsafe fn extract_audio_buffer(
 ) -> (AudioBuffer, Data) {
     let buffer = if is_input {
         // Input: access through buffer array
-        let ptr = (*args.data.data).mBuffers.as_ptr() as *const AudioBuffer;
+        let ptr = (*args.data.data).mBuffers.as_ptr();
         let len = (*args.data.data).mNumberBuffers as usize;
         let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
         buffers[0]
@@ -449,7 +448,7 @@ unsafe fn extract_audio_buffer(
     };
 
     let data = buffer.mData as *mut ();
-    let len = (buffer.mDataByteSize as usize / bytes_per_channel) as usize;
+    let len = buffer.mDataByteSize as usize / bytes_per_channel;
     let data = Data::from_parts(data, len, sample_format);
 
     (buffer, data)

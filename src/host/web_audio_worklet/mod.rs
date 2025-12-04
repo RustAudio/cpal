@@ -27,8 +27,7 @@ pub struct Stream {
     audio_context: web_sys::AudioContext,
 }
 
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;

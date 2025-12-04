@@ -1,0 +1,390 @@
+name: Platform Compatibility
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
+      - "Dockerfile*"
+      - "Cross.toml"
+  release:
+    types: [published]
+
+jobs:
+  # Linux x86_64
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (no features)
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests (all features)
+        run: cargo test --all --all-features --verbose
+
+  # Linux ARM64
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (no features)
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests (all features)
+        run: cargo test --all --all-features --verbose
+
+  # Linux ARMv7 (cross-compilation)
+  linux-armv7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: armv7-unknown-linux-gnueabihf
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-armv7
+
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Test (no features)
+        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+
+      - name: Test (all features)
+        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+
+  # Windows x86_64
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup ASIO SDK
+        run: |
+          curl -L -o asio.zip https://www.steinberg.net/asiosdk
+          7z x -oasio asio.zip
+          move asio\*\* asio\
+          choco install asio4all
+          choco install llvm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (no features)
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests (all features)
+        env:
+          CPAL_ASIO_DIR: ${{ github.workspace }}/asio
+        run: cargo test --all --all-features --verbose
+
+  # Windows i686
+  windows-x86:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup ASIO SDK
+        run: |
+          curl -L -o asio.zip https://www.steinberg.net/asiosdk
+          7z x -oasio asio.zip
+          move asio\*\* asio\
+          choco install asio4all
+          choco install llvm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: i686-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (no features)
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests (all features)
+        env:
+          CPAL_ASIO_DIR: ${{ github.workspace }}/asio
+        run: cargo test --all --all-features --verbose
+
+  # macOS ARM64
+  macos:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: brew install llvm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build beep example
+        run: cargo build --example beep
+
+      - name: Run tests (no features)
+        run: cargo test --all --no-default-features --verbose
+
+      - name: Run tests (all features)
+        run: cargo test --all --all-features --verbose
+
+  # Android
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: Check Android examples
+        run: |
+          cargo check --example beep --target armv7-linux-androideabi --verbose
+          cargo check --example enumerate --target armv7-linux-androideabi --verbose
+          cargo check --example feedback --target armv7-linux-androideabi --verbose
+          cargo check --example record_wav --target armv7-linux-androideabi --verbose
+
+      - name: Check Android project
+        working-directory: examples/android
+        run: cargo check --target armv7-linux-androideabi --verbose
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-30 build-tools;30.0.3
+
+      - name: Install cargo-apk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-apk
+
+      - name: Build APK
+        working-directory: examples/android
+        run: cargo apk build
+
+  # iOS
+  ios:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: brew install llvm
+
+      - name: Install Rust toolchain (iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - name: Install cargo-lipo
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-lipo
+
+      - name: Build iOS example
+        run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
+
+  # WebAssembly
+  wasm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: wasm32-unknown-emscripten
+            setup-emscripten: true
+            args: --release
+
+          - target: wasm32-unknown-unknown
+            args: --features=wasm-bindgen
+            build-wasm-beep: true
+
+          - target: wasm32-unknown-unknown
+            args: --features=web_audio_worklet
+            build-worklet-beep: true
+            rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+
+          - target: wasm32-wasip1
+            args: ""
+
+    name: wasm-${{ matrix.target }}-${{ matrix.args }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Emscripten toolchain
+        if: matrix.setup-emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Install Rust toolchain (stable)
+        if: ${{ !matrix.build-worklet-beep }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install Rust toolchain (nightly for build-std)
+        if: matrix.build-worklet-beep
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          target: ${{ matrix.target }}
+          components: rust-src
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-${{ matrix.target }}-${{ matrix.args }}
+
+      - name: Build beep example
+        if: ${{ !matrix.build-worklet-beep && !matrix.build-wasm-beep }}
+        run: cargo build --example beep --target ${{ matrix.target }} ${{ matrix.args }}
+
+      - name: Build wasm-beep example
+        if: matrix.build-wasm-beep
+        working-directory: ./examples/wasm-beep
+        run: cargo build --target ${{ matrix.target }}
+
+      - name: Build web-audio-worklet-beep example
+        if: matrix.build-worklet-beep
+        working-directory: ./examples/web-audio-worklet-beep
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo +nightly build --target ${{ matrix.target }} -Z build-std=std,panic_abort
+
+  # Windows crate version compatibility
+  windows-versions:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["0.59.0", "0.60.0", "0.61.3"]
+
+    name: windows-crate-v${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: choco install llvm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-v${{ matrix.version }}
+
+      - name: Lock windows crate to specific version
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          cargo update --precise ${{ matrix.version }} windows
+          echo "Locked windows crate version:"
+          cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
+          echo "Cargo.lock entry:"
+          grep -A 5 "name = \"windows\"" Cargo.lock | head -10
+
+      - name: Check WASAPI with windows v${{ matrix.version }}
+        run: cargo check --verbose
+
+  # Release publishing (only on release events)
+  publish:
+    if: github.event_name == 'release'
+    needs:
+      - linux-x64
+      - linux-arm64
+      - linux-armv7
+      - windows-x64
+      - windows-x86
+      - macos
+      - android
+      - ios
+      - wasm
+      - windows-versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify release version
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Release tag version: $RELEASE_VERSION"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "❌ Version mismatch! Cargo.toml has $CARGO_VERSION but release tag is v$RELEASE_VERSION"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CRATESIO_TOKEN }}

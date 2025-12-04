@@ -144,9 +144,8 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type Devices = VecIntoIter<Device>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+pub type Devices = std::vec::IntoIter<Device>;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -206,7 +205,7 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
                     channels: *channel_count,
                     min_sample_rate: SampleRate(*sample_rate as u32),
                     max_sample_rate: SampleRate(*sample_rate as u32),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format: *sample_format,
                 });
             }
@@ -252,7 +251,7 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
                     channels: cmp::min(*channel_count as u16, 2u16),
                     min_sample_rate: SampleRate(*sample_rate as u32),
                     max_sample_rate: SampleRate(*sample_rate as u32),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format: *format,
                 });
             }
@@ -323,6 +322,10 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+    // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
+    // is safe because the Mutex provides exclusive access and AudioStream's thread safety
+    // is documented in the AAudio C API.
+    #[allow(clippy::arc_with_non_send_sync)]
     Ok(Stream::Input(Arc::new(Mutex::new(stream))))
 }
 
@@ -365,6 +368,10 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+    // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
+    // is safe because the Mutex provides exclusive access and AudioStream's thread safety
+    // is documented in the AAudio C API.
+    #[allow(clippy::arc_with_non_send_sync)]
     Ok(Stream::Output(Arc::new(Mutex::new(stream))))
 }
 

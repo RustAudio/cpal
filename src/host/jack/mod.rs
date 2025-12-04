@@ -1,17 +1,19 @@
 extern crate jack;
 
 use crate::traits::HostTrait;
-use crate::{DevicesError, SampleFormat, SupportedStreamConfigRange};
+use crate::{DevicesError, SampleFormat};
 
 mod device;
-pub use self::device::Device;
-pub use self::stream::Stream;
 mod stream;
+
+#[allow(unused_imports)] // Re-exported for public API via platform module
+pub use self::{
+    device::{Device, SupportedInputConfigs, SupportedOutputConfigs},
+    stream::Stream,
+};
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
 pub type Devices = std::vec::IntoIter<Device>;
 
 /// The JACK Host type

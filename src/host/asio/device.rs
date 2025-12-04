@@ -1,5 +1,4 @@
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 use super::sys;
 use crate::BackendSpecificError;
@@ -7,7 +6,6 @@ use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
 use crate::DeviceDescriptionBuilder;
-use crate::DeviceDirection;
 use crate::DeviceId;
 use crate::DeviceIdError;
 use crate::DeviceNameError;

@@ -12,8 +12,7 @@ use std::time::Duration;
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
@@ -93,7 +92,7 @@ impl Device {
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
-        let buffer_size = self.buffer_size.clone();
+        let buffer_size = self.buffer_size;
         // The sample format for JACK audio ports is always "32-bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
@@ -119,7 +118,7 @@ impl Device {
                 channels,
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
-                buffer_size: f.buffer_size.clone(),
+                buffer_size: f.buffer_size,
                 sample_format: f.sample_format,
             });
         }
@@ -275,8 +274,8 @@ impl DeviceTrait for Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        // Device::name() can never fail in this implementation
-        self.name().unwrap() == other.name().unwrap()
+        // Device::id() can never fail in this implementation
+        self.id().unwrap() == other.id().unwrap()
     }
 }
 
@@ -284,6 +283,7 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name().unwrap().hash(state);
+        // Device::id() can never fail in this implementation
+        self.id().unwrap().hash(state);
     }
 }

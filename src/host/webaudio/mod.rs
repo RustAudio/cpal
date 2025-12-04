@@ -17,6 +17,9 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+/// Type alias for shared closure handles used in audio callbacks
+type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
+
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
@@ -27,7 +30,7 @@ pub struct Host;
 
 pub struct Stream {
     ctx: Arc<AudioContext>,
-    on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>>,
+    on_ended_closures: Vec<ClosureHandle>,
     config: StreamConfig,
     buffer_size_frames: usize,
 }
@@ -40,8 +43,7 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
@@ -120,7 +122,7 @@ impl Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -247,10 +249,12 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
+        // SAFETY: WASM is single-threaded, so Arc is safe even though AudioContext is not Send/Sync
+        #[allow(clippy::arc_with_non_send_sync)]
         let ctx = Arc::new(ctx);
 
         // A container for managing the lifecycle of the audio callbacks.
-        let mut on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>> = Vec::new();
+        let mut on_ended_closures: Vec<ClosureHandle> = Vec::new();
 
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
@@ -291,8 +295,9 @@ impl DeviceTrait for Device {
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
-            let on_ended_closure: Arc<RwLock<Option<Closure<dyn FnMut()>>>> =
-                Arc::new(RwLock::new(None));
+            // SAFETY: WASM is single-threaded, so Arc is safe even though Closure is not Send/Sync
+            #[allow(clippy::arc_with_non_send_sync)]
+            let on_ended_closure: ClosureHandle = Arc::new(RwLock::new(None));
             let on_ended_closure_handle = on_ended_closure.clone();
 
             on_ended_closure
@@ -340,7 +345,7 @@ impl DeviceTrait for Device {
                         #[cfg(not(target_feature = "atomics"))]
                         {
                             ctx_buffer
-                                .copy_to_channel(&mut temporary_channel_buffer, channel as i32)
+                                .copy_to_channel(&temporary_channel_buffer, channel as i32)
                                 .expect(
                                     "Unable to write sample data into the audio context buffer",
                                 );
@@ -411,7 +416,7 @@ impl Stream {
     /// Return the [`AudioContext`](https://developer.mozilla.org/docs/Web/API/AudioContext) used
     /// by this stream.
     pub fn audio_context(&self) -> &AudioContext {
-        &*self.ctx
+        &self.ctx
     }
 }
 
