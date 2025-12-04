@@ -34,6 +34,8 @@
 - CoreAudio: Fix timestamp accuracy.
 - CoreAudio: Make `Stream` implement `Send`.
 - CoreAudio: Remove `Clone` impl from `Stream`.
+- CoreAudio: Fix segfaults when enumerating devices.
+- CoreAudio: Fix undefined behavior related to null pointers and aligned reads.
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
 - iOS: Fix example by properly activating audio session.
 - iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
