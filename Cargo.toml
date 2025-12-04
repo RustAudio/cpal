@@ -10,10 +10,8 @@ edition = "2021"
 rust-version = "1.70"
 
 [features]
-asio = [
-    "asio-sys",
-    "num-traits",
-] # Only available on Windows. See README for setup instructions.
+asio = ["asio-sys", "num-traits"] # Only available on Windows. See README for setup instructions.
+pulseaudio = ["dep:pulseaudio", "dep:futures"] # Only available on some Unix platforms.
 
 # Only available on web when atomics are enabled. See README for what it does.
 web_audio_worklet = [
@@ -65,6 +63,8 @@ alsa = "0.10"
 libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
+pulseaudio = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.5"
