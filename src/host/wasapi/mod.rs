@@ -8,6 +8,7 @@ pub use self::stream::Stream;
 use crate::traits::HostTrait;
 use crate::BackendSpecificError;
 use crate::DevicesError;
+use crate::SupportedStreamConfigsError;
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
@@ -26,6 +27,30 @@ pub struct Host;
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
+    }
+
+    fn supported_input_configs(
+        &self,
+        device: &Device,
+    ) -> Result<SupportedInputConfigs, DevicesError> {
+        Ok(device.supported_input_configs()?)
+    }
+
+    fn supported_output_configs(
+        &self,
+        device: &Device,
+    ) -> Result<SupportedInputConfigs, DevicesError> {
+        Ok(device.supported_input_configs()?)
+    }
+}
+
+impl From<SupportedStreamConfigsError> for DevicesError {
+    fn from(err: SupportedStreamConfigsError) -> DevicesError {
+        DevicesError::BackendSpecific {
+            err: BackendSpecificError {
+                description: format!("SupportedStreamConfigsError: {}", err),
+            },
+        }
     }
 }
 
