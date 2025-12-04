@@ -24,7 +24,7 @@ use self::enumerate::{
     default_input_device, default_output_device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
-use std::slice;
+use std::ptr::NonNull;
 use std::time::Duration;
 
 pub mod enumerate;
@@ -438,18 +438,24 @@ unsafe fn extract_audio_buffer(
 ) -> (AudioBuffer, Data) {
     let buffer = if is_input {
         // Input: access through buffer array
-        let ptr = (*args.data.data).mBuffers.as_ptr();
-        let len = (*args.data.data).mNumberBuffers as usize;
-        let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
-        buffers[0]
+        let first_buf_ptr = core::ptr::addr_of!((*args.data.data).mBuffers) as *const AudioBuffer;
+        core::ptr::read_unaligned(first_buf_ptr)
     } else {
         // Output: direct access
-        (*args.data.data).mBuffers[0]
+        let buf_ptr = core::ptr::addr_of!((*args.data.data).mBuffers[0]);
+        core::ptr::read_unaligned(buf_ptr)
     };
 
-    let data = buffer.mData as *mut ();
-    let len = buffer.mDataByteSize as usize / bytes_per_channel;
-    let data = Data::from_parts(data, len, sample_format);
+    let mut data_ptr = buffer.mData as *mut ();
+    let mut len = buffer.mDataByteSize as usize / bytes_per_channel;
+
+    // SAFETY: slice::from_raw_parts requires a non-null pointer.
+    if data_ptr.is_null() {
+        data_ptr = NonNull::dangling().as_ptr();
+        len = 0;
+    }
+
+    let data = Data::from_parts(data_ptr, len, sample_format);
 
     (buffer, data)
 }
