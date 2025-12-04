@@ -221,7 +221,7 @@ impl Device {
                 }
 
                 (&sys::AsioSampleType::ASIOSTInt24LSB, SampleFormat::I24) => {
-                    process_input_callback_i24::<I24, _>(
+                    process_input_callback_i24(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
@@ -231,7 +231,7 @@ impl Device {
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
-                    process_input_callback_i24::<I24, _>(
+                    process_input_callback_i24(
                         &mut data_callback,
                         &mut interleaved,
                         asio_stream,
@@ -761,8 +761,7 @@ unsafe fn asio_channel_slice_mut<T>(
     requested_channel_length: Option<usize>,
 ) -> &mut [T] {
     let channel_length = requested_channel_length.unwrap_or(asio_stream.buffer_size as usize);
-    let buff_ptr: *mut T =
-        asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
+    let buff_ptr: *mut T = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
     std::slice::from_raw_parts_mut(buff_ptr, channel_length)
 }
 
@@ -863,7 +862,7 @@ unsafe fn process_output_callback_i24<D>(
     }
 }
 
-unsafe fn process_input_callback_i24<A, D>(
+unsafe fn process_input_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
     asio_stream: &sys::AsioStream,
@@ -871,7 +870,6 @@ unsafe fn process_input_callback_i24<A, D>(
     sample_rate: crate::SampleRate,
     little_endian: bool,
 ) where
-    A: Copy,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
     let format = SampleFormat::I24;
