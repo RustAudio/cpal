@@ -1,22 +1,23 @@
 use num_traits::FromPrimitive;
 
-use crate::SampleFormat;
+use crate::{DeviceDirection, SampleFormat};
 
 use super::{
+    android_device_flags,
     utils::{
         call_method_no_args_ret_bool, call_method_no_args_ret_char_sequence,
         call_method_no_args_ret_int, call_method_no_args_ret_int_array,
         call_method_no_args_ret_string, get_context, get_devices, get_system_service,
         with_attached, JNIEnv, JObject, JResult,
     },
-    AudioDeviceDirection, AudioDeviceInfo, AudioDeviceType, Context,
+    AudioDeviceInfo, AudioDeviceType, Context,
 };
 
 impl AudioDeviceInfo {
     /**
      * Request audio devices using Android Java API
      */
-    pub fn request(direction: AudioDeviceDirection) -> Result<Vec<AudioDeviceInfo>, String> {
+    pub fn request(direction: DeviceDirection) -> Result<Vec<AudioDeviceInfo>, String> {
         let context = get_context();
 
         with_attached(context, |env, context| {
@@ -40,11 +41,11 @@ impl AudioDeviceInfo {
 fn try_request_devices_info<'j>(
     env: &mut JNIEnv<'j>,
     context: &JObject<'j>,
-    direction: AudioDeviceDirection,
+    direction: DeviceDirection,
 ) -> JResult<Vec<AudioDeviceInfo>> {
     let audio_manager = get_system_service(env, context, Context::AUDIO_SERVICE)?;
 
-    let devices = get_devices(env, &audio_manager, direction as i32)?;
+    let devices = get_devices(env, &audio_manager, android_device_flags(direction))?;
 
     let length = env.get_array_length(&devices)?;
 
@@ -60,10 +61,10 @@ fn try_request_devices_info<'j>(
             let device_type =
                 FromPrimitive::from_i32(call_method_no_args_ret_int(env, &device, "getType")?)
                     .unwrap_or(AudioDeviceType::Unsupported);
-            let direction = AudioDeviceDirection::new(
-                call_method_no_args_ret_bool(env, &device, "isSource")?,
-                call_method_no_args_ret_bool(env, &device, "isSink")?,
-            );
+
+            let is_source = call_method_no_args_ret_bool(env, &device, "isSource")?;
+            let is_sink = call_method_no_args_ret_bool(env, &device, "isSink")?;
+            let direction = crate::device_description::direction_from_caps(is_source, is_sink);
             let channel_counts =
                 call_method_no_args_ret_int_array(env, &device, "getChannelCounts")?;
             let sample_rates = call_method_no_args_ret_int_array(env, &device, "getSampleRates")?;

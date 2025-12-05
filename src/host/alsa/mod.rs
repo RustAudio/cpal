@@ -3,7 +3,7 @@ extern crate libc;
 
 use std::{
     cell::Cell,
-    cmp, fmt,
+    cmp,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
@@ -16,11 +16,30 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
+
+impl From<alsa::Direction> for DeviceDirection {
+    fn from(direction: alsa::Direction) -> Self {
+        match direction {
+            alsa::Direction::Capture => DeviceDirection::Input,
+            alsa::Direction::Playback => DeviceDirection::Output,
+        }
+    }
+}
+
+/// Parses ALSA multi-line description into separate lines.
+fn parse_alsa_description(description: &str) -> Vec<String> {
+    description
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
 
 // ALSA Buffer Size Behavior
 // =========================
@@ -73,8 +92,7 @@ use crate::{
 // (start_threshold = 2 periods), ensuring low latency even with large multi-period ring
 // buffers.
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 mod enumerate;
 
@@ -115,8 +133,13 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
+    // ALSA overrides name() to return pcm_id directly instead of from description
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -283,6 +306,7 @@ impl DeviceHandles {
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
+    direction: Option<alsa::Direction>,
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
@@ -378,14 +402,34 @@ impl Device {
         Ok(stream_inner)
     }
 
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.to_string())
+        Ok(self.pcm_id.clone())
     }
 
-    #[inline]
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        let name = self
+            .desc
+            .as_ref()
+            .and_then(|desc| desc.lines().next())
+            .unwrap_or(&self.pcm_id)
+            .to_string();
+
+        let mut builder = DeviceDescriptionBuilder::new(name).driver(self.pcm_id.clone());
+
+        if let Some(ref desc) = self.desc {
+            let lines = parse_alsa_description(desc);
+            builder = builder.extended(lines);
+        }
+
+        if let Some(dir) = self.direction {
+            builder = builder.direction(dir.into());
+        }
+
+        Ok(builder.build())
+    }
+
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::ALSA(self.pcm_id.clone()))
+        Ok(DeviceId(crate::platform::HostId::Alsa, self.pcm_id.clone()))
     }
 
     fn supported_configs(
@@ -469,15 +513,10 @@ impl Device {
         let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
             vec![(min_rate, max_rate)]
         } else {
-            const RATES: [libc::c_uint; 19] = [
-                5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200,
-                96000, 176400, 192000, 352800, 384000, 705600, 768000,
-            ];
-
             let mut rates = Vec::new();
-            for &rate in RATES.iter() {
-                if hw_params.test_rate(rate).is_ok() {
-                    rates.push((rate, rate));
+            for &sample_rate in crate::COMMON_SAMPLE_RATES.iter() {
+                if hw_params.test_rate(sample_rate.0).is_ok() {
+                    rates.push((sample_rate.0, sample_rate.0));
                 }
             }
 
@@ -1153,9 +1192,10 @@ impl StreamTrait for Stream {
     }
 }
 
-// Overly safe clamp because alsa Frames are i64 (64-bit) or i32 (32-bit)
+// Convert ALSA frames to FrameCount, clamping to valid range.
+// ALSA Frames are i64 (64-bit) or i32 (32-bit).
 fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
-    buffer_size.clamp(1, FrameCount::MAX as alsa::pcm::Frames) as FrameCount
+    buffer_size.max(1).try_into().unwrap_or(FrameCount::MAX)
 }
 
 fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
@@ -1445,15 +1485,5 @@ impl From<alsa::Error> for StreamError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
-    }
-}
-
-impl fmt::Display for Device {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(desc) = &self.desc {
-            write!(f, "{} ({})", self.pcm_id, desc.replace('\n', ", "))
-        } else {
-            write!(f, "{}", self.pcm_id)
-        }
     }
 }

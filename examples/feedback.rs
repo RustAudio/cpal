@@ -17,12 +17,12 @@ use ringbuf::{
 #[command(version, about = "CPAL feedback example", long_about = None)]
 struct Opt {
     /// The input audio device to use
-    #[arg(short, long, value_name = "IN", default_value_t = String::from("default"))]
-    input_device: String,
+    #[arg(short, long, value_name = "IN")]
+    input_device: Option<String>,
 
     /// The output audio device to use
-    #[arg(short, long, value_name = "OUT", default_value_t = String::from("default"))]
-    output_device: String,
+    #[arg(short, long, value_name = "OUT")]
+    output_device: Option<String>,
 
     /// Specify the delay between input and output
     #[arg(short, long, value_name = "DELAY_MS", default_value_t = 150.0)]
@@ -81,24 +81,24 @@ fn main() -> anyhow::Result<()> {
     let host = cpal::default_host();
 
     // Find devices.
-    let input_device = if opt.input_device == "default" {
-        host.default_input_device()
+    let input_device = if let Some(device) = opt.input_device {
+        let id = &device.parse().expect("failed to parse input device id");
+        host.device_by_id(id)
     } else {
-        host.input_devices()?
-            .find(|x| x.name().map(|y| y == opt.input_device).unwrap_or(false))
+        host.default_input_device()
     }
     .expect("failed to find input device");
 
-    let output_device = if opt.output_device == "default" {
-        host.default_output_device()
+    let output_device = if let Some(device) = opt.output_device {
+        let id = &device.parse().expect("failed to parse output device id");
+        host.device_by_id(id)
     } else {
-        host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.output_device).unwrap_or(false))
+        host.default_output_device()
     }
     .expect("failed to find output device");
 
-    println!("Using input device: \"{}\"", input_device.name()?);
-    println!("Using output device: \"{}\"", output_device.name()?);
+    println!("Using input device: \"{}\"", input_device.id()?);
+    println!("Using output device: \"{}\"", output_device.id()?);
 
     // We'll try and use the same configuration between streams to keep it simple.
     let config: cpal::StreamConfig = input_device.default_input_config()?.into();

@@ -7,21 +7,91 @@ use std::vec::IntoIter as VecIntoIter;
 extern crate ndk;
 
 use convert::{stream_instant, to_stream_instant};
-use java_interface::{AudioDeviceDirection, AudioDeviceInfo, AudioManager};
+use java_interface::{AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
+    DeviceNameError, DeviceType, DevicesError, InputCallbackInfo, InputStreamTimestamp,
+    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 mod convert;
 mod java_interface;
 
 use self::ndk::audio::AudioStream;
+use java_interface::AudioDeviceType as AndroidDeviceType;
+
+impl From<AndroidDeviceType> for DeviceType {
+    fn from(device_type: AndroidDeviceType) -> Self {
+        match device_type {
+            AndroidDeviceType::BuiltinSpeaker
+            | AndroidDeviceType::BuiltinSpeakerSafe
+            | AndroidDeviceType::BleSpeaker => DeviceType::Speaker,
+
+            AndroidDeviceType::BuiltinMic => DeviceType::Microphone,
+
+            AndroidDeviceType::WiredHeadphones => DeviceType::Headphones,
+
+            AndroidDeviceType::WiredHeadset
+            | AndroidDeviceType::UsbHeadset
+            | AndroidDeviceType::BleHeadset
+            | AndroidDeviceType::BluetoothSCO => DeviceType::Headset,
+
+            AndroidDeviceType::BuiltinEarpiece => DeviceType::Earpiece,
+
+            AndroidDeviceType::HearingAid => DeviceType::HearingAid,
+
+            AndroidDeviceType::Dock => DeviceType::Dock,
+
+            AndroidDeviceType::Fm | AndroidDeviceType::FmTuner | AndroidDeviceType::TvTuner => {
+                DeviceType::Tuner
+            }
+
+            AndroidDeviceType::RemoteSubmix => DeviceType::Virtual,
+
+            _ => DeviceType::Unknown,
+        }
+    }
+}
+
+impl From<AndroidDeviceType> for InterfaceType {
+    fn from(device_type: AndroidDeviceType) -> Self {
+        match device_type {
+            AndroidDeviceType::UsbDevice
+            | AndroidDeviceType::UsbAccessory
+            | AndroidDeviceType::UsbHeadset => InterfaceType::Usb,
+
+            AndroidDeviceType::BluetoothA2DP
+            | AndroidDeviceType::BluetoothSCO
+            | AndroidDeviceType::BleHeadset
+            | AndroidDeviceType::BleSpeaker
+            | AndroidDeviceType::BleBroadcast => InterfaceType::Bluetooth,
+
+            AndroidDeviceType::Hdmi | AndroidDeviceType::HdmiArc | AndroidDeviceType::HdmiEarc => {
+                InterfaceType::Hdmi
+            }
+
+            AndroidDeviceType::LineAnalog
+            | AndroidDeviceType::LineDigital
+            | AndroidDeviceType::AuxLine => InterfaceType::Line,
+
+            AndroidDeviceType::BuiltinEarpiece
+            | AndroidDeviceType::BuiltinMic
+            | AndroidDeviceType::BuiltinSpeaker
+            | AndroidDeviceType::BuiltinSpeakerSafe => InterfaceType::BuiltIn,
+
+            AndroidDeviceType::Ip => InterfaceType::Network,
+
+            AndroidDeviceType::RemoteSubmix => InterfaceType::Virtual,
+
+            _ => InterfaceType::Unknown,
+        }
+    }
+}
 
 // constants from android.media.AudioFormat
 const CHANNEL_OUT_MONO: i32 = 4;
@@ -74,9 +144,8 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type Devices = VecIntoIter<Device>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+pub type Devices = std::vec::IntoIter<Device>;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -93,7 +162,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        if let Ok(devices) = AudioDeviceInfo::request(AudioDeviceDirection::InputOutput) {
+        if let Ok(devices) = AudioDeviceInfo::request(DeviceDirection::Duplex) {
             Ok(devices
                 .into_iter()
                 .map(|d| Device(Some(d)))
@@ -136,7 +205,7 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
                     channels: *channel_count,
                     min_sample_rate: SampleRate(*sample_rate as u32),
                     max_sample_rate: SampleRate(*sample_rate as u32),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format: *sample_format,
                 });
             }
@@ -182,7 +251,7 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
                     channels: cmp::min(*channel_count as u16, 2u16),
                     min_sample_rate: SampleRate(*sample_rate as u32),
                     max_sample_rate: SampleRate(*sample_rate as u32),
-                    buffer_size: buffer_size.clone(),
+                    buffer_size,
                     sample_format: *format,
                 });
             }
@@ -253,6 +322,10 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+    // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
+    // is safe because the Mutex provides exclusive access and AudioStream's thread safety
+    // is documented in the AAudio C API.
+    #[allow(clippy::arc_with_non_send_sync)]
     Ok(Stream::Input(Arc::new(Mutex::new(stream))))
 }
 
@@ -295,6 +368,10 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+    // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
+    // is safe because the Mutex provides exclusive access and AudioStream's thread safety
+    // is documented in the AAudio C API.
+    #[allow(clippy::arc_with_non_send_sync)]
     Ok(Stream::Output(Arc::new(Mutex::new(stream))))
 }
 
@@ -305,7 +382,7 @@ impl DeviceTrait for Device {
 
     fn name(&self) -> Result<String, DeviceNameError> {
         match &self.0 {
-            None => Ok("default".to_owned()),
+            None => Ok("default".to_string()),
             Some(info) => {
                 let name = if info.address.is_empty() {
                     format!("{}:{:?}", info.product_name, info.device_type)
@@ -320,31 +397,53 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         match &self.0 {
-            None => Ok(DeviceId::AAudio(-1)), // Default device
-            Some(info) => Ok(DeviceId::AAudio(info.id)),
+            None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
+            Some(info) => {
+                let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
+                    .device_type(info.device_type.into())
+                    .interface_type(info.device_type.into())
+                    .direction(info.direction);
+
+                // Add address if not empty
+                if !info.address.is_empty() {
+                    builder = builder.address(info.address.clone());
+                }
+
+                Ok(builder.build())
+            }
         }
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        let device_str = match &self.0 {
+            None => "-1".to_string(), // Default device
+            Some(info) => info.id.to_string(),
+        };
+        Ok(DeviceId(crate::platform::HostId::AAudio, device_str))
     }
 
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info))
+        let configs = if let Some(info) = &self.0 {
+            device_supported_configs(info)
         } else {
-            Ok(default_supported_configs())
-        }
+            default_supported_configs()
+        };
+        Ok(configs)
     }
 
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        if let Some(info) = &self.0 {
-            Ok(device_supported_configs(info))
+        let configs = if let Some(info) = &self.0 {
+            device_supported_configs(info)
         } else {
-            Ok(default_supported_configs())
-        }
+            default_supported_configs()
+        };
+        Ok(configs)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {

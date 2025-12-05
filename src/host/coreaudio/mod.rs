@@ -14,6 +14,7 @@ mod ios;
 mod macos;
 
 #[cfg(target_os = "ios")]
+#[allow(unused_imports)]
 pub use self::ios::{
     enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,

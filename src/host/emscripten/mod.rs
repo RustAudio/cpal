@@ -7,10 +7,11 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
+    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
+    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -42,12 +43,7 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-// Index within the `streams` array of the events loop.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
-
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
@@ -72,24 +68,25 @@ impl Devices {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Emscripten("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::Emscripten,
+            "default".to_string(),
+        ))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!();
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
@@ -102,7 +99,7 @@ impl Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -153,8 +150,8 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -319,7 +316,7 @@ where
         let buffer = context
             .create_buffer(
                 config.channels as u32,
-                buffer_size_frames as u32,
+                buffer_size_frames,
                 sample_rate as f32,
             )
             .expect("Buffer could not be created");
@@ -352,7 +349,7 @@ where
             data_callback,
             &config,
             sample_format,
-            buffer_size_frames as u32,
+            buffer_size_frames,
         );
     }
 }
@@ -370,7 +367,7 @@ fn set_timeout<D>(
     let window = web_sys::window().expect("Not in a window somehow?");
     window
         .set_timeout_with_callback_and_timeout_and_arguments_4(
-            &Closure::once_into_js(audio_callback_fn(data_callback))
+            Closure::once_into_js(audio_callback_fn(data_callback))
                 .dyn_ref::<js_sys::Function>()
                 .expect("The function was somehow not a function"),
             time,
@@ -390,7 +387,7 @@ impl Default for Devices {
 }
 impl Iterator for Devices {
     type Item = Device;
-    #[inline]
+
     fn next(&mut self) -> Option<Device> {
         if self.0 {
             self.0 = false;
@@ -401,12 +398,10 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 fn default_input_device() -> Option<Device> {
     unimplemented!();
 }
 
-#[inline]
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)

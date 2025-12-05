@@ -42,21 +42,19 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 pub fn default_input_device() -> Option<Device> {
     Some(default_device())
 }
 
-#[inline]
 pub fn default_output_device() -> Option<Device> {
     Some(default_device())
 }
 
-#[inline]
 pub fn default_device() -> Device {
     Device {
         pcm_id: "default".to_string(),
         desc: Some("Default Audio Device".to_string()),
+        direction: None,
         handles: Arc::new(Mutex::new(Default::default())),
     }
 }
@@ -80,6 +78,7 @@ impl TryFrom<alsa::device_name::Hint> for Device {
         Ok(Self {
             pcm_id: pcm_id.to_owned(),
             desc: hint.desc,
+            direction: None,
             handles: Arc::new(Mutex::new(Default::default())),
         })
     }

@@ -7,15 +7,18 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
+    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
+    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+
+/// Type alias for shared closure handles used in audio callbacks
+type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
@@ -27,7 +30,7 @@ pub struct Host;
 
 pub struct Stream {
     ctx: Arc<AudioContext>,
-    on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>>,
+    on_ended_closures: Vec<ClosureHandle>,
     config: StreamConfig,
     buffer_size_frames: usize,
 }
@@ -40,8 +43,7 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
@@ -88,17 +90,19 @@ impl Devices {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::WebAudio("default".to_string()))
+        Ok(DeviceId(
+            crate::platform::HostId::WebAudio,
+            "default".to_string(),
+        ))
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -106,7 +110,6 @@ impl Device {
         Ok(Vec::new().into_iter())
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
@@ -119,20 +122,18 @@ impl Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
         Ok(configs.into_iter())
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         // TODO
         Err(DefaultStreamConfigError::StreamTypeNotSupported)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
@@ -151,36 +152,30 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
         Device::id(self)
     }
 
-    #[inline]
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         Device::supported_input_configs(self)
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         Device::supported_output_configs(self)
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_input_config(self)
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         Device::default_output_config(self)
     }
@@ -235,8 +230,8 @@ impl DeviceTrait for Device {
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
 
         // Create the WebAudio stream.
-        let mut stream_opts = AudioContextOptions::new();
-        stream_opts.sample_rate(config.sample_rate.0 as f32);
+        let stream_opts = AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate.0 as f32);
         let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
                 let description = format!("{:?}", err);
@@ -254,10 +249,12 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
+        // SAFETY: WASM is single-threaded, so Arc is safe even though AudioContext is not Send/Sync
+        #[allow(clippy::arc_with_non_send_sync)]
         let ctx = Arc::new(ctx);
 
         // A container for managing the lifecycle of the audio callbacks.
-        let mut on_ended_closures: Vec<Arc<RwLock<Option<Closure<dyn FnMut()>>>>> = Vec::new();
+        let mut on_ended_closures: Vec<ClosureHandle> = Vec::new();
 
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
@@ -298,8 +295,9 @@ impl DeviceTrait for Device {
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
-            let on_ended_closure: Arc<RwLock<Option<Closure<dyn FnMut()>>>> =
-                Arc::new(RwLock::new(None));
+            // SAFETY: WASM is single-threaded, so Arc is safe even though Closure is not Send/Sync
+            #[allow(clippy::arc_with_non_send_sync)]
+            let on_ended_closure: ClosureHandle = Arc::new(RwLock::new(None));
             let on_ended_closure_handle = on_ended_closure.clone();
 
             on_ended_closure
@@ -347,7 +345,7 @@ impl DeviceTrait for Device {
                         #[cfg(not(target_feature = "atomics"))]
                         {
                             ctx_buffer
-                                .copy_to_channel(&mut temporary_channel_buffer, channel as i32)
+                                .copy_to_channel(&temporary_channel_buffer, channel as i32)
                                 .expect(
                                     "Unable to write sample data into the audio context buffer",
                                 );
@@ -381,15 +379,18 @@ impl DeviceTrait for Device {
                         .expect(
                         "Unable to connect the web audio buffer source to the context destination",
                     );
-                    source.set_onended(Some(
-                        on_ended_closure_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .unwrap()
-                            .as_ref()
-                            .unchecked_ref(),
-                    ));
+                    source
+                        .add_event_listener_with_callback(
+                            "ended",
+                            on_ended_closure_handle
+                                .read()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
+                                .unchecked_ref(),
+                        )
+                        .expect("Failed to add ended event listener");
 
                     source
                         .start_with_when(time_at_start_of_buffer)
@@ -415,7 +416,7 @@ impl Stream {
     /// Return the [`AudioContext`](https://developer.mozilla.org/docs/Web/API/AudioContext) used
     /// by this stream.
     pub fn audio_context(&self) -> &AudioContext {
-        &*self.ctx
+        &self.ctx
     }
 }
 
@@ -482,6 +483,7 @@ impl Default for Devices {
 
 impl Iterator for Devices {
     type Item = Device;
+
     #[inline]
     fn next(&mut self) -> Option<Device> {
         if self.0 {
@@ -493,13 +495,11 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 fn default_input_device() -> Option<Device> {
     // TODO
     None
 }
 
-#[inline]
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)

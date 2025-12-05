@@ -1,9 +1,10 @@
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceId,
-    DeviceIdError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
@@ -11,25 +12,17 @@ use std::time::Duration;
 use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
 
-pub type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
 
-/// If a device is for input or output.
-/// Until we have duplex stream support JACK clients and CPAL devices for JACK will be either input or output.
-#[derive(Clone, Debug)]
-pub enum DeviceType {
-    InputDevice,
-    OutputDevice,
-}
 #[derive(Clone, Debug)]
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
-    device_type: DeviceType,
+    direction: DeviceDirection,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
 }
@@ -39,7 +32,7 @@ impl Device {
         name: String,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-        device_type: DeviceType,
+        direction: DeviceDirection,
     ) -> Result<Self, String> {
         // ClientOptions are bit flags that you can set with the constants provided
         let client_options = super::get_client_options(start_server_automatically);
@@ -56,7 +49,7 @@ impl Device {
                     min: client.buffer_size(),
                     max: client.buffer_size(),
                 },
-                device_type,
+                direction,
                 start_server_automatically,
                 connect_ports_automatically,
             }),
@@ -65,7 +58,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId::Jack(self.name.clone()))
+        Ok(DeviceId(crate::platform::HostId::Jack, self.name.clone()))
     }
 
     pub fn default_output_device(
@@ -78,7 +71,7 @@ impl Device {
             output_client_name,
             connect_ports_automatically,
             start_server_automatically,
-            DeviceType::OutputDevice,
+            DeviceDirection::Output,
         )
     }
 
@@ -92,14 +85,14 @@ impl Device {
             input_client_name,
             connect_ports_automatically,
             start_server_automatically,
-            DeviceType::InputDevice,
+            DeviceDirection::Input,
         )
     }
 
     pub fn default_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let channels = DEFAULT_NUM_CHANNELS;
         let sample_rate = self.sample_rate;
-        let buffer_size = self.buffer_size.clone();
+        let buffer_size = self.buffer_size;
         // The sample format for JACK audio ports is always "32-bit float mono audio" in the current implementation.
         // Custom formats are allowed within JACK, but this is of niche interest.
         // The format can be found programmatically by calling jack::PortSpec::port_type() on a created port.
@@ -125,7 +118,7 @@ impl Device {
                 channels,
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
-                buffer_size: f.buffer_size.clone(),
+                buffer_size: f.buffer_size,
                 sample_format: f.sample_format,
             });
         }
@@ -133,11 +126,11 @@ impl Device {
     }
 
     pub fn is_input(&self) -> bool {
-        matches!(self.device_type, DeviceType::InputDevice)
+        matches!(self.direction, DeviceDirection::Input)
     }
 
     pub fn is_output(&self) -> bool {
-        matches!(self.device_type, DeviceType::OutputDevice)
+        matches!(self.direction, DeviceDirection::Output)
     }
 
     /// Validate buffer size if Fixed is specified. This is necessary because JACK buffer size
@@ -160,8 +153,10 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.name.clone())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new(self.name.clone())
+            .direction(self.direction)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -206,7 +201,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::OutputDevice = &self.device_type {
+        if self.is_output() {
             // Trying to create an input stream from an output device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
@@ -247,7 +242,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        if let DeviceType::InputDevice = &self.device_type {
+        if self.is_input() {
             // Trying to create an output stream from an input device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
@@ -279,8 +274,8 @@ impl DeviceTrait for Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        // Device::name() can never fail in this implementation
-        self.name().unwrap() == other.name().unwrap()
+        // Device::id() can never fail in this implementation
+        self.id().unwrap() == other.id().unwrap()
     }
 }
 
@@ -288,6 +283,7 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name().unwrap().hash(state);
+        // Device::id() can never fail in this implementation
+        self.id().unwrap().hash(state);
     }
 }
