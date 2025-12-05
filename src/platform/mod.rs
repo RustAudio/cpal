@@ -100,7 +100,7 @@ macro_rules! impl_platform_host {
         /// - `"null"` - Null host
         /// - `"wasapi"` - Windows Audio Session API
         /// - `"webaudio"` - Web Audio API
-        /// - `"webaudioworklet"` - Web Audio Worklet
+        /// - `"audioworklet"` - Audio Worklet
         ///
         /// # Cross-Platform Example
         ///
@@ -734,12 +734,12 @@ mod platform_impl {
 mod platform_impl {
     pub use crate::host::webaudio::Host as WebAudioHost;
 
-    #[cfg(feature = "web_audio_worklet")]
-    pub use crate::host::web_audio_worklet::Host as WebAudioWorkletHost;
+    #[cfg(feature = "audioworklet")]
+    pub use crate::host::audioworklet::Host as AudioWorkletHost;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
-        #[cfg(feature = "web_audio_worklet")] WebAudioWorklet => WebAudioWorkletHost,
+        #[cfg(feature = "audioworklet")] AudioWorklet => AudioWorkletHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 

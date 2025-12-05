@@ -9,6 +9,13 @@ pub(crate) mod aaudio;
 pub(crate) mod alsa;
 #[cfg(all(windows, feature = "asio"))]
 pub(crate) mod asio;
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "wasm-bindgen",
+    feature = "audioworklet",
+    target_feature = "atomics"
+))]
+pub(crate) mod audioworklet;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod coreaudio;
 #[cfg(target_os = "emscripten")]
@@ -25,13 +32,6 @@ pub(crate) mod emscripten;
 pub(crate) mod jack;
 #[cfg(windows)]
 pub(crate) mod wasapi;
-#[cfg(all(
-    target_arch = "wasm32",
-    feature = "wasm-bindgen",
-    feature = "web_audio_worklet",
-    target_feature = "atomics"
-))]
-pub(crate) mod web_audio_worklet;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 pub(crate) mod webaudio;
 

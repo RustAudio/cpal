@@ -48,8 +48,8 @@ pub fn main_js() -> Result<(), JsValue> {
 }
 
 fn beep() -> Stream {
-    let host = cpal::host_from_id(cpal::HostId::WebAudioWorklet)
-        .expect("WebAudioWorklet host not available");
+    let host =
+        cpal::host_from_id(cpal::HostId::AudioWorklet).expect("AudioWorklet host not available");
 
     let device = host
         .default_output_device()
