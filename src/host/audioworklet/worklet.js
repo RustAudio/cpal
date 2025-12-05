@@ -27,14 +27,20 @@ registerProcessor("CpalProcessor", class WasmProcessor extends AudioWorkletProce
         const interleaved_start = interleaved_ptr / 4; // Convert byte offset to f32 index
         const interleaved = this.wasm_memory;
 
+        const total_samples = frame_size * channels_count;
+        if (interleaved_start + total_samples > this.wasm_memory.length) {
+            console.error("CpalProcessor: Audio buffer out of bounds! Ptr:", interleaved_ptr, "Len:", total_samples);
+            return false; // Safely stop the node
+        }
+
         // Deinterleave: read strided from Wasm, write sequential to output
         for (let ch = 0; ch < channels_count; ch++) {
             const channel = channels[ch];
-            let src = interleaved_start + ch;
+            let read_pos = interleaved_start + ch;
 
             for (let i = 0; i < frame_size; i++) {
-                channel[i] = interleaved[src];
-                src += channels_count;
+                channel[i] = interleaved[read_pos];
+                read_pos += channels_count;
             }
         }
 
