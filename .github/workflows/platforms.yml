@@ -264,7 +264,7 @@ jobs:
             build-wasm-beep: true
 
           - target: wasm32-unknown-unknown
-            args: --features=web_audio_worklet
+            args: --features=audioworklet
             build-worklet-beep: true
             rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
 
@@ -306,9 +306,9 @@ jobs:
         working-directory: ./examples/wasm-beep
         run: cargo build --target ${{ matrix.target }}
 
-      - name: Build web-audio-worklet-beep example
+      - name: Build audioworklet-beep example
         if: matrix.build-worklet-beep
-        working-directory: ./examples/web-audio-worklet-beep
+        working-directory: ./examples/audioworklet-beep
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo +nightly build --target ${{ matrix.target }} -Z build-std=std,panic_abort

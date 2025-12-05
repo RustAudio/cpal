@@ -5,5 +5,5 @@
 recorded.wav
 rls*.log
 /.direnv
-!/examples/web-audio-worklet-beep/.cargo/
+!/examples/audioworklet-beep/.cargo/
 

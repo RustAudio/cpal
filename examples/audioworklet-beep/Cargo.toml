@@ -1,5 +1,5 @@
 [package]
-name = "web-audio-worklet-beep"
+name = "audioworklet-beep"
 description = "cpal beep example for WebAssembly on an AudioWorklet"
 version = "0.1.0"
 edition = "2018"
