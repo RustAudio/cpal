@@ -9,7 +9,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_long, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
 
@@ -314,6 +314,14 @@ static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Ve
 
 /// Indicates that ASIOOutputReady should be called
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MessageCallbackId(usize);
+
+struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) + Send + Sync>);
+
+/// A global registry for ASIO message callbacks.
+static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
 
 impl Asio {
     /// Initialise the ASIO API.
@@ -743,6 +751,32 @@ impl Driver {
             }
         }
     }
+
+    /// Adds a callback to the list of message listeners.
+    ///
+    /// Returns an ID uniquely associated with the given callback so that it may be removed later.
+    pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
+    where
+        F: Fn(AsioMessageSelectors) + Send + Sync + 'static,
+    {
+        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
+        let id = mcb
+            .last()
+            .map(|&(id, _)| {
+                MessageCallbackId(id.0.checked_add(1).expect("MessageCallbackId overflowed"))
+            })
+            .unwrap_or(MessageCallbackId(0));
+
+        let cb = MessageCallback(Arc::new(callback));
+        mcb.push((id, cb));
+        id
+    }
+
+    /// Remove the callback with the given ID.
+    pub fn remove_message_callback(&self, rem_id: MessageCallbackId) {
+        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
+        mcb.retain(|&(id, _)| id != rem_id);
+    }
 }
 
 impl DriverState {
@@ -936,7 +970,17 @@ extern "C" fn asio_message(
             // You cannot reset the driver right now, as this code is called from the driver. Reset
             // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
             // Destruction. Afterwards you initialize the driver again.
-            // TODO: Handle this.
+
+            // Get the list of active message callbacks.
+            let callbacks: Vec<_> = {
+                let lock = MESSAGE_CALLBACKS.lock().unwrap();
+                lock.iter().map(|(_, cb)| cb.0.clone()).collect()
+            };
+            // Release lock and call them.
+            for cb in callbacks {
+                cb(AsioMessageSelectors::kAsioResetRequest);
+            }
+
             1
         }
 
