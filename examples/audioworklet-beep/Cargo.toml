@@ -1,5 +1,5 @@
 [package]
-name = "web-audio-worklet-beep"
+name = "audioworklet-beep"
 description = "cpal beep example for WebAssembly on an AudioWorklet"
 version = "0.1.0"
 edition = "2018"
@@ -18,7 +18,7 @@ lto = true
 #default = ["wee_alloc"]
 
 [dependencies]
-cpal = { path = "../..", features = ["wasm-bindgen", "web_audio_worklet"] }
+cpal = { path = "../..", features = ["wasm-bindgen", "audioworklet"] }
 # `gloo` is a utility crate which improves ergonomics over direct `web-sys` usage.
 gloo = "0.11.0"
 # The `wasm-bindgen` crate provides the bare minimum functionality needed

@@ -16,7 +16,7 @@ asio = [
 ] # Only available on Windows. See README for setup instructions.
 
 # Only available on web when atomics are enabled. See README for what it does.
-web_audio_worklet = [
+audioworklet = [
     "dep:wasm-bindgen-futures",
     "web-sys/Blob",
     "web-sys/BlobPropertyBag",

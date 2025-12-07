@@ -141,7 +141,7 @@ jobs:
         with:
           key: clippy-wasm32-worklet
 
-      - name: Run clippy (web_audio_worklet)
+      - name: Run clippy (audioworklet)
         env:
           RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
-        run: cargo +nightly clippy --all --target wasm32-unknown-unknown --features web_audio_worklet -Z build-std=std,panic_abort -- -D warnings
+        run: cargo +nightly clippy --all --target wasm32-unknown-unknown --features audioworklet -Z build-std=std,panic_abort -- -D warnings
