@@ -29,7 +29,7 @@
 - CoreAudio: Change default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - CoreAudio: Add `i8`, `i32` and `I24` sample format support (24-bit samples stored in 4 bytes).
 - CoreAudio: Add support for loopback recording (recording system audio output) on macOS > 14.6.
-- CoreAudio: Update `mach2` to 0.5.
+- CoreAudio: Update `mach2` to 0.6.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
 - CoreAudio: Make `Stream` implement `Send`.
