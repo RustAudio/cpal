@@ -10,10 +10,10 @@ keywords = ["audio", "sound", "asio", "steinberg"]
 build = "build.rs"
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.72"
 walkdir = "2"
-cc = "1.0.83"
-parse_cfg = "4.1.1"
+cc = "1.2"
+parse_cfg = "4.1"
 
 [dependencies]
 num-derive = "0.4"

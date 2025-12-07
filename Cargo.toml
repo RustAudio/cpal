@@ -67,7 +67,7 @@ audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
-mach2 = "0.5"
+mach2 = "0.6"
 coreaudio-rs = { version = "0.13", default-features = false, features = [
     "core_audio",
     "audio_toolbox",
