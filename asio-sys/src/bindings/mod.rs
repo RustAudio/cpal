@@ -9,7 +9,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_long, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
 

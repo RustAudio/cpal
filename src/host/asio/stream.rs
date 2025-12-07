@@ -62,20 +62,7 @@ impl Device {
         }
 
         // Register the message callback with the driver
-        let error_callback_shared = Arc::new(Mutex::new(error_callback));
-
-        let message_callback_id = self.driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_callback_shared.lock() {
-                    cb(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "ASIO reset request.".to_string(),
-                        },
-                    });
-                }
-            }
-        });
+        let message_callback_id = self.add_message_callback(error_callback);
 
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(config, sample_format)?;
@@ -303,20 +290,7 @@ impl Device {
         }
 
         // Register the message callback with the driver
-        let error_callback_shared = Arc::new(Mutex::new(error_callback));
-
-        let message_callback_id = self.driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_callback_shared.lock() {
-                    cb(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "ASIO reset request.".to_string(),
-                        },
-                    });
-                }
-            }
-        });
+        let message_callback_id = self.add_message_callback(error_callback);
 
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(config, sample_format)?;
@@ -666,6 +640,22 @@ impl Device {
                     })
             }
         }
+    }
+
+    fn add_message_callback<E>(&self, error_callback: E) -> sys::MessageCallbackId
+    where
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+
+        self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_callback_shared.lock() {
+                    cb(StreamError::AsioResetRequest);
+                }
+            }
+        })
     }
 }
 
