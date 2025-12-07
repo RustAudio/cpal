@@ -1,3 +1,14 @@
+//! Enumerates all available audio hosts, devices, and their supported configurations.
+//!
+//! This example demonstrates:
+//! - Querying available audio hosts on the system
+//! - Enumerating all audio devices for each host
+//! - Retrieving device IDs for persistent identification
+//! - Getting device descriptions with metadata
+//! - Listing supported input and output stream configurations
+//!
+//! Run with: `cargo run --example enumerate`
+
 extern crate anyhow;
 extern crate cpal;
 

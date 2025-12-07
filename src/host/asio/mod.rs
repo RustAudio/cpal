@@ -1,3 +1,8 @@
+//! ASIO backend implementation.
+//!
+//! ASIO is available on Windows with the `asio` feature.
+//! See the project README for setup instructions.
+
 extern crate asio_sys as sys;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};

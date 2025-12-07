@@ -1,8 +1,40 @@
+//! Audio sample format types and conversions.
+//!
+//! # Byte Order
+//!
+//! All multi-byte sample formats use the native endianness of the target platform.
+//! CPAL handles any necessary conversions when interfacing with hardware that uses
+//! a different byte order.
+
 use std::{fmt::Display, mem};
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 use wasm_bindgen::prelude::*;
 
-pub use dasp_sample::{FromSample, Sample, I24, U24};
+pub use dasp_sample::{FromSample, Sample};
+
+/// 24-bit signed integer sample type.
+///
+/// Represents 24-bit audio with range `-(1 << 23)..=((1 << 23) - 1)`.
+///
+/// **Note:** While representing 24-bit audio, this format uses 4 bytes (i32) of storage
+/// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
+/// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
+pub use dasp_sample::I24;
+
+/// 24-bit unsigned integer sample type.
+///
+/// Represents 24-bit audio with range `0..=((1 << 24) - 1)`, with origin at `1 << 23 == 8388608`.
+///
+/// **Note:** While representing 24-bit audio, this format uses 4 bytes (u32) of storage
+/// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
+/// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
+pub use dasp_sample::U24;
+
+// I48 and U48 are not currently supported by cpal but available in dasp_sample:
+// pub use dasp_sample::{I48, U48};
 
 /// Format that each sample has. Usually, this corresponds to the sampling
 /// depth of the audio source. For example, 16 bit quantized samples can be
@@ -18,8 +50,14 @@ pub use dasp_sample::{FromSample, Sample, I24, U24};
 /// music (WAV, MP3) as well as typical audio input devices on most platforms,
 ///
 /// [`is_float`]: SampleFormat::is_float
-/// [`supported_input_configs`]: crate::Device::supported_input_configs
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
+/// [`supported_input_configs`]: crate::traits::DeviceTrait::supported_input_configs
+#[cfg_attr(
+    all(
+        target_arch = "wasm32",
+        any(target_os = "emscripten", feature = "wasm-bindgen")
+    ),
+    wasm_bindgen
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SampleFormat {
@@ -29,7 +67,9 @@ pub enum SampleFormat {
     /// `i16` with a valid range of `i16::MIN..=i16::MAX` with `0` being the origin.
     I16,
 
-    /// `I24` with a valid range of '-(1 << 23)..(1 << 23)' with `0` being the origin
+    /// `I24` with a valid range of `-(1 << 23)..=((1 << 23) - 1)` with `0` being the origin.
+    ///
+    /// This format uses 4 bytes of storage but only 24 bits are significant.
     I24,
 
     /// `i32` with a valid range of `i32::MIN..=i32::MAX` with `0` being the origin.
@@ -46,7 +86,9 @@ pub enum SampleFormat {
     /// `u16` with a valid range of `u16::MIN..=u16::MAX` with `1 << 15 == 32768` being the origin.
     U16,
 
-    /// `U24` with a valid range of '0..16777216' with `1 << 23 == 8388608` being the origin
+    /// `U24` with a valid range of `0..=((1 << 24) - 1)` with `1 << 23 == 8388608` being the origin.
+    ///
+    /// This format uses 4 bytes of storage but only 24 bits are significant.
     U24,
 
     /// `u32` with a valid range of `u32::MIN..=u32::MAX` with `1 << 31` being the origin.
@@ -58,10 +100,10 @@ pub enum SampleFormat {
     /// `u64` with a valid range of `u64::MIN..=u64::MAX` with `1 << 63` being the origin.
     U64,
 
-    /// `f32` with a valid range of `-1.0..1.0` with `0.0` being the origin.
+    /// `f32` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F32,
 
-    /// `f64` with a valid range of `-1.0..1.0` with `0.0` being the origin.
+    /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
 }
 
@@ -171,7 +213,21 @@ impl Display for SampleFormat {
     }
 }
 
+/// A [`Sample`] type with a known corresponding [`SampleFormat`].
+///
+/// This trait is automatically implemented for all primitive sample types and provides
+/// a way to determine the [`SampleFormat`] at compile time.
+///
+/// # Example
+///
+/// ```
+/// use cpal::SizedSample;
+///
+/// assert_eq!(i16::FORMAT, cpal::SampleFormat::I16);
+/// assert_eq!(f32::FORMAT, cpal::SampleFormat::F32);
+/// ```
 pub trait SizedSample: Sample {
+    /// The corresponding [`SampleFormat`] for this sample type.
     const FORMAT: SampleFormat;
 }
 

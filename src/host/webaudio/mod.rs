@@ -1,3 +1,7 @@
+//! Web Audio backend implementation.
+//!
+//! Default backend on WebAssembly.
+
 extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
@@ -358,7 +362,7 @@ impl DeviceTrait for Device {
                         // See this issue: https://github.com/WebAudio/web-audio-api/issues/2565
                         #[cfg(target_feature = "atomics")]
                         {
-                            temporary_channel_array_view.copy_from(&mut temporary_channel_buffer);
+                            temporary_channel_array_view.copy_from(&temporary_channel_buffer);
                             ctx_buffer
                                 .unchecked_ref::<ExternalArrayAudioBuffer>()
                                 .copy_to_channel(&temporary_channel_array_view, channel as i32)

@@ -1,3 +1,7 @@
+//! ALSA backend implementation.
+//!
+//! Default backend on Linux and BSD systems.
+
 extern crate alsa;
 extern crate libc;
 

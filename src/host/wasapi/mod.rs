@@ -1,3 +1,7 @@
+//! WASAPI backend implementation.
+//!
+//! Default backend on Windows.
+
 #[allow(unused_imports)]
 pub use self::device::{
     default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,

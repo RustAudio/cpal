@@ -23,8 +23,9 @@ impl Error for HostUnavailable {}
 ///   `panic!` caused by some unforeseen or unknown reason.
 ///
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
-/// cross-platform manner, please create an issue or submit a pull request with a patch that adds
-/// the necessary error variant to the appropriate error enum.
+/// cross-platform manner, please create an issue at <https://github.com/RustAudio/cpal/issues>
+/// with details about your use case, the backend you're using, and the error message. Or submit
+/// a pull request with a patch that adds the necessary error variant to the appropriate error enum.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BackendSpecificError {
     pub description: String,
@@ -65,7 +66,7 @@ impl From<BackendSpecificError> for DevicesError {
     }
 }
 
-/// An error that may occur while attempting to retrieve a device id.
+/// An error that may occur while attempting to retrieve a device ID.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceIdError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
@@ -79,7 +80,7 @@ impl Display for DeviceIdError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
-            Self::UnsupportedPlatform => f.write_str("Device ids are unsupported for this OS"),
+            Self::UnsupportedPlatform => f.write_str("Device IDs are unsupported for this OS"),
         }
     }
 }

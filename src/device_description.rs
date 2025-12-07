@@ -1,3 +1,9 @@
+//! Device metadata and description types.
+//!
+//! This module provides structured information about audio devices including manufacturer,
+//! device type, interface type, and connection details. Not all backends provide complete
+//! information - availability depends on platform capabilities.
+
 use std::fmt;
 
 use crate::ChannelCount;
@@ -29,7 +35,7 @@ pub struct DeviceDescription {
     /// Physical address or connection identifier
     address: Option<String>,
 
-    /// Additional description lines with non-structured, detailed information
+    /// Additional description lines with non-structured, detailed information.
     extended: Vec<String>,
 }
 

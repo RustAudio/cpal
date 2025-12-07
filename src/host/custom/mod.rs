@@ -1,3 +1,8 @@
+//! Custom host backend.
+//!
+//! Allows user-defined host implementations with the `custom` feature.
+//! See `examples/custom.rs` for usage.
+
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,

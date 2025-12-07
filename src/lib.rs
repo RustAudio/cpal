@@ -78,8 +78,9 @@
 //! ```
 //!
 //! While the stream is running, the selected audio device will periodically call the data callback
-//! that was passed to the function. The callback is passed an instance of either [`&Data` or
-//! `&mut Data`](Data) depending on whether the stream is an input stream or output stream respectively.
+//! that was passed to the function. For input streams, the callback receives `&`[`Data`] containing
+//! captured audio samples. For output streams, the callback receives `&mut`[`Data`] to be filled
+//! with audio samples for playback.
 //!
 //! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
@@ -153,15 +154,30 @@
 //! [`supported_input_configs()`]: traits::DeviceTrait::supported_input_configs
 //! [`supported_output_configs()`]: traits::DeviceTrait::supported_output_configs
 
-#![recursion_limit = "2048"]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 extern crate js_sys;
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 extern crate wasm_bindgen;
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 extern crate web_sys;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
+use wasm_bindgen::prelude::*;
 
 pub use device_description::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
@@ -174,8 +190,6 @@ pub use platform::{
 pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
 use std::convert::TryInto;
 use std::time::Duration;
-#[cfg(target_os = "emscripten")]
-use wasm_bindgen::prelude::*;
 
 pub mod device_description;
 mod error;
@@ -208,6 +222,33 @@ pub type FrameCount = u32;
 /// Device IDs should remain stable across application restarts and can be serialized using `Display`/`FromStr`.
 ///
 /// A device ID consists of a [`HostId`] identifying the audio backend and a device-specific identifier string.
+///
+/// # Example
+///
+/// ```no_run
+/// use cpal::traits::{HostTrait, DeviceTrait};
+/// use cpal::DeviceId;
+/// use std::str::FromStr;
+///
+/// let host = cpal::default_host();
+/// let device = host.default_output_device().unwrap();
+/// let device_id = device.id().unwrap();
+///
+/// // Serialize to string (e.g., for storage in config file)
+/// let id_string = device_id.to_string();
+/// println!("Device ID: {}", id_string); // e.g., "wasapi:device_identifier"
+///
+/// // Deserialize from string
+/// match DeviceId::from_str(&id_string) {
+///     Ok(parsed_id) => {
+///         // Retrieve the device by its ID
+///         if let Some(device) = host.device_by_id(&parsed_id) {
+///             println!("Found device: {:?}", device.id());
+///         }
+///     }
+///     Err(e) => eprintln!("Failed to parse device ID: {}", e),
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceId(pub crate::platform::HostId, pub String);
 
@@ -224,7 +265,7 @@ impl std::str::FromStr for DeviceId {
         let (host_str, device_str) = s.split_once(':').ok_or(DeviceIdError::BackendSpecific {
             err: BackendSpecificError {
                 description: format!(
-                    "Failed to parse device id from: {s}\nCheck if format matches \"host:device_id\""
+                    "Failed to parse device ID from: {s}\nCheck if format matches \"host:device_id\""
                 ),
             },
         })?;
@@ -263,6 +304,31 @@ impl std::str::FromStr for DeviceId {
 /// Smaller buffer sizes reduce latency but may increase CPU usage and risk audio
 /// dropouts if the callback cannot process audio quickly enough.
 ///
+/// # Example
+///
+/// ```no_run
+/// use cpal::traits::{DeviceTrait, HostTrait};
+/// use cpal::{BufferSize, SupportedBufferSize};
+///
+/// let host = cpal::default_host();
+/// let device = host.default_output_device().unwrap();
+/// let config = device.default_output_config().unwrap();
+///
+/// // Check supported buffer size range
+/// match config.buffer_size() {
+///     SupportedBufferSize::Range { min, max } => {
+///         println!("Buffer size range: {} - {}", min, max);
+///         // Request a small buffer for low latency
+///         let mut stream_config = config.config();
+///         stream_config.buffer_size = BufferSize::Fixed(256);
+///     }
+///     SupportedBufferSize::Unknown => {
+///         // Platform doesn't expose buffer size control
+///         println!("Buffer size cannot be queried on this platform");
+///     }
+/// }
+/// ```
+///
 /// [`BufferSize::Default`]: BufferSize::Default
 /// [`BufferSize::Fixed`]: BufferSize::Fixed
 /// [`BufferSize::Fixed(x)`]: BufferSize::Fixed
@@ -274,12 +340,18 @@ pub enum BufferSize {
     Fixed(FrameCount),
 }
 
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
     fn describe() {}
 }
 
-#[cfg(target_os = "emscripten")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::IntoWasmAbi>::Abi;
 
@@ -292,10 +364,33 @@ impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     }
 }
 
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", feature = "wasm-bindgen")
+))]
+impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
+    type Abi = <Option<FrameCount> as wasm_bindgen::convert::FromWasmAbi>::Abi;
+
+    unsafe fn from_abi(js: Self::Abi) -> Self {
+        match Option::<FrameCount>::from_abi(js) {
+            None => Self::Default,
+            Some(fc) => Self::Fixed(fc),
+        }
+    }
+}
+
 /// The set of parameters used to describe how to open a stream.
 ///
 /// The sample format is omitted in favour of using a sample type.
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
+///
+/// See also [`BufferSize`] for details on buffer size behavior and latency considerations.
+#[cfg_attr(
+    all(
+        target_arch = "wasm32",
+        any(target_os = "emscripten", feature = "wasm-bindgen")
+    ),
+    wasm_bindgen
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
@@ -311,7 +406,7 @@ pub enum SupportedBufferSize {
         max: FrameCount,
     },
     /// In the case that the platform provides no way of getting the default
-    /// buffersize before starting a stream.
+    /// buffer size before starting a stream.
     Unknown,
 }
 
@@ -320,11 +415,11 @@ pub enum SupportedBufferSize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedStreamConfigRange {
     pub(crate) channels: ChannelCount,
-    /// Minimum value for the samples rate of the supported formats.
+    /// Minimum value for the sample rate of the supported formats.
     pub(crate) min_sample_rate: SampleRate,
-    /// Maximum value for the samples rate of the supported formats.
+    /// Maximum value for the sample rate of the supported formats.
     pub(crate) max_sample_rate: SampleRate,
-    /// Buffersize ranges supported by the device
+    /// Buffer size ranges supported by the device
     pub(crate) buffer_size: SupportedBufferSize,
     /// Type of data expected by the device.
     pub(crate) sample_format: SampleFormat,
@@ -363,8 +458,7 @@ pub struct SupportedStreamConfig {
 
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
 ///
-/// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut
-/// Data`.
+/// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut Data`.
 #[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug)]
 pub struct Data {
@@ -379,8 +473,9 @@ pub struct Data {
 /// 2. The same time source used to generate timestamps for a stream's underlying audio data
 ///    callback.
 ///
-/// `StreamInstant` represents a duration since some unspecified origin occurring either before
-/// or equal to the moment the stream from which it was created begins.
+/// `StreamInstant` represents a duration since an unspecified origin point. The origin
+/// is guaranteed to occur at or before the stream starts, and remains consistent for the
+/// lifetime of that stream. Different streams may have different origins.
 ///
 /// ## Host `StreamInstant` Sources
 ///
@@ -420,14 +515,14 @@ pub struct OutputStreamTimestamp {
 }
 
 /// Information relevant to a single call to the user's input stream data callback.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InputCallbackInfo {
     timestamp: InputStreamTimestamp,
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
 #[cfg_attr(target_os = "emscripten", wasm_bindgen)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputCallbackInfo {
     timestamp: OutputStreamTimestamp,
 }
@@ -565,6 +660,8 @@ impl OutputCallbackInfo {
     }
 }
 
+// Note: Data does not implement `is_empty()` because it always contains a valid audio buffer
+// by design. The buffer may contain silence, but it is never structurally empty.
 #[allow(clippy::len_without_is_empty)]
 impl Data {
     /// Constructor for host implementations to use.
@@ -721,7 +818,7 @@ impl SupportedStreamConfigRange {
         }
     }
 
-    /// Turns this [`SupportedStreamConfigRange`] into a [`SupportedStreamConfig`] corresponding to the maximum samples rate.
+    /// Turns this [`SupportedStreamConfigRange`] into a [`SupportedStreamConfig`] corresponding to the maximum sample rate.
     #[inline]
     pub fn with_max_sample_rate(self) -> SupportedStreamConfig {
         SupportedStreamConfig {
