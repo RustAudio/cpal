@@ -139,7 +139,7 @@ where
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {
         waveform: Waveform::Sine,
-        sample_rate: config.sample_rate.0 as f32,
+        sample_rate: config.sample_rate as f32,
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };

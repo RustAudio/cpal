@@ -2,7 +2,7 @@ use std::{fmt::Display, mem};
 #[cfg(target_os = "emscripten")]
 use wasm_bindgen::prelude::*;
 
-pub use dasp_sample::{FromSample, Sample, I24, I48, U24, U48};
+pub use dasp_sample::{FromSample, Sample, I24, U24};
 
 /// Format that each sample has. Usually, this corresponds to the sampling
 /// depth of the audio source. For example, 16 bit quantized samples can be

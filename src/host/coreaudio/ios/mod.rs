@@ -323,7 +323,7 @@ fn set_audio_session_buffer_size(
     let audio_session = unsafe { AVAudioSession::sharedInstance() };
 
     // Calculate preferred buffer duration in seconds
-    let buffer_duration = buffer_size as f64 / sample_rate.0 as f64;
+    let buffer_duration = buffer_size as f64 / sample_rate as f64;
 
     // Set the preferred IO buffer duration
     // SAFETY: setPreferredIOBufferDuration_error is safe to call with valid duration
@@ -377,8 +377,8 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
     let configs: Vec<_> = (min_channels..=max_channels)
         .map(|channels| SupportedStreamConfigRange {
             channels,
-            min_sample_rate: SampleRate(sample_rate),
-            max_sample_rate: SampleRate(sample_rate),
+            min_sample_rate: sample_rate,
+            max_sample_rate: sample_rate,
             buffer_size,
             sample_format: SUPPORTED_SAMPLE_FORMAT,
         })

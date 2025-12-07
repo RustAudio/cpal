@@ -76,7 +76,7 @@ fn set_sample_rate(
     coreaudio::Error::from_os_status(status)?;
 
     // If the requested sample rate is different to the device sample rate, update the device.
-    if sample_rate as u32 != target_sample_rate.0 {
+    if sample_rate as u32 != target_sample_rate {
         // Get available sample rate ranges.
         property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
         let mut data_size = 0u32;
@@ -108,7 +108,7 @@ fn set_sample_rate(
         let ranges: &[AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
 
         // Now that we have the available ranges, pick the one matching the desired rate.
-        let sample_rate = target_sample_rate.0;
+        let sample_rate = target_sample_rate;
         let maybe_index = ranges
             .iter()
             .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
@@ -185,7 +185,7 @@ fn set_sample_rate(
                     return Err(BackendSpecificError { description }.into());
                 }
                 Ok(Ok(reported_sample_rate)) => {
-                    if reported_sample_rate == target_sample_rate.0 as f64 {
+                    if reported_sample_rate == target_sample_rate as f64 {
                         break;
                     }
                 }
@@ -567,8 +567,8 @@ impl Device {
             } else if contains_different_sample_rates {
                 let res = ranges.iter().map(|range| SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(range.mMinimum as u32),
-                    max_sample_rate: SampleRate(range.mMaximum as u32),
+                    min_sample_rate: range.mMinimum as u32,
+                    max_sample_rate: range.mMaximum as u32,
                     buffer_size,
                     sample_format,
                 });
@@ -576,20 +576,16 @@ impl Device {
             } else {
                 let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(
-                        ranges
-                            .iter()
-                            .map(|v| v.mMinimum as u32)
-                            .min()
-                            .expect("the list must not be empty"),
-                    ),
-                    max_sample_rate: SampleRate(
-                        ranges
-                            .iter()
-                            .map(|v| v.mMaximum as u32)
-                            .max()
-                            .expect("the list must not be empty"),
-                    ),
+                    min_sample_rate: ranges
+                        .iter()
+                        .map(|v| v.mMinimum as u32)
+                        .min()
+                        .expect("the list must not be empty"),
+                    max_sample_rate: ranges
+                        .iter()
+                        .map(|v| v.mMaximum as u32)
+                        .max()
+                        .expect("the list must not be empty"),
                     buffer_size,
                     sample_format,
                 };
@@ -693,7 +689,7 @@ impl Device {
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
-                sample_rate: SampleRate(asbd.mSampleRate as _),
+                sample_rate: asbd.mSampleRate as _,
                 channels: asbd.mChannelsPerFrame as _,
                 buffer_size,
                 sample_format,

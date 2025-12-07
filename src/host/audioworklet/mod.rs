@@ -31,9 +31,9 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;
-const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
-const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
-const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const MIN_SAMPLE_RATE: SampleRate = 8_000;
+const MAX_SAMPLE_RATE: SampleRate = 96_000;
+const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
@@ -191,7 +191,7 @@ impl DeviceTrait for Device {
         let config = config.clone();
 
         let stream_opts = web_sys::AudioContextOptions::new();
-        stream_opts.set_sample_rate(config.sample_rate.0 as f32);
+        stream_opts.set_sample_rate(config.sample_rate as f32);
 
         let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
@@ -237,8 +237,7 @@ impl DeviceTrait for Device {
 
                             let callback = crate::StreamInstant::from_secs_f64(now);
 
-                            let buffer_duration =
-                                frames_to_duration(frame_size as _, SampleRate(sample_rate));
+                            let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
                             let playback = callback.add(buffer_duration).expect(
                             "`playback` occurs beyond representation supported by `StreamInstant`",
                         );
@@ -336,7 +335,7 @@ fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
