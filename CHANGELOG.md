@@ -41,6 +41,7 @@
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
 - iOS: Fix example by properly activating audio session.
 - iOS: Add complete AVAudioSession integration for device enumeration and buffer size control.
+- JACK: Add support for macOS and Windows platforms.
 - JACK: Add `BufferSize::Fixed` validation to reject requests that don't match server buffer size.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).

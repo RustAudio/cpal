@@ -17,15 +17,14 @@ This library currently supports the following:
 Currently, supported hosts include:
 
 - Linux (via ALSA or JACK)
-- Windows (via WASAPI by default, see ASIO instructions below)
-- macOS (via CoreAudio)
+- Windows (via WASAPI by default, ASIO or JACK optionally)
+- macOS (via CoreAudio or JACK)
 - iOS (via CoreAudio)
 - Android (via AAudio)
 - Emscripten
+- WebAssembly (via Web Audio API or Audio Worklet)
 
-Note that on Linux, the ALSA development files are required. These are provided
-as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
-`alsa-lib-devel` on Fedora.
+Note that on Linux, the ALSA development files are required for building (even when using JACK). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
 
 ## Compiling for WebAssembly
 
@@ -49,7 +48,7 @@ Enables the ASIO (Audio Stream Input/Output) backend. ASIO provides low-latency 
 
 ### `jack`
 
-**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
 
 Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server providing low-latency connections between applications and audio hardware.
 
@@ -58,7 +57,7 @@ Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server pr
 
 **Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
 
-**Note:** While JACK is available on Windows and macOS, CPAL's JACK backend is currently only implemented for Linux and BSD systems. On other platforms, use the native backends (WASAPI/ASIO for Windows, CoreAudio for macOS).
+**Note:** JACK is available as an alternative backend on all supported platforms. It provides an option for pro-audio users who need JACK's routing and inter-application audio connectivity. The native backends (ALSA for Linux/BSD, WASAPI/ASIO for Windows, CoreAudio for macOS) remain the default and recommended choice for most applications.
 
 ### `wasm-bindgen`
 
