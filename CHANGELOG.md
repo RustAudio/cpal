@@ -5,6 +5,7 @@
 - Add `Display` and `FromStr` implementations for `HostId`.
 - Add support for custom `Host`s, `Device`s, and `Stream`s.
 - Add `Sample::bits_per_sample` method.
+- Change `SampleRate` from struct to `u32` type alias.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
 - AAudio: Make `Stream` implement `Send` and `Sync`.
@@ -17,7 +18,7 @@
 - ALSA: Fix format selection to probe hardware endianness instead of assuming native byte order.
 - ALSA: Add support for 12, 24, 352.8, 384, 705.6, and 768 kHz sample rates.
 - ALSA: Update `alsa` to 0.10.
-- ALSA(process_output): Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
+- ALSA: Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - ASIO: Add packed(4) to representation of ASIO time structs in bindings.
 - CI: Added native ARM64 Linux support in GitHub Actions.

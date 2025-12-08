@@ -515,8 +515,8 @@ impl Device {
         } else {
             let mut rates = Vec::new();
             for &sample_rate in crate::COMMON_SAMPLE_RATES.iter() {
-                if hw_params.test_rate(sample_rate.0).is_ok() {
-                    rates.push((sample_rate.0, sample_rate.0));
+                if hw_params.test_rate(sample_rate).is_ok() {
+                    rates.push((sample_rate, sample_rate));
                 }
             }
 
@@ -555,8 +555,8 @@ impl Device {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
                         channels,
-                        min_sample_rate: SampleRate(min_rate),
-                        max_sample_rate: SampleRate(max_rate),
+                        min_sample_rate: min_rate,
+                        max_sample_rate: max_rate,
                         buffer_size: buffer_size_range,
                         sample_format,
                     });
@@ -609,7 +609,7 @@ impl Device {
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
                 let mut format = f.with_max_sample_rate();
-                const HZ_44100: SampleRate = SampleRate(44_100);
+                const HZ_44100: SampleRate = 44_100;
                 if min_r <= HZ_44100 && HZ_44100 <= max_r {
                     format.sample_rate = HZ_44100;
                 }
@@ -860,7 +860,7 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
         0
     };
 
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
         eprintln!("Failed to promote audio thread to real-time priority: {err}");
     }
 }
@@ -1101,7 +1101,7 @@ fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 #[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
@@ -1273,7 +1273,7 @@ fn init_hw_params<'a>(
     let alsa_format = sample_format_to_alsa_format(&hw_params, sample_format)?;
     hw_params.set_format(alsa_format)?;
 
-    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
+    hw_params.set_rate(config.sample_rate, alsa::ValueOr::Nearest)?;
     hw_params.set_channels(config.channels as u32)?;
     Ok(hw_params)
 }

@@ -357,7 +357,7 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: crate::Sa
         0
     };
 
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
         eprintln!("Failed to promote audio thread to real-time priority: {err}");
     }
 }
@@ -532,7 +532,7 @@ fn process_output(
 
 /// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)

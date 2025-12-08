@@ -251,7 +251,7 @@ unsafe fn format_from_waveformatex_ptr(
         _ => return None,
     };
 
-    let sample_rate = SampleRate((*waveformatex_ptr).nSamplesPerSec);
+    let sample_rate = (*waveformatex_ptr).nSamplesPerSec;
 
     // GetBufferSizeLimits is only used for Hardware-Offloaded Audio
     // Processing, which was added in Windows 8, which places hardware
@@ -278,8 +278,8 @@ unsafe fn format_from_waveformatex_ptr(
         .is_ok();
     let buffer_size = if buffer_size_is_limited {
         SupportedBufferSize::Range {
-            min: buffer_duration_to_frames(min_buffer_duration, sample_rate.0),
-            max: buffer_duration_to_frames(max_buffer_duration, sample_rate.0),
+            min: buffer_duration_to_frames(min_buffer_duration, sample_rate),
+            max: buffer_duration_to_frames(max_buffer_duration, sample_rate),
         }
     } else {
         SupportedBufferSize::Range {
@@ -694,8 +694,7 @@ impl Device {
 
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
-            let buffer_duration =
-                buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
+            let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
             let mut stream_flags = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
@@ -811,8 +810,7 @@ impl Device {
 
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
-            let buffer_duration =
-                buffer_size_to_duration(&config.buffer_size, config.sample_rate.0);
+            let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
             // Computing the format and initializing the device.
             let waveformatex = {
@@ -1156,7 +1154,7 @@ fn config_to_waveformatextensible(
         _ => return None,
     };
     let channels = config.channels;
-    let sample_rate = config.sample_rate.0;
+    let sample_rate = config.sample_rate;
     let sample_bytes = sample_format.sample_size() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;

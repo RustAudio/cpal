@@ -42,7 +42,7 @@ fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyh
 where
     T: SizedSample + FromSample<f32>,
 {
-    let sample_rate = config.sample_rate.0 as f32;
+    let sample_rate = config.sample_rate as f32;
     let channels = config.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.

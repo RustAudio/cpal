@@ -78,8 +78,8 @@ impl DeviceTrait for MyDevice {
     ) -> Result<Self::SupportedOutputConfigs, cpal::SupportedStreamConfigsError> {
         Ok(std::iter::once(cpal::SupportedStreamConfigRange::new(
             2,
-            cpal::SampleRate(44100),
-            cpal::SampleRate(44100),
+            44100,
+            44100,
             cpal::SupportedBufferSize::Unknown,
             cpal::SampleFormat::F32,
         )))
@@ -96,7 +96,7 @@ impl DeviceTrait for MyDevice {
     ) -> Result<cpal::SupportedStreamConfig, cpal::DefaultStreamConfigError> {
         Ok(cpal::SupportedStreamConfig::new(
             2,
-            cpal::SampleRate(44100),
+            44100,
             cpal::SupportedBufferSize::Unknown,
             cpal::SampleFormat::I16,
         ))
@@ -302,7 +302,7 @@ pub fn make_stream(
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {
         waveform: Waveform::Sine,
-        sample_rate: config.sample_rate.0 as f32,
+        sample_rate: config.sample_rate as f32,
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };

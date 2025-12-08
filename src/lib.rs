@@ -171,9 +171,8 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, I48, U24, U48};
+pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
 use std::convert::TryInto;
-use std::ops::{Div, Mul};
 use std::time::Duration;
 #[cfg(target_os = "emscripten")]
 use wasm_bindgen::prelude::*;
@@ -198,29 +197,7 @@ pub type OutputDevices<I> = DevicesFiltered<I>;
 pub type ChannelCount = u16;
 
 /// The number of samples processed per second for a single channel of audio.
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SampleRate(pub u32);
-
-impl<T> Mul<T> for SampleRate
-where
-    u32: Mul<T, Output = u32>,
-{
-    type Output = Self;
-    fn mul(self, rhs: T) -> Self {
-        SampleRate(self.0 * rhs)
-    }
-}
-
-impl<T> Div<T> for SampleRate
-where
-    u32: Div<T, Output = u32>,
-{
-    type Output = Self;
-    fn div(self, rhs: T) -> Self {
-        SampleRate(self.0 / rhs)
-    }
-}
+pub type SampleRate = u32;
 
 /// A frame represents one sample for each channel. For example, with stereo audio,
 /// one frame contains two samples (left and right channels).
@@ -833,7 +810,7 @@ impl SupportedStreamConfigRange {
             return cmp_u16;
         }
 
-        const HZ_44100: SampleRate = SampleRate(44_100);
+        const HZ_44100: SampleRate = 44_100;
         let r44100_in_self = self.min_sample_rate <= HZ_44100 && HZ_44100 <= self.max_sample_rate;
         let r44100_in_other =
             other.min_sample_rate <= HZ_44100 && HZ_44100 <= other.max_sample_rate;
@@ -852,36 +829,36 @@ fn test_cmp_default_heuristics() {
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
-            min_sample_rate: SampleRate(1),
-            max_sample_rate: SampleRate(96000),
+            min_sample_rate: 1,
+            max_sample_rate: 96000,
             sample_format: SampleFormat::F32,
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 1,
-            min_sample_rate: SampleRate(1),
-            max_sample_rate: SampleRate(96000),
+            min_sample_rate: 1,
+            max_sample_rate: 96000,
             sample_format: SampleFormat::F32,
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
-            min_sample_rate: SampleRate(1),
-            max_sample_rate: SampleRate(96000),
+            min_sample_rate: 1,
+            max_sample_rate: 96000,
             sample_format: SampleFormat::I16,
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
-            min_sample_rate: SampleRate(1),
-            max_sample_rate: SampleRate(96000),
+            min_sample_rate: 1,
+            max_sample_rate: 96000,
             sample_format: SampleFormat::U16,
         },
         SupportedStreamConfigRange {
             buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
             channels: 2,
-            min_sample_rate: SampleRate(1),
-            max_sample_rate: SampleRate(22050),
+            min_sample_rate: 1,
+            max_sample_rate: 22050,
             sample_format: SampleFormat::F32,
         },
     ];
@@ -890,28 +867,28 @@ fn test_cmp_default_heuristics() {
 
     // lowest-priority first:
     assert_eq!(formats[0].sample_format(), SampleFormat::F32);
-    assert_eq!(formats[0].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[0].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[0].min_sample_rate(), 1);
+    assert_eq!(formats[0].max_sample_rate(), 96000);
     assert_eq!(formats[0].channels(), 1);
 
     assert_eq!(formats[1].sample_format(), SampleFormat::U16);
-    assert_eq!(formats[1].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[1].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[1].min_sample_rate(), 1);
+    assert_eq!(formats[1].max_sample_rate(), 96000);
     assert_eq!(formats[1].channels(), 2);
 
     assert_eq!(formats[2].sample_format(), SampleFormat::I16);
-    assert_eq!(formats[2].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[2].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[2].min_sample_rate(), 1);
+    assert_eq!(formats[2].max_sample_rate(), 96000);
     assert_eq!(formats[2].channels(), 2);
 
     assert_eq!(formats[3].sample_format(), SampleFormat::F32);
-    assert_eq!(formats[3].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[3].max_sample_rate(), SampleRate(22050));
+    assert_eq!(formats[3].min_sample_rate(), 1);
+    assert_eq!(formats[3].max_sample_rate(), 22050);
     assert_eq!(formats[3].channels(), 2);
 
     assert_eq!(formats[4].sample_format(), SampleFormat::F32);
-    assert_eq!(formats[4].min_sample_rate(), SampleRate(1));
-    assert_eq!(formats[4].max_sample_rate(), SampleRate(96000));
+    assert_eq!(formats[4].min_sample_rate(), 1);
+    assert_eq!(formats[4].max_sample_rate(), 96000);
     assert_eq!(formats[4].channels(), 2);
 }
 
@@ -925,23 +902,8 @@ impl From<SupportedStreamConfig> for StreamConfig {
 // of commonly used rates. This is always the case for WASAPI and is sometimes the case for ALSA.
 #[allow(dead_code)]
 pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
-    SampleRate(5512),
-    SampleRate(8000),
-    SampleRate(11025),
-    SampleRate(12000),
-    SampleRate(16000),
-    SampleRate(22050),
-    SampleRate(24000),
-    SampleRate(32000),
-    SampleRate(44100),
-    SampleRate(48000),
-    SampleRate(64000),
-    SampleRate(88200),
-    SampleRate(96000),
-    SampleRate(176400),
-    SampleRate(192000),
-    SampleRate(352800),
-    SampleRate(384000),
+    5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
+    176400, 192000, 352800, 384000,
 ];
 
 #[test]

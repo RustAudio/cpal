@@ -231,7 +231,7 @@ pub enum AsioMessageSelectors {
     kAsioSupportsTimeInfo,      // if host returns true here, it will expect the
                                 // callback bufferSwitchTimeInfo to be called instead
                                 // of bufferSwitch
-    kAsioSupportsTimeCode,      // 
+    kAsioSupportsTimeCode,      //
     kAsioMMCCommand,            // unused - value: number of commands, message points to mmc commands
     kAsioSupportsInputMonitor,  // kAsioSupportsXXX return 1 if host supports this
     kAsioSupportsInputGain,     // unused and undefined
@@ -786,7 +786,7 @@ impl DriverState {
 }
 
 impl DriverInner {
-    fn lock_state(&self) -> MutexGuard<DriverState> {
+    fn lock_state(&self) -> MutexGuard<'_, DriverState> {
         self.state.lock().expect("failed to lock `DriverState`")
     }
 
@@ -890,14 +890,14 @@ fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
 /// ASIO uses null terminated c strings for driver names.
 ///
 /// This converts to utf8.
-fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
 /// ASIO uses null terminated c strings for channel names.
 ///
 /// This converts to utf8.
-fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 

@@ -41,7 +41,7 @@ fn asbd_from_config(
     sample_format: SampleFormat,
 ) -> AudioStreamBasicDescription {
     let n_channels = config.channels as usize;
-    let sample_rate = config.sample_rate.0;
+    let sample_rate = config.sample_rate;
     let bytes_per_channel = sample_format.sample_size();
     let bits_per_channel = bytes_per_channel * 8;
     let bytes_per_frame = n_channels * bytes_per_channel;
@@ -85,7 +85,7 @@ fn host_time_to_stream_instant(
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 #[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)

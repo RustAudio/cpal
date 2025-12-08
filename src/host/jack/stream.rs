@@ -70,7 +70,7 @@ impl Stream {
         let input_process_handler = LocalProcessHandler::new(
             vec![],
             ports,
-            SampleRate(client.sample_rate() as u32),
+            client.sample_rate() as u32,
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
@@ -135,7 +135,7 @@ impl Stream {
         let output_process_handler = LocalProcessHandler::new(
             ports,
             vec![],
-            SampleRate(client.sample_rate() as u32),
+            client.sample_rate() as u32,
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),
@@ -410,7 +410,7 @@ fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
