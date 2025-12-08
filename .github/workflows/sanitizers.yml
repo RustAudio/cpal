@@ -45,6 +45,11 @@ jobs:
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+      RUSTDOCFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+      TSAN_OPTIONS: ${{ matrix.sanitizer == 'thread' && 'halt_on_error=0:history_size=7:second_deadlock_stack=1' || '' }}
+      ASAN_OPTIONS: ${{ matrix.sanitizer == 'address' && 'halt_on_error=0:detect_stack_use_after_return=1:check_initialization_order=1:strict_string_checks=1:detect_invalid_pointer_pairs=2:print_summary=1' || '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -69,15 +74,27 @@ jobs:
           key: ${{ matrix.name }}
 
       - name: Run tests with sanitizer
-        env:
-          RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
-          RUSTDOCFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
-          TSAN_OPTIONS: ${{ matrix.sanitizer == 'thread' && 'second_deadlock_stack=1' || '' }}
         run: |
           cargo +nightly test \
             -Zbuild-std \
             --target ${{ matrix.target }} \
-            --lib \
+            --lib --tests \
+            --verbose
+
+      - name: Build examples with sanitizer
+        run: |
+          cargo +nightly build \
+            -Zbuild-std \
+            --target ${{ matrix.target }} \
+            --examples \
+            --verbose
+
+      - name: Run enumerate example with sanitizer
+        run: |
+          cargo +nightly run \
+            -Zbuild-std \
+            --target ${{ matrix.target }} \
+            --example enumerate \
             --verbose
 
       - name: Upload sanitizer logs
