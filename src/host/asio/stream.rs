@@ -652,7 +652,7 @@ impl Device {
             // Check specifically for ResetRequest
             if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
                 if let Ok(mut cb) = error_callback_shared.lock() {
-                    cb(StreamError::AsioResetRequest);
+                    cb(StreamError::StreamInvalidated);
                 }
             }
         })

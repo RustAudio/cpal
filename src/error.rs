@@ -289,14 +289,16 @@ impl From<BackendSpecificError> for PauseStreamError {
 
 /// Errors that might occur while a stream is running.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
-    /// The ASIO driver requests a reset, in case of an unexpected event or a reconfiguration.
-    /// Rebuilding the stream must be deferred to the next safe time, as this code is called from the driver.
-    AsioResetRequest,
+    /// The stream configuration is no longer valid and must be rebuilt.
+    /// This occurs when the backend requires a full reset:
+    /// - ASIO: Driver reset request (sample rate/format change via control panel)
+    /// - JACK: Sample rate changed by server
+    /// - Other backends: Format/configuration invalidated
+    StreamInvalidated,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
 }
@@ -305,7 +307,9 @@ impl Display for StreamError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
-            Self::AsioResetRequest => f.write_str("The ASIO driver requests a reset, in case of an unexpected event or a reconfiguration."),
+            Self::StreamInvalidated => {
+                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
+            }
             Self::DeviceNotAvailable => f.write_str(
                 "The requested device is no longer available. For example, it has been unplugged.",
             ),
