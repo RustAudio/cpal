@@ -732,8 +732,16 @@ mod platform_impl {
 mod platform_impl {
     #[cfg_attr(docsrs, doc(cfg(any(target_os = "macos", target_os = "ios"))))]
     pub use crate::host::coreaudio::Host as CoreAudioHost;
+    #[cfg(feature = "jack")]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(any(target_os = "macos", target_os = "ios"), feature = "jack")))
+    )]
+    pub use crate::host::jack::Host as JackHost;
+
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
@@ -800,12 +808,16 @@ mod platform_impl {
     #[cfg(feature = "asio")]
     #[cfg_attr(docsrs, doc(cfg(all(windows, feature = "asio"))))]
     pub use crate::host::asio::Host as AsioHost;
+    #[cfg(feature = "jack")]
+    #[cfg_attr(docsrs, doc(cfg(all(windows, feature = "jack"))))]
+    pub use crate::host::jack::Host as JackHost;
     #[cfg_attr(docsrs, doc(cfg(windows)))]
     pub use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio => AsioHost,
         Wasapi => WasapiHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 

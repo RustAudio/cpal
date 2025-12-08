@@ -19,11 +19,11 @@ asio = [
     "dep:num-traits",
 ]
 
-# JACK Audio Connection Kit backend for Linux/BSD
+# JACK Audio Connection Kit backend
 # Provides low-latency connections between applications and audio hardware
 # Requires: JACK server and client libraries installed on the system
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD only
-# Note: While JACK exists on Windows/macOS, CPAL's JACK backend is only implemented for Linux/BSD
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
+# Note: JACK must be installed separately on all platforms
 jack = ["dep:jack"]
 
 # WebAssembly backend using wasm-bindgen
@@ -89,6 +89,10 @@ libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
 
+[target.'cfg(target_os = "windows")'.dependencies.jack]
+version = "0.13"
+optional = true
+
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
 coreaudio-rs = { version = "0.13", default-features = false, features = [
@@ -114,6 +118,7 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
 objc2-core-foundation = { version = "0.3" }
 objc2-foundation = { version = "0.3" }
 objc2 = { version = "0.6" }
+jack = { version = "0.13", optional = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-avf-audio = { version = "0.3", default-features = false, features = [

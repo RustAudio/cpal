@@ -1,6 +1,6 @@
 //! JACK backend implementation.
 //!
-//! Available on Linux/BSD with the `jack` feature. Requires JACK server and client libraries.
+//! Available on all platforms with the `jack` feature. Requires JACK server and client libraries.
 
 extern crate jack;
 
