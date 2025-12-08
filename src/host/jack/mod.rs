@@ -1,3 +1,7 @@
+//! JACK backend implementation.
+//!
+//! Available on Linux/BSD with the `jack` feature. Requires JACK server and client libraries.
+
 extern crate jack;
 
 use crate::traits::HostTrait;
@@ -16,7 +20,13 @@ const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 pub type Devices = std::vec::IntoIter<Device>;
 
-/// The JACK Host type
+/// The JACK host, providing access to JACK audio devices.
+///
+/// # JACK-Specific Configuration
+///
+/// Unlike other backends, JACK provides configuration options to control connection and server behavior:
+/// - Port auto-connection via [`set_connect_automatically`](Host::set_connect_automatically)
+/// - Server auto-start via [`set_start_server_automatically`](Host::set_start_server_automatically)
 #[derive(Debug)]
 pub struct Host {
     /// The name that the client will have in JACK.
@@ -43,13 +53,23 @@ impl Host {
         host.initialize_default_devices();
         Ok(host)
     }
-    /// Set whether the ports should automatically be connected to system
-    /// (default is true)
+    /// Configures whether created ports should automatically connect to system playback/capture ports.
+    ///
+    /// When enabled (default), output streams connect to system playback ports and input streams
+    /// connect to system capture ports automatically. When disabled, applications must manually
+    /// connect ports using JACK tools or APIs.
+    ///
+    /// Default: `true`
     pub fn set_connect_automatically(&mut self, do_connect: bool) {
         self.connect_ports_automatically = do_connect;
     }
-    /// Set whether a JACK server should be automatically started if it isn't already.
-    /// (default is false)
+
+    /// Configures whether the JACK server should automatically start if not already running.
+    ///
+    /// When enabled, attempting to create a JACK client will start the JACK server if it's not
+    /// running. When disabled (default), client creation fails if the server is not running.
+    ///
+    /// Default: `false`
     pub fn set_start_server_automatically(&mut self, do_start_server: bool) {
         self.start_server_automatically = do_start_server;
     }

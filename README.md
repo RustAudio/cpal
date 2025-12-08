@@ -27,30 +27,75 @@ Note that on Linux, the ALSA development files are required. These are provided
 as part of the `libasound2-dev` package on Debian and Ubuntu distributions and
 `alsa-lib-devel` on Fedora.
 
-## Compiling for Web Assembly
+## Compiling for WebAssembly
 
-If you are interested in using CPAL with WASM, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch.
+If you are interested in using CPAL with WebAssembly, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. Some of the examples in this repository also provide working configurations that you can use as reference.
 
-## Feature flags for audio backends
+## Optional Features
 
-Some audio backends are optional and will only be compiled with a [feature flag](https://doc.rust-lang.org/cargo/reference/features.html).
+CPAL provides the following optional features:
 
-- JACK (on Linux): `jack`
-- ASIO (on Windows): `asio`
-- AudioWorklet (on Web): `audioworklet`
+### `asio`
 
-For AudioWorklet backend usage see the README for the `audioworklet-beep` example.
+**Platform:** Windows
+
+Enables the ASIO (Audio Stream Input/Output) backend. ASIO provides low-latency audio I/O by bypassing the Windows audio stack.
+
+**Requirements:**
+- ASIO drivers for your audio device
+- LLVM/Clang for build-time bindings generation
+
+**Setup:** See the [ASIO setup guide](#asio-on-windows) below for detailed installation instructions.
+
+### `jack`
+
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
+
+Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server providing low-latency connections between applications and audio hardware.
+
+**Requirements:**
+- JACK server and client libraries must be installed on the system
+
+**Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
+
+**Note:** While JACK is available on Windows and macOS, CPAL's JACK backend is currently only implemented for Linux and BSD systems. On other platforms, use the native backends (WASAPI/ASIO for Windows, CoreAudio for macOS).
+
+### `wasm-bindgen`
+
+**Platform:** WebAssembly (wasm32-unknown-unknown)
+
+Enables the Web Audio API backend for browser-based audio. This is the base feature required for any WebAssembly audio support.
+
+**Requirements:**
+- Target `wasm32-unknown-unknown`
+- Web browser with Web Audio API support
+
+**Usage:** See the `wasm-beep` example for basic WebAssembly audio setup.
+
+### `audioworklet`
+
+**Platform:** WebAssembly (wasm32-unknown-unknown)
+
+Enables the Audio Worklet backend for lower-latency web audio processing compared to the default Web Audio API backend.
+
+**Requirements:**
+- The `wasm-bindgen` feature (automatically enabled)
+- Build with atomics support: `RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`
+- Web server must send Cross-Origin headers for SharedArrayBuffer support
+
+**Setup:** See the `audioworklet-beep` example README for complete setup instructions.
+
+**Note:** Audio Worklet provides better performance than the default Web Audio API by running audio processing on a separate thread.
+
+### `custom`
+
+**Platform:** All platforms
+
+Enables support for user-defined custom host implementations, allowing integration with audio systems not natively supported by CPAL.
+
+**Usage:** See `examples/custom.rs` for implementation details.
 
 ## ASIO on Windows
-
-[ASIO](https://en.wikipedia.org/wiki/Audio_Stream_Input/Output) is an audio
-driver protocol by Steinberg. While it is available on multiple operating
-systems, it is most commonly used on Windows to work around limitations of
-WASAPI including access to large numbers of channels and lower-latency audio
-processing.
-
-CPAL allows for using the ASIO SDK as the audio host on Windows instead of
-WASAPI.
 
 ### Locating the ASIO SDK
 
@@ -64,78 +109,81 @@ The build script will try to find the ASIO SDK by following these steps in order
 
 In an ideal situation you don't need to worry about this step.
 
-### Preparing the build environment
+### Preparing the Build Environment
 
-1. `bindgen`, the library used to generate bindings to the C++ SDK, requires
-   clang. **Download and install LLVM** from
-   [here](http://releases.llvm.org/download.html) under the "Pre-Built Binaries"
-   section. The version as of writing this is 17.0.1.
-2. Add the LLVM `bin` directory to a `LIBCLANG_PATH` environment variable. If
-   you installed LLVM to the default directory, this should work in the command
-   prompt:
+1. **Install LLVM/Clang**: `bindgen`, the library used to generate bindings to the C++ SDK, requires clang. Download and install LLVM from <http://releases.llvm.org/download.html> under the "Pre-Built Binaries" section.
+
+2. **Set LIBCLANG_PATH**: Add the LLVM `bin` directory to a `LIBCLANG_PATH` environment variable. If you installed LLVM to the default directory, this should work in the command prompt:
    ```
    setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"
    ```
-3. If you don't have any ASIO devices or drivers available, you can [**download
-   and install ASIO4ALL**](http://www.asio4all.org/). Be sure to enable the
-   "offline" feature during installation despite what the installer says about
-   it being useless.
-4. Our build script assumes that Microsoft Visual Studio is installed if the host OS for compilation is Windows. The script will try to find `vcvarsall.bat`
-   and execute it with the right host and target machine architecture regardless of the Microsoft Visual Studio version.
-   If there are any errors encountered in this process which is unlikely,
-   you may find the `vcvarsall.bat` manually and execute it with your machine architecture as an argument.
-   The script will detect this and skip the step.
 
-   A manually executed command example for 64 bit machines:
+3. **Install ASIO Drivers** (optional for testing): If you don't have any ASIO devices or drivers available, you can download and install ASIO4ALL from <http://www.asio4all.org/>. Be sure to enable the "offline" feature during installation.
 
+4. **Visual Studio**: The build script assumes Microsoft Visual Studio is installed. It will try to find `vcvarsall.bat` and execute it with the right host and target architecture. If needed, you can manually execute it:
    ```
    "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" amd64
    ```
+   For more information see the [vcvarsall.bat documentation](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line).
 
-   For more information please refer to the documentation of [`vcvarsall.bat``](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160#vcvarsall-syntax).
+### Using ASIO in Your Application
 
-5. Select the ASIO host at the start of our program with the following code:
-
-   ```rust
-   let host;
-   #[cfg(target_os = "windows")]
-   {
-      host = cpal::host_from_id(cpal::HostId::Asio).expect("failed to initialise ASIO host");
-   }
-   ```
-
-   If you run into compilations errors produced by `asio-sys` or `bindgen`, make
-   sure that `CPAL_ASIO_DIR` is set correctly and try `cargo clean`.
-
-6. Make sure to enable the `asio` feature when building CPAL:
-
-   ```
-   cargo build --features "asio"
-   ```
-
-   or if you are using CPAL as a dependency in a downstream project, enable the
-   feature like this:
-
+1. **Enable the feature** in your `Cargo.toml`:
    ```toml
    cpal = { version = "*", features = ["asio"] }
    ```
 
-_Updated as of ASIO version 2.3.3._
+2. **Select the ASIO host** in your code:
+   ```rust
+   let host = cpal::host_from_id(cpal::HostId::Asio)
+       .expect("failed to initialise ASIO host");
+   ```
 
-### Cross compilation
+### Troubleshooting
 
-When Windows is the host and the target OS, the build script of `asio-sys` supports all cross compilation targets
-which are supported by the MSVC compiler. An exhaustive list of combinations could be found [here](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-160#vcvarsall-syntax) with the addition of undocumented `arm64`, `arm64_x86`, `arm64_amd64` and `arm64_arm` targets. (5.11.2023)
+If you encounter compilation errors from `asio-sys` or `bindgen`:
+- Verify `CPAL_ASIO_DIR` is set correctly
+- Try running `cargo clean`
+- Ensure LLVM/Clang is properly installed and `LIBCLANG_PATH` is set
 
-It is also possible to compile Windows applications with ASIO support on Linux and macOS.
+### Cross-Compilation
 
-For both platforms the common way to do this is to use the [MinGW-w64](https://www.mingw-w64.org/) toolchain.
+When Windows is the host and target OS, the build script supports all cross-compilation targets supported by the MSVC compiler.
 
-Make sure that you have included the `MinGW-w64` include directory in your `CPLUS_INCLUDE_PATH` environment variable.
-Make sure that LLVM is installed and include directory is also included in your `CPLUS_INCLUDE_PATH` environment variable.
+It is also possible to compile Windows applications with ASIO support on Linux and macOS using the MinGW-w64 toolchain.
 
-Example for macOS for the target of `x86_64-pc-windows-gnu` where `mingw-w64` is installed via brew:
+**Requirements:**
+- Include the MinGW-w64 include directory in your `CPLUS_INCLUDE_PATH` environment variable
+- Include the LLVM include directory in your `CPLUS_INCLUDE_PATH` environment variable
 
+**Example for macOS** (targeting `x86_64-pc-windows-gnu` with `mingw-w64` installed via brew):
 ```
 export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11.0.1/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```
+
+## Troubleshooting
+
+### No Default Device Available
+
+If you receive errors about no default input or output device:
+
+- **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
+- **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
+- **Windows:** Verify your audio device is enabled in Sound Settings
+- **macOS:** Check System Preferences > Sound for available devices
+- **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
+
+### Buffer Size Issues
+
+If you experience audio glitches or dropouts:
+
+- Try `BufferSize::Default` first before requesting specific sizes
+- When using `BufferSize::Fixed`, query `SupportedBufferSize` to find valid ranges
+- Smaller buffers reduce latency but increase CPU load and risk dropouts
+- Ensure your audio callback completes quickly and avoids blocking operations
+
+### Build Errors
+
+- **ASIO on Windows:** Verify `LIBCLANG_PATH` is set and LLVM is installed
+- **ALSA on Linux:** Install development packages: `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora)
+- **JACK:** Install JACK development libraries before enabling the `jack` feature

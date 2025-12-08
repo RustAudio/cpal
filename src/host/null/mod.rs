@@ -1,3 +1,7 @@
+//! Null backend implementation.
+//!
+//! Fallback no-op backend for unsupported platforms.
+
 use std::time::Duration;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};

@@ -10,7 +10,6 @@ pub(crate) mod alsa;
 #[cfg(all(windows, feature = "asio"))]
 pub(crate) mod asio;
 #[cfg(all(
-    target_arch = "wasm32",
     feature = "wasm-bindgen",
     feature = "audioworklet",
     target_feature = "atomics"
@@ -50,23 +49,3 @@ pub(crate) mod custom;
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
 pub(crate) mod null;
-
-/// Compile-time assertion that a type implements Send.
-/// Use this macro in each host module to ensure Stream is Send.
-#[macro_export]
-macro_rules! assert_stream_send {
-    ($t:ty) => {
-        const fn _assert_stream_send<T: Send>() {}
-        const _: () = _assert_stream_send::<$t>();
-    };
-}
-
-/// Compile-time assertion that a type implements Sync.
-/// Use this macro in each host module to ensure Stream is Sync.
-#[macro_export]
-macro_rules! assert_stream_sync {
-    ($t:ty) => {
-        const fn _assert_stream_sync<T: Sync>() {}
-        const _: () = _assert_stream_sync::<$t>();
-    };
-}

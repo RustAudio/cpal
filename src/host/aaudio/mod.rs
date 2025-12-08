@@ -1,3 +1,7 @@
+//! AAudio backend implementation.
+//!
+//! Default backend on Android.
+
 use std::cmp;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};

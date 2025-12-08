@@ -1,4 +1,9 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
+//!
+//! # Custom Host Implementations
+//!
+//! When implementing custom hosts with the `custom` feature, use the [`assert_stream_send!`](crate::assert_stream_send)
+//! and [`assert_stream_sync!`](crate::assert_stream_sync) macros to verify your `Stream` type meets CPAL's requirements.
 
 use std::time::Duration;
 
@@ -44,7 +49,7 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio in general.
     fn devices(&self) -> Result<Self::Devices, DevicesError>;
 
-    /// Fetches a [`Device`](DeviceTrait) based on a [`DeviceId`](DeviceId) if available
+    /// Fetches a [`Device`](DeviceTrait) based on a [`DeviceId`] if available
     ///
     /// Returns `None` if no device matching the id is found
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
@@ -98,7 +103,9 @@ pub trait DeviceTrait {
     /// The human-readable name of the device.
     #[deprecated(
         since = "0.17.0",
-        note = "Use `id()` to get a unique identifier for the device, or `description().name()` for a human-readable description."
+        note = "Use `description()` for comprehensive device information including name, \
+                manufacturer, and device type. Use `id()` for a unique, stable device identifier \
+                that persists across reboots and reconnections."
     )]
     fn name(&self) -> Result<String, DeviceNameError> {
         self.description().map(|desc| desc.name().to_string())
@@ -155,6 +162,15 @@ pub trait DeviceTrait {
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
 
     /// Create an input stream.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The stream configuration including sample rate, channels, and buffer size.
+    /// * `data_callback` - Called periodically with captured audio data. The callback receives
+    ///   a slice of samples in the format `T` and timing information.
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream<T, D, E>(
         &self,
         config: &StreamConfig,
@@ -183,6 +199,16 @@ pub trait DeviceTrait {
     }
 
     /// Create an output stream.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The stream configuration including sample rate, channels, and buffer size.
+    /// * `data_callback` - Called periodically to fill the output buffer. The callback receives
+    ///   a mutable slice of samples in the format `T` to be filled with audio data, along with
+    ///   timing information.
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream<T, D, E>(
         &self,
         config: &StreamConfig,
@@ -211,6 +237,19 @@ pub trait DeviceTrait {
     }
 
     /// Create a dynamically typed input stream.
+    ///
+    /// This method allows working with sample data as raw bytes, useful when the sample
+    /// format is determined at runtime. For compile-time known formats, prefer
+    /// [`build_input_stream`](Self::build_input_stream).
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The stream configuration including sample rate, channels, and buffer size.
+    /// * `sample_format` - The sample format of the audio data.
+    /// * `data_callback` - Called periodically with captured audio data as a [`Data`] buffer.
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
@@ -224,6 +263,20 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create a dynamically typed output stream.
+    ///
+    /// This method allows working with sample data as raw bytes, useful when the sample
+    /// format is determined at runtime. For compile-time known formats, prefer
+    /// [`build_output_stream`](Self::build_output_stream).
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The stream configuration including sample rate, channels, and buffer size.
+    /// * `sample_format` - The sample format of the audio data.
+    /// * `data_callback` - Called periodically to fill the output buffer with audio data as
+    ///   a mutable [`Data`] buffer.
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream_raw<D, E>(
         &self,
         config: &StreamConfig,
@@ -251,4 +304,44 @@ pub trait StreamTrait {
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
+}
+
+/// Compile-time assertion that a stream type implements [`Send`].
+///
+/// Custom host implementations should use this macro to verify their `Stream` type
+/// can be safely transferred between threads, as required by CPAL's API.
+///
+/// # Example
+///
+/// ```
+/// use cpal::assert_stream_send;
+/// struct MyStream { /* ... */ }
+/// assert_stream_send!(MyStream);
+/// ```
+#[macro_export]
+macro_rules! assert_stream_send {
+    ($t:ty) => {
+        const fn _assert_stream_send<T: Send>() {}
+        const _: () = _assert_stream_send::<$t>();
+    };
+}
+
+/// Compile-time assertion that a stream type implements [`Sync`].
+///
+/// Custom host implementations should use this macro to verify their `Stream` type
+/// can be safely shared between threads, as required by CPAL's API.
+///
+/// # Example
+///
+/// ```
+/// use cpal::assert_stream_sync;
+/// struct MyStream { /* ... */ }
+/// assert_stream_sync!(MyStream);
+/// ```
+#[macro_export]
+macro_rules! assert_stream_sync {
+    ($t:ty) => {
+        const fn _assert_stream_sync<T: Sync>() {}
+        const _: () = _assert_stream_sync::<$t>();
+    };
 }

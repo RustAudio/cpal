@@ -1,3 +1,8 @@
+//! Audio Worklet backend implementation.
+//!
+//! Available on WebAssembly with the `audioworklet` feature. Requires atomics support.
+//! See the `audioworklet-beep` example for setup instructions.
+
 mod dependent_module;
 use js_sys::wasm_bindgen;
 
@@ -212,7 +217,7 @@ impl DeviceTrait for Device {
 
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let result: Result<(), JsValue> = (async move || {
+            let result: Result<(), JsValue> = async move {
                 let mod_url = dependent_module!("worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
                     .await?;
@@ -255,7 +260,7 @@ impl DeviceTrait for Device {
 
                 audio_worklet_node.connect_with_audio_node(&destination)?;
                 Ok(())
-            })()
+            }
             .await;
 
             if let Err(err) = result {

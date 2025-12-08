@@ -1,3 +1,7 @@
+//! Emscripten backend implementation.
+//!
+//! Default backend on Emscripten.
+
 use js_sys::Float32Array;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;

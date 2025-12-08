@@ -1,3 +1,7 @@
+//! CoreAudio backend implementation.
+//!
+//! Default backend on macOS and iOS.
+
 use objc2_core_audio_types::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
     kAudioFormatLinearPCM, AudioStreamBasicDescription,
