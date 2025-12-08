@@ -47,9 +47,9 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
-const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
-const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
-const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const MIN_SAMPLE_RATE: SampleRate = 8_000;
+const MAX_SAMPLE_RATE: SampleRate = 96_000;
+const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const MIN_BUFFER_SIZE: u32 = 1;
 const MAX_BUFFER_SIZE: u32 = u32::MAX;
 const DEFAULT_BUFFER_SIZE: usize = 2048;
@@ -281,7 +281,7 @@ where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     |stream, config, sample_format, buffer_size_frames| {
-        let sample_rate = config.sample_rate.0;
+        let sample_rate = config.sample_rate;
         let buffer_size_samples = buffer_size_frames * config.channels as u32;
         let audio_ctxt = &stream.audio_ctxt;
 

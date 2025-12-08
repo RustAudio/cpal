@@ -48,8 +48,8 @@ pub fn main_js() -> Result<(), JsValue> {
 }
 
 fn beep() -> Stream {
-    let host = cpal::host_from_id(cpal::HostId::WebAudioWorklet)
-        .expect("WebAudioWorklet host not available");
+    let host =
+        cpal::host_from_id(cpal::HostId::AudioWorklet).expect("AudioWorklet host not available");
 
     let device = host
         .default_output_device()
@@ -68,7 +68,7 @@ fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Stream
 where
     T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
 {
-    let sample_rate = config.sample_rate.0 as f32;
+    let sample_rate = config.sample_rate as f32;
     let channels = config.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.

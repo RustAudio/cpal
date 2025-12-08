@@ -11,7 +11,10 @@ extern crate cpal;
 extern crate ringbuf;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::{HeapRb, traits::{Split, Producer, Consumer}};
+use ringbuf::{
+    traits::{Consumer, Producer, Split},
+    HeapRb,
+};
 
 const LATENCY_MS: f32 = 1000.0;
 
@@ -32,7 +35,7 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     let config: cpal::StreamConfig = input_device.default_input_config()?.into();
 
     // Create a delay in case the input and output devices aren't synced.
-    let latency_frames = (LATENCY_MS / 1_000.0) * config.sample_rate.0 as f32;
+    let latency_frames = (LATENCY_MS / 1_000.0) * config.sample_rate as f32;
     let latency_samples = latency_frames as usize * config.channels as usize;
 
     // The buffer to share samples

@@ -656,9 +656,10 @@ fn system_time_to_stream_instant(
     crate::StreamInstant::new(secs, nanos)
 }
 
-/// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
+#[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
@@ -692,7 +693,7 @@ fn check_config(
     }
 
     // Try and set the sample rate to what the user selected.
-    let sample_rate = sample_rate.0.into();
+    let sample_rate = (*sample_rate).into();
     if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
         if driver
             .can_sample_rate(sample_rate)

@@ -96,7 +96,9 @@ fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
     message: &str,
 ) -> E {
     match e.code() {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED => E::device_not_available(),
+        Audio::AUDCLNT_E_DEVICE_INVALIDATED | Audio::AUDCLNT_E_DEVICE_IN_USE => {
+            E::device_not_available()
+        }
         _ => {
             let description = format!("{}{}", message, e);
             let err = BackendSpecificError { description };

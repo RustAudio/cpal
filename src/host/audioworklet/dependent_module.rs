@@ -57,6 +57,6 @@ pub fn on_the_fly(code: &str) -> Result<String, JsValue> {
 #[macro_export]
 macro_rules! dependent_module {
     ($file_name:expr) => {
-        $crate::host::web_audio_worklet::dependent_module::on_the_fly(include_str!($file_name))
+        $crate::host::audioworklet::dependent_module::on_the_fly(include_str!($file_name))
     };
 }

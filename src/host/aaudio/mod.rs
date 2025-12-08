@@ -15,8 +15,8 @@ use crate::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
     DeviceNameError, DeviceType, DevicesError, InputCallbackInfo, InputStreamTimestamp,
     InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    SampleFormat, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 mod convert;
@@ -203,8 +203,8 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
             for sample_rate in &SAMPLE_RATES {
                 output.push(SupportedStreamConfigRange {
                     channels: *channel_count,
-                    min_sample_rate: SampleRate(*sample_rate as u32),
-                    max_sample_rate: SampleRate(*sample_rate as u32),
+                    min_sample_rate: *sample_rate as u32,
+                    max_sample_rate: *sample_rate as u32,
                     buffer_size,
                     sample_format: *sample_format,
                 });
@@ -249,8 +249,8 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
             for format in formats {
                 output.push(SupportedStreamConfigRange {
                     channels: cmp::min(*channel_count as u16, 2u16),
-                    min_sample_rate: SampleRate(*sample_rate as u32),
-                    max_sample_rate: SampleRate(*sample_rate as u32),
+                    min_sample_rate: *sample_rate as u32,
+                    max_sample_rate: *sample_rate as u32,
                     buffer_size,
                     sample_format: *format,
                 });
@@ -271,7 +271,7 @@ fn configure_for_device(
     } else {
         builder
     };
-    builder = builder.sample_rate(config.sample_rate.0.try_into().unwrap());
+    builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
     // Note: Buffer size validation is not needed - the native AAudio API validates buffer sizes
     // when `open_stream()` is called.
