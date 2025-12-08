@@ -137,7 +137,7 @@ match device.build_output_stream(&config, data_fn, err_fn, None) {
 
 Update these dependencies if you use them directly:
 
-```rust
+```toml
 [dependencies]
 cpal = "0.17"
 
@@ -153,10 +153,8 @@ audio_thread_priority = "0.34"  # All platforms
 
 **What changed:** Device enumeration now returns all devices from `aplay -L`. v0.16 had a regression that only returned card names, missing all device variants.
 
-```rust
-# v0.16: Only card names ("Loopback", "HDA Intel PCH")
-# v0.17: All aplay -L devices (default, hw:CARD=X,DEV=Y, plughw:, front:, surround51:, etc.)
-```
+* v0.16: Only card names ("Loopback", "HDA Intel PCH")
+* v0.17: All aplay -L devices (default, hw:CARD=X,DEV=Y, plughw:, front:, surround51:, etc.)
 
 **Impact:** Many more devices will be enumerated. Device names/IDs will be much more detailed. Update any code that matches specific ALSA device names.
 
@@ -166,7 +164,7 @@ audio_thread_priority = "0.34"  # All platforms
 
 **What changed:** The optional `wee_alloc` feature was removed for security reasons.
 
-```rust
+```toml
 # Before (v0.16)
 cpal = { version = "0.16", features = ["wasm-bindgen", "wee_alloc"] }
 
