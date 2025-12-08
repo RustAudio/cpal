@@ -40,7 +40,6 @@ pub use super::enumerate::{
 use std::fmt;
 use std::mem::{self, size_of};
 use std::ptr::{null, NonNull};
-use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -91,8 +90,7 @@ fn set_sample_rate(
         };
         coreaudio::Error::from_os_status(status)?;
         let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-        let mut ranges: Vec<u8> = vec![];
-        ranges.reserve_exact(data_size as usize);
+        let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
         let status = unsafe {
             AudioObjectGetPropertyData(
                 audio_device_id,
@@ -104,18 +102,18 @@ fn set_sample_rate(
             )
         };
         coreaudio::Error::from_os_status(status)?;
-        let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-        let ranges: &[AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
+        unsafe {
+            ranges.set_len(n_ranges);
+        }
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate;
-        let maybe_index = ranges
+        if !ranges
             .iter()
-            .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
-        let range_index = match maybe_index {
-            None => return Err(BuildStreamError::StreamConfigNotSupported),
-            Some(i) => i,
-        };
+            .any(|r| sample_rate as f64 >= r.mMinimum && sample_rate as f64 <= r.mMaximum)
+        {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
 
         let (send, recv) = channel::<Result<f64, coreaudio::Error>>();
         let sample_rate_address = AudioObjectPropertyAddress {
@@ -150,6 +148,9 @@ fn set_sample_rate(
 
         // Finally, set the sample rate.
         property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
+        // Set the nominal sample rate using a single f64 as required by CoreAudio.
+        let rate = sample_rate as f64;
+        let data_size = mem::size_of::<f64>() as u32;
         let status = unsafe {
             AudioObjectSetPropertyData(
                 audio_device_id,
@@ -157,7 +158,7 @@ fn set_sample_rate(
                 0,
                 null(),
                 data_size,
-                NonNull::from(&ranges[range_index]).cast(),
+                NonNull::from(&rate).cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;
@@ -495,18 +496,23 @@ impl Device {
 
             let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
 
-            // If there's no buffers, skip.
-            if (*audio_buffer_list).mNumberBuffers == 0 {
+            // Read the number of buffers without assuming alignment (avoid UB).
+            let nb_ptr = core::ptr::addr_of!((*audio_buffer_list).mNumberBuffers);
+            let n_buffers = core::ptr::read_unaligned(nb_ptr) as usize;
+            // If there are no buffers, skip.
+            if n_buffers == 0 {
                 return Ok(vec![].into_iter());
             }
 
             // Count the number of channels as the sum of all channels in all output buffers.
-            let n_buffers = (*audio_buffer_list).mNumberBuffers as usize;
-            let first: *const AudioBuffer = (*audio_buffer_list).mBuffers.as_ptr();
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(first, n_buffers);
-            let mut n_channels = 0;
-            for buffer in buffers {
-                n_channels += buffer.mNumberChannels as usize;
+            let first_buf_ptr =
+                core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
+            let mut n_channels = 0usize;
+            for i in 0..n_buffers {
+                let buf_ptr = first_buf_ptr.add(i);
+                // Read potentially unaligned
+                let buf: AudioBuffer = core::ptr::read_unaligned(buf_ptr);
+                n_channels += buf.mNumberChannels as usize;
             }
 
             // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
@@ -533,8 +539,7 @@ impl Device {
             check_os_status(status)?;
 
             let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-            let mut ranges: Vec<u8> = vec![];
-            ranges.reserve_exact(data_size as usize);
+            let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
                 NonNull::from(&property_address),
@@ -545,8 +550,7 @@ impl Device {
             );
             check_os_status(status)?;
 
-            let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-            let ranges: &[AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+            ranges.set_len(n_ranges);
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
@@ -1007,9 +1011,10 @@ fn setup_callback_vars(
 fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
     // Device-level property: always use Scope::Global + Element::Output
     // This is consistent with how we set the buffer size and query the buffer size range
-    audio_unit.get_property::<usize>(
+    let frames: u32 = audio_unit.get_property(
         kAudioDevicePropertyBufferFrameSize,
         Scope::Global,
         Element::Output,
-    )
+    )?;
+    Ok(frames as usize)
 }
