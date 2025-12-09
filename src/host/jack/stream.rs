@@ -445,7 +445,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
         self.send_error(format!("JACK was shut down for reason: {}", reason));
     }
 
-    fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
+    fn sample_rate(&mut self, _: &jack::Client, _srate: jack::Frames) -> jack::Control {
         match self.init_sample_rate_flag.load(Ordering::SeqCst) {
             false => {
                 // One of these notifications is sent every time a client is started.
@@ -453,9 +453,11 @@ impl jack::NotificationHandler for JackNotificationHandler {
                 jack::Control::Continue
             }
             true => {
-                self.send_error(format!("sample rate changed to: {}", srate));
-                // Since CPAL currently has no way of signaling a sample rate change in order to make
-                // all necessary changes that would bring we choose to quit.
+                // The JACK server has changed the sample rate, invalidating this stream.
+                // The stream configuration must be rebuilt with the new sample rate.
+                if let Ok(mut cb) = self.error_callback_ptr.lock() {
+                    cb(StreamError::StreamInvalidated);
+                }
                 jack::Control::Quit
             }
         }
