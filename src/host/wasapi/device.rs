@@ -940,6 +940,38 @@ impl PartialEq for Device {
 
 impl Eq for Device {}
 
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash the device ID for consistency with PartialEq
+        // SAFETY: GetId only fails with E_OUTOFMEMORY, which is unrecoverable.
+        // We need consistent hash/eq behavior.
+        unsafe {
+            use windows::Win32::System::Com;
+
+            struct IdRAII(windows::core::PWSTR);
+            impl Drop for IdRAII {
+                fn drop(&mut self) {
+                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+                }
+            }
+
+            let id = self.device.GetId().expect("cpal: GetId failure");
+            let id = IdRAII(id);
+
+            // Hash the 16-bit null-terminated string
+            let mut offset = 0;
+            loop {
+                let w: u16 = *(id.0).0.offset(offset);
+                if w == 0 {
+                    break;
+                }
+                w.hash(state);
+                offset += 1;
+            }
+        }
+    }
+}
+
 impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Device")

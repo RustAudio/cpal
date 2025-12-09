@@ -15,7 +15,7 @@ use crate::{
 #[derive(Default)]
 pub struct Devices;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
 
 pub struct Host;

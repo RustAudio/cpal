@@ -5,13 +5,14 @@
 - Add `Display` and `FromStr` implementations for `HostId`.
 - Add support for custom `Host`s, `Device`s, and `Stream`s.
 - Add `Sample::bits_per_sample` method.
-- Add `Copy` impl to `InputCallbackInfo` and `OutputCallbackInfo`.
+- Add `Copy` implementation to `InputCallbackInfo` and `OutputCallbackInfo`.
 - Add `StreamError::StreamInvalidated` variant for when stream must be rebuilt.
 - Add `StreamError::BufferUnderrun` variant for buffer underrun/overrun notifications.
+- Add `Hash` implementation to `Device` for all backends.
 - Change `SampleRate` from struct to `u32` type alias.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
-- AAudio: Make `Stream` implement `Send` and `Sync`.
+- AAudio: Add `Send` and `Sync` implementations to `Stream`.
 - AAudio: Fix the buffer size range detection by querying the AudioService property correctly.
 - AAudio: Add support for 12 and 24 kHz sample rates.
 - ALSA: Improve `BufferSize::Fixed` precision and audio callback performance.
@@ -23,6 +24,7 @@
 - ALSA: Update `alsa` to 0.10.
 - ALSA: Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
 - ALSA: Report buffer underruns/overruns via `StreamError::BufferUnderrun`.
+- ALSA: Add `Eq` and `PartialEq` implementations to `Device`.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - ASIO: Add packed(4) to representation of ASIO time structs in bindings.
 - ASIO: Add handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
@@ -38,8 +40,8 @@
 - CoreAudio: Update `mach2` to 0.6.
 - CoreAudio: Configure device buffer to ensure predictable callback buffer sizes.
 - CoreAudio: Fix timestamp accuracy.
-- CoreAudio: Make `Stream` implement `Send`.
-- CoreAudio: Remove `Clone` impl from `Stream`.
+- CoreAudio: Add `Send` implementation to `Stream`.
+- CoreAudio: Remove `Clone` implementation from `Stream`.
 - CoreAudio: Fix segfaults when enumerating devices.
 - CoreAudio: Fix undefined behavior related to null pointers and aligned reads.
 - Emscripten: Add `BufferSize::Fixed` validation against supported range.
@@ -52,9 +54,9 @@
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.59, <= 0.62.
-- WASAPI: Make `Stream` implement `Send` and `Sync`.
-- Wasm: Removed optional `wee-alloc` feature for security reasons.
-- Wasm: Make `Stream` implement `Send` and `Sync`.
+- WASAPI: Add `Send` and `Sync` implementations to `Stream`.
+- WebAudio: Removed optional `wee-alloc` feature for security reasons.
+- WebAudio: Add `Send` and `Sync` implementations to `Stream`.
 - WebAudio: Add `BufferSize::Fixed` validation against supported range.
 
 # Version 0.16.0 (2025-06-07)

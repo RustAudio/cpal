@@ -314,6 +314,29 @@ pub struct Device {
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        // Devices are equal if they have the same PCM ID and direction.
+        // The handles field is not part of device identity.
+        self.pcm_id == other.pcm_id && self.direction == other.direction
+    }
+}
+
+impl Eq for Device {}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash based on PCM ID and direction for consistency with PartialEq
+        self.pcm_id.hash(state);
+        // Manually hash direction since alsa::Direction doesn't implement Hash
+        match self.direction {
+            Some(alsa::Direction::Capture) => 0u8.hash(state),
+            Some(alsa::Direction::Playback) => 1u8.hash(state),
+            None => 2u8.hash(state),
+        }
+    }
+}
+
 impl Device {
     fn build_stream_inner(
         &self,

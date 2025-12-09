@@ -23,7 +23,7 @@ use std::time::Duration;
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
 
 pub struct Host;

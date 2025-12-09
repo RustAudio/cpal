@@ -337,7 +337,7 @@ impl DeviceTrait for Device {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
 }
