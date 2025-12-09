@@ -771,6 +771,7 @@ fn input_stream_worker(
                 continue;
             }
             PollDescriptorsFlow::XRun => {
+                error_callback(StreamError::BufferUnderrun);
                 if let Err(err) = stream.channel.prepare() {
                     error_callback(err.into());
                 }
@@ -822,6 +823,7 @@ fn output_stream_worker(
         match flow {
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::XRun => {
+                error_callback(StreamError::BufferUnderrun);
                 if let Err(err) = stream.channel.prepare() {
                     error_callback(err.into());
                 }
@@ -933,7 +935,7 @@ fn poll_descriptors_and_prepare_buffer(
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
-        // Buffer underrun. TODO: Notify the user.
+        // Buffer underrun detected, but notification happens in XRun handler
         d if d < 0 => 0,
         d => d as usize,
     };
@@ -1023,11 +1025,10 @@ fn process_output(
                 // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
                 // Even if these recover successfully, they still may cause audible glitches.
 
-                // TODO:
-                //   Should we notify the user about successfully recovered errors?
-                //   Should we notify the user about failures in try_recover, rather than ignoring them?
-                //   (Both potentially not real-time-safe)
-                _ = stream.channel.try_recover(err, true);
+                error_callback(StreamError::BufferUnderrun);
+                if let Err(recover_err) = stream.channel.try_recover(err, true) {
+                    error_callback(recover_err.into());
+                }
             }
             Err(err) => {
                 error_callback(err.into());
