@@ -294,6 +294,12 @@ pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+    /// The stream configuration is no longer valid and must be rebuilt.
+    /// This occurs when the backend requires a full reset:
+    /// - ASIO: Driver reset request (sample rate/format change via control panel)
+    /// - JACK: Sample rate changed by server
+    /// - Other backends: Format/configuration invalidated
+    StreamInvalidated,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
 }
@@ -302,6 +308,9 @@ impl Display for StreamError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
+            Self::StreamInvalidated => {
+                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
+            }
             Self::DeviceNotAvailable => f.write_str(
                 "The requested device is no longer available. For example, it has been unplugged.",
             ),

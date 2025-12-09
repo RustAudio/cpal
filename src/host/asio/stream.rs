@@ -20,6 +20,7 @@ pub struct Stream {
     #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::CallbackId,
+    message_callback_id: sys::MessageCallbackId,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -44,7 +45,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
@@ -59,6 +60,9 @@ impl Device {
         if sample_format != expected_sample_format {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
+
+        // Register the message callback with the driver
+        let message_callback_id = self.add_message_callback(error_callback);
 
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(config, sample_format)?;
@@ -260,6 +264,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
+            message_callback_id,
         })
     }
 
@@ -268,7 +273,7 @@ impl Device {
         config: &StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
-        _error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
@@ -283,6 +288,9 @@ impl Device {
         if sample_format != expected_sample_format {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
+
+        // Register the message callback with the driver
+        let message_callback_id = self.add_message_callback(error_callback);
 
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(config, sample_format)?;
@@ -535,6 +543,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
+            message_callback_id,
         })
     }
 
@@ -633,11 +642,29 @@ impl Device {
             }
         }
     }
+
+    fn add_message_callback<E>(&self, error_callback: E) -> sys::MessageCallbackId
+    where
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let error_callback_shared = Arc::new(Mutex::new(error_callback));
+
+        self.driver.add_message_callback(move |msg| {
+            // Check specifically for ResetRequest
+            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
+                if let Ok(mut cb) = error_callback_shared.lock() {
+                    cb(StreamError::StreamInvalidated);
+                }
+            }
+        })
+    }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
         self.driver.remove_callback(self.callback_id);
+        self.driver
+            .remove_message_callback(self.message_callback_id);
     }
 }
 
