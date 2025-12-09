@@ -66,7 +66,7 @@ clap = { version = "4.5", features = ["derive"] }
 # versions when bumping to a new release, and only increase the minimum when absolutely necessary.
 # When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = ">=0.58, <=0.62", features = [
+windows = { version = ">=0.59, <=0.62", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
