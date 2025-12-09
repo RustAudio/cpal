@@ -319,7 +319,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["0.59.0", "0.60.0", "0.61.3"]
+        version: ["0.58.0", "0.59.0", "0.60.0", "0.61.3"]
 
     name: windows-crate-v${{ matrix.version }}
     steps:
