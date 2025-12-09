@@ -27,7 +27,7 @@ type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
 
 pub struct Host;
