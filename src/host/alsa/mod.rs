@@ -328,7 +328,12 @@ impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash based on PCM ID and direction for consistency with PartialEq
         self.pcm_id.hash(state);
-        self.direction.hash(state);
+        // Manually hash direction since alsa::Direction doesn't implement Hash
+        match self.direction {
+            Some(alsa::Direction::Capture) => 0u8.hash(state),
+            Some(alsa::Direction::Playback) => 1u8.hash(state),
+            None => 2u8.hash(state),
+        }
     }
 }
 
