@@ -7,6 +7,7 @@
 - Add `Sample::bits_per_sample` method.
 - Add `Copy` impl to `InputCallbackInfo` and `OutputCallbackInfo`.
 - Add `StreamError::StreamInvalidated` variant for when stream must be rebuilt.
+- Add `StreamError::BufferUnderrun` variant for buffer underrun/overrun notifications.
 - Change `SampleRate` from struct to `u32` type alias.
 - Update `audio_thread_priority` to 0.34.
 - AAudio: Configure buffer to ensure consistent callback buffer sizes.
@@ -21,6 +22,7 @@
 - ALSA: Add support for 12, 24, 352.8, 384, 705.6, and 768 kHz sample rates.
 - ALSA: Update `alsa` to 0.10.
 - ALSA: Pass `silent=true` to `PCM.try_recover`, so it doesn't write to stderr.
+- ALSA: Report buffer underruns/overruns via `StreamError::BufferUnderrun`.
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - ASIO: Add packed(4) to representation of ASIO time structs in bindings.
 - ASIO: Add handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
@@ -46,6 +48,7 @@
 - JACK: Add support for macOS and Windows platforms.
 - JACK: Add `BufferSize::Fixed` validation to reject requests that don't match server buffer size.
 - JACK: Use `StreamError::StreamInvalidated` for JACK server sample rate changes.
+- JACK: Report buffer underruns/overruns via `StreamError::BufferUnderrun`.
 - WASAPI: Expose `IMMDevice` from WASAPI host Device.
 - WASAPI: Add `I24` and `U24` sample format support (24-bit samples stored in 4 bytes).
 - WASAPI: Update `windows` to >= 0.59, <= 0.62.

@@ -464,7 +464,9 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        self.send_error(String::from("xrun (buffer over or under run)"));
+        if let Ok(mut cb) = self.error_callback_ptr.lock() {
+            cb(StreamError::BufferUnderrun);
+        }
         jack::Control::Continue
     }
 }
