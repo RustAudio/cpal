@@ -204,7 +204,7 @@ fn set_sample_rate(
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let output_type = if is_default_device(device) && !input {
+    let output_type = if !input && is_default_output_device(device) {
         coreaudio::audio_unit::IOType::DefaultOutput
     } else {
         coreaudio::audio_unit::IOType::HalOutput
@@ -342,13 +342,12 @@ pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
 }
 
-pub fn is_default_device(device: &Device) -> bool {
-    default_input_device()
-        .map(|d| d.audio_device_id == device.audio_device_id)
-        .unwrap_or(false)
-        || default_output_device()
-            .map(|d| d.audio_device_id == device.audio_device_id)
-            .unwrap_or(false)
+fn is_default_input_device(device: &Device) -> bool {
+    default_input_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
+}
+
+fn is_default_output_device(device: &Device) -> bool {
+    default_output_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
 }
 
 impl Device {
@@ -811,7 +810,7 @@ impl Device {
         })?;
 
         // Create error callback for stream - either dummy or real based on device type
-        let error_callback_for_stream: super::ErrorCallback = if is_default_device(self) {
+        let error_callback_for_stream: super::ErrorCallback = if is_default_input_device(self) {
             Box::new(|_: StreamError| {})
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
@@ -914,7 +913,7 @@ impl Device {
         })?;
 
         // Create error callback for stream - either dummy or real based on device type
-        let error_callback_for_stream: super::ErrorCallback = if is_default_device(self) {
+        let error_callback_for_stream: super::ErrorCallback = if is_default_output_device(self) {
             Box::new(|_: StreamError| {})
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
