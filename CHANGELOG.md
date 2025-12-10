@@ -28,6 +28,7 @@
 - ASIO: Fix linker flags for MinGW cross-compilation.
 - ASIO: Add packed(4) to representation of ASIO time structs in bindings.
 - ASIO: Add handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
+- ASIO: Share `sys::Asio` instance across all `Host` instances.
 - CI: Added native ARM64 Linux support in GitHub Actions.
 - CI: Fix cargo publish to trigger on GitHub releases instead of every master commit.
 - CI: Replace cargo install commands with cached tool installation for faster builds.
