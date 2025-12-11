@@ -23,8 +23,7 @@ pub enum SampleFormat {
 pub type ChannelCount = u16;
 
 // The number of samples processed per second for a single channel of audio.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SampleRate(pub u32);
+pub type SampleRate = u32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Format {
@@ -46,12 +45,12 @@ fn main() {
             .expect("failed to retrieve sample rate");
         let in_fmt = Format {
             channels: channels.ins as _,
-            sample_rate: SampleRate(sample_rate as _),
+            sample_rate: sample_rate as _,
             data_type: SampleFormat::F32,
         };
         let out_fmt = Format {
             channels: channels.outs as _,
-            sample_rate: SampleRate(sample_rate as _),
+            sample_rate: sample_rate as _,
             data_type: SampleFormat::F32,
         };
         println!("  Input {:?}", in_fmt);

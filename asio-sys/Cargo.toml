@@ -7,6 +7,8 @@ repository = "https://github.com/RustAudio/cpal/"
 documentation = "https://docs.rs/asio-sys"
 license = "Apache-2.0"
 keywords = ["audio", "sound", "asio", "steinberg"]
+edition = "2021"
+rust-version = "1.70"
 build = "build.rs"
 
 [build-dependencies]
