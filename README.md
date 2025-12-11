@@ -186,3 +186,40 @@ If you experience audio glitches or dropouts:
 - **ASIO on Windows:** Verify `LIBCLANG_PATH` is set and LLVM is installed
 - **ALSA on Linux:** Install development packages: `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora)
 - **JACK:** Install JACK development libraries before enabling the `jack` feature
+
+## Examples
+
+CPAL comes with several examples demonstrating various features:
+
+- `beep` - Generate a simple sine wave tone
+- `enumerate` - List all available audio devices and their capabilities
+- `feedback` - Pass input audio directly to output (microphone loopback)
+- `record_wav` - Record audio from the default input device to a WAV file
+- `synth_tones` - Generate multiple tones simultaneously
+
+Run an example with:
+```bash
+cargo run --example beep
+```
+
+For platform-specific features, enable the relevant features:
+```bash
+cargo run --example beep --features asio  # Windows ASIO
+cargo run --example beep --features jack  # JACK backend
+```
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Resources
+
+- **Documentation:** [docs.rs/cpal](https://docs.rs/cpal)
+- **Examples:** [examples/](examples/) directory in this repository
+- **Discord:** Join the [#cpal channel](https://discordapp.com/channels/590254806208217089/672897096826748948) for questions and discussion
+- **GitHub:** [Report issues](https://github.com/RustAudio/cpal/issues) and [view source code](https://github.com/RustAudio/cpal)
+- **RustAudio:** Part of the [RustAudio organization](https://github.com/RustAudio)
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
