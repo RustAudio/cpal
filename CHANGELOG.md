@@ -67,8 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Format selection to probe hardware endianness instead of assuming native byte order.
-- **ASIO**: Linker flags for MinGW cross-compilation.
-- **ASIO**: Add packed(4) to representation of ASIO time structs in bindings.
 - **ASIO**: Handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
 - **CoreAudio**: Timestamp accuracy.
 - **CoreAudio**: Segfaults when enumerating devices.
