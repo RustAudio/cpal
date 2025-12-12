@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Timestamp accuracy.
 - **CoreAudio**: Segfaults when enumerating devices.
 - **CoreAudio**: Undefined behavior related to null pointers and aligned reads.
+- **CoreAudio**: Unnecessary microphone permission requests when using output devices only.
 - **iOS**: Example by properly activating audio session.
 
 ### Removed
