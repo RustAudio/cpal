@@ -420,7 +420,7 @@ jobs:
       - name: Verify asio-sys version
         shell: bash
         run: |
-          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "asio-sys") | .version')
+          CARGO_VERSION=$(cd asio-sys && cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "asio-sys") | .version')
           RELEASE_VERSION=${GITHUB_REF#refs/tags/asio-sys-v}
           echo "asio-sys Cargo.toml version: $CARGO_VERSION"
           echo "Release tag version: $RELEASE_VERSION"
