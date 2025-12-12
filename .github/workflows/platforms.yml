@@ -126,6 +126,12 @@ jobs:
           CPAL_ASIO_DIR: ${{ github.workspace }}/asio
         run: cargo test --all --all-features --verbose
 
+      - name: Check asio-sys examples
+        working-directory: asio-sys
+        env:
+          CPAL_ASIO_DIR: ${{ github.workspace }}/asio
+        run: cargo check --examples --verbose
+
   # Windows i686
   windows-x86:
     runs-on: windows-latest
@@ -156,6 +162,12 @@ jobs:
           CPAL_ASIO_DIR: ${{ github.workspace }}/asio
         run: cargo test --all --all-features --verbose
 
+      - name: Check asio-sys examples
+        working-directory: asio-sys
+        env:
+          CPAL_ASIO_DIR: ${{ github.workspace }}/asio
+        run: cargo check --examples --verbose
+
   # macOS ARM64
   macos:
     runs-on: macOS-latest
@@ -171,8 +183,8 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build beep example
-        run: cargo build --example beep
+      - name: Check examples
+        run: cargo check --examples --verbose
 
       - name: Run tests (no features)
         run: cargo test --all --no-default-features --verbose
@@ -197,11 +209,7 @@ jobs:
           key: android
 
       - name: Check Android examples
-        run: |
-          cargo check --example beep --target armv7-linux-androideabi --verbose
-          cargo check --example enumerate --target armv7-linux-androideabi --verbose
-          cargo check --example feedback --target armv7-linux-androideabi --verbose
-          cargo check --example record_wav --target armv7-linux-androideabi --verbose
+        run: cargo check --examples --target armv7-linux-androideabi --verbose
 
       - name: Check Android project
         working-directory: examples/android

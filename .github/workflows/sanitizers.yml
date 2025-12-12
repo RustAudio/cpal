@@ -81,20 +81,28 @@ jobs:
             --lib --tests \
             --verbose
 
-      - name: Build examples with sanitizer
+      - name: Check all examples with sanitizer
         run: |
-          cargo +nightly build \
+          cargo +nightly check \
             -Zbuild-std \
             --target ${{ matrix.target }} \
             --examples \
             --verbose
 
-      - name: Run enumerate example with sanitizer
+      - name: Build and run enumerate example with sanitizer
         run: |
           cargo +nightly run \
             -Zbuild-std \
             --target ${{ matrix.target }} \
             --example enumerate \
+            --verbose
+
+      - name: Build and run beep example with sanitizer
+        run: |
+          cargo +nightly run \
+            -Zbuild-std \
+            --target ${{ matrix.target }} \
+            --example beep \
             --verbose
 
       - name: Upload sanitizer logs
