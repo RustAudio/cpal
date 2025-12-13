@@ -777,6 +777,10 @@ impl Driver {
         let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
         mcb.retain(|&(id, _)| id != rem_id);
     }
+
+    pub fn open_control_panel(&self) -> Result<(), AsioError> {
+        unsafe { asio_result!(ai::ASIOControlPanel()) }
+    }
 }
 
 impl DriverState {

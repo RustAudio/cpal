@@ -189,6 +189,14 @@ impl Device {
             sample_format,
         })
     }
+
+    pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
+        self.driver
+            .open_control_panel()
+            .map_err(|e| BackendSpecificError {
+                description: format!("Failed to open control panel: {:?}", e),
+            })
+    }
 }
 
 impl Devices {
