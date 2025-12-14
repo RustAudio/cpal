@@ -23,7 +23,14 @@ on:
     types: [published]
 
 env:
-  MSRV: "1.70"
+  # MSRV varies by backend due to platform-specific dependencies
+  MSRV_AAUDIO: "1.82"
+  MSRV_ALSA: "1.77"
+  MSRV_COREAUDIO: "1.80"
+  MSRV_JACK: "1.80"
+  MSRV_WASIP1: "1.78"
+  MSRV_WASM: "1.82"
+  MSRV_WINDOWS: "1.82"
 
 jobs:
   # Linux x86_64
@@ -37,19 +44,24 @@ jobs:
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_ALSA }}
+
+      - name: Install Rust MSRV (${{ env.MSRV_JACK }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV_JACK }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests (no features)
-        run: cargo test --all --no-default-features --verbose
+        run: cargo +${{ env.MSRV_ALSA }} test --all --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cargo test --all --all-features --verbose
+        run: cargo +${{ env.MSRV_JACK }} test --all --all-features --verbose
 
   # Linux ARM64
   linux-arm64:
@@ -62,19 +74,24 @@ jobs:
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_ALSA }}
+
+      - name: Install Rust MSRV (${{ env.MSRV_JACK }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV_JACK }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests (no features)
-        run: cargo test --all --no-default-features --verbose
+        run: cargo +${{ env.MSRV_ALSA }} test --all --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cargo test --all --all-features --verbose
+        run: cargo +${{ env.MSRV_JACK }} test --all --all-features --verbose
 
   # Linux ARMv7 (cross-compilation)
   linux-armv7:
@@ -82,10 +99,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_ALSA }}
+          targets: armv7-unknown-linux-gnueabihf
+
+      - name: Install Rust MSRV (${{ env.MSRV_JACK }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV_JACK }}
           targets: armv7-unknown-linux-gnueabihf
 
       - name: Rust Cache
@@ -99,10 +122,10 @@ jobs:
           tool: cross
 
       - name: Test (no features)
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
+        run: cross +${{ env.MSRV_ALSA }} test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
 
       - name: Test (all features)
-        run: cross test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+        run: cross +${{ env.MSRV_JACK }} test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
   # Windows x86_64
   windows-x64:
@@ -118,10 +141,10 @@ jobs:
           choco install asio4all
           choco install llvm
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_WINDOWS }}
           targets: x86_64-pc-windows-msvc
 
       - name: Rust Cache
@@ -155,10 +178,10 @@ jobs:
           choco install asio4all
           choco install llvm
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_WINDOWS }}
           targets: i686-pc-windows-msvc
 
       - name: Rust Cache
@@ -187,10 +210,10 @@ jobs:
       - name: Install dependencies
         run: brew install llvm
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_COREAUDIO }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_COREAUDIO }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -210,9 +233,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain (Android targets)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV_AAUDIO }})
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.MSRV_AAUDIO }}
           targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
 
       - name: Rust Cache
@@ -250,9 +274,10 @@ jobs:
       - name: Install dependencies
         run: brew install llvm
 
-      - name: Install Rust toolchain (iOS targets)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV_COREAUDIO }})
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.MSRV_COREAUDIO }}
           targets: aarch64-apple-ios,x86_64-apple-ios
 
       - name: Rust Cache
@@ -288,9 +313,6 @@ jobs:
             build-worklet-beep: true
             rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
 
-          - target: wasm32-wasip1
-            args: ""
-
     name: wasm-${{ matrix.target }}-${{ matrix.args }}
     steps:
       - uses: actions/checkout@v5
@@ -299,11 +321,11 @@ jobs:
         if: matrix.setup-emscripten
         uses: mymindstorm/setup-emsdk@v14
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_WASM }})
         if: ${{ !matrix.build-worklet-beep }}
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_WASM }}
           targets: ${{ matrix.target }}
 
       - name: Install Rust toolchain (nightly for build-std)
@@ -334,6 +356,26 @@ jobs:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo +nightly build --target ${{ matrix.target }} -Z build-std=std,panic_abort
 
+  # WebAssembly - WASI Preview 1
+  wasm-wasip1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust MSRV (${{ env.MSRV_WASIP1 }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV_WASIP1 }}
+          targets: wasm32-wasip1
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-wasip1
+
+      - name: Build beep example
+        run: cargo build --example beep --target wasm32-wasip1
+
   # Windows crate version compatibility
   windows-versions:
     runs-on: windows-latest
@@ -349,10 +391,10 @@ jobs:
       - name: Install dependencies
         run: choco install llvm
 
-      - name: Install Rust MSRV (${{ env.MSRV }})
+      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV }}
+          toolchain: ${{ env.MSRV_WINDOWS }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -363,7 +405,7 @@ jobs:
         shell: bash
         run: |
           cargo generate-lockfile
-          cargo update --precise ${{ matrix.version }} windows
+          cargo update -p windows --precise ${{ matrix.version }}
           echo "Locked windows crate version:"
           cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
           echo "Cargo.lock entry:"

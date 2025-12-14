@@ -7,7 +7,7 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.77"
 
 [features]
 # ASIO backend for Windows
@@ -60,7 +60,7 @@ dasp_sample = "0.11"
 anyhow = "1.0"
 hound = "3.5"
 ringbuf = "0.4"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = ">=4.0, <=4.5", features = ["derive"] }
 
 # Support a range of versions in order to avoid duplication of this crate. Make sure to test all
 # versions when bumping to a new release, and only increase the minimum when absolutely necessary.
@@ -94,7 +94,7 @@ version = "0.13"
 optional = true
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
-mach2 = "0.6"
+mach2 = "0.5"
 coreaudio-rs = { version = "0.13", default-features = false, features = [
     "core_audio",
     "audio_toolbox",

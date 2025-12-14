@@ -5,7 +5,20 @@
 
 Low-level library for audio input and output in pure Rust.
 
-**Minimum Supported Rust Version (MSRV):** 1.70
+## Minimum Supported Rust Version (MSRV)
+
+The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
+
+- **AAudio (Android):** Rust **1.82** (due to `ndk` crate requirements)
+- **ALSA (Linux/BSD):** Rust **1.77** (due to `alsa-sys` crate requirements)
+- **CoreAudio (macOS/iOS):** Rust **1.80** (due to `coreaudio-rs` crate requirements)
+- **JACK (Linux/BSD/macOS/Windows):** Rust **1.80** (due to `jack` crate requirements)
+- **WASAPI/ASIO (Windows):** Rust **1.82** (due to `windows` crate requirements)
+- **WASM (`wasm32-unknown`):** Rust **1.82** (due to `gloo` crate requirements)
+- **WASM (`wasm32-wasip1`):** Rust **1.78** (target stabilized in 1.78)
+- **WASM (`audioworklet`):** Rust **nightly** (requires `-Zbuild-std` for atomics support)
+
+## Supported Platforms
 
 This library currently supports the following:
 
