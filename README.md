@@ -5,6 +5,8 @@
 
 Low-level library for audio input and output in pure Rust.
 
+**Minimum Supported Rust Version (MSRV):** 1.70
+
 This library currently supports the following:
 
 - Enumerate supported audio hosts.

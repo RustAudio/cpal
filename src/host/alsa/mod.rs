@@ -6,9 +6,11 @@ extern crate alsa;
 extern crate libc;
 
 use std::{
-    cell::Cell,
     cmp,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread::{self, JoinHandle},
     time::Duration,
     vec::IntoIter as VecIntoIter,
@@ -414,7 +416,7 @@ impl Device {
         }
 
         let stream_inner = StreamInner {
-            dropping: Cell::new(false),
+            dropping: AtomicBool::new(false),
             channel: handle,
             sample_format,
             num_descriptors,
@@ -658,7 +660,7 @@ impl Device {
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
     // (e.g. broken due to a disconnected device).
-    dropping: Cell<bool>,
+    dropping: AtomicBool,
 
     // The ALSA channel.
     channel: alsa::pcm::PCM,
@@ -914,7 +916,7 @@ fn poll_descriptors_and_prepare_buffer(
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
 ) -> Result<PollDescriptorsFlow, BackendSpecificError> {
-    if stream.dropping.get() {
+    if stream.dropping.load(Ordering::Acquire) {
         // The stream has been requested to be destroyed.
         rx.clear_pipe();
         return Ok(PollDescriptorsFlow::Return);
@@ -1203,7 +1205,7 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.inner.dropping.set(true);
+        self.inner.dropping.store(true, Ordering::Release);
         self.trigger.wakeup();
         self.thread.take().unwrap().join().unwrap();
     }

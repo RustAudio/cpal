@@ -22,6 +22,9 @@ on:
   release:
     types: [published]
 
+env:
+  MSRV: "1.70"
+
 jobs:
   # Linux x86_64
   linux-x64:
@@ -34,8 +37,10 @@ jobs:
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -57,8 +62,10 @@ jobs:
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -75,10 +82,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
         with:
-          target: armv7-unknown-linux-gnueabihf
+          toolchain: ${{ env.MSRV }}
+          targets: armv7-unknown-linux-gnueabihf
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -110,10 +118,11 @@ jobs:
           choco install asio4all
           choco install llvm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
         with:
-          target: x86_64-pc-windows-msvc
+          toolchain: ${{ env.MSRV }}
+          targets: x86_64-pc-windows-msvc
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -146,10 +155,11 @@ jobs:
           choco install asio4all
           choco install llvm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
         with:
-          target: i686-pc-windows-msvc
+          toolchain: ${{ env.MSRV }}
+          targets: i686-pc-windows-msvc
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -177,8 +187,10 @@ jobs:
       - name: Install dependencies
         run: brew install llvm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -287,11 +299,12 @@ jobs:
         if: matrix.setup-emscripten
         uses: mymindstorm/setup-emsdk@v14
 
-      - name: Install Rust toolchain (stable)
+      - name: Install Rust MSRV (${{ env.MSRV }})
         if: ${{ !matrix.build-worklet-beep }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          target: ${{ matrix.target }}
+          toolchain: ${{ env.MSRV }}
+          targets: ${{ matrix.target }}
 
       - name: Install Rust toolchain (nightly for build-std)
         if: matrix.build-worklet-beep
@@ -336,8 +349,10 @@ jobs:
       - name: Install dependencies
         run: choco install llvm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

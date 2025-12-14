@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI**: Replace cargo install commands with cached tool installation for faster builds.
 - **CI**: Update actions to latest versions (checkout@v5, rust-cache@v2).
 - **CI**: Verify compatibility with windows crates since v0.59.
+- **CI**: Test all platforms on MSRV (1.70) to ensure compatibility.
 - **CoreAudio**: `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - **CoreAudio**: Default audio device detection to be lazy when building a stream, instead of during device enumeration.
 - **CoreAudio**: Update `mach2` to 0.6.
@@ -67,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Format selection to probe hardware endianness instead of assuming native byte order.
+- **ALSA**: Data race in stream shutdown.
 - **ASIO**: Handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
 - **CoreAudio**: Timestamp accuracy.
 - **CoreAudio**: Segfaults when enumerating devices.
