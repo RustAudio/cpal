@@ -320,6 +320,8 @@ pub struct CallbackId(usize);
 /// parameters.
 static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 
+/// A monotonic counter to for the callback.
+/// Used to identify when to clear buffers.
 static CALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Indicates that ASIOOutputReady should be called

@@ -215,7 +215,7 @@ impl Iterator for Devices {
                         return Some(Device {
                             driver,
                             asio_streams,
-                            current_callback_counter: Arc::new(AtomicU32::new(0)),
+                            current_callback_counter: Arc::new(AtomicU32::new(u32::MAX)),
                         });
                     }
                     Err(_) => continue,
