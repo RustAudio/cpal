@@ -20,3 +20,7 @@ parse_cfg = "4.1"
 [dependencies]
 num-derive = "0.4"
 num-traits = "0.2"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []

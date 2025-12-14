@@ -6,12 +6,19 @@ use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use num_traits::FromPrimitive;
 
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_double, c_long, c_void};
+use std::os::raw::{c_char, c_double, c_void};
 use std::ptr::null_mut;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
+
+// On Windows (where ASIO actually runs), c_long is i32.
+// On non-Windows platforms (for docs.rs and local testing), redefine c_long as i32 to match.
+#[cfg(target_os = "windows")]
+use std::os::raw::c_long;
+#[cfg(not(target_os = "windows"))]
+type c_long = i32;
 
 // Bindings import
 use self::asio_import as ai;
