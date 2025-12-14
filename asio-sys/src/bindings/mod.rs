@@ -9,7 +9,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
 
@@ -100,6 +100,7 @@ pub struct SampleRate {
 pub struct CallbackInfo {
     pub buffer_index: i32,
     pub system_time: ai::ASIOTimeStamp,
+    pub callback_counter: u32,
 }
 
 /// Holds the pointer to the callbacks that come from cpal
@@ -318,6 +319,8 @@ pub struct CallbackId(usize);
 /// This is required because of how ASIO calls the `buffer_switch` function with no data
 /// parameters.
 static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
+
+static CALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Indicates that ASIOOutputReady should be called
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
@@ -1047,9 +1050,12 @@ extern "C" fn buffer_switch_time_info(
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
     let asio_time: &mut AsioTime = unsafe { &mut *(time as *mut AsioTime) };
+    let callback_counter = CALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
         system_time: asio_time.time_info.system_time,
+        callback_counter,
     };
     for &mut (_, ref mut bc) in bcs.iter_mut() {
         bc.run(&callback_info);
