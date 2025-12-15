@@ -380,7 +380,7 @@ impl Device {
             Ok(handle) => handle,
         };
         let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let period_samples = set_sw_params_from_format(&handle, conf, stream_type)?;
+        let period_samples = set_sw_params_from_format(&handle, conf, sample_format, stream_type)?;
 
         handle.prepare()?;
 
@@ -482,7 +482,7 @@ impl Device {
         // Test both LE and BE formats to detect what the hardware actually supports.
         // LE is listed first as it's the common case for most audio hardware.
         // Hardware reports its supported formats regardless of CPU endianness.
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 18] = [
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 23] = [
             (SampleFormat::I8, alsa::pcm::Format::S8),
             (SampleFormat::U8, alsa::pcm::Format::U8),
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
@@ -501,6 +501,11 @@ impl Device {
             (SampleFormat::F32, alsa::pcm::Format::FloatBE),
             (SampleFormat::F64, alsa::pcm::Format::Float64LE),
             (SampleFormat::F64, alsa::pcm::Format::Float64BE),
+            (SampleFormat::DsdU8, alsa::pcm::Format::DSDU8),
+            (SampleFormat::DsdU16, alsa::pcm::Format::DSDU16LE),
+            (SampleFormat::DsdU16, alsa::pcm::Format::DSDU16BE),
+            (SampleFormat::DsdU32, alsa::pcm::Format::DSDU32LE),
+            (SampleFormat::DsdU32, alsa::pcm::Format::DSDU32BE),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -1284,6 +1289,9 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
         SampleFormat::U64 => fill_typed!(u64),
         SampleFormat::F32 => fill_typed!(f32),
         SampleFormat::F64 => fill_typed!(f64),
+        SampleFormat::DsdU8 => fill_typed!(u8),
+        SampleFormat::DsdU16 => fill_typed!(u16),
+        SampleFormat::DsdU32 => fill_typed!(u32),
     }
 }
 
@@ -1350,6 +1358,15 @@ fn sample_format_to_alsa_format(
         SampleFormat::F64 => (Format::Float64LE, Format::Float64BE),
         #[cfg(target_endian = "big")]
         SampleFormat::F64 => (Format::Float64BE, Format::Float64LE),
+        SampleFormat::DsdU8 => return Ok(Format::DSDU8),
+        #[cfg(target_endian = "little")]
+        SampleFormat::DsdU16 => (Format::DSDU16LE, Format::DSDU16BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::DsdU16 => (Format::DSDU16BE, Format::DSDU16LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::DsdU32 => (Format::DSDU32LE, Format::DSDU32BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::DsdU32 => (Format::DSDU32BE, Format::DSDU32LE),
         _ => {
             return Err(BackendSpecificError {
                 description: format!("Sample format '{sample_format}' is not supported"),
@@ -1416,6 +1433,7 @@ fn set_hw_params_from_format(
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
+    sample_format: SampleFormat,
     stream_type: alsa::Direction,
 ) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;
@@ -1429,10 +1447,18 @@ fn set_sw_params_from_format(
         }
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Always use 2-period double-buffering: one period playing from hardware, one
-                // period queued in the software buffer. This ensures consistent low latency
-                // regardless of the total buffer size.
-                2 * period
+                // For playback, we want to start only when the buffer is full for DSD content
+                // to avoid underruns. For PCM, we keep the default low-latency behavior.
+                let is_dsd = matches!(
+                    sample_format,
+                    SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32
+                );
+                
+                if is_dsd {
+                    buffer
+                } else {
+                    2 * period
+                }
             }
             alsa::Direction::Capture => 1,
         };
