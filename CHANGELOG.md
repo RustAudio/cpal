@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- MSRV depends on the platform and at minimum 1.77.
+- Set examples to Rust 2021.
 - `SampleRate` from struct to `u32` type alias.
 - Update `audio_thread_priority` to 0.34.
 - Migrate CHANGELOG to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
@@ -55,9 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI**: Replace cargo install commands with cached tool installation for faster builds.
 - **CI**: Update actions to latest versions (checkout@v5, rust-cache@v2).
 - **CI**: Verify compatibility with windows crates since v0.59.
+- **CI**: Test platforms on appropriate MSRV per backend.
+- **CI**: Fix `cargo update` syntax for compatibility with Cargo 1.70 (use `-p` flag instead of positional argument).
 - **CoreAudio**: `Device::supported_configs` to return a single element containing the available sample rate range when all elements have the same `mMinimum` and `mMaximum` values.
 - **CoreAudio**: Default audio device detection to be lazy when building a stream, instead of during device enumeration.
-- **CoreAudio**: Update `mach2` to 0.6.
 - **CoreAudio**: Configure device buffer to ensure predictable callback buffer sizes.
 - **CoreAudio**: Remove `Clone` implementation from `Stream`.
 - **JACK**: Use `StreamError::StreamInvalidated` for JACK server sample rate changes.
@@ -67,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Format selection to probe hardware endianness instead of assuming native byte order.
+- **ALSA**: Data race in stream shutdown.
 - **ASIO**: Handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
 - **CoreAudio**: Timestamp accuracy.
 - **CoreAudio**: Segfaults when enumerating devices.
