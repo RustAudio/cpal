@@ -37,8 +37,8 @@ env:
 
   PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
-  ANDROID_COMPILE_SDK: "34"
-  ANDROID_BUILD_TOOLS: "34.0.0"
+  ANDROID_COMPILE_SDK: "30"
+  ANDROID_BUILD_TOOLS: "30.0.3"
 
 jobs:
   # Linux (x86_64 and ARM64)
@@ -261,6 +261,8 @@ jobs:
           tool: cargo-lipo
 
       - name: Build iOS example
+        env:
+          IOS_TARGETS: ${{ env.TARGETS_IOS }}
         run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
 
   # WebAssembly - Emscripten
