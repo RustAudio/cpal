@@ -263,7 +263,7 @@ jobs:
       - name: Build iOS example
         env:
           IOS_TARGETS: aarch64-apple-ios-sim
-        run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator
+        run: cd examples/ios-feedback && xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator -arch arm64
 
   # WebAssembly - Emscripten
   wasm-emscripten:
