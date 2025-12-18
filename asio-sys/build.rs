@@ -65,7 +65,6 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=ole32");
     println!("cargo:rustc-link-lib=dylib=user32");
     println!("cargo:rustc-link-lib=dylib=Advapi32");
-    println!("cargo:rustc-link-lib=dylib=User32");
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=asio");
     println!("cargo:rustc-cfg=asio");
