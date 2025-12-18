@@ -1,6 +1,6 @@
 #[cfg(all(windows, feature = "asio"))]
 fn main() -> anyhow::Result<()> {
-    use cpal::platform::DeviceInner;
+    use cpal::platform::asio::AsioDeviceExt;
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::HostId;
 
@@ -28,15 +28,12 @@ fn main() -> anyhow::Result<()> {
 
     stream.play()?;
 
-    if let DeviceInner::Asio(asio_device) = device.as_inner() {
-        // This is a blocking call on some devices, so spawn it in its own thread.
-        let asio_device = asio_device.clone();
-        std::thread::spawn(move || {
-            if let Err(e) = asio_device.open_control_panel() {
-                eprintln!("Could not open panel: {:?}", e);
-            }
-        });
-    };
+    // This is a blocking call on some devices, so spawn it in its own thread.
+    std::thread::spawn(move || {
+        if let Err(e) = device.asio_open_control_panel() {
+            eprintln!("Could not open panel: {:?}", e);
+        }
+    });
 
     // Keep the thread alive so the window doesn't close immediately
     std::thread::sleep(std::time::Duration::from_secs(5));
