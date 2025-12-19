@@ -299,7 +299,7 @@ impl Device {
         // Create buffers depending on data type.
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
-        let current_buffer_index = self.current_buffer_index.clone();
+        let current_callback_flag = self.current_callback_flag.clone();
 
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
@@ -321,13 +321,13 @@ impl Device {
 
             // Silence the ASIO buffer that is about to be used.
             //
-            // This checks if any other callbacks have already silenced the buffer associated with
-            // the current `buffer_index`.
+            // Check if any other callbacks have already silenced the buffer associated with
+            // the current callback. The flag is updated once per buffer switch.
             let silence =
-                current_buffer_index.load(Ordering::Acquire) != callback_info.buffer_index;
+                current_callback_flag.load(Ordering::Acquire) != callback_info.callback_flag;
 
             if silence {
-                current_buffer_index.store(callback_info.buffer_index, Ordering::Release);
+                current_callback_flag.store(callback_info.callback_flag, Ordering::Release);
             }
 
             /// 1. Render the given callback to the given buffer of interleaved samples.

@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Format selection to probe hardware endianness instead of assuming native byte order.
 - **ALSA**: Data race in stream shutdown.
 - **ASIO**: Handling for `kAsioResetRequest` message to prevent driver UI becoming unresponsive.
+- **ASIO**: Buffer silencing logic to work with non-conformant drivers (e.g., FL Studio ASIO).
 - **CoreAudio**: Timestamp accuracy.
 - **CoreAudio**: Segfaults when enumerating devices.
 - **CoreAudio**: Undefined behavior related to null pointers and aligned reads.
