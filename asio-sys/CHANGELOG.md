@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed docs.rs documentation build by generating stub bindings when building for docs.rs
+- Fixed buffer switch detection to work correctly with non-conformant ASIO drivers
 
 ## [0.2.3] - 2025-12-12
 
