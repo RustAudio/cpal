@@ -105,14 +105,13 @@ pub enum SampleFormat {
 
     /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
-
-    // DSD Formats
-    // -----------
     
     /// DSD stream (U8)
     DsdU8,
+    
     /// DSD stream (U16)
     DsdU16,
+    
     /// DSD stream (U32)
     DsdU32,
 }
@@ -197,8 +196,8 @@ impl SampleFormat {
                 | SampleFormat::U32
                 // | SampleFormat::U48
                 | SampleFormat::U64
-                | SampleFormat::DsdU8 
-                | SampleFormat::DsdU16 
+                | SampleFormat::DsdU8
+                | SampleFormat::DsdU16
                 | SampleFormat::DsdU32
         )
     }
