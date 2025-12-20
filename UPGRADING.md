@@ -92,9 +92,9 @@ let stream_clone = Arc::clone(&stream);
 **What changed:** `BufferSize::Default` now defers to the audio host/device defaults instead of applying cpal's opinionated defaults.
 
 **Impact:** Buffer sizes may differ from v0.16, affecting latency characteristics:
-- **Lower latency** in most cases (hosts typically choose sensible defaults)
-- **May underrun** on resource-constrained systems previously relying on larger cpal defaults
-- **Better integration** with system audio configuration (e.g., PulseAudio, PipeWire, JACK)
+- **Latency will vary** based on host/device defaults (which may be lower, higher, or similar)
+- **May underrun or have different latency** depending on what the host chooses
+- **Better integration** with system audio configuration: cpal now respects configured settings instead of imposing its own buffers. For example, on ALSA, PipeWire quantum settings (via the pipewire-alsa device) are now honored instead of being overridden.
 
 **Migration:** If you experience underruns or need specific latency, use `BufferSize::Fixed(size)` instead of relying on defaults.
 
@@ -102,11 +102,11 @@ let stream_clone = Arc::clone(&stream);
 - **ALSA:** Previously used cpal's hardcoded 25ms periods / 100ms buffer, now uses device defaults
 - **All platforms:** Default buffer sizes now match what the host audio system expects
 
-### BufferSize::Fixed validation stricter
+### BufferSize::Fixed validation changes
 
-**What changed:** Several backends now reject invalid `BufferSize::Fixed` requests instead of silently adjusting:
+**What changed:** Several backends now have different validation behavior for `BufferSize::Fixed`:
 
-- **ALSA:** Validates against hardware constraints (was: rounded to nearest)
+- **ALSA:** Now uses `set_buffer_size_near()` for improved hardware compatibility with devices requiring byte-alignment, power-of-two sizes, or other alignment constraints (was: exact size via `set_buffer_size()`, which would reject unsupported sizes)
 - **JACK:** Must exactly match server buffer size (was: silently ignored)
 - **Emscripten/WebAudio:** Validates min/max range
 - **ASIO:** Stricter lower bound validation
@@ -143,7 +143,7 @@ cpal = "0.17"
 
 # Platform-specific (if used directly):
 alsa = "0.10"  # Linux only
-windows = { version = ">=0.58, <=0.62" }  # Windows only
+windows = { version = ">=0.59, <=0.62" }  # Windows only
 audio_thread_priority = "0.34"  # All platforms
 ```
 
@@ -182,11 +182,10 @@ v0.17 also includes significant improvements that don't require code changes:
 - **Streams are Send+Sync everywhere:** All platforms now support moving/sharing streams across threads
 - **24-bit sample formats:** Added `I24`/`U24` support on ALSA, CoreAudio, WASAPI, ASIO
 - **Custom host support:** Implement your own `Host`/`Device`/`Stream` for proprietary platforms
-- **WebAudio AudioWorklet:** Lower latency web audio backend when Wasm atomics are enabled
 - **Predictable buffer sizes:** CoreAudio and AAudio now ensure consistent callback buffer sizes
 - **Expanded sample rate support:** ALSA supports 12, 24, 352.8, 384, 705.6, and 768 kHz
 - **WASAPI advanced interop:** Exposed `IMMDevice` for Windows COM interop scenarios
-- **Platform improvements:** macOS loopback recording (14.6+), better ALSA performance, improved timestamp accuracy, iOS AVAudioSession integration, JACK on all platforms
+- **Platform improvements:** macOS loopback recording (14.6+), improved ALSA audio callback performance, improved timestamp accuracy, iOS AVAudioSession integration, JACK on all platforms
 
 See [CHANGELOG.md](CHANGELOG.md) for complete details and [examples/](examples/) for updated usage patterns.
 
