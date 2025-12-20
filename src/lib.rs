@@ -187,7 +187,7 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24, DsdU8, DsdU16, DsdU32};
+pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
 use std::convert::TryInto;
 use std::time::Duration;
 

@@ -166,9 +166,9 @@ impl SampleFormat {
             SampleFormat::U64 => u64::BITS,
             SampleFormat::F32 => 32,
             SampleFormat::F64 => 64,
-            SampleFormat::DsdU8 => 8,
-            SampleFormat::DsdU16 => 16,
-            SampleFormat::DsdU32 => 32,
+            SampleFormat::DsdU8 => 1,
+            SampleFormat::DsdU16 => 1,
+            SampleFormat::DsdU32 => 1,
         }
     }
 
@@ -307,124 +307,4 @@ impl SizedSample for f32 {
 
 impl SizedSample for f64 {
     const FORMAT: SampleFormat = SampleFormat::F64;
-}
-
-/// DSD stream sample (U8).
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct DsdU8(pub u8);
-
-impl Sample for DsdU8 {
-    type Float = f32;
-    type Signed = i8; 
-    
-    const EQUILIBRIUM: Self = DsdU8(0x69); 
-}
-
-// Conflict with blanket impl in dasp_sample
-// impl FromSample<DsdU8> for DsdU8 { ... }
-
-impl FromSample<f32> for DsdU8 {
-    fn from_sample_(_sample: f32) -> Self {
-        DsdU8(0x69)
-    }
-}
-
-impl FromSample<i8> for DsdU8 {
-    fn from_sample_(_sample: i8) -> Self {
-        DsdU8(0x69)
-    }
-}
-
-impl FromSample<DsdU8> for i8 {
-    fn from_sample_(_sample: DsdU8) -> Self {
-        0
-    }
-}
-
-impl FromSample<DsdU8> for f32 {
-    fn from_sample_(_sample: DsdU8) -> Self {
-        0.0 
-    }
-}
-
-impl SizedSample for DsdU8 {
-    const FORMAT: SampleFormat = SampleFormat::DsdU8;
-}
-
-/// DSD stream sample (U16).
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct DsdU16(pub u16);
-
-impl Sample for DsdU16 {
-    type Float = f32;
-    type Signed = i16;
-
-    const EQUILIBRIUM: Self = DsdU16(0x6969);
-}
-
-impl FromSample<f32> for DsdU16 {
-    fn from_sample_(_sample: f32) -> Self {
-        DsdU16(0x6969)
-    }
-}
-
-impl FromSample<DsdU16> for f32 {
-    fn from_sample_(_sample: DsdU16) -> Self {
-        0.0
-    }
-}
-
-impl FromSample<i16> for DsdU16 {
-    fn from_sample_(_sample: i16) -> Self {
-        DsdU16(0x6969)
-    }
-}
-
-impl FromSample<DsdU16> for i16 {
-    fn from_sample_(_sample: DsdU16) -> Self {
-        0
-    }
-}
-
-impl SizedSample for DsdU16 {
-    const FORMAT: SampleFormat = SampleFormat::DsdU16;
-}
-
-/// DSD stream sample (U32).
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct DsdU32(pub u32);
-
-impl Sample for DsdU32 {
-    type Float = f32;
-    type Signed = i32;
-
-    const EQUILIBRIUM: Self = DsdU32(0x69696969);
-}
-
-impl FromSample<f32> for DsdU32 {
-    fn from_sample_(_sample: f32) -> Self {
-        DsdU32(0x69696969)
-    }
-}
-
-impl FromSample<DsdU32> for f32 {
-    fn from_sample_(_sample: DsdU32) -> Self {
-        0.0
-    }
-}
-
-impl FromSample<i32> for DsdU32 {
-    fn from_sample_(_sample: i32) -> Self {
-        DsdU32(0x69696969)
-    }
-}
-
-impl FromSample<DsdU32> for i32 {
-    fn from_sample_(_sample: DsdU32) -> Self {
-        0
-    }
-}
-
-impl SizedSample for DsdU32 {
-    const FORMAT: SampleFormat = SampleFormat::DsdU32;
 }
