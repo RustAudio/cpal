@@ -72,6 +72,7 @@ fn main() {
     // Print out links to needed libraries
     println!("cargo:rustc-link-lib=dylib=ole32");
     println!("cargo:rustc-link-lib=dylib=user32");
+    println!("cargo:rustc-link-lib=dylib=Advapi32");
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=asio");
     println!("cargo:rustc-cfg=asio");
@@ -237,6 +238,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .allowlist_function("ASIOStart")
         .allowlist_function("ASIOStop")
         .allowlist_function("ASIODisposeBuffers")
+        .allowlist_function("ASIOControlPanel")
         .allowlist_function("ASIOExit")
         .allowlist_function("load_asio_driver")
         .allowlist_function("remove_current_driver")
