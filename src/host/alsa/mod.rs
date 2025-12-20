@@ -380,7 +380,7 @@ impl Device {
             Ok(handle) => handle,
         };
         let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let period_samples = set_sw_params_from_format(&handle, conf, sample_format, stream_type)?;
+        let period_samples = set_sw_params_from_format(&handle, conf, stream_type)?;
 
         handle.prepare()?;
 
@@ -1433,7 +1433,6 @@ fn set_hw_params_from_format(
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
-    sample_format: SampleFormat,
     stream_type: alsa::Direction,
 ) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;
@@ -1447,18 +1446,10 @@ fn set_sw_params_from_format(
         }
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // For playback, we want to start only when the buffer is full for DSD content
-                // to avoid underruns. For PCM, we keep the default low-latency behavior.
-                let is_dsd = matches!(
-                    sample_format,
-                    SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32
-                );
-                
-                if is_dsd {
-                    buffer
-                } else {
-                    2 * period
-                }
+                // Always use 2-period double-buffering: one period playing from hardware, one
+                // period queued in the software buffer. This ensures consistent low latency
+                // regardless of the total buffer size.
+                2 * period
             }
             alsa::Direction::Capture => 1,
         };
