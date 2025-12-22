@@ -10,7 +10,7 @@ edition = "2021"
 rust-version = "1.77"
 
 [features]
-default = ["wasapi-virtual-default-devices"]
+default = []
 
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
@@ -21,14 +21,18 @@ asio = [
     "dep:num-traits",
 ]
 
-
-# Enable virtual default devices for WASAPI. When enabled:
-# - Audio automatically reroutes when the default device changes
-# - Streams survive device changes (e.g., plugging in headphones)
-# - Requires Windows 8 or later
+# Legacy Windows audio device activation mode. When enabled:
+# - Uses IMMDevice::Activate instead of ActivateAudioInterfaceAsync
+# - Audio does NOT automatically reroute when the default device changes
+# - Streams will break when the default device changes (e.g., plugging in headphones)
 #
-# Disable this feature if supporting Windows 7 or earlier.
-wasapi-virtual-default-devices = []
+# By default (without this feature), CPAL uses virtual default devices that:
+# - Automatically reroute audio when the default device changes
+# - Allow streams to survive device changes
+# - Require Windows 8 or later
+#
+# Enable this feature only if supporting Windows 7 or earlier.
+windows-legacy = []
 
 # JACK Audio Connection Kit backend
 # Provides low-latency connections between applications and audio hardware

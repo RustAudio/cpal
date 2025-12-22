@@ -305,7 +305,7 @@ unsafe fn format_from_waveformatex_ptr(
     Some(format)
 }
 
-#[cfg(feature = "wasapi-virtual-default-devices")]
+#[cfg(not(feature = "windows-legacy"))]
 unsafe fn activate_audio_interface_sync(
     deviceinterfacepath: windows::core::PWSTR,
 ) -> windows::core::Result<Audio::IAudioClient> {
@@ -587,13 +587,14 @@ impl Device {
             return Ok(lock);
         }
 
-        // When using virtual default devices, we use `ActivateAudioInterfaceAsync` to get
-        // an `IAudioClient` for the default output or input device. When retrieved this way,
-        // streams will be automatically rerouted if the default device is changed.
+        // By default, we use `ActivateAudioInterfaceAsync` to get an `IAudioClient` for
+        // virtual default devices. When retrieved this way, streams will be automatically
+        // rerouted if the default device is changed.
         //
-        // Otherwise, we use `Activate` to get an `IAudioClient` for the current device.
+        // When the `windows-legacy` feature is enabled, we use `Activate` to get an
+        // `IAudioClient` for the current device, which does not support automatic rerouting.
 
-        #[cfg(feature = "wasapi-virtual-default-devices")]
+        #[cfg(not(feature = "windows-legacy"))]
         let audio_client: Audio::IAudioClient = unsafe {
             match &self.device {
                 DeviceHandle::DefaultOutput => {
@@ -614,7 +615,7 @@ impl Device {
             }
         };
 
-        #[cfg(not(feature = "wasapi-virtual-default-devices"))]
+        #[cfg(feature = "windows-legacy")]
         let audio_client = unsafe {
             self.immdevice()
                 .ok_or(windows::core::Error::new(
