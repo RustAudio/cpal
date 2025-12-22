@@ -105,13 +105,13 @@ pub enum SampleFormat {
 
     /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
-    
+
     /// DSD stream (U8)
     DsdU8,
-    
+
     /// DSD stream (U16)
     DsdU16,
-    
+
     /// DSD stream (U32)
     DsdU32,
 }

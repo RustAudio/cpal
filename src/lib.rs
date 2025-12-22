@@ -1000,7 +1000,7 @@ impl From<SupportedStreamConfig> for StreamConfig {
 #[allow(dead_code)]
 pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
-    176400, 192000, 352800, 384000,
+    176400, 192000, 352800, 384000, 705600, 768000, 1411200, 1536000,
 ];
 
 #[test]
