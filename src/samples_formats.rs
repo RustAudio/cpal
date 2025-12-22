@@ -105,6 +105,15 @@ pub enum SampleFormat {
 
     /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
+
+    /// DSD stream (U8)
+    DsdU8,
+
+    /// DSD stream (U16)
+    DsdU16,
+
+    /// DSD stream (U32)
+    DsdU32,
 }
 
 impl SampleFormat {
@@ -129,6 +138,9 @@ impl SampleFormat {
             SampleFormat::U64 => mem::size_of::<u64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
             SampleFormat::F64 => mem::size_of::<f64>(),
+            SampleFormat::DsdU8 => mem::size_of::<u8>(),
+            SampleFormat::DsdU16 => mem::size_of::<u16>(),
+            SampleFormat::DsdU32 => mem::size_of::<u32>(),
         }
     }
 
@@ -153,6 +165,9 @@ impl SampleFormat {
             SampleFormat::U64 => u64::BITS,
             SampleFormat::F32 => 32,
             SampleFormat::F64 => 64,
+            SampleFormat::DsdU8 => 1,
+            SampleFormat::DsdU16 => 1,
+            SampleFormat::DsdU32 => 1,
         }
     }
 
@@ -181,6 +196,9 @@ impl SampleFormat {
                 | SampleFormat::U32
                 // | SampleFormat::U48
                 | SampleFormat::U64
+                | SampleFormat::DsdU8
+                | SampleFormat::DsdU16
+                | SampleFormat::DsdU32
         )
     }
 
@@ -208,6 +226,9 @@ impl Display for SampleFormat {
             SampleFormat::U64 => "u64",
             SampleFormat::F32 => "f32",
             SampleFormat::F64 => "f64",
+            SampleFormat::DsdU8 => "DsdU8",
+            SampleFormat::DsdU16 => "DsdU16",
+            SampleFormat::DsdU32 => "DsdU32",
         }
         .fmt(f)
     }
