@@ -73,16 +73,8 @@ hound = "3.5"
 ringbuf = "0.4"
 clap = { version = ">=4.0, <=4.5", features = ["derive"] }
 
-# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
-# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
-# When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
-# The `implement` feature was removed in windows-0.61, which means that we can't
-# use older versions of the `windows` crate without explicitly activating `implement`
-# for them, which will cause problems for >=0.61.
-#
-# See <https://github.com/microsoft/windows-rs/pull/3333>.
-windows = { version = ">=0.61, <=0.62", features = [
+windows = { version = "0.62.2", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
@@ -96,7 +88,7 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 # Explicitly depend on windows-core for use with the `windows::core::implement` macro.
-windows-core = "*"
+windows-core = "0.62.2"
 audio_thread_priority = { version = "0.34", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
