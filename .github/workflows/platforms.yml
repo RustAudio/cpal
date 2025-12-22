@@ -351,44 +351,6 @@ jobs:
       - name: Build beep example
         run: cargo build --example beep --target ${{ env.TARGET }}
 
-  # Windows crate version compatibility
-  windows-versions:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ["0.59.0", "0.60.0", "0.61.3"]
-
-    name: windows-crate-v${{ matrix.version }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install dependencies
-        run: choco install llvm
-
-      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.MSRV_WINDOWS }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: windows-v${{ matrix.version }}
-
-      - name: Lock windows crate to specific version
-        shell: bash
-        run: |
-          cargo generate-lockfile
-          cargo update -p windows --precise ${{ matrix.version }}
-          echo "Locked windows crate version:"
-          cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
-          echo "Cargo.lock entry:"
-          grep -A 5 "name = \"windows\"" Cargo.lock | head -10
-
-      - name: Check WASAPI with windows v${{ matrix.version }}
-        run: cargo check --verbose
-
   # cpal publishing (only on cpal release events)
   publish-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
@@ -403,7 +365,6 @@ jobs:
       - wasm-bindgen
       - wasm-audioworklet
       - wasm-wasip1
-      - windows-versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

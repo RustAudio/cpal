@@ -1,3 +1,4 @@
+use crate::host::wasapi::com::ComString;
 use crate::{
     BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceDescription,
     DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
@@ -67,10 +68,17 @@ struct IAudioClientWrapper(Audio::IAudioClient);
 unsafe impl Send for IAudioClientWrapper {}
 unsafe impl Sync for IAudioClientWrapper {}
 
+#[derive(Debug, Clone)]
+enum DeviceHandle {
+    DefaultOutput,
+    DefaultInput,
+    Specific(Audio::IMMDevice),
+}
+
 /// An opaque type that identifies an end point.
 #[derive(Clone)]
 pub struct Device {
-    device: Audio::IMMDevice,
+    device: DeviceHandle,
     /// We cache an uninitialized `IAudioClient` so that we can call functions from it without
     /// having to create/destroy audio clients all the time.
     future_audio_client: Arc<Mutex<Option<IAudioClientWrapper>>>, // TODO: add NonZero around the ptr
@@ -297,6 +305,65 @@ unsafe fn format_from_waveformatex_ptr(
     Some(format)
 }
 
+#[cfg(not(feature = "windows-legacy"))]
+unsafe fn activate_audio_interface_sync(
+    deviceinterfacepath: windows::core::PWSTR,
+) -> windows::core::Result<Audio::IAudioClient> {
+    use windows::core::IUnknown;
+
+    #[windows::core::implement(Audio::IActivateAudioInterfaceCompletionHandler)]
+    struct CompletionHandler(std::sync::mpsc::Sender<windows::core::Result<IUnknown>>);
+
+    fn retrieve_result(
+        operation: &Audio::IActivateAudioInterfaceAsyncOperation,
+    ) -> windows::core::Result<IUnknown> {
+        let mut result = windows::core::HRESULT::default();
+        let mut interface: Option<IUnknown> = None;
+        unsafe {
+            operation.GetActivateResult(&mut result, &mut interface)?;
+        }
+        result.ok()?;
+        interface.ok_or_else(|| {
+            windows::core::Error::new(
+                Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                "audio interface could not be retrieved during activation",
+            )
+        })
+    }
+
+    impl Audio::IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
+        fn ActivateCompleted(
+            &self,
+            operation: windows::core::Ref<Audio::IActivateAudioInterfaceAsyncOperation>,
+        ) -> windows::core::Result<()> {
+            let result = operation.ok().and_then(retrieve_result);
+            let _ = self.0.send(result);
+            Ok(())
+        }
+    }
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let completion: Audio::IActivateAudioInterfaceCompletionHandler =
+        CompletionHandler(sender).into();
+    Audio::ActivateAudioInterfaceAsync(
+        deviceinterfacepath,
+        &Audio::IAudioClient::IID,
+        None,
+        &completion,
+    )?;
+    // The choice of 2 seconds here is arbitrary; it is a failsafe in the event that
+    // `ActivateAudioInterfaceAsync` never resolves.
+    let result = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .map_err(|_| {
+            windows::core::Error::new(
+                Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                "timeout waiting for audio interface activation",
+            )
+        })??;
+    result.cast()
+}
+
 unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
@@ -347,10 +414,15 @@ fn enumerator_to_interface_type(enumerator: &str) -> Option<crate::InterfaceType
 
 impl Device {
     pub fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        let device = self
+            .immdevice()
+            .ok_or(DeviceNameError::from(BackendSpecificError {
+                description: "device not found while getting name".to_string(),
+            }))?;
+
         unsafe {
             // Open the device's property store.
-            let property_store = self
-                .device
+            let property_store = device
                 .OpenPropertyStore(STGM_READ)
                 .expect("could not open property store");
 
@@ -442,8 +514,16 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        let device = self
+            .immdevice()
+            .ok_or_else(|| DeviceIdError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "device not found while getting id".to_string(),
+                },
+            })?;
+
         unsafe {
-            match self.device.GetId() {
+            match device.GetId() {
                 Ok(pwstr) => match pwstr.to_string() {
                     Ok(id_str) => Ok(DeviceId(crate::platform::HostId::Wasapi, id_str)),
                     Err(e) => Err(DeviceIdError::BackendSpecific {
@@ -459,13 +539,43 @@ impl Device {
 
     fn from_immdevice(device: Audio::IMMDevice) -> Self {
         Device {
-            device,
+            device: DeviceHandle::Specific(device),
             future_audio_client: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn immdevice(&self) -> &Audio::IMMDevice {
-        &self.device
+    #[inline]
+    fn default_output() -> Self {
+        Device {
+            device: DeviceHandle::DefaultOutput,
+            future_audio_client: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    #[inline]
+    fn default_input() -> Self {
+        Device {
+            device: DeviceHandle::DefaultInput,
+            future_audio_client: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn immdevice(&self) -> Option<Audio::IMMDevice> {
+        match &self.device {
+            DeviceHandle::DefaultOutput => unsafe {
+                get_enumerator()
+                    .0
+                    .GetDefaultAudioEndpoint(Audio::eRender, Audio::eConsole)
+                    .ok()
+            },
+            DeviceHandle::DefaultInput => unsafe {
+                get_enumerator()
+                    .0
+                    .GetDefaultAudioEndpoint(Audio::eCapture, Audio::eConsole)
+                    .ok()
+            },
+            DeviceHandle::Specific(device) => Some(device.clone()),
+        }
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
@@ -477,10 +587,42 @@ impl Device {
             return Ok(lock);
         }
 
+        // By default, we use `ActivateAudioInterfaceAsync` to get an `IAudioClient` for
+        // virtual default devices. When retrieved this way, streams will be automatically
+        // rerouted if the default device is changed.
+        //
+        // When the `windows-legacy` feature is enabled, we use `Activate` to get an
+        // `IAudioClient` for the current device, which does not support automatic rerouting.
+
+        #[cfg(not(feature = "windows-legacy"))]
         let audio_client: Audio::IAudioClient = unsafe {
-            // can fail if the device has been disconnected since we enumerated it, or if
-            // the device doesn't support playback for some reason
-            self.device.Activate(Com::CLSCTX_ALL, None)?
+            match &self.device {
+                DeviceHandle::DefaultOutput => {
+                    let default_audio =
+                        ComString(Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_RENDER)?);
+                    activate_audio_interface_sync(default_audio.0)?
+                }
+                DeviceHandle::DefaultInput => {
+                    let default_audio =
+                        ComString(Com::StringFromIID(&Audio::DEVINTERFACE_AUDIO_CAPTURE)?);
+                    activate_audio_interface_sync(default_audio.0)?
+                }
+                DeviceHandle::Specific(device) => {
+                    // can fail if the device has been disconnected since we enumerated it, or if
+                    // the device doesn't support playback for some reason
+                    device.Activate(Com::CLSCTX_ALL, None)?
+                }
+            }
+        };
+
+        #[cfg(feature = "windows-legacy")]
+        let audio_client = unsafe {
+            self.immdevice()
+                .ok_or(windows::core::Error::new(
+                    Audio::AUDCLNT_E_DEVICE_INVALIDATED,
+                    "device not found while getting audio client",
+                ))?
+                .Activate(Com::CLSCTX_ALL, None)?
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
@@ -648,8 +790,14 @@ impl Device {
     }
 
     pub(crate) fn data_flow(&self) -> Audio::EDataFlow {
-        let endpoint = Endpoint::from(self.device.clone());
-        endpoint.data_flow()
+        match &self.device {
+            DeviceHandle::DefaultOutput => Audio::eRender,
+            DeviceHandle::DefaultInput => Audio::eCapture,
+            DeviceHandle::Specific(device) => {
+                let endpoint = Endpoint::from(device.clone());
+                endpoint.data_flow()
+            }
+        }
     }
 
     pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
@@ -900,40 +1048,40 @@ impl Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Device) -> bool {
-        // Use case: In order to check whether the default device has changed
-        // the client code might need to compare the previous default device with the current one.
-        // The pointer comparison (`self.device == other.device`) don't work there,
-        // because the pointers are different even when the default device stays the same.
-        //
-        // In this code section we're trying to use the GetId method for the device comparison, cf.
-        // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
-        unsafe {
-            struct IdRAII(windows::core::PWSTR);
-            /// RAII for device IDs.
-            impl Drop for IdRAII {
-                fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+        match (&self.device, &other.device) {
+            (DeviceHandle::DefaultOutput, DeviceHandle::DefaultOutput) => true,
+            (DeviceHandle::DefaultInput, DeviceHandle::DefaultInput) => true,
+            (DeviceHandle::Specific(dev1), DeviceHandle::Specific(dev2)) => {
+                // Use case: In order to check whether the default device has changed
+                // the client code might need to compare the previous default device with the current one.
+                // The pointer comparison (`self.device == other.device`) don't work there,
+                // because the pointers are different even when the default device stays the same.
+                //
+                // In this code section we're trying to use the GetId method for the device comparison, cf.
+                // https://docs.microsoft.com/en-us/windows/desktop/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid
+                unsafe {
+                    // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
+                    // Plus it won't do to change the device comparison logic unexpectedly.
+                    let id1 = dev1.GetId().expect("cpal: GetId failure");
+                    let id1 = ComString(id1);
+                    let id2 = dev2.GetId().expect("cpal: GetId failure");
+                    let id2 = ComString(id2);
+                    // 16-bit null-terminated comparison.
+                    let mut offset = 0;
+                    loop {
+                        let w1: u16 = *(id1.0).0.offset(offset);
+                        let w2: u16 = *(id2.0).0.offset(offset);
+                        if w1 == 0 && w2 == 0 {
+                            return true;
+                        }
+                        if w1 != w2 {
+                            return false;
+                        }
+                        offset += 1;
+                    }
                 }
             }
-            // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
-            // Plus it won't do to change the device comparison logic unexpectedly.
-            let id1 = self.device.GetId().expect("cpal: GetId failure");
-            let id1 = IdRAII(id1);
-            let id2 = other.device.GetId().expect("cpal: GetId failure");
-            let id2 = IdRAII(id2);
-            // 16-bit null-terminated comparison.
-            let mut offset = 0;
-            loop {
-                let w1: u16 = *(id1.0).0.offset(offset);
-                let w2: u16 = *(id2.0).0.offset(offset);
-                if w1 == 0 && w2 == 0 {
-                    return true;
-                }
-                if w1 != w2 {
-                    return false;
-                }
-                offset += 1;
-            }
+            _ => false,
         }
     }
 }
@@ -942,31 +1090,26 @@ impl Eq for Device {}
 
 impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash the device ID for consistency with PartialEq
-        // SAFETY: GetId only fails with E_OUTOFMEMORY, which is unrecoverable.
-        // We need consistent hash/eq behavior.
-        unsafe {
-            use windows::Win32::System::Com;
+        // Hash consistently with PartialEq
+        mem::discriminant(&self.device).hash(state);
 
-            struct IdRAII(windows::core::PWSTR);
-            impl Drop for IdRAII {
-                fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+        if let DeviceHandle::Specific(device) = &self.device {
+            // SAFETY: GetId only fails with E_OUTOFMEMORY, which is unrecoverable.
+            // We need consistent hash/eq behavior.
+            unsafe {
+                let id = device.GetId().expect("cpal: GetId failure");
+                let id = ComString(id);
+
+                // Hash the 16-bit null-terminated string
+                let mut offset = 0;
+                loop {
+                    let w: u16 = *(id.0).0.offset(offset);
+                    if w == 0 {
+                        break;
+                    }
+                    w.hash(state);
+                    offset += 1;
                 }
-            }
-
-            let id = self.device.GetId().expect("cpal: GetId failure");
-            let id = IdRAII(id);
-
-            // Hash the 16-bit null-terminated string
-            let mut offset = 0;
-            loop {
-                let w: u16 = *(id.0).0.offset(offset);
-                if w == 0 {
-                    break;
-                }
-                w.hash(state);
-                offset += 1;
             }
         }
     }
@@ -1137,23 +1280,12 @@ impl Iterator for Devices {
     }
 }
 
-fn default_device(data_flow: Audio::EDataFlow) -> Option<Device> {
-    unsafe {
-        let device = get_enumerator()
-            .0
-            .GetDefaultAudioEndpoint(data_flow, Audio::eConsole)
-            .ok()?;
-        // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
-        Some(Device::from_immdevice(device))
-    }
-}
-
 pub fn default_input_device() -> Option<Device> {
-    default_device(Audio::eCapture)
+    Some(Device::default_input())
 }
 
 pub fn default_output_device() -> Option<Device> {
-    default_device(Audio::eRender)
+    Some(Device::default_output())
 }
 
 /// Get the audio clock used to produce `StreamInstant`s.
