@@ -121,10 +121,10 @@ pub fn host_device_setup(
     let device = host
         .default_output_device()
         .ok_or_else(|| anyhow::Error::msg("Default output device is not available"))?;
-    println!("Output device : {}", device.name()?);
+    println!("Output device: {}", device.id()?);
 
     let config = device.default_output_config()?;
-    println!("Default output config : {config:?}");
+    println!("Default output config: {config:?}");
 
     Ok((host, device, config))
 }
@@ -139,7 +139,7 @@ where
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {
         waveform: Waveform::Sine,
-        sample_rate: config.sample_rate.0 as f32,
+        sample_rate: config.sample_rate as f32,
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };

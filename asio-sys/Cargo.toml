@@ -1,20 +1,25 @@
 [package]
 name = "asio-sys"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 description = "Low-level interface and binding generation for the steinberg ASIO SDK."
 repository = "https://github.com/RustAudio/cpal/"
 documentation = "https://docs.rs/asio-sys"
 license = "Apache-2.0"
 keywords = ["audio", "sound", "asio", "steinberg"]
-build = "build.rs"
+edition = "2021"
+rust-version = "1.82"
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.72"
 walkdir = "2"
-cc = "1.0.83"
-parse_cfg = "4.1.1"
+cc = "1.2"
+parse_cfg = "4.1"
 
 [dependencies]
 num-derive = "0.4"
 num-traits = "0.2"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []

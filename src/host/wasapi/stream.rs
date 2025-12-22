@@ -31,6 +31,27 @@ pub struct Stream {
     pending_scheduled_event: Foundation::HANDLE,
 }
 
+// SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
+// synchronization. All fields of Stream are Send:
+// - JoinHandle<()> is Send
+// - Sender<Command> is Send
+// - Foundation::HANDLE is Send (Windows synchronization primitive)
+// See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
+unsafe impl Send for Stream {}
+
+// SAFETY: Windows Event HANDLEs are safe to access from multiple threads simultaneously.
+// All synchronization operations (SetEvent, WaitForSingleObject) are thread-safe.
+// All fields of Stream are Sync:
+// - JoinHandle<()> is Sync
+// - Sender<Command> is Sync (uses internal synchronization)
+// - Foundation::HANDLE for event objects supports concurrent access
+// The audio thread owns all COM objects, so no cross-thread COM access occurs.
+unsafe impl Sync for Stream {}
+
+// Compile-time assertion that Stream is Send and Sync
+crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
+
 struct RunContext {
     // Streams that have been created in this event loop.
     stream: StreamInner,
@@ -145,7 +166,6 @@ impl Stream {
         }
     }
 
-    #[inline]
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
         self.commands.send(command)?;
         unsafe {
@@ -156,7 +176,6 @@ impl Stream {
 }
 
 impl Drop for Stream {
-    #[inline]
     fn drop(&mut self) {
         if self.push_command(Command::Terminate).is_ok() {
             self.thread.take().unwrap().join().unwrap();
@@ -173,6 +192,7 @@ impl StreamTrait for Stream {
             .map_err(|_| crate::error::PlayStreamError::DeviceNotAvailable)?;
         Ok(())
     }
+
     fn pause(&self) -> Result<(), PauseStreamError> {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
@@ -181,7 +201,6 @@ impl StreamTrait for Stream {
 }
 
 impl Drop for StreamInner {
-    #[inline]
     fn drop(&mut self) {
         unsafe {
             let _ = Foundation::CloseHandle(self.event);
@@ -338,7 +357,7 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: crate::Sa
         0
     };
 
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
         eprintln!("Failed to promote audio thread to real-time priority: {err}");
     }
 }
@@ -513,7 +532,7 @@ fn process_output(
 
 /// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)

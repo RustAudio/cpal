@@ -6,9 +6,9 @@ use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
@@ -16,34 +16,38 @@ use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_StreamFormat,
 };
+use objc2_core_audio::kAudioDevicePropertyDeviceUID;
+use objc2_core_audio::kAudioObjectPropertyElementMain;
 use objc2_core_audio::{
-    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
+    kAudioAggregateDeviceClassID, kAudioDevicePropertyAvailableNominalSampleRates,
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyElementMaster,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyClass, kAudioObjectPropertyElementMaster,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioDeviceID, AudioObjectGetPropertyData,
+    kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID, AudioObjectGetPropertyData,
     AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
     AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
+use objc2_core_foundation::CFString;
+use objc2_core_foundation::Type;
 
 pub use super::enumerate::{
     default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
 };
 use std::fmt;
-use std::mem::{self};
+use std::mem::{self, size_of};
 use std::ptr::{null, NonNull};
-use std::rc::Rc;
-use std::slice;
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
+
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
 fn set_sample_rate(
@@ -57,60 +61,59 @@ fn set_sample_rate(
         mElement: kAudioObjectPropertyElementMaster,
     };
     let mut sample_rate: f64 = 0.0;
-    let data_size = mem::size_of::<f64>() as u32;
+    let mut data_size = mem::size_of::<f64>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
             audio_device_id,
             NonNull::from(&property_address),
             0,
             null(),
-            NonNull::from(&data_size),
+            NonNull::from(&mut data_size),
             NonNull::from(&mut sample_rate).cast(),
         )
     };
     coreaudio::Error::from_os_status(status)?;
 
     // If the requested sample rate is different to the device sample rate, update the device.
-    if sample_rate as u32 != target_sample_rate.0 {
+    if sample_rate as u32 != target_sample_rate {
         // Get available sample rate ranges.
         property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-        let data_size = 0u32;
+        let mut data_size = 0u32;
         let status = unsafe {
             AudioObjectGetPropertyDataSize(
                 audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             )
         };
         coreaudio::Error::from_os_status(status)?;
         let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-        let mut ranges: Vec<u8> = vec![];
-        ranges.reserve_exact(data_size as usize);
+        let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
         let status = unsafe {
             AudioObjectGetPropertyData(
                 audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;
-        let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-        let ranges: &[AudioValueRange] = unsafe { slice::from_raw_parts(ranges, n_ranges) };
+        unsafe {
+            ranges.set_len(n_ranges);
+        }
 
         // Now that we have the available ranges, pick the one matching the desired rate.
-        let sample_rate = target_sample_rate.0;
-        let maybe_index = ranges
+        let sample_rate = target_sample_rate;
+        if !ranges
             .iter()
-            .position(|r| r.mMinimum as u32 == sample_rate && r.mMaximum as u32 == sample_rate);
-        let range_index = match maybe_index {
-            None => return Err(BuildStreamError::StreamConfigNotSupported),
-            Some(i) => i,
-        };
+            .any(|r| sample_rate as f64 >= r.mMinimum && sample_rate as f64 <= r.mMaximum)
+        {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
 
         let (send, recv) = channel::<Result<f64, coreaudio::Error>>();
         let sample_rate_address = AudioObjectPropertyAddress {
@@ -121,7 +124,7 @@ fn set_sample_rate(
         // Send sample rate updates back on a channel.
         let sample_rate_handler = move || {
             let mut rate: f64 = 0.0;
-            let data_size = mem::size_of::<f64>() as u32;
+            let mut data_size = mem::size_of::<f64>() as u32;
 
             let result = unsafe {
                 AudioObjectGetPropertyData(
@@ -129,7 +132,7 @@ fn set_sample_rate(
                     NonNull::from(&sample_rate_address),
                     0,
                     null(),
-                    NonNull::from(&data_size),
+                    NonNull::from(&mut data_size),
                     NonNull::from(&mut rate).cast(),
                 )
             };
@@ -145,6 +148,9 @@ fn set_sample_rate(
 
         // Finally, set the sample rate.
         property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
+        // Set the nominal sample rate using a single f64 as required by CoreAudio.
+        let rate = sample_rate as f64;
+        let data_size = mem::size_of::<f64>() as u32;
         let status = unsafe {
             AudioObjectSetPropertyData(
                 audio_device_id,
@@ -152,7 +158,7 @@ fn set_sample_rate(
                 0,
                 null(),
                 data_size,
-                NonNull::from(&ranges[range_index]).cast(),
+                NonNull::from(&rate).cast(),
             )
         };
         coreaudio::Error::from_os_status(status)?;
@@ -180,7 +186,7 @@ fn set_sample_rate(
                     return Err(BackendSpecificError { description }.into());
                 }
                 Ok(Ok(reported_sample_rate)) => {
-                    if reported_sample_rate == target_sample_rate.0 as f64 {
+                    if reported_sample_rate == target_sample_rate as f64 {
                         break;
                     }
                 }
@@ -198,7 +204,7 @@ fn set_sample_rate(
 }
 
 fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let output_type = if is_default_device(device) && !input {
+    let output_type = if !input && is_default_output_device(device) {
         coreaudio::audio_unit::IOType::DefaultOutput
     } else {
         coreaudio::audio_unit::IOType::HalOutput
@@ -253,52 +259,17 @@ fn get_io_buffer_frame_size_range(
     })
 }
 
-/// Register the on-disconnect callback.
-/// This will both stop the stream and call the error callback with DeviceNotAvailable.
-/// This function should only be called once per stream.
-fn add_disconnect_listener<E>(
-    stream: &Stream,
-    error_callback: Arc<Mutex<E>>,
-) -> Result<(), BuildStreamError>
-where
-    E: FnMut(StreamError) + Send + 'static,
-{
-    let stream_inner_weak = Rc::downgrade(&stream.inner);
-    let mut stream_inner = stream.inner.borrow_mut();
-    stream_inner._disconnect_listener = Some(AudioObjectPropertyListener::new(
-        stream_inner.device_id,
-        AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMaster,
-        },
-        move || {
-            if let Some(stream_inner_strong) = stream_inner_weak.upgrade() {
-                match stream_inner_strong.try_borrow_mut() {
-                    Ok(mut stream_inner) => {
-                        let _ = stream_inner.pause();
-                    }
-                    Err(_) => {
-                        // Could not acquire mutable borrow. This can occur if there are
-                        // overlapping borrows, if the stream is already in use, or if a panic
-                        // occurred during a previous borrow. Still notify about device
-                        // disconnection even if we can't pause.
-                    }
-                }
-                (error_callback.lock().unwrap())(StreamError::DeviceNotAvailable);
-            }
-        },
-    )?);
-    Ok(())
-}
-
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<crate::DeviceDescription, DeviceNameError> {
+        Device::description(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -366,18 +337,17 @@ impl DeviceTrait for Device {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
 }
 
-pub fn is_default_device(device: &Device) -> bool {
-    default_input_device()
-        .map(|d| d.audio_device_id == device.audio_device_id)
-        .unwrap_or(false)
-        || default_output_device()
-            .map(|d| d.audio_device_id == device.audio_device_id)
-            .unwrap_or(false)
+fn is_default_input_device(device: &Device) -> bool {
+    default_input_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
+}
+
+fn is_default_output_device(device: &Device) -> bool {
+    default_output_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
 }
 
 impl Device {
@@ -387,12 +357,104 @@ impl Device {
         Self { audio_device_id }
     }
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        get_device_name(self.audio_device_id).map_err(|err| DeviceNameError::BackendSpecific {
-            err: BackendSpecificError {
-                description: err.to_string(),
-            },
-        })
+    /// Checks if this device is an aggregate device.
+    ///
+    /// Aggregate devices combine multiple physical devices into a single logical device.
+    fn is_aggregate_device(&self) -> bool {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioObjectPropertyClass,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        let mut class_id: AudioClassID = 0;
+        let data_size = size_of::<AudioClassID>() as u32;
+
+        // SAFETY: AudioObjectGetPropertyData is documented to write an AudioClassID
+        // for kAudioObjectPropertyClass. We check the status before using the value.
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                self.audio_device_id,
+                NonNull::from(&property_address),
+                0,
+                null(),
+                NonNull::from(&data_size),
+                NonNull::from(&mut class_id).cast(),
+            )
+        };
+
+        // If successful, check if it's an aggregate device
+        status == 0 && class_id == kAudioAggregateDeviceClassID
+    }
+
+    fn description(&self) -> Result<crate::DeviceDescription, DeviceNameError> {
+        let name = get_device_name(self.audio_device_id).map_err(|err| {
+            DeviceNameError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: err.to_string(),
+                },
+            }
+        })?;
+
+        let input_configs = self
+            .supported_input_configs()
+            .map(|configs| configs.count() as ChannelCount)
+            .ok();
+        let output_configs = self
+            .supported_output_configs()
+            .map(|configs| configs.count() as ChannelCount)
+            .ok();
+
+        let direction =
+            crate::device_description::direction_from_counts(input_configs, output_configs);
+
+        let mut builder = crate::DeviceDescriptionBuilder::new(name).direction(direction);
+
+        // Check if this is an aggregate device
+        if self.is_aggregate_device() {
+            builder = builder.interface_type(crate::InterfaceType::Aggregate);
+        }
+
+        Ok(builder.build())
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        // CFString is copied from the audio object, use wrap_under_create_rule
+        let mut uid: *mut CFString = std::ptr::null_mut();
+        let mut data_size = size_of::<*mut CFString>() as u32;
+
+        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
+        // for kAudioDevicePropertyDeviceUID. We check the status code before use.
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                self.audio_device_id,
+                NonNull::from(&property_address),
+                0,
+                null(),
+                NonNull::from(&mut data_size),
+                NonNull::from(&mut uid).cast(),
+            )
+        };
+        check_os_status(status)?;
+
+        // SAFETY: Status was successful, meaning the API call succeeded.
+        // We now check if the returned uid is non-null before use.
+        if !uid.is_null() {
+            let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
+            Ok(DeviceId(crate::platform::HostId::CoreAudio, uid_string))
+        } else {
+            Err(DeviceIdError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Device UID is null".to_string(),
+                },
+            })
+        }
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
@@ -409,13 +471,13 @@ impl Device {
 
         unsafe {
             // Retrieve the devices audio buffer list.
-            let data_size = 0u32;
+            let mut data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             );
             check_os_status(status)?;
 
@@ -426,25 +488,30 @@ impl Device {
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(audio_buffer_list.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
 
             let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
 
-            // If there's no buffers, skip.
-            if (*audio_buffer_list).mNumberBuffers == 0 {
+            // Read the number of buffers without assuming alignment (avoid UB).
+            let nb_ptr = core::ptr::addr_of!((*audio_buffer_list).mNumberBuffers);
+            let n_buffers = core::ptr::read_unaligned(nb_ptr) as usize;
+            // If there are no buffers, skip.
+            if n_buffers == 0 {
                 return Ok(vec![].into_iter());
             }
 
             // Count the number of channels as the sum of all channels in all output buffers.
-            let n_buffers = (*audio_buffer_list).mNumberBuffers as usize;
-            let first: *const AudioBuffer = (*audio_buffer_list).mBuffers.as_ptr();
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(first, n_buffers);
-            let mut n_channels = 0;
-            for buffer in buffers {
-                n_channels += buffer.mNumberChannels as usize;
+            let first_buf_ptr =
+                core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
+            let mut n_channels = 0usize;
+            for i in 0..n_buffers {
+                let buf_ptr = first_buf_ptr.add(i);
+                // Read potentially unaligned
+                let buf: AudioBuffer = core::ptr::read_unaligned(buf_ptr);
+                n_channels += buf.mNumberChannels as usize;
             }
 
             // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
@@ -460,31 +527,29 @@ impl Device {
             // See https://github.com/thestk/rtaudio/blob/master/RtAudio.cpp#L1369C1-L1375C39
 
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-            let data_size = 0u32;
+            let mut data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
             );
             check_os_status(status)?;
 
             let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-            let mut ranges: Vec<u8> = vec![];
-            ranges.reserve_exact(data_size as usize);
+            let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
             );
             check_os_status(status)?;
 
-            let ranges: *mut AudioValueRange = ranges.as_mut_ptr() as *mut _;
-            let ranges: &[AudioValueRange] = slice::from_raw_parts(ranges, n_ranges);
+            ranges.set_len(n_ranges);
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
@@ -505,8 +570,8 @@ impl Device {
             } else if contains_different_sample_rates {
                 let res = ranges.iter().map(|range| SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(range.mMinimum as u32),
-                    max_sample_rate: SampleRate(range.mMaximum as u32),
+                    min_sample_rate: range.mMinimum as u32,
+                    max_sample_rate: range.mMaximum as u32,
                     buffer_size,
                     sample_format,
                 });
@@ -514,20 +579,16 @@ impl Device {
             } else {
                 let fmt = SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
-                    min_sample_rate: SampleRate(
-                        ranges
-                            .iter()
-                            .map(|v| v.mMinimum as u32)
-                            .min()
-                            .expect("the list must not be empty"),
-                    ),
-                    max_sample_rate: SampleRate(
-                        ranges
-                            .iter()
-                            .map(|v| v.mMaximum as u32)
-                            .max()
-                            .expect("the list must not be empty"),
-                    ),
+                    min_sample_rate: ranges
+                        .iter()
+                        .map(|v| v.mMinimum as u32)
+                        .min()
+                        .expect("the list must not be empty"),
+                    max_sample_rate: ranges
+                        .iter()
+                        .map(|v| v.mMaximum as u32)
+                        .max()
+                        .expect("the list must not be empty"),
                     buffer_size,
                     sample_format,
                 };
@@ -587,13 +648,13 @@ impl Device {
 
         unsafe {
             let mut asbd: AudioStreamBasicDescription = mem::zeroed();
-            let data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
+            let mut data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
             let status = AudioObjectGetPropertyData(
                 self.audio_device_id,
                 NonNull::from(&property_address),
                 0,
                 null(),
-                NonNull::from(&data_size),
+                NonNull::from(&mut data_size),
                 NonNull::from(&mut asbd).cast(),
             );
             default_config_error_from_os_status(status)?;
@@ -631,7 +692,7 @@ impl Device {
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
-                sample_rate: SampleRate(asbd.mSampleRate as _),
+                sample_rate: asbd.mSampleRate as _,
                 channels: asbd.mChannelsPerFrame as _,
                 buffer_size,
                 sample_format,
@@ -710,16 +771,14 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let ptr = (*args.data.data).mBuffers.as_ptr();
-            let len = (*args.data.data).mNumberBuffers as usize;
-            let buffers: &[AudioBuffer] = slice::from_raw_parts(ptr, len);
-
-            // TODO: Perhaps loop over all buffers instead?
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
-            } = buffers[0];
+            } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;
@@ -727,7 +786,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -750,21 +809,36 @@ impl Device {
             Ok(())
         })?;
 
-        let stream = Stream::new(StreamInner {
-            playing: true,
-            _disconnect_listener: None,
-            audio_unit,
-            device_id: self.audio_device_id,
-            _loopback_device: loopback_aggregate,
-        });
+        // Create error callback for stream - either dummy or real based on device type
+        let error_callback_for_stream: super::ErrorCallback = if is_default_input_device(self) {
+            Box::new(|_: StreamError| {})
+        } else {
+            let error_callback_clone = error_callback_disconnect.clone();
+            Box::new(move |err: StreamError| {
+                invoke_error_callback(&error_callback_clone, err);
+            })
+        };
 
-        // If we didn't request the default device, stop the stream if the
-        // device disconnects.
-        if !is_default_device(self) {
-            add_disconnect_listener(&stream, error_callback_disconnect)?;
-        }
+        let stream = Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+                device_id: self.audio_device_id,
+                _loopback_device: loopback_aggregate,
+            },
+            error_callback_for_stream,
+        )?;
 
-        stream.inner.borrow_mut().audio_unit.start()?;
+        stream
+            .inner
+            .lock()
+            .map_err(|_| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?
+            .audio_unit
+            .start()?;
 
         Ok(stream)
     }
@@ -800,9 +874,9 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
-            // If `run()` is currently running, then a callback will be available from this list.
-            // Otherwise, we just fill the buffer with zeroes and return.
-
+            // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
+            // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
+            // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
                 mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
@@ -815,7 +889,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    (error_callback.lock().unwrap())(err.into());
+                    invoke_error_callback(&error_callback, err.into());
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -838,21 +912,36 @@ impl Device {
             Ok(())
         })?;
 
-        let stream = Stream::new(StreamInner {
-            playing: true,
-            _disconnect_listener: None,
-            audio_unit,
-            device_id: self.audio_device_id,
-            _loopback_device: None,
-        });
+        // Create error callback for stream - either dummy or real based on device type
+        let error_callback_for_stream: super::ErrorCallback = if is_default_output_device(self) {
+            Box::new(|_: StreamError| {})
+        } else {
+            let error_callback_clone = error_callback_disconnect.clone();
+            Box::new(move |err: StreamError| {
+                invoke_error_callback(&error_callback_clone, err);
+            })
+        };
 
-        // If we didn't request the default device, stop the stream if the
-        // device disconnects.
-        if !is_default_device(self) {
-            add_disconnect_listener(&stream, error_callback_disconnect)?;
-        }
+        let stream = Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+                device_id: self.audio_device_id,
+                _loopback_device: None,
+            },
+            error_callback_for_stream,
+        )?;
 
-        stream.inner.borrow_mut().audio_unit.start()?;
+        stream
+            .inner
+            .lock()
+            .map_err(|_| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
+                },
+            })?
+            .audio_unit
+            .start()?;
 
         Ok(stream)
     }
@@ -863,7 +952,6 @@ impl Device {
 /// This handles the common setup tasks for both input and output streams:
 /// - Sets the stream format (ASBD)
 /// - Configures buffer size for Fixed buffer size requests
-/// - Validates buffer size ranges
 fn configure_stream_format_and_buffer(
     audio_unit: &mut AudioUnit,
     config: &StreamConfig,
@@ -879,14 +967,6 @@ fn configure_stream_format_and_buffer(
 
     // Configure device buffer size if requested
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-        let buffer_size_range = get_io_buffer_frame_size_range(audio_unit)?;
-
-        if let SupportedBufferSize::Range { min, max } = buffer_size_range {
-            if !(min..=max).contains(&buffer_size) {
-                return Err(BuildStreamError::StreamConfigNotSupported);
-            }
-        }
-
         // IMPORTANT: Buffer frame size is a DEVICE-LEVEL property, not stream-specific.
         // Unlike stream format above, we ALWAYS use Scope::Global + Element::Output
         // for device properties, regardless of whether this is an input or output stream.
@@ -930,9 +1010,10 @@ fn setup_callback_vars(
 fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
     // Device-level property: always use Scope::Global + Element::Output
     // This is consistent with how we set the buffer size and query the buffer size range
-    audio_unit.get_property::<usize>(
+    let frames: u32 = audio_unit.get_property(
         kAudioDevicePropertyBufferFrameSize,
         Scope::Global,
         Element::Output,
-    )
+    )?;
+    Ok(frames as usize)
 }

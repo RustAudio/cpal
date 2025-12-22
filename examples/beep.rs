@@ -1,3 +1,16 @@
+//! Plays a simple 440 Hz sine wave (beep) tone.
+//!
+//! This example demonstrates:
+//! - Selecting audio hosts (with optional JACK support on Linux)
+//! - Selecting devices by ID or using the default output device
+//! - Querying the default output configuration
+//! - Building and running an output stream with typed samples
+//! - Generating audio data in the stream callback
+//!
+//! Run with: `cargo run --example beep`
+//! With JACK (Linux): `cargo run --example beep --features jack -- --jack`
+//! With specific device: `cargo run --example beep -- --device "wasapi:device_id"`
+
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -8,8 +21,8 @@ use cpal::{
 #[command(version, about = "CPAL beep example", long_about = None)]
 struct Opt {
     /// The audio device to use
-    #[arg(short, long, default_value_t = String::from("default"))]
-    device: String,
+    #[arg(short, long)]
+    device: Option<String>,
 
     /// Use the JACK host
     #[cfg(all(
@@ -63,14 +76,14 @@ fn main() -> anyhow::Result<()> {
     ))]
     let host = cpal::default_host();
 
-    let device = if opt.device == "default" {
-        host.default_output_device()
+    let device = if let Some(device) = opt.device {
+        let id = &device.parse().expect("failed to parse device id");
+        host.device_by_id(id)
     } else {
-        host.output_devices()?
-            .find(|x| x.name().map(|y| y == opt.device).unwrap_or(false))
+        host.default_output_device()
     }
     .expect("failed to find output device");
-    println!("Output device: {}", device.name()?);
+    println!("Output device: {}", device.id()?);
 
     let config = device.default_output_config().unwrap();
     println!("Default output config: {config:?}");
@@ -98,7 +111,7 @@ pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), 
 where
     T: SizedSample + FromSample<f32>,
 {
-    let sample_rate = config.sample_rate.0 as f32;
+    let sample_rate = config.sample_rate as f32;
     let channels = config.channels as usize;
 
     // Produce a sinusoid of maximum amplitude.

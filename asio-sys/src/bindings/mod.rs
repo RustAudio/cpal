@@ -6,12 +6,19 @@ use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 use num_traits::FromPrimitive;
 
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_double, c_long, c_void};
+use std::os::raw::{c_char, c_double, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
+
+// On Windows (where ASIO actually runs), c_long is i32.
+// On non-Windows platforms (for docs.rs and local testing), redefine c_long as i32 to match.
+#[cfg(target_os = "windows")]
+use std::os::raw::c_long;
+#[cfg(not(target_os = "windows"))]
+type c_long = i32;
 
 // Bindings import
 use self::asio_import as ai;
@@ -93,6 +100,7 @@ pub struct SampleRate {
 pub struct CallbackInfo {
     pub buffer_index: i32,
     pub system_time: ai::ASIOTimeStamp,
+    pub callback_flag: u32,
 }
 
 /// Holds the pointer to the callbacks that come from cpal
@@ -161,7 +169,7 @@ pub enum AsioSampleType {
 /// Gives information about buffers
 /// Receives pointers to buffers
 #[derive(Debug, Copy, Clone)]
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioBufferInfo {
     /// 0 for output 1 for input
     pub is_input: c_long,
@@ -172,7 +180,7 @@ pub struct AsioBufferInfo {
 }
 
 /// Callbacks that ASIO calls
-#[repr(C)]
+#[repr(C, packed(4))]
 struct AsioCallbacks {
     buffer_switch: extern "C" fn(double_buffer_index: c_long, direct_process: c_long) -> (),
     sample_rate_did_change: extern "C" fn(s_rate: c_double) -> (),
@@ -231,7 +239,7 @@ pub enum AsioMessageSelectors {
     kAsioSupportsTimeInfo,      // if host returns true here, it will expect the
                                 // callback bufferSwitchTimeInfo to be called instead
                                 // of bufferSwitch
-    kAsioSupportsTimeCode,      // 
+    kAsioSupportsTimeCode,      //
     kAsioMMCCommand,            // unused - value: number of commands, message points to mmc commands
     kAsioSupportsInputMonitor,  // kAsioSupportsXXX return 1 if host supports this
     kAsioSupportsInputGain,     // unused and undefined
@@ -244,7 +252,7 @@ pub enum AsioMessageSelectors {
 }
 
 /// A rust-usable version of the `ASIOTime` type that does not contain a binary blob for fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTime {
     /// Must be `0`.
     pub reserved: [c_long; 4],
@@ -256,7 +264,7 @@ pub struct AsioTime {
 
 /// A rust-compatible version of the `ASIOTimeInfo` type that does not contain a binary blob for
 /// fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTimeInfo {
     /// Absolute speed (1. = nominal).
     pub speed: c_double,
@@ -276,7 +284,7 @@ pub struct AsioTimeInfo {
 
 /// A rust-compatible version of the `ASIOTimeCode` type that does not use a binary blob for its
 /// fields.
-#[repr(C)]
+#[repr(C, packed(4))]
 pub struct AsioTimeCode {
     /// Speed relation (fraction of nominal speed) optional.
     ///
@@ -312,8 +320,19 @@ pub struct CallbackId(usize);
 /// parameters.
 static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 
+/// Used to identify when to clear buffers.
+static CALLBACK_FLAG: AtomicU32 = AtomicU32::new(0);
+
 /// Indicates that ASIOOutputReady should be called
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MessageCallbackId(usize);
+
+struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) + Send + Sync>);
+
+/// A global registry for ASIO message callbacks.
+static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
 
 impl Asio {
     /// Initialise the ASIO API.
@@ -743,6 +762,32 @@ impl Driver {
             }
         }
     }
+
+    /// Adds a callback to the list of message listeners.
+    ///
+    /// Returns an ID uniquely associated with the given callback so that it may be removed later.
+    pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
+    where
+        F: Fn(AsioMessageSelectors) + Send + Sync + 'static,
+    {
+        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
+        let id = mcb
+            .last()
+            .map(|&(id, _)| {
+                MessageCallbackId(id.0.checked_add(1).expect("MessageCallbackId overflowed"))
+            })
+            .unwrap_or(MessageCallbackId(0));
+
+        let cb = MessageCallback(Arc::new(callback));
+        mcb.push((id, cb));
+        id
+    }
+
+    /// Remove the callback with the given ID.
+    pub fn remove_message_callback(&self, rem_id: MessageCallbackId) {
+        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
+        mcb.retain(|&(id, _)| id != rem_id);
+    }
 }
 
 impl DriverState {
@@ -786,7 +831,7 @@ impl DriverState {
 }
 
 impl DriverInner {
-    fn lock_state(&self) -> MutexGuard<DriverState> {
+    fn lock_state(&self) -> MutexGuard<'_, DriverState> {
         self.state.lock().expect("failed to lock `DriverState`")
     }
 
@@ -890,14 +935,14 @@ fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
 /// ASIO uses null terminated c strings for driver names.
 ///
 /// This converts to utf8.
-fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
 /// ASIO uses null terminated c strings for channel names.
 ///
 /// This converts to utf8.
-fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<str> {
+fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
@@ -936,7 +981,17 @@ extern "C" fn asio_message(
             // You cannot reset the driver right now, as this code is called from the driver. Reset
             // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
             // Destruction. Afterwards you initialize the driver again.
-            // TODO: Handle this.
+
+            // Get the list of active message callbacks.
+            let callbacks: Vec<_> = {
+                let lock = MESSAGE_CALLBACKS.lock().unwrap();
+                lock.iter().map(|(_, cb)| cb.0.clone()).collect()
+            };
+            // Release lock and call them.
+            for cb in callbacks {
+                cb(AsioMessageSelectors::kAsioResetRequest);
+            }
+
             1
         }
 
@@ -996,9 +1051,13 @@ extern "C" fn buffer_switch_time_info(
     // This lock is probably unavoidable, but locks in the audio stream are not great.
     let mut bcs = BUFFER_CALLBACK.lock().unwrap();
     let asio_time: &mut AsioTime = unsafe { &mut *(time as *mut AsioTime) };
+    // Alternates: 0, 1, 0, 1, ...
+    let callback_flag = CALLBACK_FLAG.fetch_xor(1, Ordering::Relaxed);
+
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
         system_time: asio_time.time_info.system_time,
+        callback_flag,
     };
     for &mut (_, ref mut bc) in bcs.iter_mut() {
         bc.run(&callback_info);

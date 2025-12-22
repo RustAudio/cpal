@@ -1,10 +1,16 @@
+//! ALSA backend implementation.
+//!
+//! Default backend on Linux and BSD systems.
+
 extern crate alsa;
 extern crate libc;
 
 use std::{
-    cell::Cell,
-    cmp, fmt,
-    sync::{Arc, Mutex},
+    cmp,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread::{self, JoinHandle},
     time::Duration,
     vec::IntoIter as VecIntoIter,
@@ -16,11 +22,30 @@ pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
     StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
+
+impl From<alsa::Direction> for DeviceDirection {
+    fn from(direction: alsa::Direction) -> Self {
+        match direction {
+            alsa::Direction::Capture => DeviceDirection::Input,
+            alsa::Direction::Playback => DeviceDirection::Output,
+        }
+    }
+}
+
+/// Parses ALSA multi-line description into separate lines.
+fn parse_alsa_description(description: &str) -> Vec<String> {
+    description
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
 
 // ALSA Buffer Size Behavior
 // =========================
@@ -49,9 +74,31 @@ use crate::{
 //
 // This mirrors the behavior documented in the cpal API where `BufferSize::Fixed(x)`
 // requests but does not guarantee a specific callback size.
+//
+// ## BufferSize::Default Behavior
+//
+// When `BufferSize::Default` is specified, cpal does NOT set explicit period size or
+// period count constraints, allowing the device/driver to choose sensible defaults.
+//
+// **Why not set defaults?** Different audio systems have different behaviors:
+//
+// - **Native ALSA hardware**: Typically chooses reasonable defaults (e.g., 512-2048
+//   frame periods with 2-4 periods)
+//
+// - **PipeWire-ALSA plugin**: Allocates a large ring buffer (~1M frames at 48kHz) but
+//   uses small periods (512-1024 frames). Critically, if you request `set_periods(2)`
+//   without specifying period size, PipeWire calculates period = buffer/2, resulting
+//   in pathologically large periods (~524K frames = 10 seconds). See issues #1029 and
+//   #1036.
+//
+// By not constraining period configuration, PipeWire-ALSA can use its optimized defaults
+// (small periods with many-period buffer), while native ALSA hardware uses its own defaults.
+//
+// **Startup latency**: Regardless of buffer size, cpal uses double-buffering for startup
+// (start_threshold = 2 periods), ensuring low latency even with large multi-period ring
+// buffers.
 
-pub type SupportedInputConfigs = VecIntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = VecIntoIter<SupportedStreamConfigRange>;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 mod enumerate;
 
@@ -92,8 +139,17 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
+    // ALSA overrides name() to return pcm_id directly instead of from description
     fn name(&self) -> Result<String, DeviceNameError> {
         Device::name(self)
+    }
+
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -130,7 +186,7 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = Stream::new_input(
+        let stream = Self::Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
@@ -153,7 +209,7 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
-        let stream = Stream::new_output(
+        let stream = Self::Stream::new_output(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
@@ -214,19 +270,6 @@ struct DeviceHandles {
 }
 
 impl DeviceHandles {
-    /// Create `DeviceHandles` for `name` and try to open a handle for both
-    /// directions. Returns `Ok` if either direction is opened successfully.
-    fn open(pcm_id: &str) -> Result<Self, alsa::Error> {
-        let mut handles = Self::default();
-        let playback_err = handles.try_open(pcm_id, alsa::Direction::Playback).err();
-        let capture_err = handles.try_open(pcm_id, alsa::Direction::Capture).err();
-        if let Some(err) = capture_err.and(playback_err) {
-            Err(err)
-        } else {
-            Ok(handles)
-        }
-    }
-
     /// Get a mutable reference to the `Option` for a specific `stream_type`.
     /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
     /// the `Option` before returning. If `handle_mut()` returns `Ok` the contained
@@ -269,7 +312,31 @@ impl DeviceHandles {
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
+    direction: Option<alsa::Direction>,
     handles: Arc<Mutex<DeviceHandles>>,
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        // Devices are equal if they have the same PCM ID and direction.
+        // The handles field is not part of device identity.
+        self.pcm_id == other.pcm_id && self.direction == other.direction
+    }
+}
+
+impl Eq for Device {}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash based on PCM ID and direction for consistency with PartialEq
+        self.pcm_id.hash(state);
+        // Manually hash direction since alsa::Direction doesn't implement Hash
+        match self.direction {
+            Some(alsa::Direction::Capture) => 0u8.hash(state),
+            Some(alsa::Direction::Playback) => 1u8.hash(state),
+            None => 2u8.hash(state),
+        }
+    }
 }
 
 impl Device {
@@ -279,6 +346,28 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
+        // Validate buffer size if Fixed is specified. This is necessary because
+        // `set_period_size_near()` with `ValueOr::Nearest` will accept ANY value and return the
+        // "nearest" supported value, which could be wildly different (e.g., requesting 4096 frames
+        // might return 512 frames if that's "nearest").
+        if let BufferSize::Fixed(requested_size) = conf.buffer_size {
+            // Note: We use `default_input_config`/`default_output_config` to get the buffer size
+            // range. This queries the CURRENT device (`self.pcm_id`), not the default device. The
+            // buffer size range is the same across all format configurations for a given device
+            // (see `supported_configs()`).
+            let supported_config = match stream_type {
+                alsa::Direction::Capture => self.default_input_config(),
+                alsa::Direction::Playback => self.default_output_config(),
+            };
+            if let Ok(config) = supported_config {
+                if let SupportedBufferSize::Range { min, max } = config.buffer_size {
+                    if !(min..=max).contains(&requested_size) {
+                        return Err(BuildStreamError::StreamConfigNotSupported);
+                    }
+                }
+            }
+        }
+
         let handle_result = self
             .handles
             .lock()
@@ -327,7 +416,7 @@ impl Device {
         }
 
         let stream_inner = StreamInner {
-            dropping: Cell::new(false),
+            dropping: AtomicBool::new(false),
             channel: handle,
             sample_format,
             num_descriptors,
@@ -342,9 +431,34 @@ impl Device {
         Ok(stream_inner)
     }
 
-    #[inline]
     fn name(&self) -> Result<String, DeviceNameError> {
-        Ok(self.to_string())
+        Ok(self.pcm_id.clone())
+    }
+
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        let name = self
+            .desc
+            .as_ref()
+            .and_then(|desc| desc.lines().next())
+            .unwrap_or(&self.pcm_id)
+            .to_string();
+
+        let mut builder = DeviceDescriptionBuilder::new(name).driver(self.pcm_id.clone());
+
+        if let Some(ref desc) = self.desc {
+            let lines = parse_alsa_description(desc);
+            builder = builder.extended(lines);
+        }
+
+        if let Some(dir) = self.direction {
+            builder = builder.direction(dir.into());
+        }
+
+        Ok(builder.build())
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId(crate::platform::HostId::Alsa, self.pcm_id.clone()))
     }
 
     fn supported_configs(
@@ -367,26 +481,28 @@ impl Device {
 
         let hw_params = alsa::pcm::HwParams::any(handle)?;
 
-        // TODO: check endianness
-        const FORMATS: [(SampleFormat, alsa::pcm::Format); 10] = [
+        // Test both LE and BE formats to detect what the hardware actually supports.
+        // LE is listed first as it's the common case for most audio hardware.
+        // Hardware reports its supported formats regardless of CPU endianness.
+        const FORMATS: [(SampleFormat, alsa::pcm::Format); 18] = [
             (SampleFormat::I8, alsa::pcm::Format::S8),
             (SampleFormat::U8, alsa::pcm::Format::U8),
             (SampleFormat::I16, alsa::pcm::Format::S16LE),
-            //SND_PCM_FORMAT_S16_BE,
+            (SampleFormat::I16, alsa::pcm::Format::S16BE),
             (SampleFormat::U16, alsa::pcm::Format::U16LE),
-            //SND_PCM_FORMAT_U16_BE,
+            (SampleFormat::U16, alsa::pcm::Format::U16BE),
             (SampleFormat::I24, alsa::pcm::Format::S24LE),
-            //SND_PCM_FORMAT_S24_BE,
+            (SampleFormat::I24, alsa::pcm::Format::S24BE),
             (SampleFormat::U24, alsa::pcm::Format::U24LE),
-            //SND_PCM_FORMAT_U24_BE,
+            (SampleFormat::U24, alsa::pcm::Format::U24BE),
             (SampleFormat::I32, alsa::pcm::Format::S32LE),
-            //SND_PCM_FORMAT_S32_BE,
+            (SampleFormat::I32, alsa::pcm::Format::S32BE),
             (SampleFormat::U32, alsa::pcm::Format::U32LE),
-            //SND_PCM_FORMAT_U32_BE,
+            (SampleFormat::U32, alsa::pcm::Format::U32BE),
             (SampleFormat::F32, alsa::pcm::Format::FloatLE),
-            //SND_PCM_FORMAT_FLOAT_BE,
+            (SampleFormat::F32, alsa::pcm::Format::FloatBE),
             (SampleFormat::F64, alsa::pcm::Format::Float64LE),
-            //SND_PCM_FORMAT_FLOAT64_BE,
+            (SampleFormat::F64, alsa::pcm::Format::Float64BE),
             //SND_PCM_FORMAT_IEC958_SUBFRAME_LE,
             //SND_PCM_FORMAT_IEC958_SUBFRAME_BE,
             //SND_PCM_FORMAT_MU_LAW,
@@ -409,9 +525,13 @@ impl Device {
             //SND_PCM_FORMAT_U18_3BE,
         ];
 
+        // Collect supported formats, deduplicating since we test both LE and BE variants.
+        // If hardware supports both endiannesses (rare), we only report the format once.
         let mut supported_formats = Vec::new();
         for &(sample_format, alsa_format) in FORMATS.iter() {
-            if hw_params.test_format(alsa_format).is_ok() {
+            if hw_params.test_format(alsa_format).is_ok()
+                && !supported_formats.contains(&sample_format)
+            {
                 supported_formats.push(sample_format);
             }
         }
@@ -422,15 +542,10 @@ impl Device {
         let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
             vec![(min_rate, max_rate)]
         } else {
-            const RATES: [libc::c_uint; 13] = [
-                5512, 8000, 11025, 16000, 22050, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
-                192000,
-            ];
-
             let mut rates = Vec::new();
-            for &rate in RATES.iter() {
-                if hw_params.test_rate(rate).is_ok() {
-                    rates.push((rate, rate));
+            for &sample_rate in crate::COMMON_SAMPLE_RATES.iter() {
+                if hw_params.test_rate(sample_rate).is_ok() {
+                    rates.push((sample_rate, sample_rate));
                 }
             }
 
@@ -469,8 +584,8 @@ impl Device {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
                         channels,
-                        min_sample_rate: SampleRate(min_rate),
-                        max_sample_rate: SampleRate(max_rate),
+                        min_sample_rate: min_rate,
+                        max_sample_rate: max_rate,
                         buffer_size: buffer_size_range,
                         sample_format,
                     });
@@ -523,7 +638,7 @@ impl Device {
                 let min_r = f.min_sample_rate;
                 let max_r = f.max_sample_rate;
                 let mut format = f.with_max_sample_rate();
-                const HZ_44100: SampleRate = SampleRate(44_100);
+                const HZ_44100: SampleRate = 44_100;
                 if min_r <= HZ_44100 && HZ_44100 <= max_r {
                     format.sample_rate = HZ_44100;
                 }
@@ -545,7 +660,7 @@ impl Device {
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
     // (e.g. broken due to a disconnected device).
-    dropping: Cell<bool>,
+    dropping: AtomicBool,
 
     // The ALSA channel.
     channel: alsa::pcm::PCM,
@@ -601,6 +716,10 @@ pub struct Stream {
     /// Used to signal to stop processing.
     trigger: TriggerSender,
 }
+
+// Compile-time assertion that Stream is Send and Sync
+crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
 
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
@@ -677,6 +796,7 @@ fn input_stream_worker(
                 continue;
             }
             PollDescriptorsFlow::XRun => {
+                error_callback(StreamError::BufferUnderrun);
                 if let Err(err) = stream.channel.prepare() {
                     error_callback(err.into());
                 }
@@ -718,13 +838,6 @@ fn output_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
-    // As first period, always write one buffer with equilibrium values.
-    // This ensures we start with a full period of silence, giving the user their
-    // requested latency while avoiding underruns on the first callback.
-    if let Err(err) = stream.channel.io_bytes().writei(&ctxt.transfer_buffer) {
-        error_callback(err.into());
-    }
-
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
@@ -735,6 +848,7 @@ fn output_stream_worker(
         match flow {
             PollDescriptorsFlow::Continue => continue,
             PollDescriptorsFlow::XRun => {
+                error_callback(StreamError::BufferUnderrun);
                 if let Err(err) = stream.channel.prepare() {
                     error_callback(err.into());
                 }
@@ -777,7 +891,7 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
         0
     };
 
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate.0) {
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
         eprintln!("Failed to promote audio thread to real-time priority: {err}");
     }
 }
@@ -802,7 +916,7 @@ fn poll_descriptors_and_prepare_buffer(
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
 ) -> Result<PollDescriptorsFlow, BackendSpecificError> {
-    if stream.dropping.get() {
+    if stream.dropping.load(Ordering::Acquire) {
         // The stream has been requested to be destroyed.
         rx.clear_pipe();
         return Ok(PollDescriptorsFlow::Return);
@@ -846,13 +960,16 @@ fn poll_descriptors_and_prepare_buffer(
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
-        // Buffer underrun. TODO: Notify the user.
+        // Buffer underrun detected, but notification happens in XRun handler
         d if d < 0 => 0,
         d => d as usize,
     };
     let available_samples = avail_frames * stream.conf.channels as usize;
 
-    // Only go on if there is at least one period's worth of space available.
+    // ALSA can have spurious wakeups where poll returns but avail < avail_min.
+    // This is documented to occur with dmix (timer-driven) and other plugins.
+    // Verify we have room for at least one full period before processing.
+    // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
     if available_samples < stream.period_samples {
         return Ok(PollDescriptorsFlow::Continue);
     }
@@ -933,11 +1050,10 @@ fn process_output(
                 // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
                 // Even if these recover successfully, they still may cause audible glitches.
 
-                // TODO:
-                //   Should we notify the user about successfully recovered errors?
-                //   Should we notify the user about failures in try_recover, rather than ignoring them?
-                //   (Both potentially not real-time-safe)
-                _ = stream.channel.try_recover(err, true);
+                error_callback(StreamError::BufferUnderrun);
+                if let Err(recover_err) = stream.channel.try_recover(err, true) {
+                    error_callback(recover_err.into());
+                }
             }
             Err(err) => {
                 error_callback(err.into());
@@ -1015,7 +1131,7 @@ fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 #[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
@@ -1047,7 +1163,7 @@ impl Stream {
                 );
             })
             .unwrap();
-        Stream {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
@@ -1079,7 +1195,7 @@ impl Stream {
                 );
             })
             .unwrap();
-        Stream {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
@@ -1089,36 +1205,9 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.inner.dropping.set(true);
+        self.inner.dropping.store(true, Ordering::Release);
         self.trigger.wakeup();
         self.thread.take().unwrap().join().unwrap();
-
-        // State-based drop behavior: drain if playing, drop if paused. This allows audio to
-        // complete naturally when stopping during playback, but provides immediate termination
-        // when already paused.
-        match self.inner.channel.state() {
-            alsa::pcm::State::Running => {
-                // Audio is actively playing - attempt graceful drain.
-                if let Ok(()) = self.inner.channel.drain() {
-                    // TODO: Use SND_PCM_WAIT_DRAIN (-10002) when alsa-rs supports it properly,
-                    // although it requires ALSA 1.2.8+ which may not be available everywhere.
-                    // For now, calculate timeout based on buffer latency.
-                    let buffer_duration_ms = ((self.inner.period_frames as f64 * 1000.0)
-                        / self.inner.conf.sample_rate.0 as f64)
-                        as u32;
-
-                    // This is safe: snd_pcm_wait() checks device state first and returns
-                    // immediately with error codes like -ENODEV for disconnected devices.
-                    let _ = self.inner.channel.wait(Some(buffer_duration_ms));
-                }
-                // If drain fails or device has errors, stream terminates naturally
-            }
-            _ => {
-                // Not actively playing (paused, stopped, etc.) - immediate drop and discard any
-                // buffered audio data for immediate termination.
-                let _ = self.inner.channel.drop();
-            }
-        }
     }
 }
 
@@ -1133,9 +1222,10 @@ impl StreamTrait for Stream {
     }
 }
 
-// Overly safe clamp because alsa Frames are i64
+// Convert ALSA frames to FrameCount, clamping to valid range.
+// ALSA Frames are i64 (64-bit) or i32 (32-bit).
 fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
-    buffer_size.clamp(1, FrameCount::MAX as _) as _
+    buffer_size.max(1).try_into().unwrap_or(FrameCount::MAX)
 }
 
 fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
@@ -1199,84 +1289,128 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
     }
 }
 
+fn init_hw_params<'a>(
+    pcm_handle: &'a alsa::pcm::PCM,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
+    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
+    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
+
+    // Determine which endianness the hardware actually supports for this format.
+    // We prefer native endian (no conversion needed) but fall back to the opposite
+    // endian if that's all the hardware supports (e.g., LE USB DAC on BE system).
+    let alsa_format = sample_format_to_alsa_format(&hw_params, sample_format)?;
+    hw_params.set_format(alsa_format)?;
+
+    hw_params.set_rate(config.sample_rate, alsa::ValueOr::Nearest)?;
+    hw_params.set_channels(config.channels as u32)?;
+    Ok(hw_params)
+}
+
+/// Convert SampleFormat to the appropriate alsa::pcm::Format based on what the hardware supports.
+/// Prefers native endian, falls back to non-native if that's all the hardware supports.
+fn sample_format_to_alsa_format(
+    hw_params: &alsa::pcm::HwParams,
+    sample_format: SampleFormat,
+) -> Result<alsa::pcm::Format, BackendSpecificError> {
+    use alsa::pcm::Format;
+
+    // For each sample format, define (native_endian_format, opposite_endian_format) pairs
+    let (native, opposite) = match sample_format {
+        SampleFormat::I8 => return Ok(Format::S8), // No endianness
+        SampleFormat::U8 => return Ok(Format::U8), // No endianness
+        #[cfg(target_endian = "little")]
+        SampleFormat::I16 => (Format::S16LE, Format::S16BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I16 => (Format::S16BE, Format::S16LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U16 => (Format::U16LE, Format::U16BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U16 => (Format::U16BE, Format::U16LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::I24 => (Format::S24LE, Format::S24BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I24 => (Format::S24BE, Format::S24LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U24 => (Format::U24LE, Format::U24BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U24 => (Format::U24BE, Format::U24LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::I32 => (Format::S32LE, Format::S32BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::I32 => (Format::S32BE, Format::S32LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::U32 => (Format::U32LE, Format::U32BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::U32 => (Format::U32BE, Format::U32LE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::F32 => (Format::FloatLE, Format::FloatBE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::F32 => (Format::FloatBE, Format::FloatLE),
+        #[cfg(target_endian = "little")]
+        SampleFormat::F64 => (Format::Float64LE, Format::Float64BE),
+        #[cfg(target_endian = "big")]
+        SampleFormat::F64 => (Format::Float64BE, Format::Float64LE),
+        _ => {
+            return Err(BackendSpecificError {
+                description: format!("Sample format '{sample_format}' is not supported"),
+            })
+        }
+    };
+
+    // Try native endian first (optimal - no conversion needed)
+    if hw_params.test_format(native).is_ok() {
+        return Ok(native);
+    }
+
+    // Fall back to opposite endian if hardware only supports that
+    if hw_params.test_format(opposite).is_ok() {
+        return Ok(opposite);
+    }
+
+    Err(BackendSpecificError {
+        description: format!(
+            "Sample format '{sample_format}' is not supported by hardware in any endianness"
+        ),
+    })
+}
+
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: &StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
-    let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
-    hw_params.set_access(alsa::pcm::Access::RWInterleaved)?;
+    let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
-    let sample_format = if cfg!(target_endian = "big") {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16BE,
-            SampleFormat::I24 => alsa::pcm::Format::S24BE,
-            SampleFormat::I32 => alsa::pcm::Format::S32BE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48BE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64BE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16BE,
-            SampleFormat::U24 => alsa::pcm::Format::U24BE,
-            SampleFormat::U32 => alsa::pcm::Format::U32BE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48BE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64BE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatBE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64BE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        }
-    } else {
-        match sample_format {
-            SampleFormat::I8 => alsa::pcm::Format::S8,
-            SampleFormat::I16 => alsa::pcm::Format::S16LE,
-            SampleFormat::I24 => alsa::pcm::Format::S24LE,
-            SampleFormat::I32 => alsa::pcm::Format::S32LE,
-            // SampleFormat::I48 => alsa::pcm::Format::S48LE,
-            // SampleFormat::I64 => alsa::pcm::Format::S64LE,
-            SampleFormat::U8 => alsa::pcm::Format::U8,
-            SampleFormat::U16 => alsa::pcm::Format::U16LE,
-            SampleFormat::U24 => alsa::pcm::Format::U24LE,
-            SampleFormat::U32 => alsa::pcm::Format::U32LE,
-            // SampleFormat::U48 => alsa::pcm::Format::U48LE,
-            // SampleFormat::U64 => alsa::pcm::Format::U64LE,
-            SampleFormat::F32 => alsa::pcm::Format::FloatLE,
-            SampleFormat::F64 => alsa::pcm::Format::Float64LE,
-            sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "Sample format '{sample_format}' is not supported by this backend"
-                    ),
-                })
-            }
-        }
-    };
-
-    // Set the sample format, rate, and channels - if this fails, the format is not supported.
-    hw_params.set_format(sample_format)?;
-    hw_params.set_rate(config.sample_rate.0, alsa::ValueOr::Nearest)?;
-    hw_params.set_channels(config.channels as u32)?;
-
-    // Configure period size based on buffer size request
-    // When BufferSize::Fixed(x) is specified, we request a period size of x frames
-    // to achieve approximately x-sized callbacks. ALSA may adjust this to the nearest
-    // supported value based on hardware constraints.
+    // When BufferSize::Fixed(x) is specified, we configure double-buffering with
+    // buffer_size = 2x and period_size = x. This provides consistent low-latency
+    // behavior across different ALSA implementations and hardware.
     if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
-        hw_params.set_period_size_near(buffer_frames as _, alsa::ValueOr::Nearest)?;
+        hw_params.set_buffer_size_near((2 * buffer_frames) as alsa::pcm::Frames)?;
+        hw_params
+            .set_period_size_near(buffer_frames as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
     }
-
-    // We shouldn't fail if the driver isn't happy here.
-    // `default` pcm sometimes fails here, but there's no reason to as we
-    // provide a direction and 2 is strictly the minimum number of periods.
-    let _ = hw_params.set_periods(2, alsa::ValueOr::Greater);
 
     // Apply hardware parameters
     pcm_handle.hw_params(&hw_params)?;
+
+    // For BufferSize::Default, constrain to device's configured period with 2-period buffering.
+    // PipeWire-ALSA picks a good period size but pairs it with many periods (huge buffer).
+    // We need to re-initialize hw_params and set BOTH period and buffer to constrain properly.
+    if config.buffer_size == BufferSize::Default {
+        if let Ok(period) = hw_params.get_period_size() {
+            // Re-initialize hw_params to clear previous constraints
+            let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
+
+            // Set both period (to device's chosen value) and buffer (to 2 periods)
+            hw_params.set_period_size_near(period, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_size_near(2 * period)?;
+
+            // Re-apply with new constraints
+            pcm_handle.hw_params(&hw_params)?;
+        }
+    }
 
     Ok(hw_params.can_pause())
 }
@@ -1295,17 +1429,34 @@ fn set_sw_params_from_format(
                 description: "initialization resulted in a null buffer".to_string(),
             });
         }
-        sw_params.set_avail_min(period as alsa::pcm::Frames)?;
-
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Start when ALSA buffer has enough data to maintain consistent playback
-                // while preserving user's expected latency across different period counts
-                buffer - period
+                // Always use 2-period double-buffering: one period playing from hardware, one
+                // period queued in the software buffer. This ensures consistent low latency
+                // regardless of the total buffer size.
+                2 * period
             }
             alsa::Direction::Capture => 1,
         };
         sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
+
+        // Set avail_min based on stream direction. For playback, "avail" means space available
+        // for writing (buffer_size - frames_queued). For capture, "avail" means data available
+        // for reading (frames_captured). These opposite semantics require different values.
+        let target_avail = match stream_type {
+            alsa::Direction::Playback => {
+                // Wake when buffer level drops to one period remaining (avail >= buffer - period).
+                // This maintains double-buffering by refilling when we're down to one period.
+                buffer - period
+            }
+            alsa::Direction::Capture => {
+                // Wake when one period of data is available to read (avail >= period).
+                // Using buffer - period here would cause excessive latency as capture would
+                // wait for nearly the entire buffer to fill before reading.
+                period
+            }
+        };
+        sw_params.set_avail_min(target_avail as alsa::pcm::Frames)?;
 
         period as usize * config.channels as usize
     };
@@ -1326,7 +1477,7 @@ fn set_sw_params_from_format(
 
 impl From<alsa::Error> for BackendSpecificError {
     fn from(err: alsa::Error) -> Self {
-        BackendSpecificError {
+        Self {
             description: err.to_string(),
         }
     }
@@ -1364,15 +1515,5 @@ impl From<alsa::Error> for StreamError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
-    }
-}
-
-impl fmt::Display for Device {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(desc) = &self.desc {
-            write!(f, "{} ({})", self.pcm_id, desc.replace('\n', ", "))
-        } else {
-            write!(f, "{}", self.pcm_id)
-        }
     }
 }

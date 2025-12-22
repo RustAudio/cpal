@@ -1,6 +1,6 @@
 use num_derive::FromPrimitive;
 
-use crate::SampleFormat;
+use crate::{DeviceDirection, SampleFormat};
 
 pub(crate) struct Context;
 
@@ -21,8 +21,6 @@ impl PackageManager {
 pub(crate) struct AudioManager;
 
 impl AudioManager {
-    pub const PROPERTY_OUTPUT_SAMPLE_RATE: &'static str =
-        "android.media.property.OUTPUT_SAMPLE_RATE";
     pub const PROPERTY_OUTPUT_FRAMES_PER_BUFFER: &'static str =
         "android.media.property.OUTPUT_FRAMES_PER_BUFFER";
 
@@ -49,7 +47,7 @@ pub struct AudioDeviceInfo {
     /**
      * The device can be used for playback and/or capture
      */
-    pub direction: AudioDeviceDirection,
+    pub direction: DeviceDirection,
 
     /**
      * Device address
@@ -117,35 +115,12 @@ pub enum AudioDeviceType {
     Unsupported = -1,
 }
 
-/**
- * The direction of audio device
- */
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(i32)]
-pub enum AudioDeviceDirection {
-    Dumb = 0,
-    Input = AudioManager::GET_DEVICES_INPUTS,
-    Output = AudioManager::GET_DEVICES_OUTPUTS,
-    InputOutput = AudioManager::GET_DEVICES_ALL,
-}
-
-impl AudioDeviceDirection {
-    pub fn new(is_input: bool, is_output: bool) -> Self {
-        use self::AudioDeviceDirection::*;
-        match (is_input, is_output) {
-            (true, true) => InputOutput,
-            (false, true) => Output,
-            (true, false) => Input,
-            _ => Dumb,
-        }
-    }
-
-    pub fn is_input(&self) -> bool {
-        0 < *self as i32 & AudioDeviceDirection::Input as i32
-    }
-
-    pub fn is_output(&self) -> bool {
-        0 < *self as i32 & AudioDeviceDirection::Output as i32
+/// Converts DeviceDirection to Android AudioManager device flags.
+pub(super) fn android_device_flags(direction: DeviceDirection) -> i32 {
+    match direction {
+        DeviceDirection::Input => AudioManager::GET_DEVICES_INPUTS,
+        DeviceDirection::Output => AudioManager::GET_DEVICES_OUTPUTS,
+        _ => AudioManager::GET_DEVICES_ALL,
     }
 }
 

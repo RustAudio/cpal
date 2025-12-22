@@ -23,8 +23,9 @@ impl Error for HostUnavailable {}
 ///   `panic!` caused by some unforeseen or unknown reason.
 ///
 /// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
-/// cross-platform manner, please create an issue or submit a pull request with a patch that adds
-/// the necessary error variant to the appropriate error enum.
+/// cross-platform manner, please create an issue at <https://github.com/RustAudio/cpal/issues>
+/// with details about your use case, the backend you're using, and the error message. Or submit
+/// a pull request with a patch that adds the necessary error variant to the appropriate error enum.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BackendSpecificError {
     pub description: String,
@@ -60,6 +61,33 @@ impl Display for DevicesError {
 impl Error for DevicesError {}
 
 impl From<BackendSpecificError> for DevicesError {
+    fn from(err: BackendSpecificError) -> Self {
+        Self::BackendSpecific { err }
+    }
+}
+
+/// An error that may occur while attempting to retrieve a device ID.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeviceIdError {
+    /// See the [`BackendSpecificError`] docs for more information about this error variant.
+    BackendSpecific {
+        err: BackendSpecificError,
+    },
+    UnsupportedPlatform,
+}
+
+impl Display for DeviceIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackendSpecific { err } => err.fmt(f),
+            Self::UnsupportedPlatform => f.write_str("Device IDs are unsupported for this OS"),
+        }
+    }
+}
+
+impl Error for DeviceIdError {}
+
+impl From<BackendSpecificError> for DeviceIdError {
     fn from(err: BackendSpecificError) -> Self {
         Self::BackendSpecific { err }
     }
@@ -266,6 +294,13 @@ pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+
+    /// The stream configuration is no longer valid and must be rebuilt.
+    StreamInvalidated,
+
+    /// Buffer underrun or overrun occurred, causing a potential audio glitch.
+    BufferUnderrun,
+
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
 }
@@ -274,6 +309,10 @@ impl Display for StreamError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
+            Self::StreamInvalidated => {
+                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
+            }
+            Self::BufferUnderrun => f.write_str("Buffer underrun/overrun occurred."),
             Self::DeviceNotAvailable => f.write_str(
                 "The requested device is no longer available. For example, it has been unplugged.",
             ),

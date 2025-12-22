@@ -1,0 +1,5 @@
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+atomics"]
+
+[unstable]
+build-std = ["std", "panic_abort"]

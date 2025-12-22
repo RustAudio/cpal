@@ -21,6 +21,10 @@ pub struct Stream {
     output_port_names: Vec<String>,
 }
 
+// Compile-time assertion that Stream is Send and Sync
+crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
+
 impl Stream {
     // TODO: Return error messages
     pub fn new_input<D, E>(
@@ -66,7 +70,7 @@ impl Stream {
         let input_process_handler = LocalProcessHandler::new(
             vec![],
             ports,
-            SampleRate(client.sample_rate() as u32),
+            client.sample_rate() as u32,
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
@@ -131,7 +135,7 @@ impl Stream {
         let output_process_handler = LocalProcessHandler::new(
             ports,
             vec![],
-            SampleRate(client.sample_rate() as u32),
+            client.sample_rate() as u32,
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),
@@ -406,7 +410,7 @@ fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate.0 as f64;
+    let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
     std::time::Duration::new(secs, nanos)
@@ -441,7 +445,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
         self.send_error(format!("JACK was shut down for reason: {}", reason));
     }
 
-    fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
+    fn sample_rate(&mut self, _: &jack::Client, _srate: jack::Frames) -> jack::Control {
         match self.init_sample_rate_flag.load(Ordering::SeqCst) {
             false => {
                 // One of these notifications is sent every time a client is started.
@@ -449,16 +453,20 @@ impl jack::NotificationHandler for JackNotificationHandler {
                 jack::Control::Continue
             }
             true => {
-                self.send_error(format!("sample rate changed to: {}", srate));
-                // Since CPAL currently has no way of signaling a sample rate change in order to make
-                // all necessary changes that would bring we choose to quit.
+                // The JACK server has changed the sample rate, invalidating this stream.
+                // The stream configuration must be rebuilt with the new sample rate.
+                if let Ok(mut cb) = self.error_callback_ptr.lock() {
+                    cb(StreamError::StreamInvalidated);
+                }
                 jack::Control::Quit
             }
         }
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        self.send_error(String::from("xrun (buffer over or under run)"));
+        if let Ok(mut cb) = self.error_callback_ptr.lock() {
+            cb(StreamError::BufferUnderrun);
+        }
         jack::Control::Continue
     }
 }

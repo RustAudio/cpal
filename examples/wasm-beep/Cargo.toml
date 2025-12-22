@@ -2,7 +2,8 @@
 name = "wasm-beep"
 description = "cpal beep example for WebAssembly"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
+rust-version = "1.82"
 
 [lib]
 crate-type = ["cdylib"]
@@ -14,18 +15,20 @@ lto = true
 
 [dependencies]
 cpal = { path = "../..", features = ["wasm-bindgen"] }
+
 # `gloo` is a utility crate which improves ergonomics over direct `web-sys` usage.
-gloo = "0.11.0"
+gloo = "0.11"
+
 # The `wasm-bindgen` crate provides the bare minimum functionality needed
 # to interact with JavaScript.
-wasm-bindgen = "0.2.45"
+wasm-bindgen = "0.2"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`.
-console_error_panic_hook = "0.1.5"
+console_error_panic_hook = "0.1"
 
 # The `web-sys` crate allows you to interact with the various browser APIs,
 # like the DOM.
 [dependencies.web-sys]
-version = "0.3.22"
+version = "0.3"
 features = ["console", "MouseEvent"]

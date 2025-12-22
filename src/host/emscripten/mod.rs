@@ -1,3 +1,7 @@
+//! Emscripten backend implementation.
+//!
+//! Default backend on Emscripten.
+
 use js_sys::Float32Array;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
@@ -7,7 +11,8 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceNameError, DevicesError,
+    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
     InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
     SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -34,18 +39,21 @@ pub struct Stream {
     audio_ctxt: AudioContext,
 }
 
-// Index within the `streams` array of the events loop.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StreamId(usize);
+// WASM runs in a single-threaded environment, so Send and Sync are safe by design.
+unsafe impl Send for Stream {}
+unsafe impl Sync for Stream {}
 
-pub type SupportedInputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
-pub type SupportedOutputConfigs = ::std::vec::IntoIter<SupportedStreamConfigRange>;
+// Compile-time assertion that Stream is Send and Sync
+crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
+
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: u16 = 1;
 const MAX_CHANNELS: u16 = 32;
-const MIN_SAMPLE_RATE: SampleRate = SampleRate(8_000);
-const MAX_SAMPLE_RATE: SampleRate = SampleRate(96_000);
-const DEFAULT_SAMPLE_RATE: SampleRate = SampleRate(44_100);
+const MIN_SAMPLE_RATE: SampleRate = 8_000;
+const MAX_SAMPLE_RATE: SampleRate = 96_000;
+const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const MIN_BUFFER_SIZE: u32 = 1;
 const MAX_BUFFER_SIZE: u32 = u32::MAX;
 const DEFAULT_BUFFER_SIZE: usize = 2048;
@@ -64,19 +72,25 @@ impl Devices {
 }
 
 impl Device {
-    #[inline]
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Ok("Default Device".to_owned())
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+            .direction(crate::DeviceDirection::Output)
+            .build())
     }
 
-    #[inline]
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Ok(DeviceId(
+            crate::platform::HostId::Emscripten,
+            "default".to_string(),
+        ))
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
         unimplemented!();
     }
 
-    #[inline]
     fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
@@ -89,7 +103,7 @@ impl Device {
                 channels,
                 min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size: buffer_size.clone(),
+                buffer_size,
                 sample_format: SUPPORTED_SAMPLE_FORMAT,
             })
             .collect();
@@ -140,8 +154,12 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
-        Device::name(self)
+    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+        Device::description(self)
+    }
+
+    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+        Device::id(self)
     }
 
     fn supported_input_configs(
@@ -197,11 +215,10 @@ impl DeviceTrait for Device {
 
         let buffer_size_frames = match config.buffer_size {
             BufferSize::Fixed(v) => {
-                if v == 0 {
+                if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
                     return Err(BuildStreamError::StreamConfigNotSupported);
-                } else {
-                    v as usize
                 }
+                v as usize
             }
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
@@ -268,7 +285,7 @@ where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     |stream, config, sample_format, buffer_size_frames| {
-        let sample_rate = config.sample_rate.0;
+        let sample_rate = config.sample_rate;
         let buffer_size_samples = buffer_size_frames * config.channels as u32;
         let audio_ctxt = &stream.audio_ctxt;
 
@@ -303,7 +320,7 @@ where
         let buffer = context
             .create_buffer(
                 config.channels as u32,
-                buffer_size_frames as u32,
+                buffer_size_frames,
                 sample_rate as f32,
             )
             .expect("Buffer could not be created");
@@ -336,7 +353,7 @@ where
             data_callback,
             &config,
             sample_format,
-            buffer_size_frames as u32,
+            buffer_size_frames,
         );
     }
 }
@@ -354,7 +371,7 @@ fn set_timeout<D>(
     let window = web_sys::window().expect("Not in a window somehow?");
     window
         .set_timeout_with_callback_and_timeout_and_arguments_4(
-            &Closure::once_into_js(audio_callback_fn(data_callback))
+            Closure::once_into_js(audio_callback_fn(data_callback))
                 .dyn_ref::<js_sys::Function>()
                 .expect("The function was somehow not a function"),
             time,
@@ -374,7 +391,7 @@ impl Default for Devices {
 }
 impl Iterator for Devices {
     type Item = Device;
-    #[inline]
+
     fn next(&mut self) -> Option<Device> {
         if self.0 {
             self.0 = false;
@@ -385,12 +402,10 @@ impl Iterator for Devices {
     }
 }
 
-#[inline]
 fn default_input_device() -> Option<Device> {
     unimplemented!();
 }
 
-#[inline]
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
         Some(Device)
