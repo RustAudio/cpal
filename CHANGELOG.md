@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `StreamTrait::buffer_size` method to query the callback buffer size.
 - **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
 - **CI**: Checks default/no-default/all feature sets with platform-dependent MSRV for JACK.
 
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **AAudio**: `BufferSize::Default` now explicitly configures using the optimal burst size from AudioManager.
 - **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
 
 ## [0.17.0] - 2025-12-20
@@ -1033,6 +1035,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.0...HEAD
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0
 [0.15.3]: https://github.com/RustAudio/cpal/compare/v0.15.2...v0.15.3
