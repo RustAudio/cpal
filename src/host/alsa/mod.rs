@@ -17,9 +17,10 @@ use std::{
 };
 
 use self::alsa::poll::Descriptors;
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
+pub use self::enumerate::Devices;
 
 use crate::{
+    iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -29,23 +30,7 @@ use crate::{
     SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
 };
 
-impl From<alsa::Direction> for DeviceDirection {
-    fn from(direction: alsa::Direction) -> Self {
-        match direction {
-            alsa::Direction::Capture => DeviceDirection::Input,
-            alsa::Direction::Playback => DeviceDirection::Output,
-        }
-    }
-}
-
-/// Parses ALSA multi-line description into separate lines.
-fn parse_alsa_description(description: &str) -> Vec<String> {
-    description
-        .lines()
-        .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty())
-        .collect()
-}
+mod enumerate;
 
 // ALSA Buffer Size Behavior
 // =========================
@@ -98,11 +83,9 @@ fn parse_alsa_description(description: &str) -> Vec<String> {
 // (start_threshold = 2 periods), ensuring low latency even with large multi-period ring
 // buffers.
 
-pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+const DEFAULT_DEVICE: &str = "default";
 
-mod enumerate;
-
-/// The default linux, dragonfly, freebsd and netbsd host type.
+/// The default Linux and BSD host type.
 #[derive(Debug)]
 pub struct Host;
 
@@ -117,20 +100,20 @@ impl HostTrait for Host {
     type Device = Device;
 
     fn is_available() -> bool {
-        // Assume ALSA is always available on linux/dragonfly/freebsd/netbsd.
+        // Assume ALSA is always available on Linux and BSD.
         true
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+        enumerate::devices()
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        default_input_device()
+        Some(Device::default())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        default_output_device()
+        Some(Device::default())
     }
 }
 
@@ -312,15 +295,15 @@ impl DeviceHandles {
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
-    direction: Option<alsa::Direction>,
+    direction: DeviceDirection,
     handles: Arc<Mutex<DeviceHandles>>,
 }
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        // Devices are equal if they have the same PCM ID and direction.
+        // Devices are equal if they have the same PCM ID.
         // The handles field is not part of device identity.
-        self.pcm_id == other.pcm_id && self.direction == other.direction
+        self.pcm_id == other.pcm_id
     }
 }
 
@@ -328,14 +311,7 @@ impl Eq for Device {}
 
 impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash based on PCM ID and direction for consistency with PartialEq
         self.pcm_id.hash(state);
-        // Manually hash direction since alsa::Direction doesn't implement Hash
-        match self.direction {
-            Some(alsa::Direction::Capture) => 0u8.hash(state),
-            Some(alsa::Direction::Playback) => 1u8.hash(state),
-            None => 2u8.hash(state),
-        }
     }
 }
 
@@ -443,15 +419,17 @@ impl Device {
             .unwrap_or(&self.pcm_id)
             .to_string();
 
-        let mut builder = DeviceDescriptionBuilder::new(name).driver(self.pcm_id.clone());
+        let mut builder = DeviceDescriptionBuilder::new(name)
+            .driver(self.pcm_id.clone())
+            .direction(self.direction);
 
         if let Some(ref desc) = self.desc {
-            let lines = parse_alsa_description(desc);
+            let lines = desc
+                .lines()
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect();
             builder = builder.extended(lines);
-        }
-
-        if let Some(dir) = self.direction {
-            builder = builder.direction(dir.into());
         }
 
         Ok(builder.build())
@@ -657,6 +635,19 @@ impl Device {
     }
 }
 
+impl Default for Device {
+    fn default() -> Self {
+        // "default" is a virtual ALSA device that redirects to the configured default. We cannot
+        // determine its actual capabilities without opening it, so we return Unknown direction.
+        Self {
+            pcm_id: DEFAULT_DEVICE.to_owned(),
+            desc: Some("Default Audio Device".to_string()),
+            direction: DeviceDirection::Unknown,
+            handles: Arc::new(Mutex::new(Default::default())),
+        }
+    }
+}
+
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
     // (e.g. broken due to a disconnected device).
@@ -698,12 +689,6 @@ struct StreamInner {
 
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
-
-#[derive(Debug, Eq, PartialEq)]
-enum StreamType {
-    Input,
-    Output,
-}
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -806,13 +791,7 @@ fn input_stream_worker(
             PollDescriptorsFlow::Ready {
                 status,
                 delay_frames,
-                stream_type,
             } => {
-                debug_assert_eq!(
-                    stream_type,
-                    StreamType::Input,
-                    "expected input stream, but polling descriptors indicated output",
-                );
                 if let Err(err) = process_input(
                     stream,
                     &mut ctxt.transfer_buffer,
@@ -858,13 +837,7 @@ fn output_stream_worker(
             PollDescriptorsFlow::Ready {
                 status,
                 delay_frames,
-                stream_type,
             } => {
-                debug_assert_eq!(
-                    stream_type,
-                    StreamType::Output,
-                    "expected output stream, but polling descriptors indicated input",
-                );
                 if let Err(err) = process_output(
                     stream,
                     &mut ctxt.transfer_buffer,
@@ -903,7 +876,6 @@ enum PollDescriptorsFlow {
     Continue,
     Return,
     Ready {
-        stream_type: StreamType,
         status: alsa::pcm::Status,
         delay_frames: usize,
     },
@@ -945,14 +917,12 @@ fn poll_descriptors_and_prepare_buffer(
         let description = String::from("`alsa::poll()` returned POLLERR");
         return Err(BackendSpecificError { description });
     }
-    let stream_type = match revents {
-        alsa::poll::Flags::OUT => StreamType::Output,
-        alsa::poll::Flags::IN => StreamType::Input,
-        _ => {
-            // Nothing to process, poll again
-            return Ok(PollDescriptorsFlow::Continue);
-        }
-    };
+
+    // Check if data is ready for processing (either input or output)
+    if !revents.contains(alsa::poll::Flags::IN) && !revents.contains(alsa::poll::Flags::OUT) {
+        // Nothing to process, poll again
+        return Ok(PollDescriptorsFlow::Continue);
+    }
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
@@ -975,7 +945,6 @@ fn poll_descriptors_and_prepare_buffer(
     }
 
     Ok(PollDescriptorsFlow::Ready {
-        stream_type,
         status,
         delay_frames,
     })

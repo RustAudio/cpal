@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
+
+### Fixed
+
+- **ALSA**: Device enumeration now includes both hints and physical cards.
+
+### Changed
+- **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
+
 ## [0.17.0] - 2025-12-20
 
 ### Added
