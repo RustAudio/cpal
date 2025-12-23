@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - `StreamConfig` now implements `Copy`.
+- `StreamTrait::buffer_size` method to query the callback buffer size.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
+- **AAudio**: Buffer sizes are now dynamically tuned.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
@@ -1100,10 +1102,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
+<<<<<<< HEAD
 [Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.3...HEAD
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/RustAudio/cpal/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
+=======
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.0...HEAD
+>>>>>>> de4500b (feat: add Stream::buffer_size() and improve AAudio buffer configuration)
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0
 [0.15.3]: https://github.com/RustAudio/cpal/compare/v0.15.2...v0.15.3
