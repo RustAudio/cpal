@@ -4,59 +4,143 @@ use std::{
 };
 
 use super::{alsa, Device};
-use crate::{BackendSpecificError, DevicesError};
+use crate::{BackendSpecificError, DeviceDirection, DevicesError};
 
-/// ALSA's implementation for `Devices`.
-pub struct Devices {
-    hint_iter: alsa::device_name::HintIter,
-    enumerated_pcm_ids: HashSet<String>,
+// ALSA PCM device enumeration limits (SNDRV_PCM_DEVICES):
+// - Without CONFIG_SND_DYNAMIC_MINORS (default): 8 devices per card max
+// - With CONFIG_SND_DYNAMIC_MINORS enabled: 254 devices per card max
+const MAX_DEVICE_INDEX: u32 = 254;
+
+const HW_PREFIX: &str = "hw";
+const PLUGHW_PREFIX: &str = "plughw";
+
+/// Information about a physical device
+struct PhysicalDevice {
+    card_index: i32,
+    card_name: Option<String>,
+    device_index: u32,
+    device_name: Option<String>,
+    direction: DeviceDirection,
 }
 
-impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        // Enumerate ALL devices from ALSA hints (same as aplay -L)
-        alsa::device_name::HintIter::new_str(None, "pcm")
-            .map(|hint_iter| Self {
-                hint_iter,
-                enumerated_pcm_ids: HashSet::new(),
-            })
-            .map_err(DevicesError::from)
-    }
-}
+/// Iterator over available ALSA PCM devices (physical hardware and virtual/plugin devices).
+pub type Devices = std::vec::IntoIter<Device>;
 
-impl Iterator for Devices {
-    type Item = Device;
+/// Enumerates all available ALSA PCM devices (physical hardware and virtual/plugin devices).
+///
+/// We enumerate both ALSA hints and physical devices because:
+/// - Hints provide virtual devices, user configurations, and card-specific devices with metadata
+/// - Physical probing provides traditional numeric naming (hw:CARD=0,DEV=0) for compatibility
+pub fn devices() -> Result<Devices, DevicesError> {
+    let mut devices = Vec::new();
+    let mut seen_pcm_ids = HashSet::new();
 
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let hint = self.hint_iter.next()?;
-            if let Ok(device) = Self::Item::try_from(hint) {
-                if self.enumerated_pcm_ids.insert(device.pcm_id.clone()) {
-                    return Some(device);
-                } else {
-                    // Skip duplicate PCM IDs
-                    continue;
-                }
+    let physical_devices = physical_devices();
+
+    // Add all hint devices, including virtual devices
+    if let Ok(hints) = alsa::device_name::HintIter::new_str(None, "pcm") {
+        for hint in hints {
+            if let Ok(device) = Device::try_from(hint) {
+                seen_pcm_ids.insert(device.pcm_id.clone());
+                devices.push(device);
             }
         }
     }
-}
 
-pub fn default_input_device() -> Option<Device> {
-    Some(default_device())
-}
+    // Add hw:/plughw: for all physical devices with numeric index (traditional naming)
+    for phys_dev in physical_devices {
+        for prefix in [HW_PREFIX, PLUGHW_PREFIX] {
+            let pcm_id = format!(
+                "{}:CARD={},DEV={}",
+                prefix, phys_dev.card_index, phys_dev.device_index
+            );
 
-pub fn default_output_device() -> Option<Device> {
-    Some(default_device())
-}
-
-pub fn default_device() -> Device {
-    Device {
-        pcm_id: "default".to_string(),
-        desc: Some("Default Audio Device".to_string()),
-        direction: None,
-        handles: Arc::new(Mutex::new(Default::default())),
+            if seen_pcm_ids.insert(pcm_id.clone()) {
+                devices.push(Device {
+                    pcm_id,
+                    desc: Some(format_device_description(&phys_dev, prefix)),
+                    direction: phys_dev.direction,
+                    handles: Arc::new(Mutex::new(Default::default())),
+                });
+            }
+        }
     }
+
+    Ok(devices.into_iter())
+}
+
+/// Formats device description in ALSA style: "Card Name, Device Name\nPurpose"
+fn format_device_description(phys_dev: &PhysicalDevice, prefix: &str) -> String {
+    // "Card Name, Device Name" or variations
+    let first_line = match (&phys_dev.card_name, &phys_dev.device_name) {
+        (Some(card), Some(device)) => format!("{}, {}", card, device),
+        (Some(card), None) => card.clone(),
+        (None, Some(device)) => device.clone(),
+        (None, None) => format!("Card {}", phys_dev.card_index),
+    };
+
+    // ALSA standard description
+    let second_line = match prefix {
+        HW_PREFIX => "Direct hardware device without any conversions",
+        PLUGHW_PREFIX => "Hardware device with all software conversions",
+        _ => "",
+    };
+
+    format!("{}\n{}", first_line, second_line)
+}
+
+fn physical_devices() -> Vec<PhysicalDevice> {
+    let mut devices = Vec::new();
+    for card in alsa::card::Iter::new().filter_map(Result::ok) {
+        let card_index = card.get_index();
+        let ctl = match alsa::Ctl::new(&format!("{}:{}", HW_PREFIX, card_index), false) {
+            Ok(ctl) => ctl,
+            Err(_) => continue,
+        };
+        let card_name = ctl
+            .card_info()
+            .ok()
+            .and_then(|info| info.get_name().ok().map(|s| s.to_string()));
+
+        // Device indices may be non-contiguous  (e.g., 0, 1, 3, 7), so we check all indices.
+        for device_index in 0..MAX_DEVICE_INDEX {
+            let playback_info = ctl
+                .pcm_info(device_index, 0, alsa::Direction::Playback)
+                .ok();
+            let capture_info = ctl.pcm_info(device_index, 0, alsa::Direction::Capture).ok();
+
+            let (direction, device_name) = match (&playback_info, &capture_info) {
+                (Some(p_info), Some(_c_info)) => (
+                    DeviceDirection::Duplex,
+                    p_info.get_name().ok().map(|s| s.to_string()),
+                ),
+                (Some(p_info), None) => (
+                    DeviceDirection::Output,
+                    p_info.get_name().ok().map(|s| s.to_string()),
+                ),
+                (None, Some(c_info)) => (
+                    DeviceDirection::Input,
+                    c_info.get_name().ok().map(|s| s.to_string()),
+                ),
+                (None, None) => {
+                    // Device doesn't exist - skip
+                    continue;
+                }
+            };
+
+            if let Some(device_name) = device_name {
+                devices.push(PhysicalDevice {
+                    card_index,
+                    card_name: card_name.clone(),
+                    device_index,
+                    device_name: Some(device_name),
+                    direction,
+                });
+            }
+        }
+    }
+
+    devices
 }
 
 impl From<alsa::Error> for DevicesError {
@@ -74,12 +158,25 @@ impl TryFrom<alsa::device_name::Hint> for Device {
             description: "ALSA hint missing PCM ID".to_string(),
         })?;
 
-        // Include all devices from ALSA hints (matches `aplay -L` behavior)
+        // ALSA docs say that NULL indicates Duplex, but we deviate because that only indicates that
+        // both directions are defined in the ALSA config, not that both actually work. Virtual
+        // devices typically define both while only one direction actually works.
+        let direction = hint.direction.map_or(DeviceDirection::Unknown, Into::into);
+
         Ok(Self {
             pcm_id: pcm_id.to_owned(),
             desc: hint.desc,
-            direction: None,
             handles: Arc::new(Mutex::new(Default::default())),
+            direction,
         })
+    }
+}
+
+impl From<alsa::Direction> for DeviceDirection {
+    fn from(direction: alsa::Direction) -> Self {
+        match direction {
+            alsa::Direction::Playback => DeviceDirection::Output,
+            alsa::Direction::Capture => DeviceDirection::Input,
+        }
     }
 }
