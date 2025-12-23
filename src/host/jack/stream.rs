@@ -220,6 +220,10 @@ impl StreamTrait for Stream {
         self.playing.store(false, Ordering::SeqCst);
         Ok(())
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        Some(self.async_client.as_client().buffer_size() as crate::FrameCount)
+    }
 }
 
 type InputDataCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;

@@ -277,13 +277,22 @@ fn configure_for_device(
     };
     builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
-    // Note: Buffer size validation is not needed - the native AAudio API validates buffer sizes
-    // when `open_stream()` is called.
-    match &config.buffer_size {
-        BufferSize::Default => builder,
-        BufferSize::Fixed(size) => builder
-            .frames_per_data_callback(*size as i32)
-            .buffer_capacity_in_frames((*size * 2) as i32), // Double-buffering
+    let buffer_size = match config.buffer_size {
+        BufferSize::Default => {
+            // Use the optimal burst size from AudioManager:
+            // https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
+            AudioManager::get_frames_per_buffer().ok()
+        }
+        BufferSize::Fixed(size) => Some(size),
+    };
+
+    if let Some(size) = buffer_size {
+        builder
+            .frames_per_data_callback(size as i32)
+            .buffer_capacity_in_frames((size * 2) as i32) // Double-buffering
+    } else {
+        // If we couldn't determine a buffer size, let AAudio choose defaults
+        builder
     }
 }
 
@@ -604,6 +613,22 @@ impl StreamTrait for Stream {
                 .unwrap()
                 .request_pause()
                 .map_err(PauseStreamError::from),
+        }
+    }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        let stream = match self {
+            Self::Input(stream) => stream.lock().ok()?,
+            Self::Output(stream) => stream.lock().ok()?,
+        };
+
+        // If frames_per_data_callback was not explicitly set (returning 0),
+        // fall back to the burst size as that's what AAudio uses by default.
+        match stream.get_frames_per_data_callback() {
+            Some(size) if size > 0 => Some(size as crate::FrameCount),
+            _ => stream
+                .get_frames_per_burst()
+                .map(|f| f as crate::FrameCount),
         }
     }
 }

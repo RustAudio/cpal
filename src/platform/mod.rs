@@ -591,6 +591,17 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn buffer_size(&self) -> Option<crate::FrameCount> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInner::$HostVariant(ref s) => {
+                            s.buffer_size()
+                        }
+                    )*
+                }
+            }
         }
 
         impl From<DeviceInner> for Device {

@@ -29,6 +29,11 @@ pub struct Stream {
     // This event is signalled after a new entry is added to `commands`, so that the `run()`
     // method can be notified.
     pending_scheduled_event: Foundation::HANDLE,
+
+    // Number of frames in the WASAPI buffer.
+    //
+    // Note: the actual callback size is variable and may be less than this value.
+    max_frames_in_buffer: u32,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -115,6 +120,8 @@ impl Stream {
         .expect("cpal: could not create input stream event");
         let (tx, rx) = channel();
 
+        let max_frames_in_buffer = stream_inner.max_frames_in_buffer;
+
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
             stream: stream_inner,
@@ -130,6 +137,7 @@ impl Stream {
             thread: Some(thread),
             commands: tx,
             pending_scheduled_event,
+            max_frames_in_buffer,
         }
     }
 
@@ -148,6 +156,8 @@ impl Stream {
         .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
 
+        let max_frames_in_buffer = stream_inner.max_frames_in_buffer;
+
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
             stream: stream_inner,
@@ -163,6 +173,7 @@ impl Stream {
             thread: Some(thread),
             commands: tx,
             pending_scheduled_event,
+            max_frames_in_buffer,
         }
     }
 
@@ -197,6 +208,12 @@ impl StreamTrait for Stream {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
         Ok(())
+    }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        // WASAPI uses event-driven callbacks with variable callback sizes.
+        // We return the total buffer size allocated by Windows as an upper bound.
+        Some(self.max_frames_in_buffer as crate::FrameCount)
     }
 }
 
