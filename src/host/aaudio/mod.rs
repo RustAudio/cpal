@@ -277,23 +277,21 @@ fn configure_for_device(
     };
     builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
-    let buffer_size = match config.buffer_size {
+    let size = match config.buffer_size {
         BufferSize::Default => {
             // Use the optimal burst size from AudioManager:
             // https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
-            AudioManager::get_frames_per_buffer().ok().map(|s| s as u32)
+            match AudioManager::get_frames_per_buffer() {
+                Ok(size) if size > 0 => size as u32,
+                _ => 256,
+            }
         }
-        BufferSize::Fixed(size) => Some(size),
+        BufferSize::Fixed(size) => size,
     };
 
-    if let Some(size) = buffer_size {
-        builder
-            .frames_per_data_callback(size as i32)
-            .buffer_capacity_in_frames((size * 2) as i32) // Double-buffering
-    } else {
-        // If we couldn't determine a buffer size, let AAudio choose defaults
-        builder
-    }
+    builder
+        .frames_per_data_callback(size as i32)
+        .buffer_capacity_in_frames((size * 2) as i32) // Double-buffering
 }
 
 fn build_input_stream<D, E>(
