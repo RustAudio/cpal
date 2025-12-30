@@ -274,7 +274,7 @@ struct DeviceHandles {
 impl DeviceHandles {
     /// Get a mutable reference to the `Option` for a specific `stream_type`.
     /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
-    /// the `Option` before returning. If `handle_mut()` returns `Ok` the contained
+    /// the `Option` before returning. If `try_open()` returns `Ok` the contained
     /// `Option` is guaranteed to be `Some(..)`.
     fn try_open(
         &mut self,
@@ -320,8 +320,6 @@ pub struct Device {
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        // Devices are equal if they have the same PCM ID.
-        // The handles field is not part of device identity.
         self.pcm_id == other.pcm_id
     }
 }
@@ -363,19 +361,22 @@ impl Device {
             }
         }
 
-        let handle_result = self
+        let handle = match self
             .handles
             .lock()
             .unwrap()
             .take(&self.pcm_id, stream_type)
-            .map_err(|e| (e, e.errno()));
-
-        let handle = match handle_result {
-            Err((_, libc::EBUSY)) => return Err(BuildStreamError::DeviceNotAvailable),
+            .map_err(|e| (e, e.errno()))
+        {
+            Err((_, libc::ENOENT))
+            | Err((_, libc::EBUSY))
+            | Err((_, libc::EPERM))
+            | Err((_, libc::EAGAIN)) => return Err(BuildStreamError::DeviceNotAvailable),
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
         };
+
         let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
         let period_samples = set_sw_params_from_format(&handle, conf, stream_type)?;
 
@@ -462,12 +463,15 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
+        // Open device handle and cache it for reuse in build_stream_inner().
+        // This avoids opening the device twice in the common workflow:
+        // 1. Query supported configs (opens and caches handle)
+        // 2. Build stream (takes cached handle, or opens if not cached)
         let mut guard = self.handles.lock().unwrap();
-        let handle_result = guard
+        let pcm = match guard
             .get_mut(&self.pcm_id, stream_t)
-            .map_err(|e| (e, e.errno()));
-
-        let handle = match handle_result {
+            .map_err(|e| (e, e.errno()))
+        {
             Err((_, libc::ENOENT))
             | Err((_, libc::EBUSY))
             | Err((_, libc::EPERM))
@@ -476,10 +480,10 @@ impl Device {
             }
             Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
-            Ok(handle) => handle,
+            Ok(pcm) => pcm,
         };
 
-        let hw_params = alsa::pcm::HwParams::any(handle)?;
+        let hw_params = alsa::pcm::HwParams::any(pcm)?;
 
         // Test both LE and BE formats to detect what the hardware actually supports.
         // LE is listed first as it's the common case for most audio hardware.
