@@ -135,6 +135,25 @@ impl DeviceTrait for Device {
         Device::id(self)
     }
 
+    // Override trait defaults to avoid opening devices during enumeration.
+    //
+    // ALSA does not guarantee transactional cleanup on failed snd_pcm_open(). Opening plugins like
+    // alsaequal that fail with EPERM can leak FDs, poisoning the ALSA backend for the process
+    // lifetime (subsequent device opens fail with EBUSY until process exit).
+    fn supports_input(&self) -> bool {
+        matches!(
+            self.direction,
+            DeviceDirection::Input | DeviceDirection::Duplex
+        )
+    }
+
+    fn supports_output(&self) -> bool {
+        matches!(
+            self.direction,
+            DeviceDirection::Output | DeviceDirection::Duplex
+        )
+    }
+
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
@@ -449,7 +468,10 @@ impl Device {
             .map_err(|e| (e, e.errno()));
 
         let handle = match handle_result {
-            Err((_, libc::ENOENT)) | Err((_, libc::EBUSY)) => {
+            Err((_, libc::ENOENT))
+            | Err((_, libc::EBUSY))
+            | Err((_, libc::EPERM))
+            | Err((_, libc::EAGAIN)) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
             Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
