@@ -152,10 +152,10 @@ impl TryFrom<alsa::device_name::Hint> for Device {
             description: "ALSA hint missing PCM ID".to_string(),
         })?;
 
-        // ALSA docs say that NULL indicates Duplex, but we deviate because that only indicates that
-        // both directions are defined in the ALSA config, not that both actually work. Virtual
-        // devices typically define both while only one direction actually works.
-        let direction = hint.direction.map_or(DeviceDirection::Unknown, Into::into);
+        // Per ALSA docs (https://alsa-project.org/alsa-doc/alsa-lib/group___hint.html),
+        // NULL IOID means both Input/Output. Whether a stream can actually open in a given
+        // direction can only be determined by attempting to open it.
+        let direction = hint.direction.map_or(DeviceDirection::Duplex, Into::into);
 
         Ok(Self {
             pcm_id: pcm_id.to_owned(),
