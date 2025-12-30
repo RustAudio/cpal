@@ -85,6 +85,9 @@ mod enumerate;
 
 const DEFAULT_DEVICE: &str = "default";
 
+// TODO: Not yet defined in rust-lang/libc crate
+const LIBC_ENOTSUPP: libc::c_int = 524;
+
 /// The default Linux and BSD host type.
 #[derive(Debug)]
 pub struct Host;
@@ -221,8 +224,10 @@ impl DeviceTrait for Device {
     }
 }
 
+#[derive(Debug)]
 struct TriggerSender(libc::c_int);
 
+#[derive(Debug)]
 struct TriggerReceiver(libc::c_int);
 
 impl TriggerSender {
@@ -265,7 +270,7 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct DeviceHandles {
     playback: Option<alsa::PCM>,
     capture: Option<alsa::PCM>,
@@ -310,7 +315,7 @@ impl DeviceHandles {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
@@ -371,7 +376,9 @@ impl Device {
             Err((_, libc::ENOENT))
             | Err((_, libc::EBUSY))
             | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN)) => return Err(BuildStreamError::DeviceNotAvailable),
+            | Err((_, libc::EAGAIN))
+            | Err((_, libc::ENODEV))
+            | Err((_, LIBC_ENOTSUPP)) => return Err(BuildStreamError::DeviceNotAvailable),
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
@@ -475,7 +482,9 @@ impl Device {
             Err((_, libc::ENOENT))
             | Err((_, libc::EBUSY))
             | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN)) => {
+            | Err((_, libc::EAGAIN))
+            | Err((_, libc::ENODEV))
+            | Err((_, LIBC_ENOTSUPP)) => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
             Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
@@ -674,6 +683,7 @@ impl Default for Device {
     }
 }
 
+#[derive(Debug)]
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
     // (e.g. broken due to a disconnected device).
@@ -716,6 +726,7 @@ struct StreamInner {
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
 
+#[derive(Debug)]
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
@@ -1426,9 +1437,8 @@ fn set_sw_params_from_format(
         }
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Always use 2-period double-buffering: one period playing from hardware, one
-                // period queued in the software buffer. This ensures consistent low latency
-                // regardless of the total buffer size.
+                // Start playback when 2 periods are filled. This ensures consistent low-latency
+                // startup regardless of total buffer size (whether 2 or more periods).
                 2 * period
             }
             alsa::Direction::Capture => 1,
@@ -1441,7 +1451,8 @@ fn set_sw_params_from_format(
         let target_avail = match stream_type {
             alsa::Direction::Playback => {
                 // Wake when buffer level drops to one period remaining (avail >= buffer - period).
-                // This maintains double-buffering by refilling when we're down to one period.
+                // This ensures we can always write one full period. Works correctly regardless
+                // of total periods: 2-period buffer wakes at period, 4-period at 3*period, etc.
                 buffer - period
             }
             alsa::Direction::Capture => {
