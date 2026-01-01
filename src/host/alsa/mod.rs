@@ -9,7 +9,7 @@ use std::{
     cmp,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -270,57 +270,11 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Default, Debug)]
-struct DeviceHandles {
-    playback: Option<alsa::PCM>,
-    capture: Option<alsa::PCM>,
-}
-
-impl DeviceHandles {
-    /// Get a mutable reference to the `Option` for a specific `stream_type`.
-    /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
-    /// the `Option` before returning. If `try_open()` returns `Ok` the contained
-    /// `Option` is guaranteed to be `Some(..)`.
-    fn try_open(
-        &mut self,
-        pcm_id: &str,
-        stream_type: alsa::Direction,
-    ) -> Result<&mut Option<alsa::PCM>, alsa::Error> {
-        let handle = match stream_type {
-            alsa::Direction::Playback => &mut self.playback,
-            alsa::Direction::Capture => &mut self.capture,
-        };
-
-        if handle.is_none() {
-            *handle = Some(alsa::pcm::PCM::new(pcm_id, stream_type, true)?);
-        }
-
-        Ok(handle)
-    }
-
-    /// Get a mutable reference to the `alsa::PCM` handle for a specific `stream_type`.
-    /// If the handle is not yet opened, it will be opened and stored in `self`.
-    fn get_mut(
-        &mut self,
-        pcm_id: &str,
-        stream_type: alsa::Direction,
-    ) -> Result<&mut alsa::PCM, alsa::Error> {
-        Ok(self.try_open(pcm_id, stream_type)?.as_mut().unwrap())
-    }
-
-    /// Take ownership of the `alsa::PCM` handle for a specific `stream_type`.
-    /// If the handle is not yet opened, it will be opened and returned.
-    fn take(&mut self, name: &str, stream_type: alsa::Direction) -> Result<alsa::PCM, alsa::Error> {
-        Ok(self.try_open(name, stream_type)?.take().unwrap())
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
     direction: DeviceDirection,
-    handles: Arc<Mutex<DeviceHandles>>,
 }
 
 impl PartialEq for Device {
@@ -366,19 +320,16 @@ impl Device {
             }
         }
 
-        let handle = match self
-            .handles
-            .lock()
-            .unwrap()
-            .take(&self.pcm_id, stream_type)
+        let handle = match alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)
             .map_err(|e| (e, e.errno()))
         {
             Err((_, libc::ENOENT))
-            | Err((_, libc::EBUSY))
             | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN))
             | Err((_, libc::ENODEV))
             | Err((_, LIBC_ENOTSUPP)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                return Err(BuildStreamError::DeviceBusy)
+            }
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
@@ -470,29 +421,23 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        // Open device handle and cache it for reuse in build_stream_inner().
-        // This avoids opening the device twice in the common workflow:
-        // 1. Query supported configs (opens and caches handle)
-        // 2. Build stream (takes cached handle, or opens if not cached)
-        let mut guard = self.handles.lock().unwrap();
-        let pcm = match guard
-            .get_mut(&self.pcm_id, stream_t)
-            .map_err(|e| (e, e.errno()))
-        {
-            Err((_, libc::ENOENT))
-            | Err((_, libc::EBUSY))
-            | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN))
-            | Err((_, libc::ENODEV))
-            | Err((_, LIBC_ENOTSUPP)) => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
-            Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
-            Err((e, _)) => return Err(e.into()),
-            Ok(pcm) => pcm,
-        };
+        let pcm =
+            match alsa::pcm::PCM::new(&self.pcm_id, stream_t, true).map_err(|e| (e, e.errno())) {
+                Err((_, libc::ENOENT))
+                | Err((_, libc::EPERM))
+                | Err((_, libc::ENODEV))
+                | Err((_, LIBC_ENOTSUPP)) => {
+                    return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+                }
+                Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                    return Err(SupportedStreamConfigsError::DeviceBusy)
+                }
+                Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
+                Err((e, _)) => return Err(e.into()),
+                Ok(pcm) => pcm,
+            };
 
-        let hw_params = alsa::pcm::HwParams::any(pcm)?;
+        let hw_params = alsa::pcm::HwParams::any(&pcm)?;
 
         // Test both LE and BE formats to detect what the hardware actually supports.
         // LE is listed first as it's the common case for most audio hardware.
@@ -632,6 +577,9 @@ impl Device {
                 Err(SupportedStreamConfigsError::DeviceNotAvailable) => {
                     return Err(DefaultStreamConfigError::DeviceNotAvailable);
                 }
+                Err(SupportedStreamConfigsError::DeviceBusy) => {
+                    return Err(DefaultStreamConfigError::DeviceBusy);
+                }
                 Err(SupportedStreamConfigsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities, but
                     // the device supports only one
@@ -678,7 +626,6 @@ impl Default for Device {
             pcm_id: DEFAULT_DEVICE.to_owned(),
             desc: Some("Default Audio Device".to_string()),
             direction: DeviceDirection::Unknown,
-            handles: Arc::new(Mutex::new(Default::default())),
         }
     }
 }

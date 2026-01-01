@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashSet;
 
 use super::{alsa, Device};
 use crate::{BackendSpecificError, DeviceDirection, DevicesError};
@@ -55,7 +52,6 @@ pub fn devices() -> Result<Devices, DevicesError> {
                     pcm_id,
                     desc: Some(format_device_description(&phys_dev, prefix)),
                     direction: phys_dev.direction,
-                    handles: Arc::new(Mutex::new(Default::default())),
                 });
             }
         }
@@ -161,7 +157,6 @@ impl TryFrom<alsa::device_name::Hint> for Device {
             pcm_id: pcm_id.to_owned(),
             desc: hint.desc,
             direction,
-            handles: Arc::new(Mutex::new(Default::default())),
         })
     }
 }
