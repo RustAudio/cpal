@@ -419,6 +419,7 @@ impl Device {
             silence_template,
             can_pause,
             creation_instant,
+            _host: self._host.clone(),
         };
 
         Ok(stream_inner)
@@ -695,6 +696,9 @@ struct StreamInner {
     // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
     // `get_htstamp` is used.
     creation_instant: Option<std::time::Instant>,
+
+    // Keep Host alive to prevent premature ALSA config cleanup
+    _host: Arc<HostInner>,
 }
 
 // Assume that the ALSA library is built with thread safe option.
