@@ -9,17 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
+- `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
+- **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
+- **ALSA**: Example demonstrating ALSA error suppression during enumeration.
 - **CI**: Checks default/no-default/all feature sets with platform-dependent MSRV for JACK.
 
 ### Fixed
 
 - **ALSA**: Device enumeration now includes both hints and physical cards.
+- **ALSA**: Enumerating input and output devices no longer interferes with each other.
+- **ALSA**: Device handles are no longer exclusively held between operations.
+- **ALSA**: Valgrind memory leak reports from ALSA global configuration cache.
 - **JACK**: No longer builds on iOS.
 - **WASM**: WasmBindgen no longer crashes (regression from 0.17.0).
 
 ### Changed
 
+- **ALSA**: Update `alsa` dependency from 0.10 to 0.11.
 - **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
 
 ## [0.17.0] - 2025-12-20
