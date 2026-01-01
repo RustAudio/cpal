@@ -10,6 +10,8 @@ edition = "2021"
 rust-version = "1.77"
 
 [features]
+default = []
+
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
 # Requires: ASIO drivers and LLVM/Clang for build-time bindings
@@ -18,6 +20,19 @@ asio = [
     "dep:asio-sys",
     "dep:num-traits",
 ]
+
+# Legacy Windows audio device activation mode. When enabled:
+# - Uses IMMDevice::Activate instead of ActivateAudioInterfaceAsync
+# - Audio does NOT automatically reroute when the default device changes
+# - Streams will break when the default device changes (e.g., plugging in headphones)
+#
+# By default (without this feature), CPAL uses virtual default devices that:
+# - Automatically reroute audio when the default device changes
+# - Allow streams to survive device changes
+# - Require Windows 8 or later
+#
+# Enable this feature only if supporting Windows 7 or earlier.
+windows-legacy = []
 
 # JACK Audio Connection Kit backend
 # Provides low-latency connections between applications and audio hardware
@@ -62,11 +77,8 @@ hound = "3.5"
 ringbuf = "0.4"
 clap = { version = ">=4.0, <=4.5", features = ["derive"] }
 
-# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
-# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
-# When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = ">=0.59, <=0.62", features = [
+windows = { version = "0.62.2", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
@@ -79,6 +91,8 @@ windows = { version = ">=0.59, <=0.62", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
+# Explicitly depend on windows-core for use with the `windows::core::implement` macro.
+windows-core = "0.62.2"
 audio_thread_priority = { version = "0.34", optional = true }
 asio-sys = { version = "0.2", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }

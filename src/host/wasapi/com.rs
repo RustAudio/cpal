@@ -4,7 +4,9 @@ use super::IoError;
 use std::marker::PhantomData;
 
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+use windows::Win32::System::Com::{
+    CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED,
+};
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
@@ -46,6 +48,14 @@ impl Drop for ComInitialized {
         if self.result.is_ok() {
             unsafe { CoUninitialize() };
         }
+    }
+}
+
+/// RAII for COM-originating strings that need to be freed with `CoTaskMemFree`.
+pub struct ComString(pub windows::core::PWSTR);
+impl Drop for ComString {
+    fn drop(&mut self) {
+        unsafe { CoTaskMemFree(Some(self.0.as_ptr() as *mut _)) }
     }
 }
 
