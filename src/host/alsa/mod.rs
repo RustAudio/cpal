@@ -143,9 +143,10 @@ pub(super) struct HostInner;
 
 impl HostInner {
     fn new() -> Result<Self, alsa::Error> {
-        alsa::config::update()?;
-        HOST_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(HostInner)
+        alsa::config::update().map(|_| {
+            HOST_COUNT.fetch_add(1, Ordering::SeqCst);
+            HostInner
+        })
     }
 }
 
