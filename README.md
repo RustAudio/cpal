@@ -231,7 +231,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 - **Documentation:** [docs.rs/cpal](https://docs.rs/cpal)
 - **Examples:** [examples/](examples/) directory in this repository
-- **Discord:** Join the [#cpal channel](https://discord.com/invite/du47vT6r) for questions and discussion
+- **Discord:** Join the [#cpal channel](https://discord.gg/vPmmSgJSPV) for questions and discussion
 - **GitHub:** [Report issues](https://github.com/RustAudio/cpal/issues) and [view source code](https://github.com/RustAudio/cpal)
 - **RustAudio:** Part of the [RustAudio organization](https://github.com/RustAudio)
 

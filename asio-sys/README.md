@@ -106,4 +106,4 @@ Contributions are welcome! Please submit issues and pull requests to the [cpal r
 - [ASIO SDK Documentation](https://www.steinberg.net/developers/)
 - [cpal Documentation](https://docs.rs/cpal)
 - [RustAudio Community](https://github.com/RustAudio)
-- [Discord](https://discord.com/invite/du47vT6r): #cpal Channel
+- [Discord](https://discord.gg/vPmmSgJSPV): #cpal Channel
