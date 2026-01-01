@@ -192,6 +192,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 pub mod device_description;
+pub mod duplex;
 mod error;
 mod host;
 pub mod platform;

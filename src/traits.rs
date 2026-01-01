@@ -8,6 +8,7 @@
 use std::time::Duration;
 
 use crate::{
+    duplex::{DuplexCallbackInfo, DuplexStreamConfig},
     BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
     DeviceNameError, DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo,
     OutputDevices, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
@@ -99,6 +100,10 @@ pub trait DeviceTrait {
     /// [`build_input_stream_raw`]: Self::build_input_stream_raw
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
     type Stream: StreamTrait;
+    /// The duplex stream type created by [`build_duplex_stream`].
+    ///
+    /// [`build_duplex_stream`]: Self::build_duplex_stream
+    type DuplexStream: StreamTrait;
 
     /// The human-readable name of the device.
     #[deprecated(
@@ -137,6 +142,15 @@ pub trait DeviceTrait {
     fn supports_output(&self) -> bool {
         self.supported_output_configs()
             .is_ok_and(|mut iter| iter.next().is_some())
+    }
+
+    /// True if the device supports duplex (simultaneous input and output), otherwise false.
+    ///
+    /// Duplex operation requires the device to support both input and output with a shared
+    /// hardware clock. This is typically true for audio interfaces but may not be available
+    /// on all devices (e.g., output-only speakers or input-only microphones).
+    fn supports_duplex(&self) -> bool {
+        self.supports_input() && self.supports_output()
     }
 
     /// An iterator yielding formats that are supported by the backend.
@@ -285,6 +299,113 @@ pub trait DeviceTrait {
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static;
+
+    /// Create a duplex stream with synchronized input and output.
+    ///
+    /// A duplex stream uses a single audio unit with both input and output enabled,
+    /// ensuring they share the same hardware clock. This is essential for applications
+    /// requiring sample-accurate synchronization between input and output, such as:
+    ///
+    /// - DAWs (Digital Audio Workstations)
+    /// - Real-time audio effects processing
+    /// - Audio measurement and analysis
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The duplex stream configuration specifying channels, sample rate, and buffer size.
+    /// * `data_callback` - Called periodically with synchronized input and output buffers.
+    ///   - `input`: Interleaved samples from the input device in format `T`
+    ///   - `output`: Mutable buffer to fill with interleaved samples for output in format `T`
+    ///   - `info`: Timing information including hardware timestamp
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The device doesn't support duplex operation ([`supports_duplex`](Self::supports_duplex) returns false)
+    /// - The requested configuration is not supported
+    /// - The device is no longer available
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use cpal::duplex::DuplexStreamConfig;
+    /// use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    /// use cpal::BufferSize;
+    ///
+    /// let host = cpal::default_host();
+    /// let device = host.default_output_device().expect("no device");
+    ///
+    /// let config = DuplexStreamConfig::symmetric(2, 48000, BufferSize::Fixed(512));
+    ///
+    /// let stream = device.build_duplex_stream::<f32, _, _>(
+    ///     &config,
+    ///     |input, output, info| {
+    ///         // Passthrough: copy input to output
+    ///         output[..input.len()].copy_from_slice(input);
+    ///     },
+    ///     |err| eprintln!("Stream error: {}", err),
+    ///     None, // No timeout
+    /// );
+    /// ```
+    fn build_duplex_stream<T, D, E>(
+        &self,
+        config: &DuplexStreamConfig,
+        mut data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        T: SizedSample,
+        D: FnMut(&[T], &mut [T], &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        self.build_duplex_stream_raw(
+            config,
+            T::FORMAT,
+            move |input, output, info| {
+                data_callback(
+                    input
+                        .as_slice()
+                        .expect("host supplied incorrect sample type"),
+                    output
+                        .as_slice_mut()
+                        .expect("host supplied incorrect sample type"),
+                    info,
+                )
+            },
+            error_callback,
+            timeout,
+        )
+    }
+
+    /// Create a dynamically typed duplex stream.
+    ///
+    /// This method allows working with sample data as raw bytes, useful when the sample
+    /// format is determined at runtime. For compile-time known formats, prefer
+    /// [`build_duplex_stream`](Self::build_duplex_stream).
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The duplex stream configuration specifying channels, sample rate, and buffer size.
+    /// * `sample_format` - The sample format of the audio data.
+    /// * `data_callback` - Called periodically with synchronized input and output buffers as [`Data`].
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
+    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: &DuplexStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 }
 

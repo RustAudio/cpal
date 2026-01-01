@@ -70,6 +70,11 @@ macro_rules! impl_platform_host {
         #[must_use = "If the stream is not stored it will not play."]
         pub struct Stream(StreamInner);
 
+        /// The `DuplexStream` implementation associated with the platform's dynamically dispatched
+        /// [`Host`] type.
+        #[must_use = "If the stream is not stored it will not play."]
+        pub struct DuplexStream(DuplexStreamInner);
+
         /// The `SupportedInputConfigs` iterator associated with the platform's dynamically
         /// dispatched [`Host`] type.
         #[derive(Clone)]
@@ -165,6 +170,14 @@ macro_rules! impl_platform_host {
             $(
                 $(#[cfg($feat)])?
                 $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream),
+            )*
+        }
+
+        /// Contains a platform specific [`DuplexStream`] implementation.
+        pub enum DuplexStreamInner {
+            $(
+                $(#[cfg($feat)])?
+                $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::DuplexStream),
             )*
         }
 
@@ -301,6 +314,25 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl DuplexStream {
+            /// Returns a reference to the underlying platform specific implementation of this
+            /// `DuplexStream`.
+            pub fn as_inner(&self) -> &DuplexStreamInner {
+                &self.0
+            }
+
+            /// Returns a mutable reference to the underlying platform specific implementation of
+            /// this `DuplexStream`.
+            pub fn as_inner_mut(&mut self) -> &mut DuplexStreamInner {
+                &mut self.0
+            }
+
+            /// Returns the underlying platform specific implementation of this `DuplexStream`.
+            pub fn into_inner(self) -> DuplexStreamInner {
+                self.0
+            }
+        }
+
         impl Iterator for Devices {
             type Item = Device;
 
@@ -373,6 +405,7 @@ macro_rules! impl_platform_host {
             type SupportedInputConfigs = SupportedInputConfigs;
             type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
+            type DuplexStream = DuplexStream;
 
             #[allow(deprecated)]
             fn name(&self) -> Result<String, crate::DeviceNameError> {
@@ -521,6 +554,29 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn build_duplex_stream_raw<D, E>(
+                &self,
+                config: &crate::duplex::DuplexStreamConfig,
+                sample_format: crate::SampleFormat,
+                data_callback: D,
+                error_callback: E,
+                timeout: Option<std::time::Duration>,
+            ) -> Result<Self::DuplexStream, crate::BuildStreamError>
+            where
+                D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
+            {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_duplex_stream_raw(config, sample_format, data_callback, error_callback, timeout)
+                            .map(DuplexStreamInner::$HostVariant)
+                            .map(DuplexStream::from),
+                    )*
+                }
+            }
         }
 
         impl crate::traits::HostTrait for Host {
@@ -593,6 +649,30 @@ macro_rules! impl_platform_host {
             }
         }
 
+        impl crate::traits::StreamTrait for DuplexStream {
+            fn play(&self) -> Result<(), crate::PlayStreamError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DuplexStreamInner::$HostVariant(ref s) => {
+                            s.play()
+                        }
+                    )*
+                }
+            }
+
+            fn pause(&self) -> Result<(), crate::PauseStreamError> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DuplexStreamInner::$HostVariant(ref s) => {
+                            s.pause()
+                        }
+                    )*
+                }
+            }
+        }
+
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
                 Device(d)
@@ -614,6 +694,12 @@ macro_rules! impl_platform_host {
         impl From<StreamInner> for Stream {
             fn from(s: StreamInner) -> Self {
                 Stream(s)
+            }
+        }
+
+        impl From<DuplexStreamInner> for DuplexStream {
+            fn from(s: DuplexStreamInner) -> Self {
+                DuplexStream(s)
             }
         }
 
@@ -643,6 +729,13 @@ macro_rules! impl_platform_host {
             impl From<<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream> for Stream {
                 fn from(h: <<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::Stream) -> Self {
                     StreamInner::$HostVariant(h).into()
+                }
+            }
+
+            $(#[cfg($feat)])?
+            impl From<<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::DuplexStream> for DuplexStream {
+                fn from(h: <<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::DuplexStream) -> Self {
+                    DuplexStreamInner::$HostVariant(h).into()
                 }
             }
         )*
