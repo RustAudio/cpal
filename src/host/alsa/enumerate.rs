@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{alsa, Device};
+use super::{alsa, Device, Host};
 use crate::{BackendSpecificError, DeviceDirection, DevicesError};
 
 const HW_PREFIX: &str = "hw";
@@ -18,46 +18,60 @@ struct PhysicalDevice {
 /// Iterator over available ALSA PCM devices (physical hardware and virtual/plugin devices).
 pub type Devices = std::vec::IntoIter<Device>;
 
-/// Enumerates all available ALSA PCM devices (physical hardware and virtual/plugin devices).
-///
-/// We enumerate both ALSA hints and physical devices because:
-/// - Hints provide virtual devices, user configurations, and card-specific devices with metadata
-/// - Physical probing provides traditional numeric naming (hw:CARD=0,DEV=0) for compatibility
-pub fn devices() -> Result<Devices, DevicesError> {
-    let mut devices = Vec::new();
-    let mut seen_pcm_ids = HashSet::new();
+impl Host {
+    /// Enumerates all available ALSA PCM devices (physical hardware and virtual/plugin devices).
+    ///
+    /// We enumerate both ALSA hints and physical devices because:
+    /// - Hints provide virtual devices, user configs, and card-specific devices with metadata
+    /// - Physical probing provides traditional numeric naming (hw:CARD=0,DEV=0) for compatibility
+    pub(super) fn enumerate_devices(&self) -> Result<Devices, DevicesError> {
+        let mut devices = Vec::new();
+        let mut seen_pcm_ids = HashSet::new();
 
-    let physical_devices = physical_devices();
+        let physical_devices = physical_devices();
 
-    // Add all hint devices, including virtual devices
-    if let Ok(hints) = alsa::device_name::HintIter::new_str(None, "pcm") {
-        for hint in hints {
-            if let Ok(device) = Device::try_from(hint) {
-                seen_pcm_ids.insert(device.pcm_id.clone());
-                devices.push(device);
+        // Add all hint devices, including virtual devices
+        if let Ok(hints) = alsa::device_name::HintIter::new_str(None, "pcm") {
+            for hint in hints {
+                if let Some(pcm_id) = hint.name {
+                    // Per ALSA docs (https://alsa-project.org/alsa-doc/alsa-lib/group___hint.html),
+                    // NULL IOID means both Input/Output. Whether a stream can actually open in a
+                    // given direction can only be determined by attempting to open it.
+                    let direction = hint.direction.map_or(DeviceDirection::Duplex, Into::into);
+                    let device = Device {
+                        pcm_id,
+                        desc: hint.desc,
+                        direction,
+                        _host: self.inner.clone(),
+                    };
+
+                    seen_pcm_ids.insert(device.pcm_id.clone());
+                    devices.push(device);
+                }
             }
         }
-    }
 
-    // Add hw:/plughw: for all physical devices with numeric index (traditional naming)
-    for phys_dev in physical_devices {
-        for prefix in [HW_PREFIX, PLUGHW_PREFIX] {
-            let pcm_id = format!(
-                "{}:CARD={},DEV={}",
-                prefix, phys_dev.card_index, phys_dev.device_index
-            );
+        // Add hw:/plughw: for all physical devices with numeric index (traditional naming)
+        for phys_dev in physical_devices {
+            for prefix in [HW_PREFIX, PLUGHW_PREFIX] {
+                let pcm_id = format!(
+                    "{}:CARD={},DEV={}",
+                    prefix, phys_dev.card_index, phys_dev.device_index
+                );
 
-            if seen_pcm_ids.insert(pcm_id.clone()) {
-                devices.push(Device {
-                    pcm_id,
-                    desc: Some(format_device_description(&phys_dev, prefix)),
-                    direction: phys_dev.direction,
-                });
+                if seen_pcm_ids.insert(pcm_id.clone()) {
+                    devices.push(Device {
+                        pcm_id,
+                        desc: Some(format_device_description(&phys_dev, prefix)),
+                        direction: phys_dev.direction,
+                        _host: self.inner.clone(),
+                    });
+                }
             }
         }
-    }
 
-    Ok(devices.into_iter())
+        Ok(devices.into_iter())
+    }
 }
 
 /// Formats device description in ALSA style: "Card Name, Device Name\nPurpose"
@@ -137,27 +151,6 @@ impl From<alsa::Error> for DevicesError {
     fn from(err: alsa::Error) -> Self {
         let err: BackendSpecificError = err.into();
         err.into()
-    }
-}
-
-impl TryFrom<alsa::device_name::Hint> for Device {
-    type Error = BackendSpecificError;
-
-    fn try_from(hint: alsa::device_name::Hint) -> Result<Self, Self::Error> {
-        let pcm_id = hint.name.ok_or_else(|| Self::Error {
-            description: "ALSA hint missing PCM ID".to_string(),
-        })?;
-
-        // Per ALSA docs (https://alsa-project.org/alsa-doc/alsa-lib/group___hint.html),
-        // NULL IOID means both Input/Output. Whether a stream can actually open in a given
-        // direction can only be determined by attempting to open it.
-        let direction = hint.direction.map_or(DeviceDirection::Duplex, Into::into);
-
-        Ok(Self {
-            pcm_id: pcm_id.to_owned(),
-            desc: hint.desc,
-            direction,
-        })
     }
 }
 

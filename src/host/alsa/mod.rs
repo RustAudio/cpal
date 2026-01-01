@@ -8,7 +8,7 @@ extern crate libc;
 use std::{
     cmp,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     thread::{self, JoinHandle},
@@ -89,12 +89,26 @@ const DEFAULT_DEVICE: &str = "default";
 const LIBC_ENOTSUPP: libc::c_int = 524;
 
 /// The default Linux and BSD host type.
-#[derive(Debug)]
-pub struct Host;
+#[derive(Debug, Clone)]
+pub struct Host {
+    inner: Arc<HostInner>,
+}
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        Ok(Host)
+        let inner = HostInner::new().map_err(|_| crate::HostUnavailable)?;
+        Ok(Host {
+            inner: Arc::new(inner),
+        })
+    }
+
+    fn new_default(&self) -> Device {
+        Device {
+            pcm_id: DEFAULT_DEVICE.to_owned(),
+            desc: Some("Default Audio Device".to_string()),
+            direction: DeviceDirection::Unknown,
+            _host: self.inner.clone(),
+        }
     }
 }
 
@@ -108,15 +122,39 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        enumerate::devices()
+        self.enumerate_devices()
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(self.new_default())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(self.new_default())
+    }
+}
+
+/// Global count of active ALSA `Host` instances.
+static HOST_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Inner `Host` state that is shared between `Host`, `Device`, and `Stream` via `Arc`.
+#[derive(Debug)]
+pub(super) struct HostInner;
+
+impl HostInner {
+    fn new() -> Result<Self, alsa::Error> {
+        alsa::config::update()?;
+        HOST_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(HostInner)
+    }
+}
+
+impl Drop for HostInner {
+    fn drop(&mut self) {
+        // Only free the global ALSA config cache when all Hosts, Devices, and Streams are dropped.
+        if HOST_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+            let _ = alsa::config::update_free_global();
+        }
     }
 }
 
@@ -275,6 +313,7 @@ pub struct Device {
     pcm_id: String,
     desc: Option<String>,
     direction: DeviceDirection,
+    _host: Arc<HostInner>,
 }
 
 impl PartialEq for Device {
@@ -615,18 +654,6 @@ impl Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         self.default_config(alsa::Direction::Playback)
-    }
-}
-
-impl Default for Device {
-    fn default() -> Self {
-        // "default" is a virtual ALSA device that redirects to the configured default. We cannot
-        // determine its actual capabilities without opening it, so we return Unknown direction.
-        Self {
-            pcm_id: DEFAULT_DEVICE.to_owned(),
-            desc: Some("Default Audio Device".to_string()),
-            direction: DeviceDirection::Unknown,
-        }
     }
 }
 
