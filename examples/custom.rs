@@ -54,6 +54,7 @@ impl DeviceTrait for MyDevice {
     type SupportedInputConfigs = std::iter::Empty<cpal::SupportedStreamConfigRange>;
     type SupportedOutputConfigs = std::iter::Once<cpal::SupportedStreamConfigRange>;
     type Stream = MyStream;
+    type DuplexStream = cpal::duplex::UnsupportedDuplexStream;
 
     fn name(&self) -> Result<String, cpal::DeviceNameError> {
         Ok(String::from("custom"))
@@ -180,6 +181,21 @@ impl DeviceTrait for MyDevice {
             controls,
             handle: Some(handle),
         })
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &cpal::duplex::DuplexStreamConfig,
+        _sample_format: cpal::SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<std::time::Duration>,
+    ) -> Result<Self::DuplexStream, cpal::BuildStreamError>
+    where
+        D: FnMut(&cpal::Data, &mut cpal::Data, &cpal::duplex::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(cpal::StreamError) + Send + 'static,
+    {
+        Err(cpal::BuildStreamError::StreamConfigNotSupported)
     }
 }
 
