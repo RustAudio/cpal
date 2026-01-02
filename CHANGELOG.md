@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **AAudio**: `BufferSize::Default` now explicitly configures using the optimal burst size from AudioManager.
+- **AAudio**: Buffer sizes are now dynamically tuned.
 - **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
 
 ## [0.17.0] - 2025-12-20

@@ -4,6 +4,7 @@
 
 use std::cmp;
 use std::convert::TryInto;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::IntoIter as VecIntoIter;
@@ -148,6 +149,14 @@ unsafe impl Sync for Stream {}
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
+/// State for dynamic buffer tuning on output streams.
+#[derive(Default)]
+struct BufferTuningState {
+    previous_underrun_count: AtomicI32,
+    capacity: AtomicI32,
+    mixer_bursts: AtomicI32,
+}
+
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 pub type Devices = std::vec::IntoIter<Device>;
 
@@ -277,35 +286,16 @@ fn configure_for_device(
     };
     builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
-    match config.buffer_size {
-        BufferSize::Default => {
-            // Following the pattern from Oboe and Google's AAudio samples, we only set the buffer
-            // capacity and let AAudio choose the optimal callback size dynamically. See:
-            // - https://developer.android.com/ndk/reference/group/audio
-            // - https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
-            let burst = match AudioManager::get_frames_per_buffer() {
-                Ok(size) if size > 0 => size,
-                _ => 256, // default from Android docs
-            };
-
-            // Determine the buffer capacity multiplier. This matches AOSP's
-            // AAudioServiceEndpointPlay buffer sizing strategy.
-            let mixer_bursts = match AudioManager::get_mixer_bursts() {
-                Ok(bursts) if bursts > 1 => bursts,
-                _ => 2, // double-buffering: default from AOSP
-            };
-
-            let capacity = burst * mixer_bursts;
-            builder.buffer_capacity_in_frames(capacity)
-        }
-        BufferSize::Fixed(size) => {
-            // For fixed sizes, the user explicitly wants control over the callback size,
-            // so we set both the callback size and capacity (with double-buffering).
-            builder
-                .frames_per_data_callback(size as i32)
-                .buffer_capacity_in_frames((size * 2) as i32)
-        }
+    // Following the pattern from Oboe and Google's AAudio, we let AAudio choose the optimal
+    // callback size dynamically by default. See
+    // - https://developer.android.com/ndk/reference/group/audio#aaudiostreambuilder_setframesperdatacallback
+    // - https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
+    if let BufferSize::Fixed(size) = config.buffer_size {
+        // Only for fixed sizes, the user explicitly wants control over the callback size.
+        builder = builder.frames_per_data_callback(size as i32);
     }
+
+    builder
 }
 
 fn build_input_stream<D, E>(
@@ -347,6 +337,7 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.
@@ -372,8 +363,13 @@ where
     let builder = configure_for_device(builder, device, config);
     let created = Instant::now();
     let channel_count = config.channels as i32;
+
+    let tuning = Arc::new(BufferTuningState::default());
+    let tuning_for_callback = tuning.clone();
+
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            // Deliver audio data to user callback
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
                     callback: to_stream_instant(created.elapsed()),
@@ -390,12 +386,63 @@ where
                 },
                 &cb_info,
             );
+
+            // Dynamic buffer tuning for output streams
+            // See: https://developer.android.com/ndk/guides/audio/aaudio/aaudio#tuning-buffers
+            let underrun_count = stream.x_run_count();
+            let previous = tuning_for_callback
+                .previous_underrun_count
+                .load(Ordering::Relaxed);
+
+            if underrun_count > previous {
+                // The number of frames per burst can vary dynamically
+                let mut burst_size = stream.frames_per_burst();
+                if burst_size <= 0 {
+                    burst_size = 256; // fallback from AAudio documentation
+                } else if burst_size < 16 {
+                    burst_size = 16; // floor from Oboe
+                }
+
+                let mixer_bursts = tuning_for_callback
+                    .mixer_bursts
+                    .fetch_add(1, Ordering::Relaxed);
+                let mut buffer_size = burst_size * mixer_bursts;
+
+                let buffer_capacity = tuning_for_callback.capacity.load(Ordering::Relaxed);
+                if buffer_size > buffer_capacity {
+                    buffer_size = buffer_capacity;
+                }
+                let _ = stream.set_buffer_size_in_frames(buffer_size);
+
+                tuning_for_callback
+                    .previous_underrun_count
+                    .store(underrun_count, Ordering::Relaxed);
+            }
+
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+
+    // After stream opens, query and cache the values
+    let capacity = stream.buffer_capacity_in_frames();
+    tuning.capacity.store(capacity, Ordering::Relaxed);
+
+    let mixer_bursts = match AudioManager::get_mixer_bursts() {
+        Ok(bursts) => bursts,
+        Err(_) => {
+            let burst_size = stream.frames_per_burst();
+            if burst_size > 0 {
+                stream.buffer_size_in_frames() / burst_size
+            } else {
+                0 // defer to dynamic tuning
+            }
+        }
+    };
+    tuning.mixer_bursts.store(mixer_bursts, Ordering::Relaxed);
+
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.

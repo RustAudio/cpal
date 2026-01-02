@@ -16,7 +16,6 @@ impl AudioManager {
     }
 
     /// Get the AAudio mixer burst count from system property
-    /// Returns the value from aaudio.mixer_bursts property, defaulting to 2
     pub fn get_mixer_bursts() -> Result<i32, String> {
         let context = get_context();
 
