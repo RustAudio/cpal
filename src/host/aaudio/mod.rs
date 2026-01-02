@@ -277,21 +277,35 @@ fn configure_for_device(
     };
     builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
-    let size = match config.buffer_size {
+    match config.buffer_size {
         BufferSize::Default => {
-            // Use the optimal burst size from AudioManager:
-            // https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
-            match AudioManager::get_frames_per_buffer() {
-                Ok(size) if size > 0 => size as u32,
-                _ => 256,
-            }
-        }
-        BufferSize::Fixed(size) => size,
-    };
+            // Following the pattern from Oboe and Google's AAudio samples, we only set the buffer
+            // capacity and let AAudio choose the optimal callback size dynamically. See:
+            // - https://developer.android.com/ndk/reference/group/audio
+            // - https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
+            let burst = match AudioManager::get_frames_per_buffer() {
+                Ok(size) if size > 0 => size,
+                _ => 256, // default from Android docs
+            };
 
-    builder
-        .frames_per_data_callback(size as i32)
-        .buffer_capacity_in_frames((size * 2) as i32) // Double-buffering
+            // Determine the buffer capacity multiplier. This matches AOSP's
+            // AAudioServiceEndpointPlay buffer sizing strategy.
+            let mixer_bursts = match AudioManager::get_mixer_bursts() {
+                Ok(bursts) if bursts > 1 => bursts,
+                _ => 2, // double-buffering: default from AOSP
+            };
+
+            let capacity = burst * mixer_bursts;
+            builder.buffer_capacity_in_frames(capacity)
+        }
+        BufferSize::Fixed(size) => {
+            // For fixed sizes, the user explicitly wants control over the callback size,
+            // so we set both the callback size and capacity (with double-buffering).
+            builder
+                .frames_per_data_callback(size as i32)
+                .buffer_capacity_in_frames((size * 2) as i32)
+        }
+    }
 }
 
 fn build_input_stream<D, E>(
