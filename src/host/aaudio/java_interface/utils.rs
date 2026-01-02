@@ -165,6 +165,26 @@ pub fn get_property<'j>(
     call_method_string_arg_ret_string(env, subject, "getProperty", name)
 }
 
+/// Read an Android system property
+pub fn get_system_property<'j>(
+    env: &mut JNIEnv<'j>,
+    name: &str,
+    default_value: &str,
+) -> JResult<JString<'j>> {
+    Ok(env
+        .call_static_method(
+            "android/os/SystemProperties",
+            "get",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            &[
+                (&env.new_string(name)?).into(),
+                (&env.new_string(default_value)?).into(),
+            ],
+        )?
+        .l()?
+        .into())
+}
+
 pub fn get_devices<'j>(
     env: &mut JNIEnv<'j>,
     subject: &JObject<'j>,
