@@ -1102,14 +1102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-<<<<<<< HEAD
 [Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.3...HEAD
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/RustAudio/cpal/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
-=======
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.0...HEAD
->>>>>>> de4500b (feat: add Stream::buffer_size() and improve AAudio buffer configuration)
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0
 [0.15.3]: https://github.com/RustAudio/cpal/compare/v0.15.2...v0.15.3
