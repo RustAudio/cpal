@@ -7,7 +7,7 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.78"
 
 [features]
 # ASIO backend for Windows
