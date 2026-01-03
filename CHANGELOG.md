@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ALSA**: Device enumeration now includes both hints and physical cards.
 - **JACK**: No longer builds on iOS.
+- **Wasm**: Fixes a regression introduced in 0.17.0 that would cause WasmBindgen to crash. 
 
 ### Changed
 

@@ -401,6 +401,11 @@ jobs:
           toolchain: ${{ env.MSRV_WASM }}
           targets: ${{ env.TARGET }}
 
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -409,9 +414,9 @@ jobs:
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
 
-      - name: Check wasm-beep example
-        working-directory: examples/wasm-beep
-        run: cargo +${{ env.MSRV_WASM }} check --verbose --target ${{ env.TARGET }}
+      - name: Build wasm-beep example
+        working-directory: ./examples/wasm-beep
+        run: trunk build
 
   # WebAssembly - AudioWorklet
   wasm-audioworklet:
@@ -428,6 +433,11 @@ jobs:
           targets: ${{ env.TARGET }}
           components: rust-src
 
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -436,9 +446,9 @@ jobs:
       - name: Check examples (audioworklet feature)
         run: cargo +nightly check --examples --features audioworklet --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
-      - name: Check audioworklet-beep example
-        working-directory: examples/audioworklet-beep
-        run: cargo +nightly check -Z build-std=std,panic_abort --verbose --target ${{ env.TARGET }}
+      - name: Build audioworklet-beep example
+        working-directory: ./examples/audioworklet-beep
+        run: trunk build
 
   # WebAssembly - WASI Preview 1
   wasm-wasip1:
