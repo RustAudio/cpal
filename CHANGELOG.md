@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
+- **CI**: Determines MSRV for JACK per platform.
 
 ### Fixed
 

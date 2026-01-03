@@ -61,15 +61,23 @@ jobs:
         with:
           packages: ${{ env.PACKAGES_LINUX }}
 
+      - name: Determine MSRV for all-features
+        id: msrv
+        uses: ./.github/actions/determine-msrv
+        with:
+          platform-msrv: ${{ env.MSRV_ALSA }}
+          jack-msrv: ${{ env.MSRV_JACK }}
+
       - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_ALSA }}
 
-      - name: Install Rust MSRV (${{ env.MSRV_JACK }})
+      - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
+        if: steps.msrv.outputs.all-features != env.MSRV_ALSA
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV_JACK }}
+          toolchain: ${{ steps.msrv.outputs.all-features }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -83,7 +91,7 @@ jobs:
         run: cargo +${{ env.MSRV_ALSA }} test --workspace --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cargo +${{ env.MSRV_JACK }} test --workspace --all-features --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
   # Linux ARMv7 (cross-compilation)
   linux-armv7:
@@ -91,16 +99,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Determine MSRV for all-features
+        id: msrv
+        uses: ./.github/actions/determine-msrv
+        with:
+          platform-msrv: ${{ env.MSRV_ALSA }}
+          jack-msrv: ${{ env.MSRV_JACK }}
+
       - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_ALSA }}
           targets: armv7-unknown-linux-gnueabihf
 
-      - name: Install Rust MSRV (${{ env.MSRV_JACK }})
+      - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
+        if: steps.msrv.outputs.all-features != env.MSRV_ALSA
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV_JACK }}
+          toolchain: ${{ steps.msrv.outputs.all-features }}
           targets: armv7-unknown-linux-gnueabihf
 
       - name: Rust Cache
@@ -117,7 +133,7 @@ jobs:
         run: cross +${{ env.MSRV_ALSA }} test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cross +${{ env.MSRV_JACK }} test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
+        run: cross +${{ steps.msrv.outputs.all-features }} test --target armv7-unknown-linux-gnueabihf --workspace --all-features --verbose
 
   # Windows (x86_64 and i686)
   windows:
@@ -140,10 +156,24 @@ jobs:
       - name: Setup ASIO SDK
         uses: ./.github/actions/setup-asio
 
+      - name: Determine MSRV for all-features
+        id: msrv
+        uses: ./.github/actions/determine-msrv
+        with:
+          platform-msrv: ${{ env.MSRV_WINDOWS }}
+          jack-msrv: ${{ env.MSRV_JACK }}
+
       - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_WINDOWS }}
+          targets: ${{ env.TARGET }}
+
+      - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
+        if: steps.msrv.outputs.all-features != env.MSRV_WINDOWS
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.all-features }}
           targets: ${{ env.TARGET }}
 
       - name: Rust Cache
@@ -152,10 +182,10 @@ jobs:
           key: windows-${{ matrix.arch }}
 
       - name: Run tests (no features)
-        run: cargo test --workspace --no-default-features --verbose
+        run: cargo +${{ env.MSRV_WINDOWS }} test --workspace --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cargo test --workspace --all-features --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
       - name: Check examples
         working-directory: asio-sys
@@ -170,10 +200,23 @@ jobs:
       - name: Install dependencies
         run: brew install llvm
 
+      - name: Determine MSRV for all-features
+        id: msrv
+        uses: ./.github/actions/determine-msrv
+        with:
+          platform-msrv: ${{ env.MSRV_COREAUDIO }}
+          jack-msrv: ${{ env.MSRV_JACK }}
+
       - name: Install Rust MSRV (${{ env.MSRV_COREAUDIO }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_COREAUDIO }}
+
+      - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
+        if: steps.msrv.outputs.all-features != env.MSRV_COREAUDIO
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.all-features }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -182,10 +225,10 @@ jobs:
         run: cargo check --examples --verbose --workspace
 
       - name: Run tests (no features)
-        run: cargo test --workspace --no-default-features --verbose
+        run: cargo +${{ env.MSRV_COREAUDIO }} test --workspace --no-default-features --verbose
 
       - name: Run tests (all features)
-        run: cargo test --workspace --all-features --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
   # Android
   android:
