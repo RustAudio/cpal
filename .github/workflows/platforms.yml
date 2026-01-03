@@ -283,7 +283,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_AAUDIO }}
-          targets: ${{ env.TARGET }}
+          targets: ${{ env.TARGET }},aarch64-linux-android,i686-linux-android,x86_64-linux-android
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -332,7 +332,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_COREAUDIO }}
-          targets: ${{ env.TARGET }}
+          targets: ${{ env.TARGET }},aarch64-apple-ios-sim
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

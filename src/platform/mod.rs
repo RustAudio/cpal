@@ -681,7 +681,7 @@ macro_rules! impl_platform_host {
     };
 }
 
-// TODO: Add pulseaudio and jack here eventually.
+// TODO: Add pulseaudio here eventually.
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -732,16 +732,13 @@ mod platform_impl {
 mod platform_impl {
     #[cfg_attr(docsrs, doc(cfg(any(target_os = "macos", target_os = "ios"))))]
     pub use crate::host::coreaudio::Host as CoreAudioHost;
-    #[cfg(feature = "jack")]
-    #[cfg_attr(
-        docsrs,
-        doc(cfg(all(any(target_os = "macos", target_os = "ios"), feature = "jack")))
-    )]
+    #[cfg(all(feature = "jack", target_os = "macos"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "jack", target_os = "macos"))))]
     pub use crate::host::jack::Host as JackHost;
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
-        #[cfg(feature = "jack")] Jack => JackHost,
+        #[cfg(all(feature = "jack", target_os = "macos"))] Jack => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
