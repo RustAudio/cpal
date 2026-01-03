@@ -345,7 +345,9 @@ pub enum BufferSize {
     any(target_os = "emscripten", feature = "wasm-bindgen")
 ))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
-    fn describe() {}
+    fn describe() {
+        <Option<FrameCount> as wasm_bindgen::describe::WasmDescribe>::describe();
+    }
 }
 
 #[cfg(all(
