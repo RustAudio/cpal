@@ -8,13 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
+- **CI**: Checks default/no-default/all feature sets with platform-dependent MSRV for JACK.
 
 ### Fixed
 
 - **ALSA**: Device enumeration now includes both hints and physical cards.
+- **JACK**: No longer builds on iOS.
 
 ### Changed
+
 - **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
 
 ## [0.17.0] - 2025-12-20

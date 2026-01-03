@@ -19,7 +19,17 @@ pub(crate) mod audioworklet;
 pub(crate) mod coreaudio;
 #[cfg(target_os = "emscripten")]
 pub(crate) mod emscripten;
-#[cfg(feature = "jack")]
+#[cfg(all(
+    feature = "jack",
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "windows",
+    )
+))]
 pub(crate) mod jack;
 #[cfg(windows)]
 pub(crate) mod wasapi;
