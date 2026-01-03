@@ -37,6 +37,15 @@ impl Stream {
         self.playing.store(false, Ordering::SeqCst);
         Ok(())
     }
+
+    pub fn buffer_size(&self) -> Option<crate::FrameCount> {
+        let streams = self.asio_streams.lock().ok()?;
+        streams
+            .output
+            .as_ref()
+            .or(streams.input.as_ref())
+            .map(|s| s.buffer_size as crate::FrameCount)
+    }
 }
 
 impl Device {

@@ -274,10 +274,13 @@ impl StreamTrait for Stream {
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
-
             stream.playing = false;
         }
         Ok(())
+    }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        Some(get_device_buffer_frames() as crate::FrameCount)
     }
 }
 

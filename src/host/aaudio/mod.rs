@@ -4,6 +4,7 @@
 
 use std::cmp;
 use std::convert::TryInto;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::IntoIter as VecIntoIter;
@@ -131,9 +132,9 @@ pub struct Device(Option<AudioDeviceInfo>);
 /// - The pointer in AudioStream (NonNull<AAudioStreamStruct>) is valid for the lifetime
 ///   of the stream and AAudio C API functions are thread-safe at the C level
 #[derive(Clone)]
-pub enum Stream {
-    Input(Arc<Mutex<AudioStream>>),
-    Output(Arc<Mutex<AudioStream>>),
+pub struct Stream {
+    inner: Arc<Mutex<AudioStream>>,
+    direction: DeviceDirection,
 }
 
 // SAFETY: AudioStream can be safely sent between threads. The AAudio C API is thread-safe
@@ -147,6 +148,14 @@ unsafe impl Sync for Stream {}
 // Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
+
+/// State for dynamic buffer tuning on output streams.
+#[derive(Default)]
+struct BufferTuningState {
+    previous_underrun_count: AtomicI32,
+    capacity: AtomicI32,
+    mixer_bursts: AtomicI32,
+}
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 pub type Devices = std::vec::IntoIter<Device>;
@@ -277,14 +286,16 @@ fn configure_for_device(
     };
     builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
 
-    // Note: Buffer size validation is not needed - the native AAudio API validates buffer sizes
-    // when `open_stream()` is called.
-    match &config.buffer_size {
-        BufferSize::Default => builder,
-        BufferSize::Fixed(size) => builder
-            .frames_per_data_callback(*size as i32)
-            .buffer_capacity_in_frames((*size * 2) as i32), // Double-buffering
+    // Following the pattern from Oboe and Google's AAudio, we let AAudio choose the optimal
+    // callback size dynamically by default. See
+    // - https://developer.android.com/ndk/reference/group/audio#aaudiostreambuilder_setframesperdatacallback
+    // - https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
+    if let BufferSize::Fixed(size) = config.buffer_size {
+        // Only for fixed sizes, the user explicitly wants control over the callback size.
+        builder = builder.frames_per_data_callback(size as i32);
     }
+
+    builder
 }
 
 fn build_input_stream<D, E>(
@@ -326,11 +337,15 @@ where
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.
     #[allow(clippy::arc_with_non_send_sync)]
-    Ok(Stream::Input(Arc::new(Mutex::new(stream))))
+    Ok(Stream {
+        inner: Arc::new(Mutex::new(stream)),
+        direction: DeviceDirection::Input,
+    })
 }
 
 fn build_output_stream<D, E>(
@@ -348,8 +363,13 @@ where
     let builder = configure_for_device(builder, device, config);
     let created = Instant::now();
     let channel_count = config.channels as i32;
+
+    let tuning = Arc::new(BufferTuningState::default());
+    let tuning_for_callback = tuning.clone();
+
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            // Deliver audio data to user callback
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
                     callback: to_stream_instant(created.elapsed()),
@@ -366,17 +386,77 @@ where
                 },
                 &cb_info,
             );
+
+            // Dynamic buffer tuning for output streams
+            // See: https://developer.android.com/ndk/guides/audio/aaudio/aaudio#tuning-buffers
+            let underrun_count = stream.x_run_count();
+            let previous = tuning_for_callback
+                .previous_underrun_count
+                .load(Ordering::Relaxed);
+
+            if underrun_count > previous {
+                // The number of frames per burst can vary dynamically
+                let mut burst_size = stream.frames_per_burst();
+                if burst_size <= 0 {
+                    burst_size = 256; // fallback from AAudio documentation
+                } else if burst_size < 16 {
+                    burst_size = 16; // floor from Oboe
+                }
+
+                let new_mixer_bursts = tuning_for_callback
+                    .mixer_bursts
+                    .load(Ordering::Relaxed)
+                    .saturating_add(1);
+                let mut buffer_size = burst_size * new_mixer_bursts;
+
+                let buffer_capacity = tuning_for_callback.capacity.load(Ordering::Relaxed);
+                if buffer_size > buffer_capacity {
+                    buffer_size = buffer_capacity;
+                }
+
+                if stream.set_buffer_size_in_frames(buffer_size).is_ok() {
+                    tuning_for_callback
+                        .mixer_bursts
+                        .store(new_mixer_bursts, Ordering::Relaxed);
+                }
+
+                tuning_for_callback
+                    .previous_underrun_count
+                    .store(underrun_count, Ordering::Relaxed);
+            }
+
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
             (error_callback)(StreamError::from(error))
         }))
         .open_stream()?;
+
+    // After stream opens, query and cache the values
+    let capacity = stream.buffer_capacity_in_frames();
+    tuning.capacity.store(capacity, Ordering::Relaxed);
+
+    let mixer_bursts = match AudioManager::get_mixer_bursts() {
+        Ok(bursts) => bursts,
+        Err(_) => {
+            let burst_size = stream.frames_per_burst();
+            if burst_size > 0 {
+                stream.buffer_size_in_frames() / burst_size
+            } else {
+                0 // defer to dynamic tuning
+            }
+        }
+    };
+    tuning.mixer_bursts.store(mixer_bursts, Ordering::Relaxed);
+
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.
     #[allow(clippy::arc_with_non_send_sync)]
-    Ok(Stream::Output(Arc::new(Mutex::new(stream))))
+    Ok(Stream {
+        inner: Arc::new(Mutex::new(stream)),
+        direction: DeviceDirection::Output,
+    })
 }
 
 impl DeviceTrait for Device {
@@ -579,31 +659,37 @@ impl DeviceTrait for Device {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        match self {
-            Self::Input(stream) => stream
-                .lock()
-                .unwrap()
-                .request_start()
-                .map_err(PlayStreamError::from),
-            Self::Output(stream) => stream
-                .lock()
-                .unwrap()
-                .request_start()
-                .map_err(PlayStreamError::from),
-        }
+        self.inner
+            .lock()
+            .unwrap()
+            .request_start()
+            .map_err(PlayStreamError::from)
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        match self {
-            Self::Input(_) => Err(BackendSpecificError {
-                description: "Pause called on the input stream.".to_owned(),
-            }
-            .into()),
-            Self::Output(stream) => stream
+        match self.direction {
+            DeviceDirection::Output => self
+                .inner
                 .lock()
                 .unwrap()
                 .request_pause()
                 .map_err(PauseStreamError::from),
+            _ => Err(BackendSpecificError {
+                description: "Pause only supported on output streams.".to_owned(),
+            }
+            .into()),
         }
+    }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        let stream = self.inner.lock().ok()?;
+
+        // If frames_per_data_callback was not explicitly set (returning 0),
+        // fall back to the burst size as that's what AAudio uses by default.
+        let frames = match stream.frames_per_data_callback() {
+            Some(size) if size > 0 => size,
+            _ => stream.frames_per_burst(),
+        };
+        Some(frames as crate::FrameCount)
     }
 }

@@ -1007,7 +1007,9 @@ fn setup_callback_vars(
 ///
 /// Buffer frame size is a device-level property that always uses Scope::Global + Element::Output,
 /// regardless of whether the audio unit is configured for input or output streams.
-fn get_device_buffer_frame_size(audio_unit: &AudioUnit) -> Result<usize, coreaudio::Error> {
+pub(crate) fn get_device_buffer_frame_size(
+    audio_unit: &AudioUnit,
+) -> Result<usize, coreaudio::Error> {
     // Device-level property: always use Scope::Global + Element::Output
     // This is consistent with how we set the buffer size and query the buffer size range
     let frames: u32 = audio_unit.get_property(
