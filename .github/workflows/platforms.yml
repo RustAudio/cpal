@@ -85,7 +85,7 @@ jobs:
           key: linux-${{ matrix.arch }}
 
       - name: Check examples
-        run: cargo check --examples --verbose --workspace
+        run: cargo +${{ env.MSRV_ALSA }} check --examples --verbose --workspace
 
       - name: Run tests (no features)
         run: cargo +${{ env.MSRV_ALSA }} test --workspace --no-default-features --verbose
@@ -128,6 +128,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
+
+      - name: Check examples
+        run: cross check --examples --target armv7-unknown-linux-gnueabihf --verbose --workspace
 
       - name: Run tests (no features)
         run: cross +${{ env.MSRV_ALSA }} test --target armv7-unknown-linux-gnueabihf --workspace --no-default-features --verbose
@@ -181,15 +184,18 @@ jobs:
         with:
           key: windows-${{ matrix.arch }}
 
+      - name: Check examples
+        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --verbose --workspace
+
       - name: Run tests (no features)
         run: cargo +${{ env.MSRV_WINDOWS }} test --workspace --no-default-features --verbose
 
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
-      - name: Check examples
+      - name: Check asio-sys examples
         working-directory: asio-sys
-        run: cargo check --examples --verbose --workspace
+        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --verbose --workspace
 
   # macOS ARM64
   macos:
@@ -222,7 +228,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check examples
-        run: cargo check --examples --verbose --workspace
+        run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --verbose --workspace
 
       - name: Run tests (no features)
         run: cargo +${{ env.MSRV_COREAUDIO }} test --workspace --no-default-features --verbose
@@ -250,11 +256,17 @@ jobs:
           key: android
 
       - name: Check examples
-        run: cargo check --examples --target ${{ env.TARGET }} --verbose --workspace
+        run: cargo +${{ env.MSRV_AAUDIO }} check --examples --target ${{ env.TARGET }} --verbose --workspace
+
+      - name: Check (no features)
+        run: cargo +${{ env.MSRV_AAUDIO }} check --target ${{ env.TARGET }} --workspace --no-default-features --verbose
+
+      - name: Check (all features)
+        run: cargo +${{ env.MSRV_AAUDIO }} check --target ${{ env.TARGET }} --workspace --all-features --verbose
 
       - name: Check Android project
         working-directory: examples/android
-        run: cargo check --target ${{ env.TARGET }} --verbose
+        run: cargo +${{ env.MSRV_AAUDIO }} check --target ${{ env.TARGET }} --verbose
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -290,6 +302,15 @@ jobs:
         with:
           key: ios
 
+      - name: Check examples
+        run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --target aarch64-apple-ios --verbose --workspace
+
+      - name: Check (no features)
+        run: cargo +${{ env.MSRV_COREAUDIO }} check --target aarch64-apple-ios --workspace --no-default-features --verbose
+
+      - name: Check (all features)
+        run: cargo +${{ env.MSRV_COREAUDIO }} check --target aarch64-apple-ios --workspace --all-features --verbose
+
       - name: Install cargo-lipo
         uses: taiki-e/install-action@v2
         with:
@@ -322,8 +343,14 @@ jobs:
         with:
           key: wasm-emscripten
 
-      - name: Build beep example
-        run: cargo build --example beep --target ${{ env.TARGET }}
+      - name: Check examples
+        run: cargo +${{ env.MSRV_WASM }} check --examples --target ${{ env.TARGET }} --verbose --workspace
+
+      - name: Check (no features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --no-default-features --verbose
+
+      - name: Check (all features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --all-features --verbose
 
   # WebAssembly - wasm-bindgen
   wasm-bindgen:
@@ -344,9 +371,14 @@ jobs:
         with:
           key: wasm-bindgen
 
-      - name: Build wasm-beep example
-        working-directory: ./examples/wasm-beep
-        run: cargo build --target ${{ env.TARGET }}
+      - name: Check examples
+        run: cargo +${{ env.MSRV_WASM }} check --examples --target ${{ env.TARGET }} --verbose --workspace
+
+      - name: Check (no features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --no-default-features --verbose
+
+      - name: Check (all features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --all-features --verbose
 
   # WebAssembly - AudioWorklet
   wasm-audioworklet:
@@ -368,9 +400,14 @@ jobs:
         with:
           key: wasm-audioworklet
 
-      - name: Build audioworklet-beep example
-        working-directory: ./examples/audioworklet-beep
-        run: cargo +nightly build --target ${{ env.TARGET }} -Z build-std=std,panic_abort
+      - name: Check examples
+        run: cargo +nightly check --examples --target ${{ env.TARGET }} --verbose --workspace -Z build-std=std,panic_abort
+
+      - name: Check (no features)
+        run: cargo +nightly check --target ${{ env.TARGET }} --workspace --no-default-features --verbose -Z build-std=std,panic_abort
+
+      - name: Check (all features)
+        run: cargo +nightly check --target ${{ env.TARGET }} --workspace --all-features --verbose -Z build-std=std,panic_abort
 
   # WebAssembly - WASI Preview 1
   wasm-wasip1:
@@ -391,8 +428,14 @@ jobs:
         with:
           key: wasm-wasip1
 
-      - name: Build beep example
-        run: cargo build --example beep --target ${{ env.TARGET }}
+      - name: Check examples
+        run: cargo +${{ env.MSRV_WASM }} check --examples --target ${{ env.TARGET }} --verbose --workspace
+
+      - name: Check (no features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --no-default-features --verbose
+
+      - name: Check (all features)
+        run: cargo +${{ env.MSRV_WASM }} check --target ${{ env.TARGET }} --workspace --all-features --verbose
 
   # Windows crate version compatibility
   windows-versions:
@@ -430,7 +473,7 @@ jobs:
           grep -A 5 "name = \"windows\"" Cargo.lock | head -10
 
       - name: Check WASAPI with windows v${{ matrix.version }}
-        run: cargo check --verbose
+        run: cargo +${{ env.MSRV_WINDOWS }} check --verbose
 
   # cpal publishing (only on cpal release events)
   publish-cpal:
