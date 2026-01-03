@@ -145,17 +145,34 @@ impl Default for AudioTimestamp {
 
 /// Information passed to duplex callbacks.
 ///
-/// This contains timing information and metadata about the current audio buffer.
+/// This contains timing information and metadata about the current audio buffer,
+/// including latency-adjusted timestamps for input capture and output playback.
 #[derive(Clone, Copy, Debug)]
 pub struct DuplexCallbackInfo {
     /// Hardware timestamp for this callback.
     pub timestamp: AudioTimestamp,
+
+    /// Estimated time when the input audio was captured.
+    ///
+    /// This is calculated by subtracting the device latency from the callback time,
+    /// representing when the input samples were actually captured by the hardware.
+    pub capture: StreamInstant,
+
+    /// Estimated time when the output audio will be played.
+    ///
+    /// This is calculated by adding the device latency to the callback time,
+    /// representing when the output samples will actually reach the hardware.
+    pub playback: StreamInstant,
 }
 
 impl DuplexCallbackInfo {
     /// Create a new DuplexCallbackInfo.
-    pub fn new(timestamp: AudioTimestamp) -> Self {
-        Self { timestamp }
+    pub fn new(timestamp: AudioTimestamp, capture: StreamInstant, playback: StreamInstant) -> Self {
+        Self {
+            timestamp,
+            capture,
+            playback,
+        }
     }
 }
 
@@ -334,9 +351,16 @@ mod tests {
 
     #[test]
     fn test_duplex_callback_info() {
-        let ts = AudioTimestamp::new(512.0, 1000, 1.0, StreamInstant::new(0, 0));
-        let info = DuplexCallbackInfo::new(ts);
+        let callback = StreamInstant::new(1, 0);
+        let capture = StreamInstant::new(0, 500_000_000); // 500ms before callback
+        let playback = StreamInstant::new(1, 500_000_000); // 500ms after callback
+
+        let ts = AudioTimestamp::new(512.0, 1000, 1.0, callback);
+        let info = DuplexCallbackInfo::new(ts, capture, playback);
+
         assert_eq!(info.timestamp.sample_time, 512.0);
+        assert_eq!(info.capture, capture);
+        assert_eq!(info.playback, playback);
     }
 
     #[test]

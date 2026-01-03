@@ -1077,6 +1077,10 @@ impl Device {
             )
             .unwrap_or(512);
 
+        // Get callback vars for latency calculation (matching input/output pattern)
+        let sample_rate = config.sample_rate;
+        let device_buffer_frames = get_device_buffer_frame_size(&audio_unit).ok();
+
         // Get the raw AudioUnit pointer for use in the callback
         let raw_audio_unit = *audio_unit.as_ref();
 
@@ -1121,6 +1125,25 @@ impl Device {
                     Ok(cb) => cb,
                 };
 
+                // Calculate latency-adjusted timestamps (matching input/output pattern)
+                let buffer_frames = num_frames;
+                // Use device buffer size for latency calculation if available
+                let latency_frames = device_buffer_frames.unwrap_or(
+                    // Fallback to callback buffer size if device buffer size is unknown
+                    buffer_frames,
+                );
+                let delay = frames_to_duration(latency_frames, sample_rate);
+
+                // Capture time: when input was actually captured (in the past)
+                let capture = callback_instant
+                    .sub(delay)
+                    .expect("`capture` occurs before origin of `StreamInstant`");
+
+                // Playback time: when output will actually play (in the future)
+                let playback = callback_instant
+                    .add(delay)
+                    .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+
                 // Create our AudioTimestamp from CoreAudio's
                 let audio_timestamp = AudioTimestamp::new(
                     timestamp.mSampleTime,
@@ -1152,10 +1175,19 @@ impl Device {
                     );
 
                     if status != 0 {
-                        // Failed to pull input - zero the input buffer so callback gets silence
-                        for byte in input_buffer[..input_bytes].iter_mut() {
-                            *byte = 0;
-                        }
+                        // Report error but continue with silence for graceful degradation
+                        invoke_error_callback(
+                            &error_callback_for_callback,
+                            StreamError::BackendSpecific {
+                                err: BackendSpecificError {
+                                    description: format!(
+                                        "AudioUnitRender failed for input: OSStatus {}",
+                                        status
+                                    ),
+                                },
+                            },
+                        );
+                        input_buffer[..input_bytes].fill(0);
                     }
                 }
 
@@ -1186,8 +1218,8 @@ impl Device {
                     Data::from_parts(buffer.mData as *mut (), output_samples, sample_format)
                 };
 
-                // Create callback info with timestamp
-                let callback_info = DuplexCallbackInfo::new(audio_timestamp);
+                // Create callback info with timestamp and latency-adjusted times
+                let callback_info = DuplexCallbackInfo::new(audio_timestamp, capture, playback);
 
                 // Call user callback with input and output Data
                 data_callback(&input_data, &mut output_data, &callback_info);
@@ -1223,13 +1255,17 @@ impl Device {
             duplex_callback_ptr: wrapper_ptr,
         };
 
-        // Create error callback for stream (wrapper that invokes the shared callback)
-        let error_callback_for_stream: super::ErrorCallback = {
-            let error_callback_clone = error_callback.clone();
-            Box::new(move |err: StreamError| {
-                invoke_error_callback(&error_callback_clone, err);
-            })
-        };
+        // Create error callback for stream - either dummy or real based on device type
+        // For duplex, check both input and output default device status
+        let error_callback_for_stream: super::ErrorCallback =
+            if is_default_input_device(self) || is_default_output_device(self) {
+                Box::new(|_: StreamError| {})
+            } else {
+                let error_callback_clone = error_callback.clone();
+                Box::new(move |err: StreamError| {
+                    invoke_error_callback(&error_callback_clone, err);
+                })
+            };
 
         // Create the duplex stream
         let stream = DuplexStream::new(inner, error_callback_for_stream)?;
