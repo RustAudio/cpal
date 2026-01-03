@@ -12,7 +12,7 @@ The minimum Rust version required depends on which audio backend and features yo
 - **AAudio (Android):** Rust **1.82** (due to `ndk` crate requirements)
 - **ALSA (Linux/BSD):** Rust **1.77** (due to `alsa-sys` crate requirements)
 - **CoreAudio (macOS/iOS):** Rust **1.80** (due to `coreaudio-rs` crate requirements)
-- **JACK (Linux/BSD/macOS/Windows):** Rust **1.80** (due to `jack` crate requirements)
+- **JACK (Linux/BSD/macOS/Windows):** Rust **1.82** (due to `jack` crate requirements)
 - **WASAPI/ASIO (Windows):** Rust **1.82** (due to `windows` crate requirements)
 - **WASM (`wasm32-unknown`):** Rust **1.82** (due to `gloo` crate requirements)
 - **WASM (`wasm32-wasip1`):** Rust **1.78** (target stabilized in 1.78)
