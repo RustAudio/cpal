@@ -403,16 +403,22 @@ where
                     burst_size = 16; // floor from Oboe
                 }
 
-                let mixer_bursts = tuning_for_callback
+                let new_mixer_bursts = tuning_for_callback
                     .mixer_bursts
-                    .fetch_add(1, Ordering::Relaxed);
-                let mut buffer_size = burst_size * mixer_bursts;
+                    .load(Ordering::Relaxed)
+                    .saturating_add(1);
+                let mut buffer_size = burst_size * new_mixer_bursts;
 
                 let buffer_capacity = tuning_for_callback.capacity.load(Ordering::Relaxed);
                 if buffer_size > buffer_capacity {
                     buffer_size = buffer_capacity;
                 }
-                let _ = stream.set_buffer_size_in_frames(buffer_size);
+
+                if stream.set_buffer_size_in_frames(buffer_size).is_ok() {
+                    tuning_for_callback
+                        .mixer_bursts
+                        .store(new_mixer_bursts, Ordering::Relaxed);
+                }
 
                 tuning_for_callback
                     .previous_underrun_count
