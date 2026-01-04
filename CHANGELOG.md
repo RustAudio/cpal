@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.1] - 2026-01-04
 
 ### Added
 
@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ALSA**: Device enumeration now includes both hints and physical cards.
 - **JACK**: No longer builds on iOS.
-- **Wasm**: Fixes a regression introduced in 0.17.0 that would cause WasmBindgen to crash. 
+- **WASM**: WasmBindgen no longer crashes (regression from 0.17.0).
 
 ### Changed
 
@@ -1034,6 +1034,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
+[0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0
 [0.15.3]: https://github.com/RustAudio/cpal/compare/v0.15.2...v0.15.3
