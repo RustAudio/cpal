@@ -42,7 +42,7 @@ impl Host {
                         pcm_id,
                         desc: hint.desc,
                         direction,
-                        _host: self.inner.clone(),
+                        _context: self.inner.clone(),
                     };
 
                     seen_pcm_ids.insert(device.pcm_id.clone());
@@ -64,7 +64,7 @@ impl Host {
                         pcm_id,
                         desc: Some(format_device_description(&phys_dev, prefix)),
                         direction: phys_dev.direction,
-                        _host: self.inner.clone(),
+                        _context: self.inner.clone(),
                     });
                 }
             }

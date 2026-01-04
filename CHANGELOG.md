@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
+- **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
 - **CI**: Checks default/no-default/all feature sets with platform-dependent MSRV for JACK.

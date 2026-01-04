@@ -91,24 +91,15 @@ const LIBC_ENOTSUPP: libc::c_int = 524;
 /// The default Linux and BSD host type.
 #[derive(Debug, Clone)]
 pub struct Host {
-    inner: Arc<HostInner>,
+    inner: Arc<AlsaContext>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        let inner = HostInner::new().map_err(|_| crate::HostUnavailable)?;
+        let inner = AlsaContext::new().map_err(|_| crate::HostUnavailable)?;
         Ok(Host {
             inner: Arc::new(inner),
         })
-    }
-
-    fn new_default(&self) -> Device {
-        Device {
-            pcm_id: DEFAULT_DEVICE.to_owned(),
-            desc: Some("Default Audio Device".to_string()),
-            direction: DeviceDirection::Unknown,
-            _host: self.inner.clone(),
-        }
     }
 }
 
@@ -126,34 +117,35 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        Some(self.new_default())
+        Some(Device::default())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(self.new_default())
+        Some(Device::default())
     }
 }
 
-/// Global count of active ALSA `Host` instances.
-static HOST_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Global count of active ALSA context instances.
+static ALSA_CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Inner `Host` state that is shared between `Host`, `Device`, and `Stream` via `Arc`.
+/// ALSA backend context shared between `Host`, `Device`, and `Stream` via `Arc`.
 #[derive(Debug)]
-pub(super) struct HostInner;
+pub(super) struct AlsaContext;
 
-impl HostInner {
+impl AlsaContext {
     fn new() -> Result<Self, alsa::Error> {
-        alsa::config::update().map(|_| {
-            HOST_COUNT.fetch_add(1, Ordering::SeqCst);
-            HostInner
-        })
+        // Initialize global ALSA config cache on first context creation.
+        if ALSA_CONTEXT_COUNT.fetch_add(1, Ordering::SeqCst) == 0 {
+            alsa::config::update()?;
+        }
+        Ok(Self)
     }
 }
 
-impl Drop for HostInner {
+impl Drop for AlsaContext {
     fn drop(&mut self) {
-        // Only free the global ALSA config cache when all Hosts, Devices, and Streams are dropped.
-        if HOST_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        // Free the global ALSA config cache when the last context is dropped.
+        if ALSA_CONTEXT_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
             let _ = alsa::config::update_free_global();
         }
     }
@@ -314,7 +306,7 @@ pub struct Device {
     pcm_id: String,
     desc: Option<String>,
     direction: DeviceDirection,
-    _host: Arc<HostInner>,
+    _context: Arc<AlsaContext>,
 }
 
 impl PartialEq for Device {
@@ -420,7 +412,7 @@ impl Device {
             silence_template,
             can_pause,
             creation_instant,
-            _host: self._host.clone(),
+            _context: self._context.clone(),
         };
 
         Ok(stream_inner)
@@ -659,6 +651,21 @@ impl Device {
     }
 }
 
+impl Default for Device {
+    fn default() -> Self {
+        // "default" is a virtual ALSA device that redirects to the configured default. We cannot
+        // determine its actual capabilities without opening it, so we return Unknown direction.
+        Self {
+            pcm_id: DEFAULT_DEVICE.to_owned(),
+            desc: Some("Default Audio Device".to_string()),
+            direction: DeviceDirection::Unknown,
+            _context: Arc::new(
+                AlsaContext::new().expect("Failed to initialize ALSA configuration"),
+            ),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
@@ -698,8 +705,8 @@ struct StreamInner {
     // `get_htstamp` is used.
     creation_instant: Option<std::time::Instant>,
 
-    // Keep Host alive to prevent premature ALSA config cleanup
-    _host: Arc<HostInner>,
+    // Keep ALSA context alive to prevent premature ALSA config cleanup
+    _context: Arc<AlsaContext>,
 }
 
 // Assume that the ALSA library is built with thread safe option.
