@@ -25,7 +25,7 @@ on:
 env:
   # MSRV varies by backend due to platform-specific dependencies
   MSRV_AAUDIO: "1.82"
-  MSRV_ALSA: "1.77"
+  MSRV_ALSA: "1.82"
   MSRV_COREAUDIO: "1.80"
   MSRV_JACK: "1.82"
   MSRV_WASIP1: "1.78"

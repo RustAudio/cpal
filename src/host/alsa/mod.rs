@@ -8,8 +8,8 @@ extern crate libc;
 use std::{
     cmp,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -85,13 +85,21 @@ mod enumerate;
 
 const DEFAULT_DEVICE: &str = "default";
 
+// TODO: Not yet defined in rust-lang/libc crate
+const LIBC_ENOTSUPP: libc::c_int = 524;
+
 /// The default Linux and BSD host type.
-#[derive(Debug)]
-pub struct Host;
+#[derive(Debug, Clone)]
+pub struct Host {
+    inner: Arc<AlsaContext>,
+}
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        Ok(Host)
+        let inner = AlsaContext::new().map_err(|_| crate::HostUnavailable)?;
+        Ok(Host {
+            inner: Arc::new(inner),
+        })
     }
 }
 
@@ -105,7 +113,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        enumerate::devices()
+        self.enumerate_devices()
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -114,6 +122,32 @@ impl HostTrait for Host {
 
     fn default_output_device(&self) -> Option<Self::Device> {
         Some(Device::default())
+    }
+}
+
+/// Global count of active ALSA context instances.
+static ALSA_CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// ALSA backend context shared between `Host`, `Device`, and `Stream` via `Arc`.
+#[derive(Debug)]
+pub(super) struct AlsaContext;
+
+impl AlsaContext {
+    fn new() -> Result<Self, alsa::Error> {
+        // Initialize global ALSA config cache on first context creation.
+        if ALSA_CONTEXT_COUNT.fetch_add(1, Ordering::SeqCst) == 0 {
+            alsa::config::update()?;
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for AlsaContext {
+    fn drop(&mut self) {
+        // Free the global ALSA config cache when the last context is dropped.
+        if ALSA_CONTEXT_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+            let _ = alsa::config::update_free_global();
+        }
     }
 }
 
@@ -221,8 +255,10 @@ impl DeviceTrait for Device {
     }
 }
 
+#[derive(Debug)]
 struct TriggerSender(libc::c_int);
 
+#[derive(Debug)]
 struct TriggerReceiver(libc::c_int);
 
 impl TriggerSender {
@@ -265,57 +301,12 @@ impl Drop for TriggerReceiver {
     }
 }
 
-#[derive(Default)]
-struct DeviceHandles {
-    playback: Option<alsa::PCM>,
-    capture: Option<alsa::PCM>,
-}
-
-impl DeviceHandles {
-    /// Get a mutable reference to the `Option` for a specific `stream_type`.
-    /// If the `Option` is `None`, the `alsa::PCM` will be opened and placed in
-    /// the `Option` before returning. If `try_open()` returns `Ok` the contained
-    /// `Option` is guaranteed to be `Some(..)`.
-    fn try_open(
-        &mut self,
-        pcm_id: &str,
-        stream_type: alsa::Direction,
-    ) -> Result<&mut Option<alsa::PCM>, alsa::Error> {
-        let handle = match stream_type {
-            alsa::Direction::Playback => &mut self.playback,
-            alsa::Direction::Capture => &mut self.capture,
-        };
-
-        if handle.is_none() {
-            *handle = Some(alsa::pcm::PCM::new(pcm_id, stream_type, true)?);
-        }
-
-        Ok(handle)
-    }
-
-    /// Get a mutable reference to the `alsa::PCM` handle for a specific `stream_type`.
-    /// If the handle is not yet opened, it will be opened and stored in `self`.
-    fn get_mut(
-        &mut self,
-        pcm_id: &str,
-        stream_type: alsa::Direction,
-    ) -> Result<&mut alsa::PCM, alsa::Error> {
-        Ok(self.try_open(pcm_id, stream_type)?.as_mut().unwrap())
-    }
-
-    /// Take ownership of the `alsa::PCM` handle for a specific `stream_type`.
-    /// If the handle is not yet opened, it will be opened and returned.
-    fn take(&mut self, name: &str, stream_type: alsa::Direction) -> Result<alsa::PCM, alsa::Error> {
-        Ok(self.try_open(name, stream_type)?.take().unwrap())
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Device {
     pcm_id: String,
     desc: Option<String>,
     direction: DeviceDirection,
-    handles: Arc<Mutex<DeviceHandles>>,
+    _context: Arc<AlsaContext>,
 }
 
 impl PartialEq for Device {
@@ -361,17 +352,16 @@ impl Device {
             }
         }
 
-        let handle = match self
-            .handles
-            .lock()
-            .unwrap()
-            .take(&self.pcm_id, stream_type)
+        let handle = match alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)
             .map_err(|e| (e, e.errno()))
         {
             Err((_, libc::ENOENT))
-            | Err((_, libc::EBUSY))
             | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN)) => return Err(BuildStreamError::DeviceNotAvailable),
+            | Err((_, libc::ENODEV))
+            | Err((_, LIBC_ENOTSUPP)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                return Err(BuildStreamError::DeviceBusy)
+            }
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
@@ -422,6 +412,7 @@ impl Device {
             silence_template,
             can_pause,
             creation_instant,
+            _context: self._context.clone(),
         };
 
         Ok(stream_inner)
@@ -463,27 +454,23 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        // Open device handle and cache it for reuse in build_stream_inner().
-        // This avoids opening the device twice in the common workflow:
-        // 1. Query supported configs (opens and caches handle)
-        // 2. Build stream (takes cached handle, or opens if not cached)
-        let mut guard = self.handles.lock().unwrap();
-        let pcm = match guard
-            .get_mut(&self.pcm_id, stream_t)
-            .map_err(|e| (e, e.errno()))
-        {
-            Err((_, libc::ENOENT))
-            | Err((_, libc::EBUSY))
-            | Err((_, libc::EPERM))
-            | Err((_, libc::EAGAIN)) => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-            }
-            Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
-            Err((e, _)) => return Err(e.into()),
-            Ok(pcm) => pcm,
-        };
+        let pcm =
+            match alsa::pcm::PCM::new(&self.pcm_id, stream_t, true).map_err(|e| (e, e.errno())) {
+                Err((_, libc::ENOENT))
+                | Err((_, libc::EPERM))
+                | Err((_, libc::ENODEV))
+                | Err((_, LIBC_ENOTSUPP)) => {
+                    return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+                }
+                Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                    return Err(SupportedStreamConfigsError::DeviceBusy)
+                }
+                Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
+                Err((e, _)) => return Err(e.into()),
+                Ok(pcm) => pcm,
+            };
 
-        let hw_params = alsa::pcm::HwParams::any(pcm)?;
+        let hw_params = alsa::pcm::HwParams::any(&pcm)?;
 
         // Test both LE and BE formats to detect what the hardware actually supports.
         // LE is listed first as it's the common case for most audio hardware.
@@ -623,6 +610,9 @@ impl Device {
                 Err(SupportedStreamConfigsError::DeviceNotAvailable) => {
                     return Err(DefaultStreamConfigError::DeviceNotAvailable);
                 }
+                Err(SupportedStreamConfigsError::DeviceBusy) => {
+                    return Err(DefaultStreamConfigError::DeviceBusy);
+                }
                 Err(SupportedStreamConfigsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities, but
                     // the device supports only one
@@ -669,11 +659,14 @@ impl Default for Device {
             pcm_id: DEFAULT_DEVICE.to_owned(),
             desc: Some("Default Audio Device".to_string()),
             direction: DeviceDirection::Unknown,
-            handles: Arc::new(Mutex::new(Default::default())),
+            _context: Arc::new(
+                AlsaContext::new().expect("Failed to initialize ALSA configuration"),
+            ),
         }
     }
 }
 
+#[derive(Debug)]
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
     // (e.g. broken due to a disconnected device).
@@ -711,11 +704,15 @@ struct StreamInner {
     // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
     // `get_htstamp` is used.
     creation_instant: Option<std::time::Instant>,
+
+    // Keep ALSA context alive to prevent premature ALSA config cleanup
+    _context: Arc<AlsaContext>,
 }
 
 // Assume that the ALSA library is built with thread safe option.
 unsafe impl Sync for StreamInner {}
 
+#[derive(Debug)]
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
@@ -1426,9 +1423,8 @@ fn set_sw_params_from_format(
         }
         let start_threshold = match stream_type {
             alsa::Direction::Playback => {
-                // Always use 2-period double-buffering: one period playing from hardware, one
-                // period queued in the software buffer. This ensures consistent low latency
-                // regardless of the total buffer size.
+                // Start playback when 2 periods are filled. This ensures consistent low-latency
+                // startup regardless of total buffer size (whether 2 or more periods).
                 2 * period
             }
             alsa::Direction::Capture => 1,
@@ -1441,7 +1437,8 @@ fn set_sw_params_from_format(
         let target_avail = match stream_type {
             alsa::Direction::Playback => {
                 // Wake when buffer level drops to one period remaining (avail >= buffer - period).
-                // This maintains double-buffering by refilling when we're down to one period.
+                // This ensures we can always write one full period. Works correctly regardless
+                // of total periods: 2-period buffer wakes at period, 4-period at 3*period, etc.
                 buffer - period
             }
             alsa::Direction::Capture => {

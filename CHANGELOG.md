@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
+- **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
+- **ALSA**: Example demonstrating ALSA error suppression during enumeration.
+
+### Changed
+
+- Overall MSRV increased to 1.78.
+- **ALSA**: Update `alsa` dependency from 0.10 to 0.11.
+- **ALSA**: MSRV increased from 1.77 to 1.82 (required by alsa-sys 0.4.0).
+
+### Fixed
+
+- **ALSA**: Enumerating input and output devices no longer interferes with each other.
+- **ALSA**: Device handles are no longer exclusively held between operations.
+- **ALSA**: Valgrind memory leak reports from ALSA global configuration cache.
+
 ## [0.17.1] - 2026-01-04
 
 ### Added
@@ -12,15 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: `Default` implementation for `Device` (returns the ALSA "default" device).
 - **CI**: Checks default/no-default/all feature sets with platform-dependent MSRV for JACK.
 
+### Changed
+
+- **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
+
 ### Fixed
 
 - **ALSA**: Device enumeration now includes both hints and physical cards.
 - **JACK**: No longer builds on iOS.
 - **WASM**: WasmBindgen no longer crashes (regression from 0.17.0).
-
-### Changed
-
-- **ALSA**: Devices now report direction from hint metadata and physical hardware probing.
 
 ## [0.17.0] - 2025-12-20
 
@@ -1034,6 +1054,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.1...HEAD
 [0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0

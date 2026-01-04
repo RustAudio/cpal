@@ -15,6 +15,10 @@ extern crate cpal;
 use cpal::traits::{DeviceTrait, HostTrait};
 
 fn main() -> Result<(), anyhow::Error> {
+    // To print raw ALSA errors to stderr during enumeration, comment out the line below:
+    #[cfg(target_os = "linux")]
+    let _silence_alsa_errors = alsa::Output::local_error_handler()?;
+
     println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
     let available_hosts = cpal::available_hosts();
     println!("Available hosts:\n  {available_hosts:?}");

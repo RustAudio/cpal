@@ -7,7 +7,7 @@ documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.78"
 
 [features]
 # ASIO backend for Windows
@@ -85,7 +85,7 @@ num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.10"
+alsa = "0.11"
 libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
