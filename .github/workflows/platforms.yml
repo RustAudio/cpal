@@ -315,7 +315,7 @@ jobs:
 
       - name: Build APK
         working-directory: examples/android
-        run: cargo apk build
+        run: cargo +${{ env.MSRV_AAUDIO }} apk build
 
   # iOS
   ios:
