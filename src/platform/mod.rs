@@ -716,11 +716,26 @@ mod platform_impl {
     #[cfg(feature = "pulseaudio")]
     pub use crate::host::pulseaudio::Host as PulseAudioHost;
 
+    #[cfg(feature = "pipewire")]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
+            feature = "jack"
+        )))
+    )]
+    pub use crate::host::pipewire::Host as PipeWireHost;
     impl_platform_host!(
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
         #[cfg(feature = "jack")] Jack => JackHost,
         Alsa => AlsaHost,
-        #[cfg(feature = "custom")] Custom => super::CustomHost
+        #[cfg(feature = "custom")] Custom => super::CustomHost,
+        #[cfg(feature = "pipewire")] PipeWire => super::PipeWireHost,
     );
 
     /// The default host for the current compilation target platform.
