@@ -9,7 +9,7 @@ pub(crate) mod aaudio;
 pub(crate) mod alsa;
 #[cfg(all(
     any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
-    //feature = "pipewire"
+    feature = "pipewire"
 ))]
 pub(crate) mod pipewire;
 #[cfg(all(windows, feature = "asio"))]
