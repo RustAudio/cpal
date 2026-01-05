@@ -1,6 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::DeviceDirection;
+use crate::{
+    traits::{DeviceTrait, StreamTrait},
+    DeviceDirection, SupportedStreamConfigRange,
+};
+
+use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use pipewire::{
     self as pw,
     metadata::{Metadata, MetadataListener},
@@ -20,6 +25,7 @@ pub(crate) enum DeviceType {
     DefaultOutput,
 }
 
+#[allow(unused)]
 #[derive(Clone, Debug, Default)]
 pub struct Device {
     id: u32,
@@ -27,7 +33,7 @@ pub struct Device {
     nick_name: String,
     description: String,
     direction: DeviceDirection,
-    channels: usize,
+    channels: u16,
     limit_quantum: u32,
     rate: u32,
     allow_rates: Vec<u32>,
@@ -38,6 +44,9 @@ pub struct Device {
 }
 
 impl Device {
+    pub(crate) fn device_type(&self) -> DeviceType {
+        self.device_type
+    }
     fn sink_default() -> Self {
         Self {
             id: 0,
@@ -76,14 +85,149 @@ impl Device {
     }
 }
 
+// TODO:
+pub struct Stream;
+
+impl StreamTrait for Stream {
+    fn play(&self) -> Result<(), crate::PlayStreamError> {
+        todo!()
+    }
+    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+        todo!()
+    }
+}
+
+impl DeviceTrait for Device {
+    type Stream = Stream;
+    type SupportedInputConfigs = SupportedInputConfigs;
+    type SupportedOutputConfigs = SupportedOutputConfigs;
+
+    fn id(&self) -> Result<crate::DeviceId, crate::DeviceIdError> {
+        Ok(crate::DeviceId(
+            crate::HostId::PipeWire,
+            self.nick_name.clone(),
+        ))
+    }
+
+    // TODO: device type
+    fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
+        Ok(crate::DeviceDescriptionBuilder::new(&self.nick_name)
+            .direction(self.direction())
+            .build())
+    }
+
+    fn supports_input(&self) -> bool {
+        matches!(
+            self.direction,
+            DeviceDirection::Input | DeviceDirection::Duplex
+        )
+    }
+
+    fn supports_output(&self) -> bool {
+        matches!(
+            self.direction,
+            DeviceDirection::Output | DeviceDirection::Duplex
+        )
+    }
+
+    // TODO: sample_format
+    fn supported_input_configs(
+        &self,
+    ) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
+        if !self.supports_input() {
+            return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
+        }
+        Ok(vec![SupportedStreamConfigRange {
+            channels: self.channels,
+            min_sample_rate: self.rate,
+            max_sample_rate: self.rate,
+            buffer_size: crate::SupportedBufferSize::Range {
+                min: self.min_quantum,
+                max: self.max_quantum,
+            },
+            sample_format: crate::SampleFormat::I32,
+        }]
+        .into_iter())
+    }
+    fn supported_output_configs(
+        &self,
+    ) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
+        if !self.supports_output() {
+            return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
+        }
+        Ok(vec![SupportedStreamConfigRange {
+            channels: self.channels,
+            min_sample_rate: self.rate,
+            max_sample_rate: self.rate,
+            buffer_size: crate::SupportedBufferSize::Range {
+                min: self.min_quantum,
+                max: self.max_quantum,
+            },
+            sample_format: crate::SampleFormat::I32,
+        }]
+        .into_iter())
+    }
+    fn default_input_config(
+        &self,
+    ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+        Ok(crate::SupportedStreamConfig {
+            channels: self.channels,
+            sample_format: crate::SampleFormat::I32,
+            sample_rate: self.rate,
+            buffer_size: crate::SupportedBufferSize::Range {
+                min: self.min_quantum,
+                max: self.max_quantum,
+            },
+        })
+    }
+
+    fn default_output_config(
+        &self,
+    ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+        Ok(crate::SupportedStreamConfig {
+            channels: self.channels,
+            sample_format: crate::SampleFormat::I32,
+            sample_rate: self.rate,
+            buffer_size: crate::SupportedBufferSize::Range {
+                min: self.min_quantum,
+                max: self.max_quantum,
+            },
+        })
+    }
+
+    fn build_input_stream_raw<D, E>(
+        &self,
+        config: &crate::StreamConfig,
+        sample_format: crate::SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::Stream, crate::BuildStreamError>
+    where
+        D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
+        E: FnMut(crate::StreamError) + Send + 'static,
+    {
+        todo!()
+    }
+
+    fn build_output_stream_raw<D, E>(
+        &self,
+        config: &crate::StreamConfig,
+        sample_format: crate::SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::Stream, crate::BuildStreamError>
+    where
+        D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
+        E: FnMut(crate::StreamError) + Send + 'static,
+    {
+        todo!()
+    }
+}
+
 impl Device {
-    pub fn id(&self) -> u32 {
-        self.id
-    }
-    pub fn name(&self) -> &str {
-        &self.nick_name
-    }
-    pub fn channels(&self) -> usize {
+    pub fn channels(&self) -> u16 {
         self.channels
     }
     pub fn direction(&self) -> DeviceDirection {
@@ -92,9 +236,7 @@ impl Device {
     pub fn node_name(&self) -> &str {
         &self.node_name
     }
-    pub fn description(&self) -> &str {
-        &self.description
-    }
+
     pub fn limit_quantam(&self) -> u32 {
         self.limit_quantum
     }
@@ -297,7 +439,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .get("node.description")
                                 .unwrap_or("unknown")
                                 .to_owned();
-                            let channels: usize = props
+                            let channels = props
                                 .get("audio.channels")
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(2);
