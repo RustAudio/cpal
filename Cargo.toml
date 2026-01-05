@@ -25,6 +25,7 @@ asio = [
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
 # Note: JACK must be installed separately on all platforms
 jack = ["dep:jack"]
+pipewire = ["dep:pipewire"]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
@@ -53,9 +54,10 @@ audioworklet = [
 # Platform: All platforms
 custom = []
 
+default = ["pipewire"]
+
 [dependencies]
 dasp_sample = "0.11"
-pipewire = "0.9.2"
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -90,6 +92,7 @@ alsa = "0.11"
 libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
+pipewire = { version = "0.9.2", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.5"
