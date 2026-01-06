@@ -726,7 +726,7 @@ mod platform_impl {
                 target_os = "freebsd",
                 target_os = "netbsd"
             ),
-            feature = "jack"
+            feature = "pipewire"
         )))
     )]
     pub use crate::host::pipewire::Host as PipeWireHost;
