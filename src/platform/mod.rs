@@ -736,7 +736,7 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        AlsaHost::new()
+        PipeWireHost::new()
             .expect("the default host should always be available")
             .into()
     }
