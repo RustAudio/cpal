@@ -184,7 +184,6 @@ where
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
 
-    dbg!(&properties);
     let data = UserData {
         data_callback,
         error_callback,
@@ -247,7 +246,7 @@ where
                 let chunk = buf_data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = stride as i32;
-                *chunk.size_mut() = frames as u32;
+                *chunk.size_mut() = (frames * stride) as u32;
             }
         })
         .register()?;
