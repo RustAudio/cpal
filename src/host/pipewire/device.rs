@@ -1,5 +1,7 @@
+use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
+use crate::host::pipewire::stream::StreamData;
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 
 use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
@@ -10,6 +12,8 @@ use pipewire::{
     proxy::ProxyT,
     spa::utils::result::AsyncSeq,
 };
+
+use std::thread;
 
 use super::stream::Stream;
 
@@ -22,6 +26,13 @@ pub(crate) enum DeviceType {
     DefaultSink,
     DefaultInput,
     DefaultOutput,
+}
+
+#[derive(Clone, Debug, Default, Copy)]
+pub enum Role {
+    Sink,
+    #[default]
+    Source,
 }
 
 #[allow(unused)]
@@ -40,6 +51,8 @@ pub struct Device {
     min_quantum: u32,
     max_quantum: u32,
     device_type: DeviceType,
+    object_id: String,
+    role: Role,
 }
 
 impl Device {
@@ -55,6 +68,7 @@ impl Device {
             direction: DeviceDirection::Input,
             channels: 2,
             device_type: DeviceType::DefaultSink,
+            role: Role::Sink,
             ..Default::default()
         }
     }
@@ -67,6 +81,7 @@ impl Device {
             direction: DeviceDirection::Input,
             channels: 2,
             device_type: DeviceType::DefaultInput,
+            role: Role::Source,
             ..Default::default()
         }
     }
@@ -79,11 +94,31 @@ impl Device {
             direction: DeviceDirection::Output,
             channels: 2,
             device_type: DeviceType::DefaultOutput,
+            role: Role::Source,
             ..Default::default()
         }
     }
-    pub(crate) fn pw_properties(&self) -> pw::properties::Properties {
-        todo!()
+    pub(crate) fn pw_properties(&self) -> pw::properties::PropertiesBox {
+        let mut properties = match self.direction {
+            DeviceDirection::Output => pw::properties::properties! {
+                *pw::keys::MEDIA_TYPE => "Audio",
+                *pw::keys::MEDIA_CATEGORY => "Playback",
+                *pw::keys::MEDIA_ROLE => "Music",
+            },
+            DeviceDirection::Input => pw::properties::properties! {
+                *pw::keys::MEDIA_TYPE => "Audio",
+                *pw::keys::MEDIA_CATEGORY => "Capture",
+                *pw::keys::MEDIA_ROLE => "Music",
+            },
+            _ => unreachable!(),
+        };
+        if matches!(self.role, Role::Sink) {
+            properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
+        }
+        if matches!(self.device_type, DeviceType::Node) {
+            properties.insert(*pw::keys::TARGET_OBJECT, self.object_id.to_owned());
+        }
+        properties
     }
 }
 impl DeviceTrait for Device {
@@ -196,7 +231,54 @@ impl DeviceTrait for Device {
         D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        todo!()
+        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<bool>();
+
+        let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
+        let device = self.clone();
+        let config = config.clone();
+        let wait_timeout = timeout.clone().unwrap_or(Duration::from_secs(2));
+        let handle = thread::Builder::new()
+            .name("pw_capture_music_in".to_owned())
+            .spawn(move || {
+                let properties = device.pw_properties();
+                let Ok(StreamData {
+                    mainloop,
+                    listener,
+                    stream,
+                    context,
+                }) = super::stream::connect_input(
+                    &config,
+                    properties,
+                    sample_format,
+                    data_callback,
+                    error_callback,
+                    timeout,
+                )
+                else {
+                    let _ = pw_init_tx.send(false);
+                    return;
+                };
+                let _ = pw_init_tx.send(true);
+                let stream = stream.clone();
+                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| {
+                    let _ = stream.set_active(play);
+                });
+                mainloop.run();
+                drop(listener);
+                drop(context);
+            })
+            .unwrap();
+        if pw_init_rv
+            .recv_timeout(wait_timeout)
+            .ok()
+            .is_none_or(|re| !re)
+        {
+            return Err(crate::BuildStreamError::DeviceNotAvailable);
+        };
+        Ok(Stream {
+            handle,
+            controller: pw_play_tx,
+        })
     }
 
     fn build_output_stream_raw<D, E>(
@@ -211,7 +293,54 @@ impl DeviceTrait for Device {
         D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        todo!()
+        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<bool>();
+
+        let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
+        let device = self.clone();
+        let config = config.clone();
+        let wait_timeout = timeout.clone().unwrap_or(Duration::from_secs(2));
+        let handle = thread::Builder::new()
+            .name("pw_capture_music_out".to_owned())
+            .spawn(move || {
+                let properties = device.pw_properties();
+                let Ok(StreamData {
+                    mainloop,
+                    listener,
+                    stream,
+                    context,
+                }) = super::stream::connect_output(
+                    &config,
+                    properties,
+                    sample_format,
+                    data_callback,
+                    error_callback,
+                    timeout,
+                )
+                else {
+                    let _ = pw_init_tx.send(false);
+                    return;
+                };
+                let _ = pw_init_tx.send(true);
+                let stream = stream.clone();
+                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| {
+                    let _ = stream.set_active(play);
+                });
+                mainloop.run();
+                drop(listener);
+                drop(context);
+            })
+            .unwrap();
+        if pw_init_rv
+            .recv_timeout(wait_timeout)
+            .ok()
+            .is_none_or(|re| !re)
+        {
+            return Err(crate::BuildStreamError::DeviceNotAvailable);
+        };
+        Ok(Stream {
+            handle,
+            controller: pw_play_tx,
+        })
     }
 }
 
@@ -414,12 +543,25 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let Some(media_class) = props.get("media.class") else {
                                 return;
                             };
-                            let direction = match media_class {
-                                "Audio/Sink" => DeviceDirection::Input,
-                                "Audio/Source" => DeviceDirection::Output,
+                            let role = match media_class {
+                                "Audio/Sink" => Role::Sink,
+                                "Audio/Source" => Role::Source,
                                 _ => {
                                     return;
                                 }
+                            };
+                            let Some(group) = props.get("port.group") else {
+                                return;
+                            };
+                            let direction = match group {
+                                "playback" => DeviceDirection::Input,
+                                "capture" => DeviceDirection::Output,
+                                _ => {
+                                    return;
+                                }
+                            };
+                            let Some(object_id) = props.get("object.id") else {
+                                return;
                             };
                             let id = info.id();
                             let node_name = props.get("node.name").unwrap_or("unknown").to_owned();
@@ -436,14 +578,17 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .get("clock.quantum-limit")
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(0);
+
                             let device = Device {
                                 id,
                                 node_name,
                                 nick_name,
                                 description,
                                 direction,
+                                role,
                                 channels,
                                 limit_quantum,
+                                object_id: object_id.to_owned(),
                                 ..Default::default()
                             };
                             devices.borrow_mut().push(device);
