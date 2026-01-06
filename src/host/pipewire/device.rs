@@ -1,9 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{
-    traits::{DeviceTrait, StreamTrait},
-    DeviceDirection, SupportedStreamConfigRange,
-};
+use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 
 use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use pipewire::{
@@ -13,6 +10,8 @@ use pipewire::{
     proxy::ProxyT,
     spa::utils::result::AsyncSeq,
 };
+
+use super::stream::Stream;
 
 pub type Devices = std::vec::IntoIter<Device>;
 
@@ -83,20 +82,10 @@ impl Device {
             ..Default::default()
         }
     }
-}
-
-// TODO:
-pub struct Stream;
-
-impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
-        todo!()
-    }
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+    pub(crate) fn pw_properties(&self) -> pw::properties::Properties {
         todo!()
     }
 }
-
 impl DeviceTrait for Device {
     type Stream = Stream;
     type SupportedInputConfigs = SupportedInputConfigs;
