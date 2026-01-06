@@ -3,13 +3,11 @@ use device::{init_devices, Device, DeviceType, Devices};
 use crate::traits::HostTrait;
 mod device;
 mod stream;
-use pipewire as pw;
 #[derive(Debug)]
 pub struct Host(Vec<Device>);
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
-        pw::init();
         let devices = init_devices().ok_or(crate::HostUnavailable)?;
         Ok(Host(devices))
     }
