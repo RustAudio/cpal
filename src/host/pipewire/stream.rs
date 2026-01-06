@@ -240,7 +240,7 @@ where
 
                 let data = samples.as_ptr() as *mut ();
                 let mut data =
-                    unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
+                    unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
                 if let Err(err) = user_data.publish_data_out(frames, &mut data) {
                     (user_data.error_callback)(StreamError::BackendSpecific { err });
                 }

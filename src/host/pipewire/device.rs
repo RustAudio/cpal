@@ -237,7 +237,7 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let config = config.clone();
-        let wait_timeout = timeout.clone().unwrap_or(Duration::from_secs(2));
+        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let handle = thread::Builder::new()
             .name("pw_capture_music_in".to_owned())
             .spawn(move || {
@@ -299,7 +299,7 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let config = config.clone();
-        let wait_timeout = timeout.clone().unwrap_or(Duration::from_secs(2));
+        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let handle = thread::Builder::new()
             .name("pw_capture_music_out".to_owned())
             .spawn(move || {
