@@ -40,6 +40,18 @@ impl StreamTrait for Stream {
     }
 }
 
+pub(crate) const SUPPORTED_FORMATS: &[SampleFormat] = &[
+    SampleFormat::I8,
+    SampleFormat::U8,
+    SampleFormat::I16,
+    SampleFormat::U16,
+    SampleFormat::I24,
+    SampleFormat::U24,
+    SampleFormat::I32,
+    SampleFormat::U32,
+    SampleFormat::F64,
+];
+
 impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
     fn from(value: SampleFormat) -> Self {
         match value {

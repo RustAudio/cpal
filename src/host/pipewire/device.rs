@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::host::pipewire::stream::StreamData;
+use crate::host::pipewire::stream::{StreamData, SUPPORTED_FORMATS};
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 
 use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
@@ -165,17 +165,20 @@ impl DeviceTrait for Device {
         if !self.supports_input() {
             return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
         }
-        Ok(vec![SupportedStreamConfigRange {
-            channels: self.channels,
-            min_sample_rate: self.rate,
-            max_sample_rate: self.rate,
-            buffer_size: crate::SupportedBufferSize::Range {
-                min: self.min_quantum,
-                max: self.max_quantum,
-            },
-            sample_format: crate::SampleFormat::F32,
-        }]
-        .into_iter())
+        Ok(SUPPORTED_FORMATS
+            .iter()
+            .map(|sample_format| SupportedStreamConfigRange {
+                channels: self.channels,
+                min_sample_rate: self.rate,
+                max_sample_rate: self.rate,
+                buffer_size: crate::SupportedBufferSize::Range {
+                    min: self.min_quantum,
+                    max: self.max_quantum,
+                },
+                sample_format: *sample_format,
+            })
+            .collect::<Vec<_>>()
+            .into_iter())
     }
     fn supported_output_configs(
         &self,
@@ -183,17 +186,20 @@ impl DeviceTrait for Device {
         if !self.supports_output() {
             return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
         }
-        Ok(vec![SupportedStreamConfigRange {
-            channels: self.channels,
-            min_sample_rate: self.rate,
-            max_sample_rate: self.rate,
-            buffer_size: crate::SupportedBufferSize::Range {
-                min: self.min_quantum,
-                max: self.max_quantum,
-            },
-            sample_format: crate::SampleFormat::F32,
-        }]
-        .into_iter())
+        Ok(SUPPORTED_FORMATS
+            .iter()
+            .map(|sample_format| SupportedStreamConfigRange {
+                channels: self.channels,
+                min_sample_rate: self.rate,
+                max_sample_rate: self.rate,
+                buffer_size: crate::SupportedBufferSize::Range {
+                    min: self.min_quantum,
+                    max: self.max_quantum,
+                },
+                sample_format: *sample_format,
+            })
+            .collect::<Vec<_>>()
+            .into_iter())
     }
     fn default_input_config(
         &self,
