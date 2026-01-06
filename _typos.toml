@@ -1,0 +1,5 @@
+[files]
+extend-exclude = ["**/*.cmake", "**/*.json", "assets_for_test/*"]
+
+[default.extend-words]
+datas = "datas"
