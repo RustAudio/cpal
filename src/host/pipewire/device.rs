@@ -52,6 +52,7 @@ pub struct Device {
     max_quantum: u32,
     device_type: DeviceType,
     object_id: String,
+    device_id: String,
     role: Role,
 }
 
@@ -112,11 +113,12 @@ impl Device {
             },
             _ => unreachable!(),
         };
+        dbg!(&self);
         if matches!(self.role, Role::Sink) {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
         if matches!(self.device_type, DeviceType::Node) {
-            properties.insert(*pw::keys::TARGET_OBJECT, self.object_id.to_owned());
+            properties.insert(*pw::keys::TARGET_OBJECT, self.device_id.to_owned());
         }
         properties
     }
@@ -154,7 +156,6 @@ impl DeviceTrait for Device {
         )
     }
 
-    // TODO: sample_format
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
@@ -169,7 +170,7 @@ impl DeviceTrait for Device {
                 min: self.min_quantum,
                 max: self.max_quantum,
             },
-            sample_format: crate::SampleFormat::I32,
+            sample_format: crate::SampleFormat::F32,
         }]
         .into_iter())
     }
@@ -187,7 +188,7 @@ impl DeviceTrait for Device {
                 min: self.min_quantum,
                 max: self.max_quantum,
             },
-            sample_format: crate::SampleFormat::I32,
+            sample_format: crate::SampleFormat::F32,
         }]
         .into_iter())
     }
@@ -196,7 +197,7 @@ impl DeviceTrait for Device {
     ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
-            sample_format: crate::SampleFormat::I32,
+            sample_format: crate::SampleFormat::F32,
             sample_rate: self.rate,
             buffer_size: crate::SupportedBufferSize::Range {
                 min: self.min_quantum,
@@ -210,7 +211,7 @@ impl DeviceTrait for Device {
     ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
-            sample_format: crate::SampleFormat::I32,
+            sample_format: crate::SampleFormat::F32,
             sample_rate: self.rate,
             buffer_size: crate::SupportedBufferSize::Range {
                 min: self.min_quantum,
@@ -303,23 +304,27 @@ impl DeviceTrait for Device {
             .name("pw_capture_music_out".to_owned())
             .spawn(move || {
                 let properties = device.pw_properties();
-                let Ok(StreamData {
+
+                let StreamData {
                     mainloop,
                     listener,
                     stream,
                     context,
-                }) = super::stream::connect_output(
+                } = match super::stream::connect_output(
                     &config,
                     properties,
                     sample_format,
                     data_callback,
                     error_callback,
                     timeout,
-                )
-                else {
-                    let _ = pw_init_tx.send(false);
-                    return;
+                ) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        let _ = pw_init_tx.send(false);
+                        return;
+                    }
                 };
+
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
                 let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| {
@@ -563,6 +568,9 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let Some(object_id) = props.get("object.id") else {
                                 return;
                             };
+                            let Some(device_id) = props.get("device.id") else {
+                                return;
+                            };
                             let id = info.id();
                             let node_name = props.get("node.name").unwrap_or("unknown").to_owned();
                             let nick_name = props.get("node.nick").unwrap_or("unknown").to_owned();
@@ -589,6 +597,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 channels,
                                 limit_quantum,
                                 object_id: object_id.to_owned(),
+                                device_id: device_id.to_owned(),
                                 ..Default::default()
                             };
                             devices.borrow_mut().push(device);
@@ -620,10 +629,6 @@ fn init_roundtrip() -> Option<Vec<Device>> {
 }
 
 pub fn init_devices() -> Option<Vec<Device>> {
-    pw::init();
     let devices = init_roundtrip()?;
-    unsafe {
-        pw::deinit();
-    }
     Some(devices)
 }
