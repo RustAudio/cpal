@@ -99,8 +99,11 @@ impl Device {
             ..Default::default()
         }
     }
-    pub(crate) fn pw_properties(&self) -> pw::properties::PropertiesBox {
-        let mut properties = match self.direction {
+    pub(crate) fn pw_properties(
+        &self,
+        direction: DeviceDirection,
+    ) -> pw::properties::PropertiesBox {
+        let mut properties = match direction {
             DeviceDirection::Output => pw::properties::properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Playback",
@@ -195,6 +198,9 @@ impl DeviceTrait for Device {
     fn default_input_config(
         &self,
     ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+        if !self.supports_input() {
+            return Err(crate::DefaultStreamConfigError::StreamTypeNotSupported);
+        }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
             sample_format: crate::SampleFormat::F32,
@@ -209,6 +215,9 @@ impl DeviceTrait for Device {
     fn default_output_config(
         &self,
     ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+        if !self.supports_output() {
+            return Err(crate::DefaultStreamConfigError::StreamTypeNotSupported);
+        }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
             sample_format: crate::SampleFormat::F32,
@@ -241,7 +250,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_capture_music_in".to_owned())
             .spawn(move || {
-                let properties = device.pw_properties();
+                let properties = device.pw_properties(DeviceDirection::Input);
                 let Ok(StreamData {
                     mainloop,
                     listener,
@@ -303,7 +312,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_capture_music_out".to_owned())
             .spawn(move || {
-                let properties = device.pw_properties();
+                let properties = device.pw_properties(DeviceDirection::Output);
 
                 let StreamData {
                     mainloop,
@@ -558,9 +567,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let Some(group) = props.get("port.group") else {
                                 return;
                             };
-                            let direction = match group {
-                                "playback" => DeviceDirection::Input,
-                                "capture" => DeviceDirection::Output,
+                            let direction = match (group, role) {
+                                ("playback", Role::Sink) => DeviceDirection::Duplex,
+                                ("playback", Role::Source) => DeviceDirection::Input,
+                                ("capture", _) => DeviceDirection::Input,
                                 _ => {
                                     return;
                                 }
