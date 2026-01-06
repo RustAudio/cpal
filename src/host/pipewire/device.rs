@@ -19,8 +19,9 @@ use super::stream::Stream;
 
 pub type Devices = std::vec::IntoIter<Device>;
 
+/// This enum record whether it is created by human or just default device
 #[derive(Clone, Debug, Default, Copy)]
-pub(crate) enum DeviceType {
+pub(crate) enum ClassType {
     #[default]
     Node,
     DefaultSink,
@@ -50,15 +51,16 @@ pub struct Device {
     quantum: u32,
     min_quantum: u32,
     max_quantum: u32,
-    device_type: DeviceType,
+    class_type: ClassType,
     object_id: String,
     device_id: String,
     role: Role,
+    icon_name: String,
 }
 
 impl Device {
-    pub(crate) fn device_type(&self) -> DeviceType {
-        self.device_type
+    pub(crate) fn class_type(&self) -> ClassType {
+        self.class_type
     }
     fn sink_default() -> Self {
         Self {
@@ -66,9 +68,9 @@ impl Device {
             node_name: "sink_default".to_owned(),
             nick_name: "sink_default".to_owned(),
             description: "default_sink".to_owned(),
-            direction: DeviceDirection::Input,
+            direction: DeviceDirection::Duplex,
             channels: 2,
-            device_type: DeviceType::DefaultSink,
+            class_type: ClassType::DefaultSink,
             role: Role::Sink,
             ..Default::default()
         }
@@ -81,7 +83,7 @@ impl Device {
             description: "default_input".to_owned(),
             direction: DeviceDirection::Input,
             channels: 2,
-            device_type: DeviceType::DefaultInput,
+            class_type: ClassType::DefaultInput,
             role: Role::Source,
             ..Default::default()
         }
@@ -94,11 +96,20 @@ impl Device {
             description: "default_output".to_owned(),
             direction: DeviceDirection::Output,
             channels: 2,
-            device_type: DeviceType::DefaultOutput,
+            class_type: ClassType::DefaultOutput,
             role: Role::Source,
             ..Default::default()
         }
     }
+
+    fn device_type(&self) -> crate::DeviceType {
+        match self.icon_name.as_str() {
+            "audio-headphones" => crate::DeviceType::Headphones,
+            "audio-input-microphone" => crate::DeviceType::Microphone,
+            _ => crate::DeviceType::Unknown,
+        }
+    }
+
     pub(crate) fn pw_properties(
         &self,
         direction: DeviceDirection,
@@ -116,11 +127,10 @@ impl Device {
             },
             _ => unreachable!(),
         };
-        dbg!(&self);
         if matches!(self.role, Role::Sink) {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
-        if matches!(self.device_type, DeviceType::Node) {
+        if matches!(self.class_type, ClassType::Node) {
             properties.insert(*pw::keys::TARGET_OBJECT, self.device_id.to_owned());
         }
         properties
@@ -138,10 +148,10 @@ impl DeviceTrait for Device {
         ))
     }
 
-    // TODO: device type
     fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
         Ok(crate::DeviceDescriptionBuilder::new(&self.nick_name)
             .direction(self.direction())
+            .device_type(self.device_type())
             .build())
     }
 
@@ -163,7 +173,7 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
         if !self.supports_input() {
-            return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
+            return Ok(vec![].into_iter());
         }
         Ok(SUPPORTED_FORMATS
             .iter()
@@ -184,7 +194,7 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
         if !self.supports_output() {
-            return Err(crate::SupportedStreamConfigsError::DeviceNotAvailable);
+            return Ok(vec![].into_iter());
         }
         Ok(SUPPORTED_FORMATS
             .iter()
@@ -320,24 +330,22 @@ impl DeviceTrait for Device {
             .spawn(move || {
                 let properties = device.pw_properties(DeviceDirection::Output);
 
-                let StreamData {
+                let Ok(StreamData {
                     mainloop,
                     listener,
                     stream,
                     context,
-                } = match super::stream::connect_output(
+                }) = super::stream::connect_output(
                     &config,
                     properties,
                     sample_format,
                     data_callback,
                     error_callback,
                     timeout,
-                ) {
-                    Ok(data) => data,
-                    Err(_) => {
-                        let _ = pw_init_tx.send(false);
-                        return;
-                    }
+                )
+                else {
+                    let _ = pw_init_tx.send(false);
+                    return;
                 };
 
                 let _ = pw_init_tx.send(true);
@@ -602,6 +610,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .get("clock.quantum-limit")
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(0);
+                            let icon_name = props
+                                .get("device.icon_name")
+                                .unwrap_or("default")
+                                .to_owned();
 
                             let device = Device {
                                 id,
@@ -612,6 +624,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 role,
                                 channels,
                                 limit_quantum,
+                                icon_name,
                                 object_id: object_id.to_owned(),
                                 device_id: device_id.to_owned(),
                                 ..Default::default()
