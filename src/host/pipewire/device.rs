@@ -131,7 +131,7 @@ impl Device {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
         if matches!(self.class_type, ClassType::Node) {
-            properties.insert(*pw::keys::TARGET_OBJECT, self.device_id.to_owned());
+            properties.insert(*pw::keys::TARGET_OBJECT, self.node_name().to_owned());
         }
         properties
     }
