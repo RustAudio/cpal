@@ -24,13 +24,13 @@ on:
 
 env:
   # MSRV varies by backend due to platform-specific dependencies
-  MSRV_AAUDIO: "1.82"
-  MSRV_ALSA: "1.82"
-  MSRV_COREAUDIO: "1.80"
-  MSRV_JACK: "1.82"
-  MSRV_WASIP1: "1.78"
-  MSRV_WASM: "1.82"
-  MSRV_WINDOWS: "1.82"
+  MSRV_AAUDIO: "1.85"
+  MSRV_ALSA: "1.85"
+  MSRV_COREAUDIO: "1.85"
+  MSRV_JACK: "1.85"
+  MSRV_WASIP1: "1.85"
+  MSRV_WASM: "1.85"
+  MSRV_WINDOWS: "1.85"
 
   PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
 
