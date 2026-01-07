@@ -5,9 +5,9 @@ use std::sync::Arc;
 pub use jni::Executor;
 
 pub use jni::{
+    JNIEnv, JavaVM,
     errors::Result as JResult,
     objects::{JIntArray, JObject, JObjectArray, JString},
-    JNIEnv, JavaVM,
 };
 
 pub fn get_context() -> AndroidContext {

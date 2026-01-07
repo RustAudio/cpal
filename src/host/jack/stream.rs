@@ -1,5 +1,5 @@
-use crate::traits::StreamTrait;
 use crate::ChannelCount;
+use crate::traits::StreamTrait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 

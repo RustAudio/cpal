@@ -6,11 +6,11 @@ extern crate anyhow;
 extern crate clap;
 extern crate cpal;
 
-use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample, I24, U24,
-};
 use cpal::{FromSample, Sample};
+use cpal::{
+    I24, SizedSample, U24,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for()?;
@@ -114,8 +114,8 @@ where
     }
 }
 
-pub fn host_device_setup(
-) -> Result<(cpal::Host, cpal::Device, cpal::SupportedStreamConfig), anyhow::Error> {
+pub fn host_device_setup()
+-> Result<(cpal::Host, cpal::Device, cpal::SupportedStreamConfig), anyhow::Error> {
     let host = cpal::default_host();
 
     let device = host

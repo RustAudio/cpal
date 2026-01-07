@@ -1,8 +1,8 @@
 use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
-use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
+use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::traits::DeviceTrait;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
@@ -19,14 +19,14 @@ use objc2_audio_toolbox::{
 use objc2_core_audio::kAudioDevicePropertyDeviceUID;
 use objc2_core_audio::kAudioObjectPropertyElementMain;
 use objc2_core_audio::{
-    kAudioAggregateDeviceClassID, kAudioDevicePropertyAvailableNominalSampleRates,
-    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyClass, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    AudioClassID, AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
+    AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyScope,
+    AudioObjectSetPropertyData, kAudioAggregateDeviceClassID,
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioObjectPropertyClass, kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -35,12 +35,12 @@ use objc2_core_foundation::CFString;
 use objc2_core_foundation::Type;
 
 pub use super::enumerate::{
-    default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
+    SupportedInputConfigs, SupportedOutputConfigs, default_input_device, default_output_device,
 };
 use std::fmt;
 use std::mem::{self, size_of};
-use std::ptr::{null, NonNull};
-use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::ptr::{NonNull, null};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

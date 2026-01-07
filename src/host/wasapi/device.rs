@@ -1,9 +1,9 @@
 use crate::{
-    BackendSpecificError, BufferSize, Data, DefaultStreamConfigError, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
-    DeviceType, DevicesError, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, COMMON_SAMPLE_RATES,
+    BackendSpecificError, BufferSize, COMMON_SAMPLE_RATES, Data, DefaultStreamConfigError,
+    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
+    DeviceNameError, DeviceType, DevicesError, FrameCount, InputCallbackInfo, InterfaceType,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 impl From<Audio::EDataFlow> for DeviceDirection {
@@ -29,21 +29,21 @@ use std::time::Duration;
 
 use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
-use windows::core::Interface;
-use windows::core::GUID;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
+use windows::Win32::System::Com::{STGM_READ, StructuredStorage};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::{VT_LPWSTR, VT_UI4};
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+use windows::core::GUID;
+use windows::core::Interface;
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
-use crate::{traits::DeviceTrait, BuildStreamError, StreamError};
+use crate::{BuildStreamError, StreamError, traits::DeviceTrait};
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
@@ -512,7 +512,7 @@ impl Device {
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
             Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+                return Err(SupportedStreamConfigsError::DeviceNotAvailable);
             }
             Err(e) => {
                 let description = format!("{}", e);
@@ -626,7 +626,7 @@ impl Device {
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
             Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                return Err(DefaultStreamConfigError::DeviceNotAvailable)
+                return Err(DefaultStreamConfigError::DeviceNotAvailable);
             }
             Err(e) => {
                 let description = format!("{}", e);
@@ -683,7 +683,7 @@ impl Device {
             let audio_client = match self.build_audioclient() {
                 Ok(client) => client,
                 Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
-                    return Err(BuildStreamError::DeviceNotAvailable)
+                    return Err(BuildStreamError::DeviceNotAvailable);
                 }
                 Err(e) => {
                     let description = format!("{}", e);
@@ -912,7 +912,7 @@ impl PartialEq for Device {
             /// RAII for device IDs.
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+                    unsafe { Com::CoTaskMemFree(Some(self.0.0 as *mut _)) }
                 }
             }
             // GetId only fails with E_OUTOFMEMORY and if it does, we're probably dead already.
@@ -951,7 +951,7 @@ impl std::hash::Hash for Device {
             struct IdRAII(windows::core::PWSTR);
             impl Drop for IdRAII {
                 fn drop(&mut self) {
-                    unsafe { Com::CoTaskMemFree(Some(self.0 .0 as *mut _)) }
+                    unsafe { Com::CoTaskMemFree(Some(self.0.0 as *mut _)) }
                 }
             }
 

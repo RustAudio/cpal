@@ -1,11 +1,11 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     DeviceDescription, DeviceDescriptionBuilder,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use cpal::{FromSample, Sample};
 

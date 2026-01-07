@@ -135,7 +135,7 @@ fn main() -> Result<(), anyhow::Error> {
         sample_format => {
             return Err(anyhow::Error::msg(format!(
                 "Unsupported sample format '{sample_format}'"
-            )))
+            )));
         }
     };
 

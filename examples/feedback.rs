@@ -9,8 +9,8 @@
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{
-    traits::{Consumer, Producer, Split},
     HeapRb,
+    traits::{Consumer, Producer, Split},
 };
 
 #[derive(Parser, Debug)]

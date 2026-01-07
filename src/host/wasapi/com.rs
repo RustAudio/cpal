@@ -4,7 +4,7 @@ use super::IoError;
 use std::marker::PhantomData;
 
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {

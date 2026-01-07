@@ -184,10 +184,10 @@ pub use device_description::{
 };
 pub use error::*;
 pub use platform::{
-    available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
-    SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
+    ALL_HOSTS, Device, Devices, Host, HostId, Stream, SupportedInputConfigs,
+    SupportedOutputConfigs, available_hosts, default_host, host_from_id,
 };
-pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
+pub use samples_formats::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -374,7 +374,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::FromWasmAbi>::Abi;
 
     unsafe fn from_abi(js: Self::Abi) -> Self {
-        match Option::<FrameCount>::from_abi(js) {
+        match unsafe { Option::<FrameCount>::from_abi(js) } {
             None => Self::Default,
             Some(fc) => Self::Fixed(fc),
         }
@@ -856,8 +856,8 @@ impl SupportedStreamConfigRange {
     /// - 44100 (cd quality)
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering::Equal;
         use SampleFormat::{F32, I16, I24, I32, U16, U24, U32};
+        use std::cmp::Ordering::Equal;
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {

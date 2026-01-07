@@ -13,7 +13,7 @@
 //
 // See this issue for a further explanation of what this file does: https://github.com/rustwasm/wasm-bindgen/issues/3019
 
-use js_sys::{wasm_bindgen, Array, JsString};
+use js_sys::{Array, JsString, wasm_bindgen};
 use wasm_bindgen::prelude::*;
 use web_sys::{Blob, BlobPropertyBag, Url};
 

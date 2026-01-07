@@ -3,14 +3,13 @@ use num_traits::FromPrimitive;
 use crate::{DeviceDirection, SampleFormat};
 
 use super::{
-    android_device_flags,
+    AudioDeviceInfo, AudioDeviceType, Context, android_device_flags,
     utils::{
-        call_method_no_args_ret_bool, call_method_no_args_ret_char_sequence,
-        call_method_no_args_ret_int, call_method_no_args_ret_int_array,
-        call_method_no_args_ret_string, get_context, get_devices, get_system_service,
-        with_attached, JNIEnv, JObject, JResult,
+        JNIEnv, JObject, JResult, call_method_no_args_ret_bool,
+        call_method_no_args_ret_char_sequence, call_method_no_args_ret_int,
+        call_method_no_args_ret_int_array, call_method_no_args_ret_string, get_context,
+        get_devices, get_system_service, with_attached,
     },
-    AudioDeviceInfo, AudioDeviceType, Context,
 };
 
 impl AudioDeviceInfo {

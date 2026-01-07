@@ -1,9 +1,9 @@
 use super::{
-    utils::{
-        get_context, get_package_manager, has_system_feature, with_attached, JNIEnv, JObject,
-        JResult,
-    },
     PackageManager,
+    utils::{
+        JNIEnv, JObject, JResult, get_context, get_package_manager, has_system_feature,
+        with_attached,
+    },
 };
 
 /**

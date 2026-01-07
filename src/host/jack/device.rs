@@ -9,8 +9,8 @@ use crate::{
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-use super::stream::Stream;
 use super::JACK_SAMPLE_FORMAT;
+use super::stream::Stream;
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
@@ -212,13 +212,13 @@ impl DeviceTrait for Device {
 
         // The settings should be fine, create a Client
         let client_options = super::get_client_options(self.start_server_automatically);
-        let client;
-        match super::get_client(&self.name, client_options) {
-            Ok(c) => client = c,
+
+        let client = match super::get_client(&self.name, client_options) {
+            Ok(c) => c,
             Err(e) => {
                 return Err(BuildStreamError::BackendSpecific {
                     err: BackendSpecificError { description: e },
-                })
+                });
             }
         };
         let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
@@ -253,13 +253,13 @@ impl DeviceTrait for Device {
 
         // The settings should be fine, create a Client
         let client_options = super::get_client_options(self.start_server_automatically);
-        let client;
-        match super::get_client(&self.name, client_options) {
-            Ok(c) => client = c,
+
+        let client = match super::get_client(&self.name, client_options) {
+            Ok(c) => c,
             Err(e) => {
                 return Err(BuildStreamError::BackendSpecific {
                     err: BackendSpecificError { description: e },
-                })
+                });
             }
         };
         let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);

@@ -3,8 +3,8 @@
 //! Default backend on macOS and iOS.
 
 use objc2_core_audio_types::{
-    kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
-    kAudioFormatLinearPCM, AudioStreamBasicDescription,
+    AudioStreamBasicDescription, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,
+    kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
 };
 
 use crate::DefaultStreamConfigError;
@@ -20,8 +20,8 @@ mod macos;
 #[cfg(target_os = "ios")]
 #[allow(unused_imports)]
 pub use self::ios::{
-    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,
+    enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
 };
 
 #[cfg(target_os = "macos")]

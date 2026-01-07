@@ -7,13 +7,13 @@ use crate::traits::{HostTrait, StreamTrait};
 use crate::{BackendSpecificError, DevicesError, PauseStreamError, PlayStreamError};
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::AudioDeviceID;
-use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
+pub use self::enumerate::{Devices, default_input_device, default_output_device};
 
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, AudioObjectPropertyAddress,
+    AudioObjectPropertyAddress, kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal,
 };
 use property_listener::AudioObjectPropertyListener;
 
@@ -266,9 +266,8 @@ impl StreamTrait for Stream {
 #[cfg(test)]
 mod test {
     use crate::{
-        default_host,
+        Sample, default_host,
         traits::{DeviceTrait, HostTrait, StreamTrait},
-        Sample,
     };
 
     #[test]

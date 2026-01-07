@@ -4,9 +4,9 @@
 
 use js_sys::Float32Array;
 use std::time::Duration;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};

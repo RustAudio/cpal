@@ -6,8 +6,8 @@ repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
-edition = "2021"
-rust-version = "1.78"
+edition = "2024"
+rust-version = "1.85"
 
 [features]
 # ASIO backend for Windows

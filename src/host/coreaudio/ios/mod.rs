@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 
 use coreaudio::audio_unit::render_callback::data;
-use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
+use coreaudio::audio_unit::{AudioUnit, Element, Scope, render_callback};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
 use objc2_core_audio_types::AudioBuffer;
 
@@ -21,8 +21,8 @@ use crate::{
 };
 
 use self::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    Devices, SupportedInputConfigs, SupportedOutputConfigs, default_input_device,
+    default_output_device,
 };
 use std::ptr::NonNull;
 use std::time::Duration;

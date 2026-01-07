@@ -13,8 +13,8 @@
 
 use clap::Parser;
 use cpal::{
+    FromSample, I24, Sample, SizedSample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    FromSample, Sample, SizedSample, I24,
 };
 
 #[derive(Parser, Debug)]

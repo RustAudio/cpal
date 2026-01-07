@@ -8,8 +8,8 @@ extern crate libc;
 use std::{
     cmp,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -20,14 +20,14 @@ use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 
 use crate::{
-    iter::{SupportedInputConfigs, SupportedOutputConfigs},
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
+    DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, I24, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
     StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
+    SupportedStreamConfigRange, SupportedStreamConfigsError, U24,
+    iter::{SupportedInputConfigs, SupportedOutputConfigs},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 mod enumerate;
@@ -360,7 +360,7 @@ impl Device {
             | Err((_, libc::ENODEV))
             | Err((_, LIBC_ENOTSUPP)) => return Err(BuildStreamError::DeviceNotAvailable),
             Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
-                return Err(BuildStreamError::DeviceBusy)
+                return Err(BuildStreamError::DeviceBusy);
             }
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
@@ -460,10 +460,10 @@ impl Device {
                 | Err((_, libc::EPERM))
                 | Err((_, libc::ENODEV))
                 | Err((_, LIBC_ENOTSUPP)) => {
-                    return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+                    return Err(SupportedStreamConfigsError::DeviceNotAvailable);
                 }
                 Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
-                    return Err(SupportedStreamConfigsError::DeviceBusy)
+                    return Err(SupportedStreamConfigsError::DeviceBusy);
                 }
                 Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
                 Err((e, _)) => return Err(e.into()),
@@ -1347,7 +1347,7 @@ fn sample_format_to_alsa_format(
         _ => {
             return Err(BackendSpecificError {
                 description: format!("Sample format '{sample_format}' is not supported"),
-            })
+            });
         }
     };
 

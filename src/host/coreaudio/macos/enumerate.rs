@@ -1,14 +1,13 @@
 use super::{Device, OSStatus};
 use crate::{BackendSpecificError, DevicesError};
 use objc2_core_audio::{
-    kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
+    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-    AudioObjectPropertyAddress,
 };
 use std::mem;
-use std::ptr::{null, NonNull};
+use std::ptr::{NonNull, null};
 use std::vec::IntoIter as VecIntoIter;
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {

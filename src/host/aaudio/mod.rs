@@ -491,7 +491,7 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: format!("{} format is not supported on Android.", sample_format),
                 }
-                .into())
+                .into());
             }
         };
         let channel_count = match config.channels {
@@ -543,7 +543,7 @@ impl DeviceTrait for Device {
                 return Err(BackendSpecificError {
                     description: format!("{} format is not supported on Android.", sample_format),
                 }
-                .into())
+                .into());
             }
         };
         let channel_count = match config.channels {

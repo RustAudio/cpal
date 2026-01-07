@@ -6,8 +6,8 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use self::wasm_bindgen::prelude::*;
 use self::wasm_bindgen::JsCast;
+use self::wasm_bindgen::prelude::*;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{

@@ -1,26 +1,25 @@
 //! Manages loopback recording (recording system audio output)
 
 use super::device::Device;
-use crate::{host::coreaudio::check_os_status, BackendSpecificError, BuildStreamError};
-use objc2::{rc::Retained, AnyThread};
+use crate::{BackendSpecificError, BuildStreamError, host::coreaudio::check_os_status};
+use objc2::{AnyThread, rc::Retained};
 use objc2_core_audio::{
-    kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
-    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
-    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
     AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap,
     AudioHardwareDestroyAggregateDevice, AudioHardwareDestroyProcessTap,
     AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress, CATapDescription,
-    CATapMuteBehavior,
+    CATapMuteBehavior, kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
+    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
+    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
 };
 use objc2_core_foundation::{
+    CFArray, CFDictionary, CFMutableDictionary, CFRetained, CFString, CFStringCreateWithCString,
     kCFAllocatorDefault, kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks,
-    kCFTypeDictionaryValueCallBacks, CFArray, CFDictionary, CFMutableDictionary, CFRetained,
-    CFString, CFStringCreateWithCString,
+    kCFTypeDictionaryValueCallBacks,
 };
-use objc2_foundation::{ns_string, NSArray, NSNumber, NSString};
+use objc2_foundation::{NSArray, NSNumber, NSString, ns_string};
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{CStr, c_void},
     mem::MaybeUninit,
     ptr::NonNull,
 };
