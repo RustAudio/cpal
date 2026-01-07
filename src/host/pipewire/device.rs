@@ -585,7 +585,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let direction = match (group, role) {
                                 ("playback", Role::Sink) => DeviceDirection::Duplex,
                                 ("playback", Role::Source) => DeviceDirection::Input,
-                                ("capture", _) => DeviceDirection::Input,
+                                ("capture", _) => DeviceDirection::Output,
                                 _ => {
                                     return;
                                 }
