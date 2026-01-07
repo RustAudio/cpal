@@ -56,6 +56,7 @@ pub struct Device {
     device_id: String,
     role: Role,
     icon_name: String,
+    object_serial: u32,
 }
 
 impl Device {
@@ -131,7 +132,7 @@ impl Device {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
         if matches!(self.class_type, ClassType::Node) {
-            properties.insert(*pw::keys::TARGET_OBJECT, self.node_name().to_owned());
+            properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
         }
         properties
     }
@@ -595,6 +596,12 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let Some(device_id) = props.get("device.id") else {
                                 return;
                             };
+                            let Some(object_serial) = props
+                                .get("object.serial")
+                                .and_then(|serial| serial.parse().ok())
+                            else {
+                                return;
+                            };
                             let id = info.id();
                             let node_name = props.get("node.name").unwrap_or("unknown").to_owned();
                             let nick_name = props.get("node.nick").unwrap_or("unknown").to_owned();
@@ -627,6 +634,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 icon_name,
                                 object_id: object_id.to_owned(),
                                 device_id: device_id.to_owned(),
+                                object_serial,
                                 ..Default::default()
                             };
                             devices.borrow_mut().push(device);
