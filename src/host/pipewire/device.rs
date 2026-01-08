@@ -279,7 +279,6 @@ impl DeviceTrait for Device {
                     sample_format,
                     data_callback,
                     error_callback,
-                    timeout,
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -342,7 +341,6 @@ impl DeviceTrait for Device {
                     sample_format,
                     data_callback,
                     error_callback,
-                    timeout,
                 )
                 else {
                     let _ = pw_init_tx.send(false);

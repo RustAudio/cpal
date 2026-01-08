@@ -1,7 +1,4 @@
-use std::{
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use std::{thread::JoinHandle, time::Instant};
 
 use crate::{
     traits::StreamTrait, BackendSpecificError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
@@ -185,7 +182,6 @@ pub fn connect_output<D, E>(
     sample_format: SampleFormat,
     data_callback: D,
     error_callback: E,
-    _timeout: Option<Duration>,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -306,7 +302,6 @@ pub fn connect_input<D, E>(
     sample_format: SampleFormat,
     data_callback: D,
     error_callback: E,
-    _timeout: Option<Duration>,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
