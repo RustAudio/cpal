@@ -73,6 +73,17 @@ fn main() -> Result<(), anyhow::Error> {
     } else {
         cpal::default_host()
     };
+
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "pipewire"
+    ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
     // cargo run --release --example record_wav --features pipewire -- -- pipewire
     let host = if opt.pipewire {
