@@ -60,7 +60,7 @@ audioworklet = [
 # Platform: All platforms
 custom = []
 
-default = ["pipewire"]
+default = []
 
 [dependencies]
 dasp_sample = "0.11"

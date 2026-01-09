@@ -24,12 +24,12 @@ on:
 
 env:
   # MSRV varies by backend due to platform-specific dependencies
-  MSRV_AAUDIO: "1.82"
-  MSRV_ALSA: "1.82"
-  MSRV_COREAUDIO: "1.80"
+  MSRV_AAUDIO: "1.85"
+  MSRV_ALSA: "1.85"
+  MSRV_COREAUDIO: "1.82"
   MSRV_JACK: "1.82"
   MSRV_PULSEAUDIO: "1.88"
-  MSRV_WASIP1: "1.78"
+  MSRV_WASIP1: "1.82"
   MSRV_WASM: "1.82"
   MSRV_WINDOWS: "1.82"
 
@@ -67,13 +67,13 @@ jobs:
           jack-msrv: ${{ env.MSRV_JACK }}
           pulseaudio-msrv: ${{ env.MSRV_PULSEAUDIO }}
 
-      - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
+      - name: Install Rust MSRV (${{ env.MSRV_PIPEWIRE }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_ALSA }}
 
       - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
-        if: steps.msrv.outputs.all-features != env.MSRV_ALSA
+        if: steps.msrv.outputs.all-features != env.MSRV_PIPEWIRE
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.all-features }}
@@ -108,6 +108,11 @@ jobs:
       TARGET: armv7-unknown-linux-gnueabihf
     steps:
       - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ${{ env.PACKAGES_LINUX }}
 
       - name: Determine MSRV for all-features
         id: msrv
