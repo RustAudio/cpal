@@ -294,11 +294,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv
-            .recv_timeout(wait_timeout)
-            .ok()
-            .is_none_or(|re| !re)
-        {
+        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
             return Err(crate::BuildStreamError::DeviceNotAvailable);
         };
         Ok(Stream {
@@ -357,11 +353,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv
-            .recv_timeout(wait_timeout)
-            .ok()
-            .is_none_or(|re| !re)
-        {
+        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
             return Err(crate::BuildStreamError::DeviceNotAvailable);
         };
         Ok(Stream {
