@@ -109,11 +109,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Cache Linux audio packages
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: ${{ env.PACKAGES_LINUX }}
-
       - name: Determine MSRV for all-features
         id: msrv
         uses: ./.github/actions/determine-msrv

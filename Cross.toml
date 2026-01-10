@@ -1,7 +1,6 @@
 [target.armv7-unknown-linux-gnueabihf]
 dockerfile = "Dockerfile"
+build-args = { CROSS_BASE_IMAGE = "ubuntu:24.04" }
 
 [target.armv7-unknown-linux-gnueabihf.env]
-passthrough = [
-    "RUSTFLAGS",
-]
+passthrough = ["RUSTFLAGS"]
