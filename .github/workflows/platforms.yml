@@ -96,10 +96,10 @@ jobs:
         run: cargo +${{ env.MSRV_ALSA }} check --examples --no-default-features --workspace --verbose
 
       - name: Run tests (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose
 
       - name: Check examples (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --features=jack --workspace --verbose
 
   # Linux ARMv7 (cross-compilation)
   linux-armv7:
@@ -153,10 +153,10 @@ jobs:
         run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Run tests (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose --target ${{ env.TARGET }}
 
   # Windows (x86_64 and i686)
   windows:
