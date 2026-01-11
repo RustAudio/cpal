@@ -67,13 +67,13 @@ jobs:
           jack-msrv: ${{ env.MSRV_JACK }}
           pulseaudio-msrv: ${{ env.MSRV_PULSEAUDIO }}
 
-      - name: Install Rust MSRV (${{ env.MSRV_PIPEWIRE }})
+      - name: Install Rust MSRV (${{ env.MSRV_ALSA }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_ALSA }}
 
       - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
-        if: steps.msrv.outputs.all-features != env.MSRV_PIPEWIRE
+        if: steps.msrv.outputs.all-features != env.MSRV_ALSA
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.all-features }}
