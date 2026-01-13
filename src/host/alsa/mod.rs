@@ -1273,6 +1273,7 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
             }
         }};
     }
+    const DSD_SILENCE_BYTE: u8 = 0x69;
 
     match sample_format {
         SampleFormat::I8 => fill_typed!(i8),
@@ -1289,9 +1290,9 @@ fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
         SampleFormat::U64 => fill_typed!(u64),
         SampleFormat::F32 => fill_typed!(f32),
         SampleFormat::F64 => fill_typed!(f64),
-        SampleFormat::DsdU8 => fill_typed!(u8),
-        SampleFormat::DsdU16 => fill_typed!(u16),
-        SampleFormat::DsdU32 => fill_typed!(u32),
+        SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => {
+            buffer.fill(DSD_SILENCE_BYTE)
+        }
     }
 }
 

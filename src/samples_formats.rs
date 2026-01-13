@@ -106,13 +106,13 @@ pub enum SampleFormat {
     /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
 
-    /// DSD stream (U8)
+    /// DSD 1-bit stream in u8 container (8 samples per byte) with 0x69 being the silence pattern.
     DsdU8,
 
-    /// DSD stream (U16)
+    /// DSD 1-bit stream in u16 container (8 samples per byte) with 0x69 being the silence pattern.
     DsdU16,
 
-    /// DSD stream (U32)
+    /// DSD 1-bit stream in u32 container (8 samples per byte) with 0x69 being the silence pattern.
     DsdU32,
 }
 
@@ -165,9 +165,7 @@ impl SampleFormat {
             SampleFormat::U64 => u64::BITS,
             SampleFormat::F32 => 32,
             SampleFormat::F64 => 64,
-            SampleFormat::DsdU8 => 1,
-            SampleFormat::DsdU16 => 1,
-            SampleFormat::DsdU32 => 1,
+            SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => 1,
         }
     }
 
@@ -207,6 +205,15 @@ impl SampleFormat {
     pub fn is_float(&self) -> bool {
         matches!(*self, SampleFormat::F32 | SampleFormat::F64)
     }
+
+    #[inline]
+    #[must_use]
+    pub fn is_dsd(&self) -> bool {
+        matches!(
+            *self,
+            SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32
+        )
+    }
 }
 
 impl Display for SampleFormat {
@@ -226,9 +233,9 @@ impl Display for SampleFormat {
             SampleFormat::U64 => "u64",
             SampleFormat::F32 => "f32",
             SampleFormat::F64 => "f64",
-            SampleFormat::DsdU8 => "DsdU8",
-            SampleFormat::DsdU16 => "DsdU16",
-            SampleFormat::DsdU32 => "DsdU32",
+            SampleFormat::DsdU8 => "dsdu8",
+            SampleFormat::DsdU16 => "dsdu16",
+            SampleFormat::DsdU32 => "dsdu32",
         }
         .fmt(f)
     }

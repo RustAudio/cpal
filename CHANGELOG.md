@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `BufferSize::Fixed` validation against supported range.
+- **ALSA**: Add support native DSD playback
 
 ### Changed
 

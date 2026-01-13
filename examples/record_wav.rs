@@ -150,7 +150,9 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
-    if format.is_float() {
+    if format.is_dsd() {
+        panic!("DSD formats cannot be written to WAV files");
+    } else if format.is_float() {
         hound::SampleFormat::Float
     } else {
         hound::SampleFormat::Int
