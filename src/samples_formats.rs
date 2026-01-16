@@ -106,13 +106,13 @@ pub enum SampleFormat {
     /// `f64` with a valid range of `-1.0..=1.0` with `0.0` being the origin.
     F64,
 
-    /// DSD 1-bit stream in u8 container (8 samples per byte) with 0x69 being the silence pattern.
+    /// DSD 1-bit stream in u8 container (8 bits = 8 DSD samples) with 0x69 being the silence byte pattern.
     DsdU8,
 
-    /// DSD 1-bit stream in u16 container (8 samples per byte) with 0x69 being the silence pattern.
+    /// DSD 1-bit stream in u16 container (16 bits = 16 DSD samples) with 0x69 being the silence byte pattern.
     DsdU16,
 
-    /// DSD 1-bit stream in u32 container (8 samples per byte) with 0x69 being the silence pattern.
+    /// DSD 1-bit stream in u32 container (32 bits = 32 DSD samples) with 0x69 being the silence byte pattern.
     DsdU32,
 }
 
@@ -194,9 +194,6 @@ impl SampleFormat {
                 | SampleFormat::U32
                 // | SampleFormat::U48
                 | SampleFormat::U64
-                | SampleFormat::DsdU8
-                | SampleFormat::DsdU16
-                | SampleFormat::DsdU32
         )
     }
 
