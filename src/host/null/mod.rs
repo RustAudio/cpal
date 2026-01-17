@@ -27,6 +27,8 @@ pub struct Stream;
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
 #[derive(Clone)]
 pub struct SupportedInputConfigs;
 #[derive(Clone)]
@@ -49,6 +51,7 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
+    type DuplexStream = DuplexStream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         Ok("null".to_string())
@@ -112,6 +115,21 @@ impl DeviceTrait for Device {
     {
         unimplemented!()
     }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &crate::duplex::DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        unimplemented!()
+    }
 }
 
 impl HostTrait for Host {
@@ -142,6 +160,16 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         unimplemented!()
+    }
+}
+
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
     }
 }
 

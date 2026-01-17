@@ -28,6 +28,21 @@ pub struct Device;
 
 pub struct Host;
 
+/// Duplex stream placeholder for AudioWorklet.
+///
+/// Duplex streams are not yet implemented for AudioWorklet.
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 pub struct Stream {
     audio_context: web_sys::AudioContext,
 }
@@ -96,6 +111,7 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
+    type DuplexStream = DuplexStream;
 
     #[inline]
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
@@ -173,6 +189,21 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         // TODO
+        Err(BuildStreamError::StreamConfigNotSupported)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &crate::duplex::DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
         Err(BuildStreamError::StreamConfigNotSupported)
     }
 
