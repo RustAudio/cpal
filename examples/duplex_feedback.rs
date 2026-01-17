@@ -86,9 +86,7 @@ fn main() -> anyhow::Result<()> {
 
     // Find the device.
     let device = if let Some(device_name) = opt.device {
-        let id = &device_name
-            .parse()
-            .expect("failed to parse device id");
+        let id = &device_name.parse().expect("failed to parse device id");
         host.device_by_id(id)
     } else {
         host.default_output_device()
@@ -101,7 +99,7 @@ fn main() -> anyhow::Result<()> {
     let config = DuplexStreamConfig::new(
         opt.input_channels,
         opt.output_channels,
-        opt.sample_rate.into(),
+        opt.sample_rate,
         BufferSize::Fixed(opt.buffer_size),
     );
 
