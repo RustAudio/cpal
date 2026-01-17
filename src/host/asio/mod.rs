@@ -21,20 +21,7 @@ use std::time::Duration;
 mod device;
 mod stream;
 
-/// Duplex stream placeholder for ASIO.
-///
-/// Duplex streams are not yet implemented for ASIO.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
 /// Global ASIO instance shared across all Host instances.
 ///
@@ -158,21 +145,6 @@ impl DeviceTrait for Device {
             error_callback,
             timeout,
         )
-    }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
-    where
-        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 

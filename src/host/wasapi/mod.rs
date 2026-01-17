@@ -15,20 +15,7 @@ use crate::DevicesError;
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
-/// Duplex stream placeholder for WASAPI.
-///
-/// Duplex streams are not yet implemented for WASAPI.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
 mod com;
 mod device;

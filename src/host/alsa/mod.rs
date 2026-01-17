@@ -88,20 +88,7 @@ const DEFAULT_DEVICE: &str = "default";
 // TODO: Not yet defined in rust-lang/libc crate
 const LIBC_ENOTSUPP: libc::c_int = 524;
 
-/// Duplex stream placeholder for ALSA.
-///
-/// Duplex streams are not yet implemented for ALSA.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
-
-impl crate::traits::StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
-        crate::traits::StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        crate::traits::StreamTrait::pause(&self.0)
-    }
-}
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
 /// The default Linux and BSD host type.
 #[derive(Debug, Clone)]
@@ -268,23 +255,6 @@ impl DeviceTrait for Device {
             timeout,
         );
         Ok(stream)
-    }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: crate::SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<std::time::Duration>,
-    ) -> Result<Self::DuplexStream, crate::BuildStreamError>
-    where
-        D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo)
-            + Send
-            + 'static,
-        E: FnMut(crate::StreamError) + Send + 'static,
-    {
-        Err(crate::BuildStreamError::StreamConfigNotSupported)
     }
 }
 

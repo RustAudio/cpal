@@ -32,10 +32,7 @@ pub struct Device;
 
 pub struct Host;
 
-/// Duplex stream placeholder for WebAudio.
-///
-/// Duplex streams are not yet implemented for WebAudio.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
 impl StreamTrait for DuplexStream {
     fn play(&self) -> Result<(), PlayStreamError> {
@@ -213,21 +210,6 @@ impl DeviceTrait for Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         // TODO
-        Err(BuildStreamError::StreamConfigNotSupported)
-    }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
-    where
-        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
         Err(BuildStreamError::StreamConfigNotSupported)
     }
 

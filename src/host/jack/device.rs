@@ -271,23 +271,6 @@ impl DeviceTrait for Device {
 
         Ok(stream)
     }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: crate::SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<std::time::Duration>,
-    ) -> Result<Self::DuplexStream, crate::BuildStreamError>
-    where
-        D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo)
-            + Send
-            + 'static,
-        E: FnMut(crate::StreamError) + Send + 'static,
-    {
-        Err(crate::BuildStreamError::StreamConfigNotSupported)
-    }
 }
 
 impl PartialEq for Device {
