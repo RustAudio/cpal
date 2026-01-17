@@ -16,6 +16,21 @@ pub use self::{
     stream::Stream,
 };
 
+/// Duplex stream placeholder for JACK.
+///
+/// Duplex streams are not yet implemented for JACK.
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
+impl crate::traits::StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), crate::PlayStreamError> {
+        self.0.play()
+    }
+
+    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+        self.0.pause()
+    }
+}
+
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 pub type Devices = std::vec::IntoIter<Device>;

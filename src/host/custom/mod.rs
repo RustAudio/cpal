@@ -99,6 +99,21 @@ impl Stream {
     }
 }
 
+/// Duplex stream placeholder for custom backends.
+///
+/// Duplex streams are not yet supported for custom backends.
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 // dyn-compatible versions of DeviceTrait, HostTrait, and StreamTrait
 // these only accept/return things via trait objects
 
@@ -344,6 +359,8 @@ impl DeviceTrait for Device {
 
     type Stream = Stream;
 
+    type DuplexStream = DuplexStream;
+
     fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()
     }
@@ -424,6 +441,21 @@ impl DeviceTrait for Device {
             Box::new(error_callback),
             timeout,
         )
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &crate::duplex::DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
