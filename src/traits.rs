@@ -398,15 +398,18 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_duplex_stream_raw<D, E>(
         &self,
-        config: &DuplexStreamConfig,
-        sample_format: SampleFormat,
-        data_callback: D,
-        error_callback: E,
-        timeout: Option<Duration>,
+        _config: &DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
     ) -> Result<Self::DuplexStream, BuildStreamError>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static;
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        Err(BuildStreamError::StreamConfigNotSupported)
+    }
 }
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control playback.

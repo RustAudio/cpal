@@ -160,21 +160,6 @@ impl DeviceTrait for Device {
             error_callback,
         ))
     }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
-    where
-        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        Err(BuildStreamError::StreamConfigNotSupported)
-    }
 }
 
 struct Endpoint {

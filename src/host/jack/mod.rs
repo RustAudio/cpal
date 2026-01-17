@@ -4,8 +4,8 @@
 
 extern crate jack;
 
-use crate::traits::HostTrait;
-use crate::{DevicesError, SampleFormat};
+use crate::traits::{HostTrait, StreamTrait};
+use crate::{DevicesError, PauseStreamError, PlayStreamError, SampleFormat};
 
 mod device;
 mod stream;
@@ -16,18 +16,15 @@ pub use self::{
     stream::Stream,
 };
 
-/// Duplex stream placeholder for JACK.
-///
-/// Duplex streams are not yet implemented for JACK.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
-impl crate::traits::StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
-        self.0.play()
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
     }
 
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        self.0.pause()
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
     }
 }
 

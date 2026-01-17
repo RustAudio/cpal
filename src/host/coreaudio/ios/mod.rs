@@ -37,20 +37,7 @@ pub struct Device;
 
 pub struct Host;
 
-/// Duplex stream placeholder for CoreAudio iOS.
-///
-/// Duplex streams are not yet implemented for iOS.
-pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
+pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -237,21 +224,6 @@ impl DeviceTrait for Device {
             playing: true,
             audio_unit,
         }))
-    }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &crate::duplex::DuplexStreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
-    where
-        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
