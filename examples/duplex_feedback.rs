@@ -2,6 +2,9 @@
 //!
 //! Unlike the `feedback.rs` example which uses separate input/output streams with a ring buffer,
 //! duplex streams provide hardware-synchronized input/output without additional buffering.
+//!
+//! Note: Currently only supported on macOS (CoreAudio). Windows (WASAPI) and Linux (ALSA)
+//! implementations are planned.
 
 use clap::Parser;
 use cpal::duplex::DuplexStreamConfig;
@@ -46,6 +49,7 @@ struct Opt {
     jack: bool,
 }
 
+#[cfg(target_os = "macos")]
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
@@ -131,4 +135,10 @@ fn main() -> anyhow::Result<()> {
     drop(stream);
     println!("Done!");
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("Duplex streams are currently only supported on macOS.");
+    eprintln!("Windows (WASAPI) and Linux (ALSA) support is planned.");
 }
