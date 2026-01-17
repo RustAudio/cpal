@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DeviceTrait::build_duplex_stream` and `build_duplex_stream_raw` for synchronized input/output.
+- `duplex` module with `DuplexStreamConfig`, `AudioTimestamp`, and `DuplexCallbackInfo` types.
+- **CoreAudio**: Duplex stream support with hardware-synchronized input/output.
+- Example `duplex_feedback` demonstrating duplex stream usage.
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
