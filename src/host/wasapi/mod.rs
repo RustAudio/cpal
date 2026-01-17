@@ -9,11 +9,26 @@ pub use self::device::{
 };
 #[allow(unused_imports)]
 pub use self::stream::Stream;
-use crate::traits::HostTrait;
+use crate::traits::{HostTrait, StreamTrait};
 use crate::BackendSpecificError;
 use crate::DevicesError;
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
+
+/// Duplex stream placeholder for WASAPI.
+///
+/// Duplex streams are not yet implemented for WASAPI.
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), crate::PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
 
 mod com;
 mod device;

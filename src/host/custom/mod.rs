@@ -452,7 +452,9 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::DuplexStream, BuildStreamError>
     where
-        D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+        D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo)
+            + Send
+            + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         Err(BuildStreamError::StreamConfigNotSupported)

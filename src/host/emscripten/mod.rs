@@ -32,6 +32,21 @@ pub struct Devices(bool);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
+/// Duplex stream placeholder for Emscripten.
+///
+/// Duplex streams are not yet implemented for Emscripten.
+pub struct DuplexStream(crate::duplex::UnsupportedDuplexStream);
+
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct Stream {
@@ -153,6 +168,7 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
+    type DuplexStream = DuplexStream;
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
@@ -243,6 +259,21 @@ impl DeviceTrait for Device {
         );
 
         Ok(stream)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: &crate::duplex::DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::DuplexStream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        Err(BuildStreamError::StreamConfigNotSupported)
     }
 }
 
