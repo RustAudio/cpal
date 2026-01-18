@@ -39,6 +39,16 @@ pub struct Host;
 
 pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
