@@ -23,6 +23,16 @@ mod stream;
 
 pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 /// Global ASIO instance shared across all Host instances.
 ///
 /// ASIO only supports loading a single driver at a time globally, so all Host instances
