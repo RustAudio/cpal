@@ -17,6 +17,16 @@ use windows::Win32::Media::Audio;
 
 pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
+impl StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), crate::PlayStreamError> {
+        StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+        StreamTrait::pause(&self.0)
+    }
+}
+
 mod com;
 mod device;
 mod stream;

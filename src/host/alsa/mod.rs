@@ -90,6 +90,16 @@ const LIBC_ENOTSUPP: libc::c_int = 524;
 
 pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
 
+impl crate::traits::StreamTrait for DuplexStream {
+    fn play(&self) -> Result<(), crate::PlayStreamError> {
+        crate::traits::StreamTrait::play(&self.0)
+    }
+
+    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+        crate::traits::StreamTrait::pause(&self.0)
+    }
+}
+
 /// The default Linux and BSD host type.
 #[derive(Debug, Clone)]
 pub struct Host {
