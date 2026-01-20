@@ -46,6 +46,9 @@ pub(crate) const SUPPORTED_FORMATS: &[SampleFormat] = &[
     SampleFormat::U24,
     SampleFormat::I32,
     SampleFormat::U32,
+    SampleFormat::I64,
+    SampleFormat::U64,
+    SampleFormat::F32,
     SampleFormat::F64,
 ];
 
