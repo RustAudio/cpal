@@ -312,13 +312,13 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
-            return Err(crate::BuildStreamError::DeviceNotAvailable);
-        };
-        Ok(Stream {
+        match pw_init_rv.recv_timeout(wait_timeout) {
+            Ok(true) => Ok(Stream {
             handle,
             controller: pw_play_tx,
-        })
+            }),
+            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+        }
     }
 
     fn build_output_stream_raw<D, E>(
@@ -371,15 +371,15 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
-            return Err(crate::BuildStreamError::DeviceNotAvailable);
-        };
-        Ok(Stream {
+        match pw_init_rv.recv_timeout(wait_timeout) {
+            Ok(true) => Ok(Stream {
             handle,
             controller: pw_play_tx,
-        })
-    }
+            }),
+            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
 }
+    }
+        }
 
 impl Device {
     pub fn channels(&self) -> u16 {
