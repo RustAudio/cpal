@@ -176,17 +176,26 @@ impl DeviceTrait for Device {
         if !self.supports_input() {
             return Ok(vec![].into_iter());
         }
-        Ok(SUPPORTED_FORMATS
+        let rates = if self.allow_rates.is_empty() {
+            vec![self.rate]
+        } else {
+            self.allow_rates.clone()
+        };
+        Ok(rates
             .iter()
-            .map(|sample_format| SupportedStreamConfigRange {
+            .flat_map(|&rate| {
+                SUPPORTED_FORMATS
+                    .iter()
+                    .map(move |sample_format| SupportedStreamConfigRange {
                 channels: self.channels,
-                min_sample_rate: self.rate,
-                max_sample_rate: self.rate,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
                 buffer_size: crate::SupportedBufferSize::Range {
                     min: self.min_quantum,
                     max: self.max_quantum,
                 },
                 sample_format: *sample_format,
+                    })
             })
             .collect::<Vec<_>>()
             .into_iter())
@@ -197,17 +206,26 @@ impl DeviceTrait for Device {
         if !self.supports_output() {
             return Ok(vec![].into_iter());
         }
-        Ok(SUPPORTED_FORMATS
+        let rates = if self.allow_rates.is_empty() {
+            vec![self.rate]
+        } else {
+            self.allow_rates.clone()
+        };
+        Ok(rates
             .iter()
-            .map(|sample_format| SupportedStreamConfigRange {
+            .flat_map(|&rate| {
+                SUPPORTED_FORMATS
+                    .iter()
+                    .map(move |sample_format| SupportedStreamConfigRange {
                 channels: self.channels,
-                min_sample_rate: self.rate,
-                max_sample_rate: self.rate,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
                 buffer_size: crate::SupportedBufferSize::Range {
                     min: self.min_quantum,
                     max: self.max_quantum,
                 },
                 sample_format: *sample_format,
+                    })
             })
             .collect::<Vec<_>>()
             .into_iter())
