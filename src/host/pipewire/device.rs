@@ -187,14 +187,14 @@ impl DeviceTrait for Device {
                 SUPPORTED_FORMATS
                     .iter()
                     .map(move |sample_format| SupportedStreamConfigRange {
-                channels: self.channels,
+                        channels: self.channels,
                         min_sample_rate: rate,
                         max_sample_rate: rate,
-                buffer_size: crate::SupportedBufferSize::Range {
-                    min: self.min_quantum,
-                    max: self.max_quantum,
-                },
-                sample_format: *sample_format,
+                        buffer_size: crate::SupportedBufferSize::Range {
+                            min: self.min_quantum,
+                            max: self.max_quantum,
+                        },
+                        sample_format: *sample_format,
                     })
             })
             .collect::<Vec<_>>()
@@ -217,14 +217,14 @@ impl DeviceTrait for Device {
                 SUPPORTED_FORMATS
                     .iter()
                     .map(move |sample_format| SupportedStreamConfigRange {
-                channels: self.channels,
+                        channels: self.channels,
                         min_sample_rate: rate,
                         max_sample_rate: rate,
-                buffer_size: crate::SupportedBufferSize::Range {
-                    min: self.min_quantum,
-                    max: self.max_quantum,
-                },
-                sample_format: *sample_format,
+                        buffer_size: crate::SupportedBufferSize::Range {
+                            min: self.min_quantum,
+                            max: self.max_quantum,
+                        },
+                        sample_format: *sample_format,
                     })
             })
             .collect::<Vec<_>>()
@@ -314,8 +314,8 @@ impl DeviceTrait for Device {
             .unwrap();
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
-            handle,
-            controller: pw_play_tx,
+                handle,
+                controller: pw_play_tx,
             }),
             Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
         }
@@ -373,13 +373,13 @@ impl DeviceTrait for Device {
             .unwrap();
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
-            handle,
-            controller: pw_play_tx,
+                handle,
+                controller: pw_play_tx,
             }),
             Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
-}
-    }
         }
+    }
+}
 
 impl Device {
     pub fn channels(&self) -> u16 {
@@ -518,7 +518,11 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                         return 0;
                                     };
                                     let list = list.trim();
-                                    let list: Vec<&str> = list.split(' ').collect();
+                                    let list_normalized = list.replace(',', " ");
+                                    let list: Vec<&str> = list_normalized
+                                        .split(' ')
+                                        .filter(|s| !s.is_empty())
+                                        .collect();
                                     let mut allow_rates = vec![];
                                     for rate in list {
                                         let Ok(rate) = rate.parse() else {
