@@ -187,7 +187,7 @@ impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -199,7 +199,7 @@ impl StreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -288,7 +288,7 @@ impl DuplexStreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -300,7 +300,7 @@ impl DuplexStreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }

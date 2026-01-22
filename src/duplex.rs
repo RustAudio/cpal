@@ -259,9 +259,8 @@ impl DuplexStreamConfig {
 /// This type implements `StreamTrait` but all operations return errors.
 /// Backend implementations should replace this with their own type once
 /// duplex support is implemented.
-pub struct UnsupportedDuplexStream {
-    _private: (),
-}
+#[derive(Default)]
+pub struct UnsupportedDuplexStream;
 
 impl UnsupportedDuplexStream {
     /// Create a new unsupported duplex stream marker.
@@ -269,13 +268,7 @@ impl UnsupportedDuplexStream {
     /// This should not normally be called - it exists only to satisfy
     /// type requirements for backends without duplex support.
     pub fn new() -> Self {
-        Self { _private: () }
-    }
-}
-
-impl Default for UnsupportedDuplexStream {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
