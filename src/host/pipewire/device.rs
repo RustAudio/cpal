@@ -176,17 +176,26 @@ impl DeviceTrait for Device {
         if !self.supports_input() {
             return Ok(vec![].into_iter());
         }
-        Ok(SUPPORTED_FORMATS
+        let rates = if self.allow_rates.is_empty() {
+            vec![self.rate]
+        } else {
+            self.allow_rates.clone()
+        };
+        Ok(rates
             .iter()
-            .map(|sample_format| SupportedStreamConfigRange {
-                channels: self.channels,
-                min_sample_rate: self.rate,
-                max_sample_rate: self.rate,
-                buffer_size: crate::SupportedBufferSize::Range {
-                    min: self.min_quantum,
-                    max: self.max_quantum,
-                },
-                sample_format: *sample_format,
+            .flat_map(|&rate| {
+                SUPPORTED_FORMATS
+                    .iter()
+                    .map(move |sample_format| SupportedStreamConfigRange {
+                        channels: self.channels,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
+                        buffer_size: crate::SupportedBufferSize::Range {
+                            min: self.min_quantum,
+                            max: self.max_quantum,
+                        },
+                        sample_format: *sample_format,
+                    })
             })
             .collect::<Vec<_>>()
             .into_iter())
@@ -197,17 +206,26 @@ impl DeviceTrait for Device {
         if !self.supports_output() {
             return Ok(vec![].into_iter());
         }
-        Ok(SUPPORTED_FORMATS
+        let rates = if self.allow_rates.is_empty() {
+            vec![self.rate]
+        } else {
+            self.allow_rates.clone()
+        };
+        Ok(rates
             .iter()
-            .map(|sample_format| SupportedStreamConfigRange {
-                channels: self.channels,
-                min_sample_rate: self.rate,
-                max_sample_rate: self.rate,
-                buffer_size: crate::SupportedBufferSize::Range {
-                    min: self.min_quantum,
-                    max: self.max_quantum,
-                },
-                sample_format: *sample_format,
+            .flat_map(|&rate| {
+                SUPPORTED_FORMATS
+                    .iter()
+                    .map(move |sample_format| SupportedStreamConfigRange {
+                        channels: self.channels,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
+                        buffer_size: crate::SupportedBufferSize::Range {
+                            min: self.min_quantum,
+                            max: self.max_quantum,
+                        },
+                        sample_format: *sample_format,
+                    })
             })
             .collect::<Vec<_>>()
             .into_iter())
@@ -294,13 +312,13 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
-            return Err(crate::BuildStreamError::DeviceNotAvailable);
-        };
-        Ok(Stream {
-            handle,
-            controller: pw_play_tx,
-        })
+        match pw_init_rv.recv_timeout(wait_timeout) {
+            Ok(true) => Ok(Stream {
+                handle,
+                controller: pw_play_tx,
+            }),
+            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+        }
     }
 
     fn build_output_stream_raw<D, E>(
@@ -353,13 +371,13 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .unwrap();
-        if pw_init_rv.recv_timeout(wait_timeout).unwrap_or(false) {
-            return Err(crate::BuildStreamError::DeviceNotAvailable);
-        };
-        Ok(Stream {
-            handle,
-            controller: pw_play_tx,
-        })
+        match pw_init_rv.recv_timeout(wait_timeout) {
+            Ok(true) => Ok(Stream {
+                handle,
+                controller: pw_play_tx,
+            }),
+            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+        }
     }
 }
 
@@ -500,7 +518,11 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                         return 0;
                                     };
                                     let list = list.trim();
-                                    let list: Vec<&str> = list.split(' ').collect();
+                                    let list_normalized = list.replace(',', " ");
+                                    let list: Vec<&str> = list_normalized
+                                        .split(' ')
+                                        .filter(|s| !s.is_empty())
+                                        .collect();
                                     let mut allow_rates = vec![];
                                     for rate in list {
                                         let Ok(rate) = rate.parse() else {
