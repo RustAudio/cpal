@@ -32,7 +32,7 @@ use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
 use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
-use windows::Win32::Foundation;
+//use windows::Win32::Foundation;
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
@@ -192,10 +192,12 @@ unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::ED
 
 // Given the audio client and format, returns whether or not the format is supported.
 pub unsafe fn is_format_supported(
-    client: &Audio::IAudioClient,
-    waveformatex_ptr: *const Audio::WAVEFORMATEX,
+    _client: &Audio::IAudioClient,
+    _waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
-    // Check if the given format is supported.
+    // Checking formats is not needed for shared mode with auto-conversion, therefore this check has been removed until someone implements WASAPI exclusive mode support
+    // I used an NAudio issue as reference: https://github.com/naudio/NAudio/issues/819
+    /* // Check if the given format is supported.
     let mut closest_waveformatex_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
 
     let result = client.IsFormatSupported(
@@ -215,7 +217,9 @@ pub unsafe fn is_format_supported(
         r if r.is_err() => Ok(false),
         Foundation::S_FALSE => Ok(false),
         _ => Ok(true),
-    }
+    }*/
+
+    Ok(true)
 }
 
 // Get a cpal Format from a WAVEFORMATEX.
