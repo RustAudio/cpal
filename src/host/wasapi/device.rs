@@ -61,6 +61,8 @@ const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
     pid: 8,
 };
 
+const DEFAULT_FLAGS: u32 = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK | Audio::AUDCLNT_STREAMFLAGS_RATEADJUST | Audio::AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
 struct IAudioClientWrapper(Audio::IAudioClient);
@@ -696,7 +698,7 @@ impl Device {
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
-            let mut stream_flags = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+            let mut stream_flags = DEFAULT_FLAGS;
 
             if self.data_flow() == Audio::eRender {
                 stream_flags |= Audio::AUDCLNT_STREAMFLAGS_LOOPBACK;
@@ -829,7 +831,7 @@ impl Device {
                 audio_client
                     .Initialize(
                         share_mode,
-                        Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                        DEFAULT_FLAGS,
                         buffer_duration,
                         0,
                         &format_attempt.Format,
