@@ -32,7 +32,6 @@ use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
 use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
-//use windows::Win32::Foundation;
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
@@ -62,7 +61,6 @@ const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
 };
 
 const DEFAULT_FLAGS: u32 = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-    | Audio::AUDCLNT_STREAMFLAGS_RATEADJUST
     | Audio::AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
     | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
 
@@ -197,27 +195,6 @@ pub unsafe fn is_format_supported(
 ) -> Result<bool, SupportedStreamConfigsError> {
     // Checking formats is not needed for shared mode with auto-conversion, therefore this check has been removed until someone implements WASAPI exclusive mode support
     // I used an NAudio issue as reference: https://github.com/naudio/NAudio/issues/819
-    /* // Check if the given format is supported.
-    let mut closest_waveformatex_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
-
-    let result = client.IsFormatSupported(
-        Audio::AUDCLNT_SHAREMODE_SHARED,
-        waveformatex_ptr,
-        Some(&mut closest_waveformatex_ptr as *mut _),
-    );
-
-    if !closest_waveformatex_ptr.is_null() {
-        Com::CoTaskMemFree(Some(closest_waveformatex_ptr as *mut std::ffi::c_void));
-    }
-
-    // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
-    // has been found, but not an exact match) so we also treat this as unsupported.
-    match result {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED => Err(SupportedStreamConfigsError::DeviceNotAvailable),
-        r if r.is_err() => Ok(false),
-        Foundation::S_FALSE => Ok(false),
-        _ => Ok(true),
-    }*/
 
     Ok(true)
 }
