@@ -181,21 +181,6 @@ impl DeviceTrait for MyDevice {
             handle: Some(handle),
         })
     }
-
-    fn build_duplex_stream_raw<D, E>(
-        &self,
-        _config: &cpal::duplex::DuplexStreamConfig,
-        _sample_format: cpal::SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
-        _timeout: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, cpal::BuildStreamError>
-    where
-        D: FnMut(&cpal::Data, &mut cpal::Data, &cpal::duplex::DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(cpal::StreamError) + Send + 'static,
-    {
-        Err(cpal::BuildStreamError::StreamConfigNotSupported)
-    }
 }
 
 impl StreamTrait for MyStream {
