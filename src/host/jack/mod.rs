@@ -4,8 +4,8 @@
 
 extern crate jack;
 
-use crate::traits::{HostTrait, StreamTrait};
-use crate::{DevicesError, PauseStreamError, PlayStreamError, SampleFormat};
+use crate::traits::HostTrait;
+use crate::{DevicesError, SampleFormat};
 
 mod device;
 mod stream;
@@ -15,18 +15,6 @@ pub use self::{
     device::{Device, SupportedInputConfigs, SupportedOutputConfigs},
     stream::Stream,
 };
-
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
 
 const JACK_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 

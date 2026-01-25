@@ -37,139 +37,36 @@
 //! ).expect("failed to build duplex stream");
 //! ```
 
-use crate::{PauseStreamError, PlayStreamError, SampleRate, StreamInstant};
-
-/// Hardware timestamp information from the audio device.
-///
-/// This provides precise timing information from the audio hardware, essential for
-/// sample-accurate synchronization between input and output, and for correlating
-/// audio timing with other system events.
-///
-/// # Detecting Xruns
-///
-/// Applications can detect xruns (buffer underruns/overruns) by tracking the
-/// `sample_time` field across callbacks. Under normal operation, `sample_time`
-/// advances by exactly the buffer size each callback. A larger jump indicates
-/// missed buffers:
-///
-/// ```ignore
-/// let mut last_sample_time: Option<f64> = None;
-///
-/// // In your callback:
-/// if let Some(last) = last_sample_time {
-///     let expected = last + buffer_size as f64;
-///     let discontinuity = (info.timestamp.sample_time - expected).abs();
-///     if discontinuity > 1.0 {
-///         println!("Xrun detected: {} samples missed", discontinuity);
-///     }
-/// }
-/// last_sample_time = Some(info.timestamp.sample_time);
-/// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AudioTimestamp {
-    /// Hardware sample counter from the device clock.
-    ///
-    /// This is the authoritative position from the device's clock and increments
-    /// by the buffer size each callback. Use this for xrun detection by tracking
-    /// discontinuities.
-    ///
-    /// This is an f64 to allow for sub-sample precision in rate-adjusted scenarios.
-    /// For most purposes, cast to i64 for an integer value.
-    pub sample_time: f64,
-
-    /// System host time reference (platform-specific high-resolution timer).
-    ///
-    /// Can be used to correlate audio timing with other system events or for
-    /// debugging latency issues.
-    pub host_time: u64,
-
-    /// Clock rate scalar (1.0 = nominal rate).
-    ///
-    /// Indicates if the hardware clock is running faster or slower than nominal.
-    /// Useful for applications that need to compensate for clock drift when
-    /// synchronizing with external sources.
-    pub rate_scalar: f64,
-
-    /// Callback timestamp from cpal's existing timing system.
-    ///
-    /// This provides compatibility with cpal's existing `StreamInstant` timing
-    /// infrastructure.
-    pub callback_instant: StreamInstant,
-}
-
-impl AudioTimestamp {
-    /// Create a new AudioTimestamp.
-    pub fn new(
-        sample_time: f64,
-        host_time: u64,
-        rate_scalar: f64,
-        callback_instant: StreamInstant,
-    ) -> Self {
-        Self {
-            sample_time,
-            host_time,
-            rate_scalar,
-            callback_instant,
-        }
-    }
-
-    /// Get the sample position as an integer.
-    ///
-    /// This rounds the hardware sample time to the nearest integer. The result
-    /// is suitable for use as a timeline position or for sample-accurate event
-    /// scheduling.
-    #[inline]
-    pub fn sample_position(&self) -> i64 {
-        self.sample_time.round() as i64
-    }
-
-    /// Check if the clock is running at nominal rate.
-    ///
-    /// Returns `true` if `rate_scalar` is very close to 1.0 (within 0.0001).
-    #[inline]
-    pub fn is_nominal_rate(&self) -> bool {
-        (self.rate_scalar - 1.0).abs() < 0.0001
-    }
-}
-
-impl Default for AudioTimestamp {
-    fn default() -> Self {
-        Self {
-            sample_time: 0.0,
-            host_time: 0,
-            rate_scalar: 1.0,
-            callback_instant: StreamInstant::new(0, 0),
-        }
-    }
-}
+use crate::{SampleRate, StreamInstant};
 
 /// Information passed to duplex callbacks.
 ///
-/// This contains timing information and metadata about the current audio buffer,
-/// including latency-adjusted timestamps for input capture and output playback.
-#[derive(Clone, Copy, Debug)]
+/// This contains timing information for the current audio buffer, combining
+/// both input and output timing similar to [`InputCallbackInfo`](crate::InputCallbackInfo)
+/// and [`OutputCallbackInfo`](crate::OutputCallbackInfo).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DuplexCallbackInfo {
-    /// Hardware timestamp for this callback.
-    pub timestamp: AudioTimestamp,
+    /// The instant the stream's data callback was invoked.
+    pub callback: StreamInstant,
 
-    /// Estimated time when the input audio was captured.
+    /// The instant that input data was captured from the device.
     ///
-    /// This is calculated by subtracting the device latency from the callback time,
-    /// representing when the input samples were actually captured by the hardware.
+    /// This is calculated by subtracting the input device latency from the callback time,
+    /// representing when the input samples were actually captured by the hardware (e.g., by an ADC).
     pub capture: StreamInstant,
 
-    /// Estimated time when the output audio will be played.
+    /// The predicted instant that output data will be delivered to the device for playback.
     ///
-    /// This is calculated by adding the device latency to the callback time,
-    /// representing when the output samples will actually reach the hardware.
+    /// This is calculated by adding the output device latency to the callback time,
+    /// representing when the output samples will actually be played by the hardware (e.g., by a DAC).
     pub playback: StreamInstant,
 }
 
 impl DuplexCallbackInfo {
     /// Create a new DuplexCallbackInfo.
-    pub fn new(timestamp: AudioTimestamp, capture: StreamInstant, playback: StreamInstant) -> Self {
+    pub fn new(callback: StreamInstant, capture: StreamInstant, playback: StreamInstant) -> Self {
         Self {
-            timestamp,
+            callback,
             capture,
             playback,
         }
@@ -254,93 +151,9 @@ impl DuplexStreamConfig {
     }
 }
 
-/// A placeholder duplex stream type for backends that don't yet support duplex.
-///
-/// This type implements `StreamTrait` but all operations return errors.
-/// Backend implementations should replace this with their own type once
-/// duplex support is implemented.
-#[derive(Default)]
-pub struct UnsupportedDuplexStream;
-
-impl UnsupportedDuplexStream {
-    /// Create a new unsupported duplex stream marker.
-    ///
-    /// This should not normally be called - it exists only to satisfy
-    /// type requirements for backends without duplex support.
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl crate::traits::StreamTrait for UnsupportedDuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        Err(PlayStreamError::BackendSpecific {
-            err: crate::BackendSpecificError {
-                description: "Duplex streams are not yet supported on this backend".to_string(),
-            },
-        })
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        Err(PauseStreamError::BackendSpecific {
-            err: crate::BackendSpecificError {
-                description: "Duplex streams are not yet supported on this backend".to_string(),
-            },
-        })
-    }
-}
-
-// Safety: UnsupportedDuplexStream contains no mutable state
-unsafe impl Send for UnsupportedDuplexStream {}
-unsafe impl Sync for UnsupportedDuplexStream {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_audio_timestamp_sample_position() {
-        let ts = AudioTimestamp::new(1234.5, 0, 1.0, StreamInstant::new(0, 0));
-        assert_eq!(ts.sample_position(), 1235); // rounds up
-
-        let ts = AudioTimestamp::new(1234.4, 0, 1.0, StreamInstant::new(0, 0));
-        assert_eq!(ts.sample_position(), 1234); // rounds down
-
-        let ts = AudioTimestamp::new(-100.0, 0, 1.0, StreamInstant::new(0, 0));
-        assert_eq!(ts.sample_position(), -100); // negative values work
-    }
-
-    #[test]
-    fn test_audio_timestamp_nominal_rate() {
-        let ts = AudioTimestamp::new(0.0, 0, 1.0, StreamInstant::new(0, 0));
-        assert!(ts.is_nominal_rate());
-
-        let ts = AudioTimestamp::new(0.0, 0, 1.00005, StreamInstant::new(0, 0));
-        assert!(ts.is_nominal_rate()); // within tolerance
-
-        let ts = AudioTimestamp::new(0.0, 0, 1.001, StreamInstant::new(0, 0));
-        assert!(!ts.is_nominal_rate()); // outside tolerance
-    }
-
-    #[test]
-    fn test_audio_timestamp_default() {
-        let ts = AudioTimestamp::default();
-        assert_eq!(ts.sample_time, 0.0);
-        assert_eq!(ts.host_time, 0);
-        assert_eq!(ts.rate_scalar, 1.0);
-        assert_eq!(ts.sample_position(), 0);
-        assert!(ts.is_nominal_rate());
-    }
-
-    #[test]
-    fn test_audio_timestamp_equality() {
-        let ts1 = AudioTimestamp::new(1000.0, 12345, 1.0, StreamInstant::new(0, 0));
-        let ts2 = AudioTimestamp::new(1000.0, 12345, 1.0, StreamInstant::new(0, 0));
-        let ts3 = AudioTimestamp::new(1000.0, 12346, 1.0, StreamInstant::new(0, 0));
-
-        assert_eq!(ts1, ts2);
-        assert_ne!(ts1, ts3);
-    }
 
     #[test]
     fn test_duplex_callback_info() {
@@ -348,10 +161,9 @@ mod tests {
         let capture = StreamInstant::new(0, 500_000_000); // 500ms before callback
         let playback = StreamInstant::new(1, 500_000_000); // 500ms after callback
 
-        let ts = AudioTimestamp::new(512.0, 1000, 1.0, callback);
-        let info = DuplexCallbackInfo::new(ts, capture, playback);
+        let info = DuplexCallbackInfo::new(callback, capture, playback);
 
-        assert_eq!(info.timestamp.sample_time, 512.0);
+        assert_eq!(info.callback, callback);
         assert_eq!(info.capture, capture);
         assert_eq!(info.playback, playback);
     }
@@ -420,31 +232,5 @@ mod tests {
 
         let config3 = DuplexStreamConfig::new(2, 4, 44100, crate::BufferSize::Fixed(512));
         assert_ne!(config1, config3);
-    }
-
-    #[test]
-    fn test_unsupported_duplex_stream() {
-        use crate::traits::StreamTrait;
-
-        let stream = UnsupportedDuplexStream::new();
-
-        // play() should return an error
-        let play_result = stream.play();
-        assert!(play_result.is_err());
-
-        // pause() should return an error
-        let pause_result = stream.pause();
-        assert!(pause_result.is_err());
-    }
-
-    #[test]
-    fn test_unsupported_duplex_stream_default() {
-        let _stream = UnsupportedDuplexStream::default();
-    }
-
-    #[test]
-    fn test_unsupported_duplex_stream_send_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<UnsupportedDuplexStream>();
     }
 }

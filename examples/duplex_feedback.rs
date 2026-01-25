@@ -40,16 +40,17 @@ fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
     let host = cpal::default_host();
 
-    // Find the device.
-    let device = if let Some(device_name) = opt.device {
-        let id = &device_name.parse().expect("failed to parse device id");
-        host.device_by_id(id)
+    // Find the device by device ID or use default
+    let device = if let Some(device_id_str) = opt.device {
+        let device_id = device_id_str.parse().expect("failed to parse device id");
+        host.device_by_id(&device_id)
+            .expect(&format!("failed to find device with id: {}", device_id_str))
     } else {
         host.default_output_device()
-    }
-    .expect("failed to find device");
+            .expect("no default output device")
+    };
 
-    println!("Using device: \"{}\"", device.id()?);
+    println!("Using device: \"{}\"", device.description()?.name());
 
     // Create duplex stream configuration.
     let config = DuplexStreamConfig::new(

@@ -99,18 +99,6 @@ impl Stream {
     }
 }
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
-
 // dyn-compatible versions of DeviceTrait, HostTrait, and StreamTrait
 // these only accept/return things via trait objects
 
@@ -355,8 +343,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedConfigs;
 
     type Stream = Stream;
-
-    type DuplexStream = DuplexStream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         self.0.name()

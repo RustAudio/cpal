@@ -32,18 +32,6 @@ pub struct Device;
 
 pub struct Host;
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
-
 pub struct Stream {
     ctx: Arc<AudioContext>,
     on_ended_closures: Vec<ClosureHandle>,
@@ -167,7 +155,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)
