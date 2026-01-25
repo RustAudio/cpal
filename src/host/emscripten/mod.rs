@@ -32,18 +32,6 @@ pub struct Devices(bool);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device;
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
-
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct Stream {
@@ -165,7 +153,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)

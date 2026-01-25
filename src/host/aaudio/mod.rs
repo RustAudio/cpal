@@ -115,18 +115,6 @@ pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
-
 /// Stream wraps AudioStream in Arc<Mutex<>> to provide Send + Sync semantics.
 ///
 /// While the underlying ndk::audio::AudioStream is neither Send nor Sync in ndk 0.9.0
@@ -395,7 +383,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     fn name(&self) -> Result<String, DeviceNameError> {
         match &self.0 {

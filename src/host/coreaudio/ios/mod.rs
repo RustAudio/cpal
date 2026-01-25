@@ -37,18 +37,6 @@ pub struct Device;
 
 pub struct Host;
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        StreamTrait::pause(&self.0)
-    }
-}
-
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
         Ok(Host)
@@ -133,7 +121,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)

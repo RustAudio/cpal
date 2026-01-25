@@ -83,7 +83,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = super::DuplexStream;
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
         Device::description(self)

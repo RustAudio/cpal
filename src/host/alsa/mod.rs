@@ -88,18 +88,6 @@ const DEFAULT_DEVICE: &str = "default";
 // TODO: Not yet defined in rust-lang/libc crate
 const LIBC_ENOTSUPP: libc::c_int = 524;
 
-pub struct DuplexStream(pub crate::duplex::UnsupportedDuplexStream);
-
-impl crate::traits::StreamTrait for DuplexStream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
-        crate::traits::StreamTrait::play(&self.0)
-    }
-
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        crate::traits::StreamTrait::pause(&self.0)
-    }
-}
-
 /// The default Linux and BSD host type.
 #[derive(Debug, Clone)]
 pub struct Host {
@@ -167,7 +155,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     // ALSA overrides name() to return pcm_id directly instead of from description
     fn name(&self) -> Result<String, DeviceNameError> {

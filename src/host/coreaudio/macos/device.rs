@@ -1,8 +1,7 @@
 use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
-use super::{DuplexStream, DuplexStreamInner};
-use crate::duplex::{AudioTimestamp, DuplexCallbackInfo};
+use crate::duplex::DuplexCallbackInfo;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
@@ -266,7 +265,6 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
-    type DuplexStream = DuplexStream;
 
     fn description(&self) -> Result<crate::DeviceDescription, DeviceNameError> {
         Device::description(self)
@@ -347,7 +345,7 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
@@ -852,6 +850,7 @@ impl Device {
                 audio_unit,
                 device_id: self.audio_device_id,
                 _loopback_device: loopback_aggregate,
+                duplex_callback_ptr: None,
             },
             error_callback_for_stream,
         )?;
@@ -955,6 +954,7 @@ impl Device {
                 audio_unit,
                 device_id: self.audio_device_id,
                 _loopback_device: None,
+                duplex_callback_ptr: None,
             },
             error_callback_for_stream,
         )?;
@@ -983,7 +983,7 @@ impl Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
-    ) -> Result<DuplexStream, BuildStreamError>
+    ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
@@ -1144,14 +1144,6 @@ impl Device {
                     .add(delay)
                     .expect("`playback` occurs beyond representation supported by `StreamInstant`");
 
-                // Create our AudioTimestamp from CoreAudio's
-                let audio_timestamp = AudioTimestamp::new(
-                    timestamp.mSampleTime,
-                    timestamp.mHostTime,
-                    timestamp.mRateScalar,
-                    callback_instant,
-                );
-
                 // Pull input from Element 1 using AudioUnitRender
                 // We use the pre-allocated input_buffer
                 unsafe {
@@ -1218,8 +1210,8 @@ impl Device {
                     Data::from_parts(buffer.mData as *mut (), output_samples, sample_format)
                 };
 
-                // Create callback info with timestamp and latency-adjusted times
-                let callback_info = DuplexCallbackInfo::new(audio_timestamp, capture, playback);
+                // Create callback info with latency-adjusted times
+                let callback_info = DuplexCallbackInfo::new(callback_instant, capture, playback);
 
                 // Call user callback with input and output Data
                 data_callback(&input_data, &mut output_data, &callback_info);
@@ -1248,11 +1240,12 @@ impl Device {
         )?;
 
         // Create the stream inner, storing the callback pointer for cleanup
-        let inner = DuplexStreamInner {
+        let inner = StreamInner {
             playing: true,
             audio_unit,
             device_id: self.audio_device_id,
-            duplex_callback_ptr: wrapper_ptr,
+            _loopback_device: None,
+            duplex_callback_ptr: Some(wrapper_ptr),
         };
 
         // Create error callback for stream - either dummy or real based on device type
@@ -1268,7 +1261,7 @@ impl Device {
             };
 
         // Create the duplex stream
-        let stream = DuplexStream::new(inner, error_callback_for_stream)?;
+        let stream = Stream::new(inner, error_callback_for_stream)?;
 
         // Start the audio unit
         stream
@@ -1386,7 +1379,7 @@ pub(crate) struct DuplexProcWrapper {
 
 // SAFETY: DuplexProcWrapper is Send because:
 // 1. The boxed closure captures only Send types (the DuplexCallback trait requires Send)
-// 2. The raw pointer stored in DuplexStreamInner is only accessed:
+// 2. The raw pointer stored in StreamInner is only accessed:
 //    - During Drop, after stopping the audio unit (callback no longer running)
 // 3. CoreAudio guarantees single-threaded callback invocation
 unsafe impl Send for DuplexProcWrapper {}

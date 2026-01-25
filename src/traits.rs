@@ -95,15 +95,13 @@ pub trait DeviceTrait {
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
-    /// The stream type created by [`build_input_stream_raw`] and [`build_output_stream_raw`].
+    /// The stream type created by [`build_input_stream_raw`], [`build_output_stream_raw`],
+    /// and [`build_duplex_stream_raw`].
     ///
     /// [`build_input_stream_raw`]: Self::build_input_stream_raw
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
+    /// [`build_duplex_stream_raw`]: Self::build_duplex_stream_raw
     type Stream: StreamTrait;
-    /// The duplex stream type created by [`build_duplex_stream`].
-    ///
-    /// [`build_duplex_stream`]: Self::build_duplex_stream
-    type DuplexStream: StreamTrait;
 
     /// The human-readable name of the device.
     #[deprecated(
@@ -357,7 +355,7 @@ pub trait DeviceTrait {
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         T: SizedSample,
         D: FnMut(&[T], &mut [T], &DuplexCallbackInfo) + Send + 'static,
@@ -403,7 +401,7 @@ pub trait DeviceTrait {
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::DuplexStream, BuildStreamError>
+    ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
