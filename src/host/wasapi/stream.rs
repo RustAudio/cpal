@@ -178,7 +178,9 @@ impl Stream {
 impl Drop for Stream {
     fn drop(&mut self) {
         if self.push_command(Command::Terminate).is_ok() {
-            self.thread.take().unwrap().join().unwrap();
+            if let Some(handle) = self.thread.take() {
+                let _ = handle.join();
+            }
             unsafe {
                 let _ = Foundation::CloseHandle(self.pending_scheduled_event);
             }
