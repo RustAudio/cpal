@@ -442,7 +442,7 @@ fn process_input(
 
             match result {
                 // TODO: Can this happen?
-                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY.into() => continue,
+                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
                 Err(e) => {
                     error_callback(windows_err_to_cpal_err(e));
                     return ControlFlow::Break;

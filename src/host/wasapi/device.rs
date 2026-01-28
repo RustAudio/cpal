@@ -511,7 +511,7 @@ impl Device {
         // Retrieve the `IAudioClient`.
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
-            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED.into() => {
+            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
                 return Err(SupportedStreamConfigsError::DeviceNotAvailable)
             }
             Err(e) => {
@@ -625,7 +625,7 @@ impl Device {
 
         let lock = match self.ensure_future_audio_client() {
             Ok(lock) => lock,
-            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED.into() => {
+            Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
                 return Err(DefaultStreamConfigError::DeviceNotAvailable)
             }
             Err(e) => {
@@ -682,7 +682,7 @@ impl Device {
             // Obtaining a `IAudioClient`.
             let audio_client = match self.build_audioclient() {
                 Ok(client) => client,
-                Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED.into() => {
+                Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
                     return Err(BuildStreamError::DeviceNotAvailable)
                 }
                 Err(e) => {
@@ -725,7 +725,7 @@ impl Device {
                     None,
                 );
                 match hresult {
-                    Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED.into() => {
+                    Err(ref e) if e.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED => {
                         return Err(BuildStreamError::DeviceNotAvailable);
                     }
                     Err(e) => {
