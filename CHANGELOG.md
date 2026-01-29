@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Enumerating input and output devices no longer interferes with each other.
 - **ALSA**: Device handles are no longer exclusively held between operations.
 - **ALSA**: Valgrind memory leak reports from ALSA global configuration cache.
+- **ALSA**: Fix possible race condition on drop.
 
 ## [0.17.1] - 2026-01-04
 
