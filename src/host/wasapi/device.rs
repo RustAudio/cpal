@@ -32,7 +32,6 @@ use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
 use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
-use windows::Win32::Foundation;
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::IAudioRenderClient;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
@@ -60,6 +59,10 @@ const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
     pid: 8,
 };
+
+const DEFAULT_FLAGS: u32 = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+    | Audio::AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+    | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
@@ -187,30 +190,13 @@ unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::ED
 
 // Given the audio client and format, returns whether or not the format is supported.
 pub unsafe fn is_format_supported(
-    client: &Audio::IAudioClient,
-    waveformatex_ptr: *const Audio::WAVEFORMATEX,
+    _client: &Audio::IAudioClient,
+    _waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, SupportedStreamConfigsError> {
-    // Check if the given format is supported.
-    let mut closest_waveformatex_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
+    // Checking formats is not needed for shared mode with auto-conversion, therefore this check has been removed until someone implements WASAPI exclusive mode support
+    // I used an NAudio issue as reference: https://github.com/naudio/NAudio/issues/819
 
-    let result = client.IsFormatSupported(
-        Audio::AUDCLNT_SHAREMODE_SHARED,
-        waveformatex_ptr,
-        Some(&mut closest_waveformatex_ptr as *mut _),
-    );
-
-    if !closest_waveformatex_ptr.is_null() {
-        Com::CoTaskMemFree(Some(closest_waveformatex_ptr as *mut std::ffi::c_void));
-    }
-
-    // `IsFormatSupported` can return `S_FALSE` (which means that a compatible format
-    // has been found, but not an exact match) so we also treat this as unsupported.
-    match result {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED => Err(SupportedStreamConfigsError::DeviceNotAvailable),
-        r if r.is_err() => Ok(false),
-        Foundation::S_FALSE => Ok(false),
-        _ => Ok(true),
-    }
+    Ok(true)
 }
 
 // Get a cpal Format from a WAVEFORMATEX.
@@ -696,7 +682,7 @@ impl Device {
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
-            let mut stream_flags = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+            let mut stream_flags = DEFAULT_FLAGS;
 
             if self.data_flow() == Audio::eRender {
                 stream_flags |= Audio::AUDCLNT_STREAMFLAGS_LOOPBACK;
@@ -829,7 +815,7 @@ impl Device {
                 audio_client
                     .Initialize(
                         share_mode,
-                        Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                        DEFAULT_FLAGS,
                         buffer_duration,
                         0,
                         &format_attempt.Format,
