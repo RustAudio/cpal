@@ -10,6 +10,8 @@ pub use self::platform_impl::*;
 #[cfg(feature = "custom")]
 pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream as CustomStream};
 
+pub mod asio;
+
 /// A macro to assist with implementing a platform's dynamically dispatched [`Host`] type.
 ///
 /// These dynamically dispatched types are necessary to allow for users to switch between hosts at
