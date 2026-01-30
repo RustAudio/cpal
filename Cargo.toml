@@ -180,6 +180,9 @@ name = "record_wav"
 [[example]]
 name = "synth_tones"
 
+[[example]]
+name = "duplex_feedback"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

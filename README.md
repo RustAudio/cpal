@@ -28,6 +28,7 @@ This library currently supports the following:
 - Enumerate known supported input and output stream formats for a device.
 - Get the current default input and output stream formats for a device.
 - Build and run input and output PCM streams on a chosen device with a given stream format.
+- Build and run duplex (simultaneous input/output) streams with hardware clock synchronization (macOS only, more platforms coming soon).
 
 Currently, supported hosts include:
 
@@ -209,6 +210,7 @@ CPAL comes with several examples demonstrating various features:
 - `beep` - Generate a simple sine wave tone
 - `enumerate` - List all available audio devices and their capabilities
 - `feedback` - Pass input audio directly to output (microphone loopback)
+- `duplex_feedback` - Hardware-synchronized duplex stream loopback (macOS only)
 - `record_wav` - Record audio from the default input device to a WAV file
 - `synth_tones` - Generate multiple tones simultaneously
 

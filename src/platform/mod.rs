@@ -521,6 +521,29 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn build_duplex_stream_raw<D, E>(
+                &self,
+                config: &crate::duplex::DuplexStreamConfig,
+                sample_format: crate::SampleFormat,
+                data_callback: D,
+                error_callback: E,
+                timeout: Option<std::time::Duration>,
+            ) -> Result<Self::Stream, crate::BuildStreamError>
+            where
+                D: FnMut(&crate::Data, &mut crate::Data, &crate::duplex::DuplexCallbackInfo) + Send + 'static,
+                E: FnMut(crate::StreamError) + Send + 'static,
+            {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d
+                            .build_duplex_stream_raw(config, sample_format, data_callback, error_callback, timeout)
+                            .map(StreamInner::$HostVariant)
+                            .map(Stream::from),
+                    )*
+                }
+            }
         }
 
         impl crate::traits::HostTrait for Host {
