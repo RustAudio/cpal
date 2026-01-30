@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
+- **ASIO**: Extension trait for ASIO devices, which allows opening the control panel.
 - **WASAPI**: Allow non-native sample rates to be used via as-necessary resampling in the WASAPI server process.
 
 ### Changed
