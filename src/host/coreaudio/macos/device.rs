@@ -1211,7 +1211,15 @@ impl Device {
                 };
 
                 // Create callback info with latency-adjusted times
-                let callback_info = DuplexCallbackInfo::new(callback_instant, capture, playback);
+                let input_timestamp = crate::InputStreamTimestamp {
+                    callback: callback_instant,
+                    capture,
+                };
+                let output_timestamp = crate::OutputStreamTimestamp {
+                    callback: callback_instant,
+                    playback,
+                };
+                let callback_info = DuplexCallbackInfo::new(input_timestamp, output_timestamp);
 
                 // Call user callback with input and output Data
                 data_callback(&input_data, &mut output_data, &callback_info);

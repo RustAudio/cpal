@@ -37,39 +37,46 @@
 //! ).expect("failed to build duplex stream");
 //! ```
 
-use crate::{SampleRate, StreamInstant};
+use crate::{InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
 
 /// Information passed to duplex callbacks.
 ///
 /// This contains timing information for the current audio buffer, combining
-/// both input and output timing similar to [`InputCallbackInfo`](crate::InputCallbackInfo)
-/// and [`OutputCallbackInfo`](crate::OutputCallbackInfo).
+/// both input and output timing. A duplex stream has a single callback invocation
+/// that provides synchronized input and output data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DuplexCallbackInfo {
-    /// The instant the stream's data callback was invoked.
-    pub callback: StreamInstant,
-
-    /// The instant that input data was captured from the device.
-    ///
-    /// This is calculated by subtracting the input device latency from the callback time,
-    /// representing when the input samples were actually captured by the hardware (e.g., by an ADC).
-    pub capture: StreamInstant,
-
-    /// The predicted instant that output data will be delivered to the device for playback.
-    ///
-    /// This is calculated by adding the output device latency to the callback time,
-    /// representing when the output samples will actually be played by the hardware (e.g., by a DAC).
-    pub playback: StreamInstant,
+    input_timestamp: InputStreamTimestamp,
+    output_timestamp: OutputStreamTimestamp,
 }
 
 impl DuplexCallbackInfo {
     /// Create a new DuplexCallbackInfo.
-    pub fn new(callback: StreamInstant, capture: StreamInstant, playback: StreamInstant) -> Self {
+    ///
+    /// Note: Both timestamps will share the same `callback` instant since there is
+    /// only one callback invocation for a duplex stream.
+    pub fn new(
+        input_timestamp: InputStreamTimestamp,
+        output_timestamp: OutputStreamTimestamp,
+    ) -> Self {
         Self {
-            callback,
-            capture,
-            playback,
+            input_timestamp,
+            output_timestamp,
         }
+    }
+
+    /// The timestamp for the input portion of the duplex stream.
+    ///
+    /// Contains the callback instant and when the input data was captured.
+    pub fn input_timestamp(&self) -> InputStreamTimestamp {
+        self.input_timestamp
+    }
+
+    /// The timestamp for the output portion of the duplex stream.
+    ///
+    /// Contains the callback instant and when the output data will be played.
+    pub fn output_timestamp(&self) -> OutputStreamTimestamp {
+        self.output_timestamp
     }
 }
 
@@ -154,6 +161,7 @@ impl DuplexStreamConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamInstant;
 
     #[test]
     fn test_duplex_callback_info() {
@@ -161,11 +169,14 @@ mod tests {
         let capture = StreamInstant::new(0, 500_000_000); // 500ms before callback
         let playback = StreamInstant::new(1, 500_000_000); // 500ms after callback
 
-        let info = DuplexCallbackInfo::new(callback, capture, playback);
+        let input_timestamp = crate::InputStreamTimestamp { callback, capture };
+        let output_timestamp = crate::OutputStreamTimestamp { callback, playback };
+        let info = DuplexCallbackInfo::new(input_timestamp, output_timestamp);
 
-        assert_eq!(info.callback, callback);
-        assert_eq!(info.capture, capture);
-        assert_eq!(info.playback, playback);
+        assert_eq!(info.input_timestamp().callback, callback);
+        assert_eq!(info.input_timestamp().capture, capture);
+        assert_eq!(info.output_timestamp().callback, callback);
+        assert_eq!(info.output_timestamp().playback, playback);
     }
 
     #[test]

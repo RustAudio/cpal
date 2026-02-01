@@ -6,11 +6,16 @@
 //! Note: Currently only supported on macOS (CoreAudio). Windows (WASAPI) and Linux (ALSA)
 //! implementations are planned.
 
+#[cfg(target_os = "macos")]
 use clap::Parser;
+#[cfg(target_os = "macos")]
 use cpal::duplex::DuplexStreamConfig;
+#[cfg(target_os = "macos")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(target_os = "macos")]
 use cpal::BufferSize;
 
+#[cfg(target_os = "macos")]
 #[derive(Parser, Debug)]
 #[command(version, about = "CPAL duplex feedback example", long_about = None)]
 struct Opt {
@@ -44,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     let device = if let Some(device_id_str) = opt.device {
         let device_id = device_id_str.parse().expect("failed to parse device id");
         host.device_by_id(&device_id)
-            .expect(&format!("failed to find device with id: {}", device_id_str))
+            .unwrap_or_else(|| panic!("failed to find device with id: {}", device_id_str))
     } else {
         host.default_output_device()
             .expect("no default output device")
