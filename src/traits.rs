@@ -301,8 +301,8 @@ pub trait DeviceTrait {
 
     /// Create a duplex stream with synchronized input and output.
     ///
-    /// A duplex stream uses a single audio unit with both input and output enabled,
-    /// ensuring they share the same hardware clock. This is essential for applications
+    /// A duplex stream provides input and output that share the same hardware clock.
+    /// This is essential for applications
     /// requiring sample-accurate synchronization between input and output, such as:
     ///
     /// - DAWs (Digital Audio Workstations)
