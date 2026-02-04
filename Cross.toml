@@ -2,6 +2,4 @@
 dockerfile = "Dockerfile"
 
 [target.armv7-unknown-linux-gnueabihf.env]
-passthrough = [
-    "RUSTFLAGS",
-]
+passthrough = ["RUSTFLAGS"]
