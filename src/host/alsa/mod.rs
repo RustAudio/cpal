@@ -1449,26 +1449,8 @@ fn set_sw_params_from_format(
             }
             alsa::Direction::Capture => 1,
         };
-        sw_params.set_start_threshold(start_threshold.try_into().unwrap())?;
-
-        // Set avail_min based on stream direction. For playback, "avail" means space available
-        // for writing (buffer_size - frames_queued). For capture, "avail" means data available
-        // for reading (frames_captured). These opposite semantics require different values.
-        let target_avail = match stream_type {
-            alsa::Direction::Playback => {
-                // Wake when buffer level drops to one period remaining (avail >= buffer - period).
-                // This ensures we can always write one full period. Works correctly regardless
-                // of total periods: 2-period buffer wakes at period, 4-period at 3*period, etc.
-                buffer - period
-            }
-            alsa::Direction::Capture => {
-                // Wake when one period of data is available to read (avail >= period).
-                // Using buffer - period here would cause excessive latency as capture would
-                // wait for nearly the entire buffer to fill before reading.
-                period
-            }
-        };
-        sw_params.set_avail_min(target_avail as alsa::pcm::Frames)?;
+        sw_params.set_start_threshold(start_threshold as alsa::pcm::Frames)?;
+        sw_params.set_avail_min(period as alsa::pcm::Frames)?;
 
         period as usize * config.channels as usize
     };

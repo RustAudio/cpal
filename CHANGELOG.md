@@ -12,20 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
-- **WASAPI**: Allow non-native sample rates to be used via as-necessary resampling in the WASAPI server process.
+- **WASAPI**: Enable as-necessary resampling in the WASAPI server process.
 
 ### Changed
 
 - Overall MSRV increased to 1.78.
 - **ALSA**: Update `alsa` dependency from 0.10 to 0.11.
-- **ALSA**: MSRV increased from 1.77 to 1.82 (required by alsa-sys 0.4.0).
+- **ALSA**: MSRV increased from 1.77 to 1.82.
 
 ### Fixed
 
 - **ALSA**: Enumerating input and output devices no longer interferes with each other.
 - **ALSA**: Device handles are no longer exclusively held between operations.
-- **ALSA**: Valgrind memory leak reports from ALSA global configuration cache.
+- **ALSA**: Reduce Valgrind memory leak reports from ALSA global configuration cache.
 - **ALSA**: Fix possible race condition on drop.
+- **ALSA**: Fix audio callback stalling when start threshold is not met.
 
 ## [0.17.1] - 2026-01-04
 
