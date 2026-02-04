@@ -16,9 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Overall MSRV increased to 1.78.
-- **ALSA**: Update `alsa` dependency from 0.10 to 0.11.
-- **ALSA**: MSRV increased from 1.77 to 1.82.
+- Bump overall MSRV to 1.78.
+- **ALSA**: Update `alsa` dependency to 0.11.
+- **ALSA**: Bump MSRV to 1.82.
+- **CoreAudio**: Update `core-audio-rs` dependency to 0.14.
 
 ### Fixed
 

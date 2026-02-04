@@ -116,9 +116,10 @@ impl DisconnectManager {
             };
 
             // Create the listener on this dedicated thread
-            match AudioObjectPropertyListener::new(device_id, property_address, move || {
+            let disconnect_fn = move || {
                 let _ = disconnect_tx_clone.send(());
-            }) {
+            };
+            match AudioObjectPropertyListener::new(device_id, property_address, disconnect_fn) {
                 Ok(_listener) => {
                     let _ = ready_tx.send(Ok(()));
                     // Drop the listener on this thread after receiving a shutdown signal
