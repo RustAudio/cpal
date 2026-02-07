@@ -174,5 +174,4 @@ mod tests {
     fn test_duplex_stream_config_zero_buffer_size() {
         DuplexStreamConfig::new(2, 2, 48000, crate::BufferSize::Fixed(0));
     }
-
 }
