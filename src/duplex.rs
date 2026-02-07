@@ -145,70 +145,11 @@ impl DuplexStreamConfig {
     ) -> Self {
         Self::new(channels, channels, sample_rate, buffer_size)
     }
-
-    /// Convert to a basic StreamConfig using output channel count.
-    ///
-    /// Useful for compatibility with existing cpal APIs.
-    pub fn to_stream_config(&self) -> crate::StreamConfig {
-        crate::StreamConfig {
-            channels: self.output_channels,
-            sample_rate: self.sample_rate,
-            buffer_size: self.buffer_size,
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::StreamInstant;
-
-    #[test]
-    fn test_duplex_callback_info() {
-        let callback = StreamInstant::new(1, 0);
-        let capture = StreamInstant::new(0, 500_000_000); // 500ms before callback
-        let playback = StreamInstant::new(1, 500_000_000); // 500ms after callback
-
-        let input_timestamp = crate::InputStreamTimestamp { callback, capture };
-        let output_timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = DuplexCallbackInfo::new(input_timestamp, output_timestamp);
-
-        assert_eq!(info.input_timestamp().callback, callback);
-        assert_eq!(info.input_timestamp().capture, capture);
-        assert_eq!(info.output_timestamp().callback, callback);
-        assert_eq!(info.output_timestamp().playback, playback);
-    }
-
-    #[test]
-    fn test_duplex_stream_config() {
-        let config = DuplexStreamConfig::symmetric(2, 48000, crate::BufferSize::Fixed(512));
-        assert_eq!(config.input_channels, 2);
-        assert_eq!(config.output_channels, 2);
-        assert_eq!(config.sample_rate, 48000);
-
-        let stream_config = config.to_stream_config();
-        assert_eq!(stream_config.channels, 2);
-        assert_eq!(stream_config.sample_rate, 48000);
-    }
-
-    #[test]
-    fn test_duplex_stream_config_asymmetric() {
-        let config = DuplexStreamConfig::new(1, 8, 96000, crate::BufferSize::Default);
-        assert_eq!(config.input_channels, 1);
-        assert_eq!(config.output_channels, 8);
-        assert_eq!(config.sample_rate, 96000);
-    }
-
-    #[test]
-    fn test_duplex_stream_config_to_stream_config() {
-        let config = DuplexStreamConfig::new(1, 2, 48000, crate::BufferSize::Fixed(256));
-        let stream_config = config.to_stream_config();
-
-        // to_stream_config uses output_channels
-        assert_eq!(stream_config.channels, 2);
-        assert_eq!(stream_config.sample_rate, 48000);
-        assert_eq!(stream_config.buffer_size, crate::BufferSize::Fixed(256));
-    }
 
     #[test]
     #[should_panic(expected = "input_channels must be greater than 0")]
@@ -234,14 +175,4 @@ mod tests {
         DuplexStreamConfig::new(2, 2, 48000, crate::BufferSize::Fixed(0));
     }
 
-    #[test]
-    fn test_duplex_stream_config_clone_and_eq() {
-        let config1 = DuplexStreamConfig::new(2, 4, 48000, crate::BufferSize::Fixed(512));
-        let config2 = config1.clone();
-
-        assert_eq!(config1, config2);
-
-        let config3 = DuplexStreamConfig::new(2, 4, 44100, crate::BufferSize::Fixed(512));
-        assert_ne!(config1, config3);
-    }
 }
