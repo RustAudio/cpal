@@ -7,96 +7,98 @@
 //! implementations are planned.
 
 #[cfg(target_os = "macos")]
-use clap::Parser;
-#[cfg(target_os = "macos")]
-use cpal::duplex::DuplexStreamConfig;
-#[cfg(target_os = "macos")]
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-#[cfg(target_os = "macos")]
-use cpal::BufferSize;
+mod imp {
+    use clap::Parser;
+    use cpal::duplex::DuplexStreamConfig;
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use cpal::BufferSize;
 
-#[cfg(target_os = "macos")]
-#[derive(Parser, Debug)]
-#[command(version, about = "CPAL duplex feedback example", long_about = None)]
-struct Opt {
-    /// The audio device to use (must support duplex operation)
-    #[arg(short, long, value_name = "DEVICE")]
-    device: Option<String>,
+    #[derive(Parser, Debug)]
+    #[command(version, about = "CPAL duplex feedback example", long_about = None)]
+    struct Opt {
+        /// The audio device to use (must support duplex operation)
+        #[arg(short, long, value_name = "DEVICE")]
+        device: Option<String>,
 
-    /// Number of input channels
-    #[arg(long, value_name = "CHANNELS", default_value_t = 2)]
-    input_channels: u16,
+        /// Number of input channels
+        #[arg(long, value_name = "CHANNELS", default_value_t = 2)]
+        input_channels: u16,
 
-    /// Number of output channels
-    #[arg(long, value_name = "CHANNELS", default_value_t = 2)]
-    output_channels: u16,
+        /// Number of output channels
+        #[arg(long, value_name = "CHANNELS", default_value_t = 2)]
+        output_channels: u16,
 
-    /// Sample rate in Hz
-    #[arg(short, long, value_name = "RATE", default_value_t = 48000)]
-    sample_rate: u32,
+        /// Sample rate in Hz
+        #[arg(short, long, value_name = "RATE", default_value_t = 48000)]
+        sample_rate: u32,
 
-    /// Buffer size in frames
-    #[arg(short, long, value_name = "FRAMES", default_value_t = 512)]
-    buffer_size: u32,
+        /// Buffer size in frames
+        #[arg(short, long, value_name = "FRAMES", default_value_t = 512)]
+        buffer_size: u32,
+    }
+
+    pub fn run() -> anyhow::Result<()> {
+        let opt = Opt::parse();
+        let host = cpal::default_host();
+
+        // Find the device by device ID or use default
+        let device = if let Some(device_id_str) = opt.device {
+            let device_id = device_id_str.parse().expect("failed to parse device id");
+            host.device_by_id(&device_id)
+                .unwrap_or_else(|| panic!("failed to find device with id: {}", device_id_str))
+        } else {
+            host.default_output_device()
+                .expect("no default output device")
+        };
+
+        println!("Using device: \"{}\"", device.description()?.name());
+
+        // Create duplex stream configuration.
+        let config = DuplexStreamConfig::new(
+            opt.input_channels,
+            opt.output_channels,
+            opt.sample_rate,
+            BufferSize::Fixed(opt.buffer_size),
+        );
+
+        println!("Building duplex stream with config: {config:?}");
+
+        let stream = device.build_duplex_stream::<f32, _, _>(
+            &config,
+            move |input, output, _info| {
+                output.fill(0.0);
+                let copy_len = input.len().min(output.len());
+                output[..copy_len].copy_from_slice(&input[..copy_len]);
+            },
+            |err| eprintln!("Stream error: {err}"),
+            None,
+        )?;
+
+        println!("Successfully built duplex stream.");
+        println!(
+            "Input: {} channels, Output: {} channels, Sample rate: {} Hz, Buffer size: {} frames",
+            opt.input_channels, opt.output_channels, opt.sample_rate, opt.buffer_size
+        );
+
+        println!("Starting duplex stream...");
+        stream.play()?;
+
+        println!("Playing for 10 seconds... (speak into your microphone)");
+        std::thread::sleep(std::time::Duration::from_secs(10));
+
+        drop(stream);
+        println!("Done!");
+        Ok(())
+    }
 }
 
-#[cfg(target_os = "macos")]
-fn main() -> anyhow::Result<()> {
-    let opt = Opt::parse();
-    let host = cpal::default_host();
-
-    // Find the device by device ID or use default
-    let device = if let Some(device_id_str) = opt.device {
-        let device_id = device_id_str.parse().expect("failed to parse device id");
-        host.device_by_id(&device_id)
-            .unwrap_or_else(|| panic!("failed to find device with id: {}", device_id_str))
-    } else {
-        host.default_output_device()
-            .expect("no default output device")
-    };
-
-    println!("Using device: \"{}\"", device.description()?.name());
-
-    // Create duplex stream configuration.
-    let config = DuplexStreamConfig::new(
-        opt.input_channels,
-        opt.output_channels,
-        opt.sample_rate,
-        BufferSize::Fixed(opt.buffer_size),
-    );
-
-    println!("Building duplex stream with config: {config:?}");
-
-    let stream = device.build_duplex_stream::<f32, _, _>(
-        &config,
-        move |input, output, _info| {
-            output.fill(0.0);
-            let copy_len = input.len().min(output.len());
-            output[..copy_len].copy_from_slice(&input[..copy_len]);
-        },
-        |err| eprintln!("Stream error: {err}"),
-        None,
-    )?;
-
-    println!("Successfully built duplex stream.");
-    println!(
-        "Input: {} channels, Output: {} channels, Sample rate: {} Hz, Buffer size: {} frames",
-        opt.input_channels, opt.output_channels, opt.sample_rate, opt.buffer_size
-    );
-
-    println!("Starting duplex stream...");
-    stream.play()?;
-
-    println!("Playing for 10 seconds... (speak into your microphone)");
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
-    drop(stream);
-    println!("Done!");
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
 fn main() {
-    eprintln!("Duplex streams are currently only supported on macOS.");
-    eprintln!("Windows (WASAPI) and Linux (ALSA) support is planned.");
+    #[cfg(target_os = "macos")]
+    imp::run().unwrap();
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        eprintln!("Duplex streams are currently only supported on macOS.");
+        eprintln!("Windows (WASAPI) and Linux (ALSA) support is planned.");
+    }
 }
