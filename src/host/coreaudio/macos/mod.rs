@@ -232,6 +232,10 @@ impl Drop for StreamInner {
         // Clean up duplex callback if present
         if let Some(ptr) = self.duplex_callback_ptr {
             if !ptr.is_null() {
+                // SAFETY: `ptr` was created via `Box::into_raw` in
+                // `build_duplex_stream` and has not been reclaimed elsewhere.
+                // The audio unit was stopped above, so the callback no longer
+                // holds a reference to this pointer.
                 unsafe {
                     let _ = Box::from_raw(ptr);
                 }

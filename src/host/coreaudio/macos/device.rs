@@ -1390,9 +1390,13 @@ unsafe impl Send for DuplexProcWrapper {}
 /// and calls the inner closure. The closure owns all the callback state via
 /// move semantics, so no Mutex is needed.
 ///
-/// # Safety
-/// This is an unsafe extern "C-unwind" callback called by CoreAudio. The refcon
-/// must be a valid pointer to a DuplexProcWrapper.
+/// Note: `extern "C-unwind"` is required here because `AURenderCallbackStruct`
+/// from coreaudio-sys types the `inputProc` field as `extern "C-unwind"`.
+/// Ideally this would be `extern "C"` so that a panic aborts rather than
+/// unwinding through CoreAudio's C frames (this callback runs on CoreAudio's
+/// audio thread with no Rust frames above to catch an unwind). Per RFC 2945
+/// (https://github.com/rust-lang/rust/issues/115285), `extern "C"` aborts on
+/// panic, which would be the correct behavior here.
 extern "C-unwind" fn duplex_input_proc(
     in_ref_con: NonNull<c_void>,
     io_action_flags: NonNull<AudioUnitRenderActionFlags>,
@@ -1401,6 +1405,12 @@ extern "C-unwind" fn duplex_input_proc(
     in_number_frames: u32,
     io_data: *mut AudioBufferList,
 ) -> i32 {
+    // SAFETY: `in_ref_con` points to a heap-allocated `DuplexProcWrapper` created
+    // via `Box::into_raw` in `build_duplex_stream`, and remains valid for the
+    // lifetime of the audio unit (reclaimed in `StreamInner::drop`). The `as_mut()` call
+    // produces an exclusive `&mut` reference, which is sound because CoreAudio
+    // guarantees single-threaded callback invocation — this function is never
+    // called concurrently, so only one `&mut` to the wrapper exists at a time.
     let wrapper = unsafe { in_ref_con.cast::<DuplexProcWrapper>().as_mut() };
     (wrapper.callback)(
         io_action_flags,
