@@ -1264,10 +1264,11 @@ impl Device {
             duplex_callback_ptr: Some(DuplexCallbackPtr(wrapper_ptr)),
         };
 
-        // Create error callback for stream - either dummy or real based on device type
-        // For duplex, check both input and output default device status
+        // Create error callback for stream - either dummy or real based on device type.
+        // For duplex, only swallow disconnect if the device is the default for both
+        // roles — otherwise Core Audio won't re-route both directions.
         let error_callback_for_stream: super::ErrorCallback =
-            if is_default_input_device(self) || is_default_output_device(self) {
+            if is_default_input_device(self) && is_default_output_device(self) {
                 Box::new(|_: StreamError| {})
             } else {
                 let error_callback_clone = error_callback.clone();
