@@ -1065,7 +1065,8 @@ impl Device {
             Some(&output_asbd),
         )?;
 
-        // Configure buffer size if requested
+        // Buffer frame size is a device-level property. Element::Output (0) is
+        // the standard convention for Scope::Global properties.
         if let BufferSize::Fixed(buffer_size) = &config.buffer_size {
             audio_unit.set_property(
                 kAudioDevicePropertyBufferFrameSize,
