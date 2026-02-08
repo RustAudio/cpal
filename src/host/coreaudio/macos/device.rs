@@ -972,6 +972,7 @@ impl Device {
     ///
     /// This creates a single HAL AudioUnit with both input and output enabled,
     /// ensuring they share the same hardware clock.
+    /// For details, see: https://developer.apple.com/library/archive/technotes/tn2091/_index.html
     fn build_duplex_stream_raw<D, E>(
         &self,
         config: &crate::duplex::DuplexStreamConfig,
@@ -1035,7 +1036,17 @@ impl Device {
             buffer_size: config.buffer_size,
         };
 
-        // Configure input format (Scope::Output on Element::Input)
+        // Core Audio's HAL AU has two buses, each with a hardware side and a
+        // client (app) side. We set the stream format on the client-facing side;
+        // the AU's built-in converter handles translation to/from the hardware format.
+        //
+        //   Mic ─[Scope::Input]─▶ Input Bus ─[Scope::Output]─▶ App
+        //   App ─[Scope::Input]─▶ Output Bus ─[Scope::Output]─▶ Speaker
+        //         (hardware)                    (client)
+        //
+        // So the client side is Scope::Output for the input bus (where we read
+        // captured samples) and Scope::Input for the output bus (where we write
+        // playback samples). See Apple TN2091 for details.
         let input_asbd = asbd_from_config(&input_stream_config, sample_format);
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
@@ -1044,7 +1055,6 @@ impl Device {
             Some(&input_asbd),
         )?;
 
-        // Configure output format (Scope::Input on Element::Output)
         let output_asbd = asbd_from_config(&output_stream_config, sample_format);
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
