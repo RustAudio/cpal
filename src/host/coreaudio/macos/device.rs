@@ -733,14 +733,6 @@ impl Device {
             .map(|mut configs| configs.next().is_some())
             .unwrap_or(false)
     }
-
-    /// Check if this device supports output (playback).
-    fn supports_output(&self) -> bool {
-        // Check if the device has output channels by trying to get its output configuration
-        self.supported_output_configs()
-            .map(|mut configs| configs.next().is_some())
-            .unwrap_or(false)
-    }
 }
 
 impl fmt::Debug for Device {
