@@ -337,7 +337,12 @@ pub trait DeviceTrait {
     /// let host = cpal::default_host();
     /// let device = host.default_output_device().expect("no device");
     ///
-    /// let config = DuplexStreamConfig::symmetric(2, 48000, BufferSize::Fixed(512));
+    /// let config = DuplexStreamConfig {
+    ///     input_channels: 2,
+    ///     output_channels: 2,
+    ///     sample_rate: 48000,
+    ///     buffer_size: BufferSize::Fixed(512),
+    /// };
     ///
     /// let stream = device.build_duplex_stream::<f32, _, _>(
     ///     &config,

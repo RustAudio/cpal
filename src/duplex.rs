@@ -24,7 +24,12 @@
 //! let host = cpal::default_host();
 //! let device = host.default_output_device().expect("no device");
 //!
-//! let config = DuplexStreamConfig::symmetric(2, 48000, BufferSize::Fixed(512));
+//! let config = DuplexStreamConfig {
+//!     input_channels: 2,
+//!     output_channels: 2,
+//!     sample_rate: 48000,
+//!     buffer_size: BufferSize::Fixed(512),
+//! };
 //!
 //! let stream = device.build_duplex_stream::<f32, _, _>(
 //!     &config,
@@ -97,81 +102,4 @@ pub struct DuplexStreamConfig {
 
     /// Requested buffer size in frames.
     pub buffer_size: crate::BufferSize,
-}
-
-impl DuplexStreamConfig {
-    /// Create a new duplex stream configuration.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    /// - `input_channels` or `output_channels` is zero
-    /// - `sample_rate` is zero
-    /// - `buffer_size` is `BufferSize::Fixed(0)`
-    pub fn new(
-        input_channels: u16,
-        output_channels: u16,
-        sample_rate: SampleRate,
-        buffer_size: crate::BufferSize,
-    ) -> Self {
-        assert!(input_channels > 0, "input_channels must be greater than 0");
-        assert!(
-            output_channels > 0,
-            "output_channels must be greater than 0"
-        );
-        assert!(sample_rate > 0, "sample_rate must be greater than 0");
-        assert!(
-            !matches!(buffer_size, crate::BufferSize::Fixed(0)),
-            "buffer_size cannot be Fixed(0)"
-        );
-
-        Self {
-            input_channels,
-            output_channels,
-            sample_rate,
-            buffer_size,
-        }
-    }
-
-    /// Create a symmetric configuration (same channel count for input and output).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `channels` is zero or if `sample_rate` is zero.
-    pub fn symmetric(
-        channels: u16,
-        sample_rate: SampleRate,
-        buffer_size: crate::BufferSize,
-    ) -> Self {
-        Self::new(channels, channels, sample_rate, buffer_size)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[should_panic(expected = "input_channels must be greater than 0")]
-    fn test_duplex_stream_config_zero_input_channels() {
-        DuplexStreamConfig::new(0, 2, 48000, crate::BufferSize::Default);
-    }
-
-    #[test]
-    #[should_panic(expected = "output_channels must be greater than 0")]
-    fn test_duplex_stream_config_zero_output_channels() {
-        DuplexStreamConfig::new(2, 0, 48000, crate::BufferSize::Default);
-    }
-
-    #[test]
-    #[should_panic(expected = "sample_rate must be greater than 0")]
-    fn test_duplex_stream_config_zero_sample_rate() {
-        DuplexStreamConfig::new(2, 2, 0, crate::BufferSize::Default);
-    }
-
-    #[test]
-    #[should_panic(expected = "buffer_size cannot be Fixed(0)")]
-    fn test_duplex_stream_config_zero_buffer_size() {
-        DuplexStreamConfig::new(2, 2, 48000, crate::BufferSize::Fixed(0));
-    }
 }

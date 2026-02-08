@@ -54,12 +54,12 @@ mod imp {
         println!("Using device: \"{}\"", device.description()?.name());
 
         // Create duplex stream configuration.
-        let config = DuplexStreamConfig::new(
-            opt.input_channels,
-            opt.output_channels,
-            opt.sample_rate,
-            BufferSize::Fixed(opt.buffer_size),
-        );
+        let config = DuplexStreamConfig {
+            input_channels: opt.input_channels,
+            output_channels: opt.output_channels,
+            sample_rate: opt.sample_rate,
+            buffer_size: BufferSize::Fixed(opt.buffer_size),
+        };
 
         println!("Building duplex stream with config: {config:?}");
 
