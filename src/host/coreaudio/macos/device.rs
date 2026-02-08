@@ -1040,9 +1040,11 @@ impl Device {
         // client (app) side. We set the stream format on the client-facing side;
         // the AU's built-in converter handles translation to/from the hardware format.
         //
-        //   Mic ─[Scope::Input]─▶ Input Bus ─[Scope::Output]─▶ App
-        //   App ─[Scope::Input]─▶ Output Bus ─[Scope::Output]─▶ Speaker
-        //         (hardware)                    (client)
+        //   Mic ─[Scope::Input]──▶ Input Bus ──[Scope::Output]─▶ App
+        //        (hardware side)                (client side)
+        //
+        //   App ─[Scope::Input]──▶ Output Bus ─[Scope::Output]─▶ Speaker
+        //        (client side)                   (hardware side)
         //
         // So the client side is Scope::Output for the input bus (where we read
         // captured samples) and Scope::Input for the output bus (where we write
