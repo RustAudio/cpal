@@ -180,7 +180,7 @@ struct StreamInner {
     #[allow(dead_code)]
     device_id: AudioDeviceID,
     /// Manage the lifetime of the aggregate device used
-    /// for loopback recording (used by input streams only)
+    /// for loopback recording
     _loopback_device: Option<LoopbackDevice>,
     /// Pointer to the duplex callback wrapper, needed for cleanup.
     /// This is only used by duplex streams and is None for regular input/output streams.
