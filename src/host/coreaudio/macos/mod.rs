@@ -225,17 +225,16 @@ impl StreamInner {
 
 impl Drop for StreamInner {
     fn drop(&mut self) {
-        // Stop the audio unit to ensure the callback is no longer being called.
-        // Note: AudioUnit::drop will call stop() again — this is intentional.
-        // We must stop before reclaiming duplex_callback_ptr below, and we can't
-        // use coreaudio-rs's set_render_callback (which would manage the callback
-        // lifetime for us) because the duplex callback requires a custom
-        // AURenderCallbackStruct setup that bypasses coreaudio-rs's API.
-        let _ = self.audio_unit.stop();
-
         // Clean up duplex callback if present.
         if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
             if !ptr.is_null() {
+                // Stop the audio unit to ensure the callback is no longer being called.
+                // Note: AudioUnit::drop will call stop() again — this is intentional.
+                // We must stop before reclaiming duplex_callback_ptr below, and we can't
+                // use coreaudio-rs's set_render_callback (which would manage the callback
+                // lifetime for us) because the duplex callback requires a custom
+                // AURenderCallbackStruct setup that bypasses coreaudio-rs's API.
+                let _ = self.audio_unit.stop();
                 // SAFETY: `ptr` was created via `Box::into_raw` in
                 // `build_duplex_stream` and has not been reclaimed elsewhere.
                 // The audio unit was stopped above, so the callback no longer
