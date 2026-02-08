@@ -1,6 +1,9 @@
 use super::OSStatus;
 use super::Stream;
-use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
+use super::{
+    asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant,
+    DuplexCallbackPtr,
+};
 use crate::duplex::DuplexCallbackInfo;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
@@ -1245,7 +1248,7 @@ impl Device {
             audio_unit,
             device_id: self.audio_device_id,
             _loopback_device: None,
-            duplex_callback_ptr: Some(wrapper_ptr),
+            duplex_callback_ptr: Some(DuplexCallbackPtr(wrapper_ptr)),
         };
 
         // Create error callback for stream - either dummy or real based on device type

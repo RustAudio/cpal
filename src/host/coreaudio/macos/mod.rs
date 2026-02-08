@@ -170,6 +170,16 @@ impl DisconnectManager {
     }
 }
 
+/// Owned pointer to the duplex callback wrapper that is safe to send across threads.
+///
+/// SAFETY: The pointer is created via `Box::into_raw` (which is Send) and is only
+/// dereferenced during `StreamInner::drop`, after the audio unit has been stopped
+/// and the callback is no longer running.
+struct DuplexCallbackPtr(*mut device::DuplexProcWrapper);
+
+// SAFETY: See above — the pointer is only accessed after the audio unit is stopped.
+unsafe impl Send for DuplexCallbackPtr {}
+
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
@@ -184,19 +194,8 @@ struct StreamInner {
     _loopback_device: Option<LoopbackDevice>,
     /// Pointer to the duplex callback wrapper, needed for cleanup.
     /// This is only used by duplex streams and is None for regular input/output streams.
-    duplex_callback_ptr: Option<*mut device::DuplexProcWrapper>,
+    duplex_callback_ptr: Option<DuplexCallbackPtr>,
 }
-
-// SAFETY: StreamInner is Send because:
-// 1. AudioUnit is Send (handles thread safety internally)
-// 2. AudioDeviceID is a simple integer type
-// 3. LoopbackDevice is Send (contains only Send types)
-// 4. The raw pointer duplex_callback_ptr is only accessed:
-//    - During Drop, after stopping the audio unit (callback no longer running)
-//    - The pointer was created from a Box that is Send
-//    - CoreAudio guarantees single-threaded callback invocation
-// 5. The pointer is never dereferenced while the audio unit is running
-unsafe impl Send for StreamInner {}
 
 impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
@@ -235,7 +234,7 @@ impl Drop for StreamInner {
         let _ = self.audio_unit.stop();
 
         // Clean up duplex callback if present.
-        if let Some(ptr) = self.duplex_callback_ptr {
+        if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
             if !ptr.is_null() {
                 // SAFETY: `ptr` was created via `Box::into_raw` in
                 // `build_duplex_stream` and has not been reclaimed elsewhere.
