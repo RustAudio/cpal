@@ -1286,7 +1286,7 @@ impl Device {
             .lock()
             .map_err(|_| BuildStreamError::BackendSpecific {
                 err: BackendSpecificError {
-                    description: "Failed to lock duplex stream".to_string(),
+                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
                 },
             })?
             .audio_unit
