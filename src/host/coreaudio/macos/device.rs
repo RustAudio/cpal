@@ -1379,8 +1379,10 @@ pub(crate) struct DuplexProcWrapper {
 
 // SAFETY: DuplexProcWrapper is Send because:
 // 1. The boxed closure captures only Send types (the DuplexCallback trait requires Send)
-// 2. The raw pointer stored in StreamInner is only accessed:
+// 2. The raw pointer stored in StreamInner is accessed:
+//    - By CoreAudio's audio thread via `duplex_input_proc` (as the refcon)
 //    - During Drop, after stopping the audio unit (callback no longer running)
+//    These never overlap: Drop stops the audio unit before reclaiming the pointer.
 // 3. CoreAudio guarantees single-threaded callback invocation
 unsafe impl Send for DuplexProcWrapper {}
 
