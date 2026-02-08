@@ -315,7 +315,7 @@ pub trait DeviceTrait {
     /// * `data_callback` - Called periodically with synchronized input and output buffers.
     ///   - `input`: Interleaved samples from the input device in format `T`
     ///   - `output`: Mutable buffer to fill with interleaved samples for output in format `T`
-    ///   - `info`: Timing information including hardware timestamp
+    ///   - `info`: Timing information including estimated capture and playback timestamps
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
