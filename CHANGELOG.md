@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Reverted SemVer-breaking `DeviceBusy` error variant addition.
 
-## [0.17.2] - 2026-02-08
+## [0.17.2] - 2026-02-08 [YANKED]
 
 ### Added
 
