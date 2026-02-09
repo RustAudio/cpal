@@ -196,8 +196,14 @@ struct StreamInner {
     /// Manage the lifetime of the aggregate device used
     /// for loopback recording
     _loopback_device: Option<LoopbackDevice>,
-    /// Pointer to the duplex callback wrapper, needed for cleanup.
-    /// This is only used by duplex streams and is None for regular input/output streams.
+    /// Pointer to the duplex callback wrapper, manually managed for duplex streams.
+    ///
+    /// coreaudio-rs doesn't support duplex streams (enabling both input and output
+    /// simultaneously), so we cannot use its `set_render_callback` API which would
+    /// manage the callback lifetime automatically. Instead, we manually manage this
+    /// callback pointer (created via `Box::into_raw`) and clean it up in Drop.
+    ///
+    /// This is None for regular input/output streams.
     duplex_callback_ptr: Option<DuplexCallbackPtr>,
 }
 
@@ -232,12 +238,10 @@ impl Drop for StreamInner {
         // Clean up duplex callback if present.
         if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
             if !ptr.is_null() {
-                // Stop the audio unit to ensure the callback is no longer being called.
-                // Note: AudioUnit::drop will call stop() again — this is intentional.
-                // We must stop before reclaiming duplex_callback_ptr below, and we can't
-                // use coreaudio-rs's set_render_callback (which would manage the callback
-                // lifetime for us) because the duplex callback requires a custom
-                // AURenderCallbackStruct setup that bypasses coreaudio-rs's API.
+                // Stop the audio unit to ensure the callback is no longer being called
+                // before reclaiming duplex_callback_ptr below. We must stop here regardless
+                // of AudioUnit::drop's behavior.
+                // Note: AudioUnit::drop will also call stop() — likely safe, but we stop here anyway.
                 let _ = self.audio_unit.stop();
                 // SAFETY: `ptr` was created via `Box::into_raw` in
                 // `build_duplex_stream` and has not been reclaimed elsewhere.
