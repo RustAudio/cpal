@@ -172,12 +172,16 @@ impl DisconnectManager {
 
 /// Owned pointer to the duplex callback wrapper that is safe to send across threads.
 ///
-/// SAFETY: The pointer is created via `Box::into_raw` (which is Send) and is only
-/// dereferenced during `StreamInner::drop`, after the audio unit has been stopped
-/// and the callback is no longer running.
+/// SAFETY: The pointer is created via `Box::into_raw` on the build thread and shared with
+/// CoreAudio via `inputProcRefCon`. CoreAudio dereferences it on every render callback on
+/// its single-threaded audio thread for the lifetime of the stream. On drop, the audio unit
+/// is stopped before reclaiming the `Box`, preventing use-after-free. `Send` is sound because
+/// there is no concurrent mutable access—the build/drop thread never accesses the pointer
+/// while the audio unit is running, and only reclaims it after stopping the audio unit.
 struct DuplexCallbackPtr(*mut device::DuplexProcWrapper);
 
-// SAFETY: See above — the pointer is only accessed after the audio unit is stopped.
+// SAFETY: See above — the pointer is shared with CoreAudio's audio thread but never
+// accessed concurrently. The audio unit is stopped before reclaiming in drop.
 unsafe impl Send for DuplexCallbackPtr {}
 
 struct StreamInner {

@@ -14,33 +14,7 @@
 //! - Audio measurement and analysis
 //! - Any application requiring sample-accurate I/O synchronization
 //!
-//! # Example
-//!
-//! ```no_run
-//! use cpal::duplex::DuplexStreamConfig;
-//! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-//! use cpal::BufferSize;
-//!
-//! let host = cpal::default_host();
-//! let device = host.default_output_device().expect("no device");
-//!
-//! let config = DuplexStreamConfig {
-//!     input_channels: 2,
-//!     output_channels: 2,
-//!     sample_rate: 48000,
-//!     buffer_size: BufferSize::Fixed(512),
-//! };
-//!
-//! let stream = device.build_duplex_stream::<f32, _, _>(
-//!     &config,
-//!     |input, output, info| {
-//!         // Passthrough: copy input to output
-//!         output[..input.len()].copy_from_slice(input);
-//!     },
-//!     |err| eprintln!("Stream error: {}", err),
-//!     None,
-//! ).expect("failed to build duplex stream");
-//! ```
+//! See `examples/duplex_feedback.rs` for a working example.
 
 use crate::{InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
 

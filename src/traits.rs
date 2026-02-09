@@ -299,61 +299,11 @@ pub trait DeviceTrait {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static;
 
-    /// Create a duplex stream with synchronized input and output.
+    /// Create a duplex stream with synchronized input and output sharing the same hardware clock.
     ///
-    /// A duplex stream provides input and output that share the same hardware clock.
-    /// This is essential for applications
-    /// requiring sample-accurate synchronization between input and output, such as:
+    /// Essential for DAWs, real-time effects, and any application requiring sample-accurate I/O sync.
     ///
-    /// - DAWs (Digital Audio Workstations)
-    /// - Real-time audio effects processing
-    /// - Audio measurement and analysis
-    ///
-    /// # Parameters
-    ///
-    /// * `config` - The duplex stream configuration specifying channels, sample rate, and buffer size.
-    /// * `data_callback` - Called periodically with synchronized input and output buffers.
-    ///   - `input`: Interleaved samples from the input device in format `T`
-    ///   - `output`: Mutable buffer to fill with interleaved samples for output in format `T`
-    ///   - `info`: Timing information including estimated capture and playback timestamps
-    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
-    /// * `timeout` - Optional timeout for backend operations. `None` indicates blocking behavior,
-    ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The device doesn't support duplex operation ([`supports_duplex`](Self::supports_duplex) returns false)
-    /// - The requested configuration is not supported
-    /// - The device is no longer available
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use cpal::duplex::DuplexStreamConfig;
-    /// use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    /// use cpal::BufferSize;
-    ///
-    /// let host = cpal::default_host();
-    /// let device = host.default_output_device().expect("no device");
-    ///
-    /// let config = DuplexStreamConfig {
-    ///     input_channels: 2,
-    ///     output_channels: 2,
-    ///     sample_rate: 48000,
-    ///     buffer_size: BufferSize::Fixed(512),
-    /// };
-    ///
-    /// let stream = device.build_duplex_stream::<f32, _, _>(
-    ///     &config,
-    ///     |input, output, info| {
-    ///         // Passthrough: copy input to output
-    ///         output[..input.len()].copy_from_slice(input);
-    ///     },
-    ///     |err| eprintln!("Stream error: {}", err),
-    ///     None, // No timeout
-    /// );
-    /// ```
+    /// Check [`supports_duplex`](Self::supports_duplex) before calling. See the example below for usage.
     fn build_duplex_stream<T, D, E>(
         &self,
         config: &DuplexStreamConfig,
