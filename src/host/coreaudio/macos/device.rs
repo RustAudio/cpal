@@ -970,6 +970,60 @@ impl Device {
         Ok(stream)
     }
 
+    /// Calculate latency-adjusted capture and playback timestamps with graceful error handling.
+    ///
+    /// Note: input/output streams use .expect() here and will panic - while it is
+    /// inconsistent, I believe it is safer for duplex to handle gracefully on the real-time
+    /// audio thread. Errors here should be extremely rare (timestamp arithmetic
+    /// overflow/underflow).
+    ///
+    /// While theoretically and probably practically impossible, this is a critical
+    /// user-experience issue -- the app shouldn't crash and potentially lose end-user data.
+    /// The only reason `sub` would overflow is if delay is massively too large, which would
+    /// indicate some kind of major bug or failure in the OS since callback_instant is derived
+    /// from host time. Still, I think the best practice is NOT to panic but tell the app
+    /// and fallback to a degraded latency estimate of no latency.
+    fn calculate_duplex_timestamps<E>(
+        callback_instant: crate::StreamInstant,
+        delay: std::time::Duration,
+        error_callback: &Arc<Mutex<E>>,
+    ) -> (crate::StreamInstant, crate::StreamInstant)
+    where
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        let capture = match callback_instant.sub(delay) {
+            Some(c) => c,
+            None => {
+                invoke_error_callback(
+                    error_callback,
+                    StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "Timestamp underflow calculating capture time".to_string(),
+                        },
+                    },
+                );
+                callback_instant
+            }
+        };
+
+        let playback = match callback_instant.add(delay) {
+            Some(p) => p,
+            None => {
+                invoke_error_callback(
+                    error_callback,
+                    StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "Timestamp overflow calculating playback time".to_string(),
+                        },
+                    },
+                );
+                callback_instant
+            }
+        };
+
+        (capture, playback)
+    }
+
     /// Build a duplex stream with synchronized input and output.
     ///
     /// This creates a single HAL AudioUnit with both input and output enabled,
@@ -1117,6 +1171,16 @@ impl Device {
                   in_number_frames: u32,
                   io_data: *mut AudioBufferList|
                   -> i32 {
+                // Validate output buffer structure early to avoid wasted work
+                if io_data.is_null() {
+                    return kAudio_ParamError;
+                }
+                // SAFETY: io_data validated as non-null above
+                let buffer_list = unsafe { &mut *io_data };
+                if buffer_list.mNumberBuffers == 0 {
+                    return kAudio_ParamError;
+                }
+
                 let num_frames = in_number_frames as usize;
                 let input_samples = num_frames * input_channels;
                 let input_bytes = input_samples * sample_bytes;
@@ -1153,6 +1217,17 @@ impl Device {
                     Ok(cb) => cb,
                 };
 
+                let buffer = &mut buffer_list.mBuffers[0];
+                if buffer.mData.is_null() {
+                    return kAudio_ParamError;
+                }
+                let output_samples = buffer.mDataByteSize as usize / sample_bytes;
+
+                // SAFETY: buffer.mData validated as non-null above
+                let mut output_data = unsafe {
+                    Data::from_parts(buffer.mData as *mut (), output_samples, sample_format)
+                };
+
                 // Calculate latency-adjusted timestamps (matching input/output pattern)
                 let buffer_frames = num_frames;
                 // Use device buffer size for latency calculation if available
@@ -1162,86 +1237,11 @@ impl Device {
                 );
                 let delay = frames_to_duration(latency_frames, sample_rate);
 
-                // Capture time: when input was actually captured (in the past)
-                let capture = callback_instant
-                    .sub(delay)
-                    .expect("`capture` occurs before origin of `StreamInstant`");
-
-                // Playback time: when output will actually play (in the future)
-                let playback = callback_instant
-                    .add(delay)
-                    .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-
-                // Pull input from Element 1 using AudioUnitRender
-                // We use the pre-allocated input_buffer
-                unsafe {
-                    // Set up AudioBufferList pointing to our input buffer
-                    let mut input_buffer_list = AudioBufferList {
-                        mNumberBuffers: 1,
-                        mBuffers: [AudioBuffer {
-                            mNumberChannels: input_channels as u32,
-                            mDataByteSize: input_bytes as u32,
-                            mData: input_buffer.as_mut_ptr() as *mut std::ffi::c_void,
-                        }],
-                    };
-
-                    let status = AudioUnitRender(
-                        raw_audio_unit,
-                        io_action_flags.as_ptr(),
-                        in_time_stamp,
-                        1, // Element 1 = input
-                        in_number_frames,
-                        NonNull::new_unchecked(&mut input_buffer_list),
-                    );
-
-                    if status != 0 {
-                        // Report error but continue with silence for graceful degradation
-                        invoke_error_callback(
-                            &error_callback_for_callback,
-                            StreamError::BackendSpecific {
-                                err: BackendSpecificError {
-                                    description: format!(
-                                        "AudioUnitRender failed for input: OSStatus {}",
-                                        status
-                                    ),
-                                },
-                            },
-                        );
-                        input_buffer[..input_bytes].fill(0);
-                    }
-                }
-
-                // Get output buffer from CoreAudio
-                if io_data.is_null() {
-                    // Return error - Core Audio should never pass null, this is a fatal error
-                    return kAudio_ParamError;
-                }
-
-                // Create Data wrappers for input and output
-                let input_data = unsafe {
-                    Data::from_parts(
-                        input_buffer.as_mut_ptr() as *mut (),
-                        input_samples,
-                        sample_format,
-                    )
-                };
-
-                // SAFETY: io_data is guaranteed valid by Core Audio for the duration of this callback
-                let buffer_list = unsafe { &mut *io_data };
-                if buffer_list.mNumberBuffers == 0 {
-                    // Return error - no buffers available, cannot render
-                    return kAudio_ParamError;
-                }
-                let buffer = &mut buffer_list.mBuffers[0];
-                if buffer.mData.is_null() {
-                    // Return error - null buffer data, cannot render
-                    return kAudio_ParamError;
-                }
-                let output_samples = buffer.mDataByteSize as usize / sample_bytes;
-                // SAFETY: buffer.mData points to valid audio data provided by Core Audio
-                let mut output_data = unsafe {
-                    Data::from_parts(buffer.mData as *mut (), output_samples, sample_format)
-                };
+                let (capture, playback) = Self::calculate_duplex_timestamps(
+                    callback_instant,
+                    delay,
+                    &error_callback_for_callback,
+                );
 
                 // Create callback info with latency-adjusted times
                 let input_timestamp = crate::InputStreamTimestamp {
@@ -1252,9 +1252,60 @@ impl Device {
                     callback: callback_instant,
                     playback,
                 };
-                let callback_info = DuplexCallbackInfo::new(input_timestamp, output_timestamp);
 
-                // Call user callback with input and output Data
+                // Pull input from Element 1 using AudioUnitRender
+                // use the pre-allocated input_buffer
+                // Set up AudioBufferList pointing to our input buffer
+                let mut input_buffer_list = AudioBufferList {
+                    mNumberBuffers: 1,
+                    mBuffers: [AudioBuffer {
+                        mNumberChannels: input_channels as u32,
+                        mDataByteSize: input_bytes as u32,
+                        mData: input_buffer.as_mut_ptr() as *mut std::ffi::c_void,
+                    }],
+                };
+
+                // SAFETY: AudioUnitRender is called with valid parameters:
+                // - raw_audio_unit is valid for the callback duration
+                // - input_buffer_list is created just above on the stack
+                // - All other parameters come from Core Audio itself
+                let status = unsafe {
+                    AudioUnitRender(
+                        raw_audio_unit,
+                        io_action_flags.as_ptr(),
+                        in_time_stamp,
+                        1, // Element 1 = input
+                        in_number_frames,
+                        NonNull::new_unchecked(&mut input_buffer_list),
+                    )
+                };
+
+                if status != 0 {
+                    // Report error but continue with silence for graceful degradation
+                    // The application should decide what to do.
+                    invoke_error_callback(
+                        &error_callback_for_callback,
+                        StreamError::BackendSpecific {
+                            err: BackendSpecificError {
+                                description: format!(
+                                    "AudioUnitRender failed for input: OSStatus {}",
+                                    status
+                                ),
+                            },
+                        },
+                    );
+                    input_buffer[..input_bytes].fill(0);
+                }
+
+                let input_data = unsafe {
+                    Data::from_parts(
+                        input_buffer.as_mut_ptr() as *mut (),
+                        input_samples,
+                        sample_format,
+                    )
+                };
+
+                let callback_info = DuplexCallbackInfo::new(input_timestamp, output_timestamp);
                 data_callback(&input_data, &mut output_data, &callback_info);
 
                 // Return 0 (noErr) to indicate successful render
