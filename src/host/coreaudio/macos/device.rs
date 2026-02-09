@@ -18,8 +18,9 @@ use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
-    kAudioUnitProperty_SetRenderCallback, kAudioUnitProperty_StreamFormat, AURenderCallbackStruct,
-    AudioUnitRender, AudioUnitRenderActionFlags,
+    kAudioUnitErr_TooManyFramesToProcess, kAudioUnitProperty_SetRenderCallback,
+    kAudioUnitProperty_StreamFormat, AURenderCallbackStruct, AudioUnitRender,
+    AudioUnitRenderActionFlags,
 };
 use objc2_core_audio::kAudioDevicePropertyDeviceUID;
 use objc2_core_audio::kAudioObjectPropertyElementMain;
@@ -34,7 +35,8 @@ use objc2_core_audio::{
     AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
-    AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp, AudioValueRange,
+    kAudio_ParamError, AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp,
+    AudioValueRange,
 };
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::Type;
@@ -1108,8 +1110,6 @@ impl Device {
         // Move data callback into closure
         let mut data_callback = data_callback;
 
-        // Create the duplex callback closure
-        // This closure owns all captured state - no Mutex needed for data_callback or input_buffer
         let duplex_proc: Box<DuplexProcFn> = Box::new(
             move |io_action_flags: NonNull<AudioUnitRenderActionFlags>,
                   in_time_stamp: NonNull<AudioTimeStamp>,
@@ -1121,13 +1121,33 @@ impl Device {
                 let input_samples = num_frames * input_channels;
                 let input_bytes = input_samples * sample_bytes;
 
+                // Bounds check: ensure the requested frames don't exceed our pre-allocated buffer
+                if input_bytes > input_buffer.len() {
+                    invoke_error_callback(
+                        &error_callback_for_callback,
+                        StreamError::BackendSpecific {
+                            err: BackendSpecificError {
+                                description: format!(
+                                    "Callback requested {} frames ({} bytes) but buffer is {} bytes",
+                                    num_frames, input_bytes, input_buffer.len()
+                                ),
+                            },
+                        },
+                    );
+                    // Return error - this is a persistent failure that will happen every callback
+                    return kAudioUnitErr_TooManyFramesToProcess;
+                }
+
                 // SAFETY: in_time_stamp is valid per CoreAudio contract
-                let timestamp = unsafe { in_time_stamp.as_ref() };
+                let timestamp: &AudioTimeStamp = unsafe { in_time_stamp.as_ref() };
 
                 // Create StreamInstant for callback_instant
                 let callback_instant = match host_time_to_stream_instant(timestamp.mHostTime) {
                     Err(err) => {
                         invoke_error_callback(&error_callback_for_callback, err.into());
+                        // Return 0 (noErr) to keep the stream alive while notifying the error
+                        // callback. This matches input/output stream behavior and allows graceful
+                        // degradation rather than stopping the stream on transient errors.
                         return 0;
                     }
                     Ok(cb) => cb,
@@ -1193,7 +1213,8 @@ impl Device {
 
                 // Get output buffer from CoreAudio
                 if io_data.is_null() {
-                    return 0;
+                    // Return error - Core Audio should never pass null, this is a fatal error
+                    return kAudio_ParamError;
                 }
 
                 // Create Data wrappers for input and output
@@ -1205,16 +1226,20 @@ impl Device {
                     )
                 };
 
+                // SAFETY: io_data is guaranteed valid by Core Audio for the duration of this callback
+                let buffer_list = unsafe { &mut *io_data };
+                if buffer_list.mNumberBuffers == 0 {
+                    // Return error - no buffers available, cannot render
+                    return kAudio_ParamError;
+                }
+                let buffer = &mut buffer_list.mBuffers[0];
+                if buffer.mData.is_null() {
+                    // Return error - null buffer data, cannot render
+                    return kAudio_ParamError;
+                }
+                let output_samples = buffer.mDataByteSize as usize / sample_bytes;
+                // SAFETY: buffer.mData points to valid audio data provided by Core Audio
                 let mut output_data = unsafe {
-                    let buffer_list = &mut *io_data;
-                    if buffer_list.mNumberBuffers == 0 {
-                        return 0;
-                    }
-                    let buffer = &mut buffer_list.mBuffers[0];
-                    if buffer.mData.is_null() {
-                        return 0;
-                    }
-                    let output_samples = buffer.mDataByteSize as usize / sample_bytes;
                     Data::from_parts(buffer.mData as *mut (), output_samples, sample_format)
                 };
 
@@ -1232,7 +1257,8 @@ impl Device {
                 // Call user callback with input and output Data
                 data_callback(&input_data, &mut output_data, &callback_info);
 
-                0 // noErr
+                // Return 0 (noErr) to indicate successful render
+                0
             },
         );
 
