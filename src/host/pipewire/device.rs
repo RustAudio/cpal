@@ -598,9 +598,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 ("playback", Role::Sink) => DeviceDirection::Duplex,
                                 ("playback", Role::Source) => DeviceDirection::Input,
                                 ("capture", _) => DeviceDirection::Output,
-                                _ => {
-                                    return;
-                                }
+                                // Bluetooth and other non-ALSA devices use generic port group
+                                // names like "stream.0" — derive direction from media.class
+                                (_, Role::Sink) => DeviceDirection::Output,
+                                (_, Role::Source) => DeviceDirection::Input,
                             };
                             let Some(object_id) = props.get("object.id") else {
                                 return;
@@ -616,10 +617,13 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             };
                             let id = info.id();
                             let node_name = props.get("node.name").unwrap_or("unknown").to_owned();
-                            let nick_name = props.get("node.nick").unwrap_or("unknown").to_owned();
                             let description = props
                                 .get("node.description")
                                 .unwrap_or("unknown")
+                                .to_owned();
+                            let nick_name = props
+                                .get("node.nick")
+                                .unwrap_or_else(|| description.as_str())
                                 .to_owned();
                             let channels = props
                                 .get("audio.channels")
