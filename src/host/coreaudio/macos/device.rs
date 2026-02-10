@@ -1308,8 +1308,11 @@ impl Device {
 
                 // SAFETY: AudioUnitRender is called with valid parameters:
                 // - raw_audio_unit is valid for the callback duration
-                // - input_buffer_list is created just above on the stack
-                // - All other parameters come from Core Audio itself
+                // - input_buffer_list is created just above on the stack with a pointer to
+                //   input_buffer, which is properly aligned (Rust's standard allocators return
+                //   pointers aligned to at least 8 bytes, exceeding f32/i16 requirements)
+                // - input_buffer has been bounds-checked above to ensure sufficient capacity
+                // - All other parameters (timestamps, flags, etc.) come from CoreAudio itself
                 let status = unsafe {
                     AudioUnitRender(
                         raw_audio_unit,
@@ -1338,6 +1341,18 @@ impl Device {
                     input_buffer[..input_bytes].fill(0);
                 }
 
+                // SAFETY: Creating Data from input_buffer is safe because:
+                // - input_buffer is a valid Vec<u8> owned by this closure
+                // - input_samples (num_frames * input_channels) was bounds-checked above to ensure
+                //   input_samples * sample_bytes <= input_buffer.len()
+                // - AudioUnitRender just filled the buffer with valid audio data (or we filled
+                //   it with silence on error)
+                // - The Data lifetime is scoped to this callback and doesn't outlive input_buffer
+                // - The pointer is suitably aligned: We successfully passed this buffer to
+                //   AudioUnitRender (line 1314), which requires properly aligned buffers and would
+                //   have failed if alignment were incorrect. Additionally, in practice, Rust's
+                //   standard allocators (System, jemalloc, etc.) return pointers aligned to at
+                //   least 8 bytes, which exceeds the requirements for f32 (4 bytes) and i16 (2 bytes).
                 let input_data = unsafe {
                     Data::from_parts(
                         input_buffer.as_mut_ptr() as *mut (),
