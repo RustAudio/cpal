@@ -57,6 +57,9 @@ pub struct Device {
     role: Role,
     icon_name: String,
     object_serial: u32,
+    interface_type: crate::InterfaceType,
+    address: Option<String>,
+    driver: Option<String>,
 }
 
 impl Device {
@@ -106,7 +109,9 @@ impl Device {
     fn device_type(&self) -> crate::DeviceType {
         match self.icon_name.as_str() {
             "audio-headphones" => crate::DeviceType::Headphones,
+            "audio-headset" => crate::DeviceType::Headset,
             "audio-input-microphone" => crate::DeviceType::Microphone,
+            "audio-speakers" => crate::DeviceType::Speaker,
             _ => crate::DeviceType::Unknown,
         }
     }
@@ -145,15 +150,22 @@ impl DeviceTrait for Device {
     fn id(&self) -> Result<crate::DeviceId, crate::DeviceIdError> {
         Ok(crate::DeviceId(
             crate::HostId::PipeWire,
-            self.nick_name.clone(),
+            self.node_name.clone(),
         ))
     }
 
     fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
-        Ok(crate::DeviceDescriptionBuilder::new(&self.nick_name)
+        let mut builder = crate::DeviceDescriptionBuilder::new(&self.nick_name)
             .direction(self.direction())
             .device_type(self.device_type())
-            .build())
+            .interface_type(self.interface_type);
+        if let Some(ref address) = self.address {
+            builder = builder.address(address);
+        }
+        if let Some(ref driver) = self.driver {
+            builder = builder.driver(driver);
+        }
+        Ok(builder.build())
     }
 
     fn supports_input(&self) -> bool {
@@ -638,6 +650,26 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .unwrap_or("default")
                                 .to_owned();
 
+                            let interface_type = match props.get("device.api") {
+                                Some("bluez5") => crate::InterfaceType::Bluetooth,
+                                _ => match props.get("device.bus") {
+                                    Some("pci") => crate::InterfaceType::Pci,
+                                    Some("usb") => crate::InterfaceType::Usb,
+                                    Some("firewire") => crate::InterfaceType::FireWire,
+                                    Some("thunderbolt") => crate::InterfaceType::Thunderbolt,
+                                    _ => crate::InterfaceType::Unknown,
+                                },
+                            };
+
+                            let address = props
+                                .get("api.bluez5.address")
+                                .or_else(|| props.get("api.alsa.path"))
+                                .map(|s| s.to_owned());
+
+                            let driver = props
+                                .get("factory.name")
+                                .map(|s| s.to_owned());
+
                             let device = Device {
                                 id,
                                 node_name,
@@ -651,6 +683,9 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 object_id: object_id.to_owned(),
                                 device_id: device_id.to_owned(),
                                 object_serial,
+                                interface_type,
+                                address,
+                                driver,
                                 ..Default::default()
                             };
                             devices.borrow_mut().push(device);
