@@ -1132,14 +1132,45 @@ impl Device {
             )?;
         }
 
-        // Get actual buffer size for pre-allocating input buffer
-        let buffer_size: u32 = audio_unit
-            .get_property(
-                kAudioDevicePropertyBufferFrameSize,
-                Scope::Global,
-                Element::Output,
-            )
-            .unwrap_or(512);
+        // Query the buffer size range to determine the maximum possible buffer size.
+        //
+        // BUFFER ALLOCATION STRATEGY:
+        // Duplex streams must pre-allocate an input buffer because AudioUnitRender() requires
+        // us to provide the buffer. Unlike input/output streams where CoreAudio provides the
+        // buffer, we cannot dynamically reallocate in the callback without:
+        //   1. Violating real-time constraints (allocation is not RT-safe)
+        //   2. Implementing complex double/triple buffering (not worth it for rare edge case)
+        //
+        // Therefore, we allocate for the MAXIMUM buffer size reported by the device. This
+        // handles dynamic buffer size changes (e.g., due to sample rate changes or system
+        // audio settings) transparently and efficiently.
+        //
+        // LIMITATION:
+        // If CoreAudio requests more frames than the device's reported maximum buffer size,
+        // the stream will fail with kAudioUnitErr_TooManyFramesToProcess. This can happen if:
+        //   - The device's buffer size is changed after stream creation (via System Settings
+        //     or another audio application)
+        //   - The device reconfigures itself (e.g., joins/leaves an aggregate device)
+        //   - The device's supported buffer size range changes due to sample rate or format
+        //     changes
+        // Recovery requires the user to destroy and recreate the stream, which will query
+        // the new buffer size range and allocate appropriately.
+        let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
+        let max_buffer_size = match buffer_size_range {
+            crate::SupportedBufferSize::Range { max, .. } => max,
+            crate::SupportedBufferSize::Unknown => {
+                // Fallback: query current size and add headroom for safety
+                let current: u32 = audio_unit
+                    .get_property(
+                        kAudioDevicePropertyBufferFrameSize,
+                        Scope::Global,
+                        Element::Output,
+                    )
+                    .unwrap_or(512);
+                // Add 2x headroom when range is unknown to handle potential size increases
+                current * 2
+            }
+        };
 
         // Get callback vars for latency calculation (matching input/output pattern)
         let sample_rate = config.sample_rate;
@@ -1152,8 +1183,10 @@ impl Device {
         let input_channels = config.input_channels as usize;
         let sample_bytes = sample_format.sample_size();
 
-        // Pre-allocate input buffer for the configured buffer size (in bytes)
-        let input_buffer_samples = buffer_size as usize * input_channels;
+        // Pre-allocate input buffer for the maximum buffer size (in bytes).
+        // This ensures we can handle dynamic buffer size changes without reallocation.
+        // See the BUFFER ALLOCATION STRATEGY comment above for detailed rationale.
+        let input_buffer_samples = max_buffer_size as usize * input_channels;
         let input_buffer_bytes = input_buffer_samples * sample_bytes;
         let mut input_buffer: Vec<u8> = vec![0u8; input_buffer_bytes];
 
@@ -1185,20 +1218,28 @@ impl Device {
                 let input_samples = num_frames * input_channels;
                 let input_bytes = input_samples * sample_bytes;
 
-                // Bounds check: ensure the requested frames don't exceed our pre-allocated buffer
+                // Bounds check: ensure the requested frames don't exceed our pre-allocated buffer.
+                // This buffer is allocated for the maximum buffer size reported by the device,
+                // so this check should only fail if CoreAudio requests more frames than the
+                // device's reported maximum (which would indicate a serious driver/OS issue).
                 if input_bytes > input_buffer.len() {
                     invoke_error_callback(
                         &error_callback_for_callback,
                         StreamError::BackendSpecific {
                             err: BackendSpecificError {
                                 description: format!(
-                                    "Callback requested {} frames ({} bytes) but buffer is {} bytes",
+                                    "CoreAudio requested {} frames ({} bytes) but the input buffer is \
+                                     only {} bytes (allocated for the device's maximum buffer size at \
+                                     stream creation). This likely means the device's buffer size or \
+                                     configuration changed after the stream was created. To recover, \
+                                     destroy and recreate the stream.",
                                     num_frames, input_bytes, input_buffer.len()
                                 ),
                             },
                         },
                     );
                     // Return error - this is a persistent failure that will happen every callback
+                    // until the user destroys and recreates the stream
                     return kAudioUnitErr_TooManyFramesToProcess;
                 }
 
