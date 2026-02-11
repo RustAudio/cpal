@@ -640,7 +640,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .to_owned();
                             let nick_name = props
                                 .get("node.nick")
-                                .unwrap_or_else(|| description.as_str())
+                                .unwrap_or(description.as_str())
                                 .to_owned();
                             let channels = props
                                 .get("audio.channels")
