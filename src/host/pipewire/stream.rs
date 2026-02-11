@@ -91,8 +91,8 @@ impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
             SampleFormat::F64 => Self::F64LE,
             #[cfg(target_endian = "big")]
             SampleFormat::F64 => Self::F64BE,
-            SampleFormat::I64 => Self::Unknown,
-            SampleFormat::U64 => Self::Unknown,
+            // TODO: maybe we also need to support others
+            _ => Self::Unknown,
         }
     }
 }
