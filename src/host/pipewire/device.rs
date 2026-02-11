@@ -2,6 +2,7 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::host::pipewire::stream::{StreamData, SUPPORTED_FORMATS};
+use crate::InterfaceType;
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 
 use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
@@ -57,7 +58,7 @@ pub struct Device {
     role: Role,
     icon_name: String,
     object_serial: u32,
-    interface_type: crate::InterfaceType,
+    interface_type: InterfaceType,
     address: Option<String>,
     driver: Option<String>,
 }
@@ -112,6 +113,7 @@ impl Device {
             "audio-headset" => crate::DeviceType::Headset,
             "audio-input-microphone" => crate::DeviceType::Microphone,
             "audio-speakers" => crate::DeviceType::Speaker,
+            "video-display" => crate::DeviceType::Speaker,
             _ => crate::DeviceType::Unknown,
         }
     }
@@ -159,11 +161,14 @@ impl DeviceTrait for Device {
             .direction(self.direction())
             .device_type(self.device_type())
             .interface_type(self.interface_type);
-        if let Some(ref address) = self.address {
+        if let Some(address) = self.address.as_ref() {
             builder = builder.address(address);
         }
-        if let Some(ref driver) = self.driver {
+        if let Some(driver) = self.driver.as_ref() {
             builder = builder.driver(driver);
+        }
+        if !self.description.is_empty() && self.description != self.nick_name {
+            builder = builder.add_extended_line(&self.description);
         }
         Ok(builder.build())
     }
@@ -608,8 +613,8 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             };
                             let direction = match (group, role) {
                                 ("playback", Role::Sink) => DeviceDirection::Duplex,
-                                ("playback", Role::Source) => DeviceDirection::Input,
-                                ("capture", _) => DeviceDirection::Output,
+                                ("playback", Role::Source) => DeviceDirection::Output,
+                                ("capture", _) => DeviceDirection::Input,
                                 // Bluetooth and other non-ALSA devices use generic port group
                                 // names like "stream.0" — derive direction from media.class
                                 (_, Role::Sink) => DeviceDirection::Output,
@@ -651,13 +656,13 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .to_owned();
 
                             let interface_type = match props.get("device.api") {
-                                Some("bluez5") => crate::InterfaceType::Bluetooth,
+                                Some("bluez5") => InterfaceType::Bluetooth,
                                 _ => match props.get("device.bus") {
-                                    Some("pci") => crate::InterfaceType::Pci,
-                                    Some("usb") => crate::InterfaceType::Usb,
-                                    Some("firewire") => crate::InterfaceType::FireWire,
-                                    Some("thunderbolt") => crate::InterfaceType::Thunderbolt,
-                                    _ => crate::InterfaceType::Unknown,
+                                    Some("pci") => InterfaceType::Pci,
+                                    Some("usb") => InterfaceType::Usb,
+                                    Some("firewire") => InterfaceType::FireWire,
+                                    Some("thunderbolt") => InterfaceType::Thunderbolt,
+                                    _ => InterfaceType::Unknown,
                                 },
                             };
 
@@ -666,9 +671,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .or_else(|| props.get("api.alsa.path"))
                                 .map(|s| s.to_owned());
 
-                            let driver = props
-                                .get("factory.name")
-                                .map(|s| s.to_owned());
+                            let driver = props.get("factory.name").map(|s| s.to_owned());
 
                             let device = Device {
                                 id,
