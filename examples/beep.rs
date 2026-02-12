@@ -56,11 +56,15 @@ fn main() -> anyhow::Result<()> {
     #[allow(unused_mut, unused_assignments)]
     let mut pulseaudio_host_id = Err(HostUnavailable);
 
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd"
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack",
+        not(feature = "pipewire")
     ))]
     {
         #[cfg(feature = "jack")]
