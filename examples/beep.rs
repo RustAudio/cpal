@@ -63,7 +63,8 @@ fn main() -> anyhow::Result<()> {
             target_os = "freebsd",
             target_os = "netbsd"
         ),
-        feature = "jack"
+        feature = "jack",
+        not(feature = "pipewire")
     ))]
     // Manually check for flags. Can be passed through cargo with -- e.g.
     // cargo run --release --example beep --features jack -- --jack
