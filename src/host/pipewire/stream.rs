@@ -20,19 +20,31 @@ use pipewire::{
 
 use crate::Data;
 
+#[derive(Debug, Clone, Copy)]
+pub enum StreamCommand {
+    Toggle(bool),
+    Stop,
+}
+
 #[allow(unused)]
 pub struct Stream {
     pub(crate) handle: JoinHandle<()>,
-    pub(crate) controller: pw::channel::Sender<bool>,
+    pub(crate) controller: pw::channel::Sender<StreamCommand>,
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        let _ = self.controller.send(StreamCommand::Stop);
+    }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), crate::PlayStreamError> {
-        let _ = self.controller.send(true);
+        let _ = self.controller.send(StreamCommand::Toggle(true));
         Ok(())
     }
     fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        let _ = self.controller.send(false);
+        let _ = self.controller.send(StreamCommand::Toggle(false));
         Ok(())
     }
 }
