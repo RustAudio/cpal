@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::host::pipewire::stream::{StreamData, SUPPORTED_FORMATS};
+use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
 use crate::InterfaceType;
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 
@@ -293,7 +293,7 @@ impl DeviceTrait for Device {
         D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<bool>();
+        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<StreamCommand>();
 
         let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
@@ -321,8 +321,13 @@ impl DeviceTrait for Device {
                 };
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
-                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| {
-                    let _ = stream.set_active(play);
+                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
+                    StreamCommand::Toggle(state) => {
+                        let _ = stream.set_active(state);
+                    }
+                    StreamCommand::Stop => {
+                        let _ = stream.disconnect();
+                    }
                 });
                 mainloop.run();
                 drop(listener);
@@ -350,7 +355,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<bool>();
+        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<StreamCommand>();
 
         let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
@@ -380,8 +385,13 @@ impl DeviceTrait for Device {
 
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
-                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| {
-                    let _ = stream.set_active(play);
+                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
+                    StreamCommand::Toggle(state) => {
+                        let _ = stream.set_active(state);
+                    }
+                    StreamCommand::Stop => {
+                        let _ = stream.disconnect();
+                    }
                 });
                 mainloop.run();
                 drop(listener);
