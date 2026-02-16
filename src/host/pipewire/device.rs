@@ -321,12 +321,14 @@ impl DeviceTrait for Device {
                 };
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
+                let mainloop_rc1 = mainloop.clone();
                 let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         let _ = stream.set_active(state);
                     }
                     StreamCommand::Stop => {
                         let _ = stream.disconnect();
+                        mainloop_rc1.quit();
                     }
                 });
                 mainloop.run();
@@ -385,12 +387,14 @@ impl DeviceTrait for Device {
 
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
+                let mainloop_rc1 = mainloop.clone();
                 let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         let _ = stream.set_active(state);
                     }
                     StreamCommand::Stop => {
                         let _ = stream.disconnect();
+                        mainloop_rc1.quit();
                     }
                 });
                 mainloop.run();
