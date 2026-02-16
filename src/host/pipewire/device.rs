@@ -121,6 +121,7 @@ impl Device {
     pub(crate) fn pw_properties(
         &self,
         direction: DeviceDirection,
+        config: &crate::StreamConfig,
     ) -> pw::properties::PropertiesBox {
         let mut properties = match direction {
             DeviceDirection::Output => pw::properties::properties! {
@@ -140,6 +141,9 @@ impl Device {
         }
         if matches!(self.class_type, ClassType::Node) {
             properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
+        }
+        if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
+            properties.insert(*pw::keys::AUDIO_RATE, buffer_size.to_string());
         }
         properties
     }
@@ -302,7 +306,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_capture_music_in".to_owned())
             .spawn(move || {
-                let properties = device.pw_properties(DeviceDirection::Input);
+                let properties = device.pw_properties(DeviceDirection::Input, &config);
                 let Ok(StreamData {
                     mainloop,
                     listener,
@@ -366,7 +370,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_capture_music_out".to_owned())
             .spawn(move || {
-                let properties = device.pw_properties(DeviceDirection::Output);
+                let properties = device.pw_properties(DeviceDirection::Output, &config);
 
                 let Ok(StreamData {
                     mainloop,
