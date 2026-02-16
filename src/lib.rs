@@ -393,7 +393,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     ),
     wasm_bindgen
 )]
-#[derive(Clone, Debug, Eq, PartialEq, Copy)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
