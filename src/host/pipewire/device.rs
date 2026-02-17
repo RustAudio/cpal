@@ -143,7 +143,7 @@ impl Device {
             properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
         }
         if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
-            properties.insert(*pw::keys::AUDIO_RATE, buffer_size.to_string());
+            properties.insert(*pw::keys::NODE_LOCK_QUANTUM, buffer_size.to_string());
         }
         properties
     }
