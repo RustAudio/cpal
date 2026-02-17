@@ -143,7 +143,11 @@ impl Device {
             properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
         }
         if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
-            properties.insert(*pw::keys::NODE_LOCK_QUANTUM, buffer_size.to_string());
+            // NOTE: https://docs.pipewire.org/group__pw__keys.html#ga7e12dd6c9dec4a345c8a2a62f138b5bf
+            // TODO: not in pw keys yet. later when it is included, should be changed to that one
+            // in source
+            //
+            properties.insert("node.force-quantum", buffer_size.to_string());
         }
         properties
     }
