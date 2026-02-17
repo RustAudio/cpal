@@ -219,9 +219,9 @@ jobs:
       - name: Check examples (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose
 
-      - name: Check ASIO examples
+      - name: Build ASIO examples
         working-directory: asio-sys
-        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --verbose --workspace
+        run: cargo +${{ env.MSRV_WINDOWS }} build --examples --verbose --workspace
 
   # macOS ARM64
   macos:
