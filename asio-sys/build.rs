@@ -70,6 +70,7 @@ fn main() {
     }
 
     // Print out links to needed libraries
+    println!("cargo:rustc-link-lib=dylib=advapi32");
     println!("cargo:rustc-link-lib=dylib=ole32");
     println!("cargo:rustc-link-lib=dylib=user32");
     println!("cargo:rustc-link-search={}", out_dir.display());

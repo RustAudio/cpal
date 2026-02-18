@@ -80,7 +80,7 @@ windows = { version = ">=0.59, <=0.62", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 audio_thread_priority = { version = "0.34", optional = true }
-asio-sys = { version = "0.2", path = "asio-sys", optional = true }
+asio-sys = { version = "0.2.6", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
 
