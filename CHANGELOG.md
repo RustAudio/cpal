@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+
+### Fixed
+
+- **ASIO**: Fix enumeration returning only the first device when using `collect`.
+
 ## [0.17.3] - 2026-02-18
 
 ### Changed
@@ -1069,6 +1079,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.3...HEAD
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/RustAudio/cpal/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
