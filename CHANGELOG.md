@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
+- **ALSA**: Support for native DSD playback.
 - **WASAPI**: Enable as-necessary resampling in the WASAPI server process.
 
 ### Changed
@@ -99,7 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `BufferSize::Fixed` validation against supported range.
-- **ALSA**: Add support for native DSD playback.
 
 ### Changed
 
