@@ -170,6 +170,20 @@ impl DisconnectManager {
     }
 }
 
+/// Owned pointer to the duplex callback wrapper that is safe to send across threads.
+///
+/// SAFETY: The pointer is created via `Box::into_raw` on the build thread and shared with
+/// CoreAudio via `inputProcRefCon`. CoreAudio dereferences it on every render callback on
+/// its single-threaded audio thread for the lifetime of the stream. On drop, the audio unit
+/// is stopped before reclaiming the `Box`, preventing use-after-free. `Send` is sound because
+/// there is no concurrent mutable access—the build/drop thread never accesses the pointer
+/// while the audio unit is running, and only reclaims it after stopping the audio unit.
+struct DuplexCallbackPtr(*mut device::DuplexProcWrapper);
+
+// SAFETY: See above — the pointer is shared with CoreAudio's audio thread but never
+// accessed concurrently. The audio unit is stopped before reclaiming in drop.
+unsafe impl Send for DuplexCallbackPtr {}
+
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
@@ -182,13 +196,22 @@ struct StreamInner {
     /// Manage the lifetime of the aggregate device used
     /// for loopback recording
     _loopback_device: Option<LoopbackDevice>,
+    /// Pointer to the duplex callback wrapper, manually managed for duplex streams.
+    ///
+    /// coreaudio-rs doesn't support duplex streams (enabling both input and output
+    /// simultaneously), so we cannot use its `set_render_callback` API which would
+    /// manage the callback lifetime automatically. Instead, we manually manage this
+    /// callback pointer (created via `Box::into_raw`) and clean it up in Drop.
+    ///
+    /// This is None for regular input/output streams.
+    duplex_callback_ptr: Option<DuplexCallbackPtr>,
 }
 
 impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -200,13 +223,38 @@ impl StreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
             self.playing = false;
         }
         Ok(())
+    }
+}
+
+impl Drop for StreamInner {
+    fn drop(&mut self) {
+        // Clean up duplex callback if present.
+        if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
+            if !ptr.is_null() {
+                // Stop the audio unit to ensure the callback is no longer being called
+                // before reclaiming duplex_callback_ptr below. We must stop here regardless
+                // of AudioUnit::drop's behavior.
+                // Note: AudioUnit::drop will also call stop() — likely safe, but we stop here anyway.
+                let _ = self.audio_unit.stop();
+                // SAFETY: `ptr` was created via `Box::into_raw` in
+                // `build_duplex_stream` and has not been reclaimed elsewhere.
+                // The audio unit was stopped above, so the callback no longer
+                // holds a reference to this pointer.
+                unsafe {
+                    let _ = Box::from_raw(ptr);
+                }
+            }
+        }
+
+        // AudioUnit's own Drop will handle uninitialize and dispose
+        // _loopback_device's Drop will handle aggregate device cleanup
     }
 }
 
