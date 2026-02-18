@@ -358,9 +358,10 @@ impl Device {
             Err((_, libc::ENOENT))
             | Err((_, libc::EPERM))
             | Err((_, libc::ENODEV))
-            | Err((_, LIBC_ENOTSUPP))
-            | Err((_, libc::EBUSY))
-            | Err((_, libc::EAGAIN)) => return Err(BuildStreamError::DeviceNotAvailable),
+            | Err((_, LIBC_ENOTSUPP)) => return Err(BuildStreamError::DeviceNotAvailable),
+            Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                return Err(BuildStreamError::DeviceBusy)
+            }
             Err((_, libc::EINVAL)) => return Err(BuildStreamError::InvalidArgument),
             Err((e, _)) => return Err(e.into()),
             Ok(handle) => handle,
@@ -458,10 +459,11 @@ impl Device {
                 Err((_, libc::ENOENT))
                 | Err((_, libc::EPERM))
                 | Err((_, libc::ENODEV))
-                | Err((_, LIBC_ENOTSUPP))
-                | Err((_, libc::EBUSY))
-                | Err((_, libc::EAGAIN)) => {
+                | Err((_, LIBC_ENOTSUPP)) => {
                     return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+                }
+                Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                    return Err(SupportedStreamConfigsError::DeviceBusy)
                 }
                 Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
                 Err((e, _)) => return Err(e.into()),
@@ -612,6 +614,9 @@ impl Device {
             match self.supported_configs(stream_t) {
                 Err(SupportedStreamConfigsError::DeviceNotAvailable) => {
                     return Err(DefaultStreamConfigError::DeviceNotAvailable);
+                }
+                Err(SupportedStreamConfigsError::DeviceBusy) => {
+                    return Err(DefaultStreamConfigError::DeviceBusy);
                 }
                 Err(SupportedStreamConfigsError::InvalidArgument) => {
                     // this happens sometimes when querying for input and output capabilities, but
