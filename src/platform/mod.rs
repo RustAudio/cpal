@@ -137,6 +137,7 @@ macro_rules! impl_platform_host {
 
         /// Contains a platform specific [`Device`] implementation.
         #[derive(Clone)]
+        #[allow(clippy::large_enum_variant)]
         pub enum DeviceInner {
             $(
                 $(#[cfg($feat)])?

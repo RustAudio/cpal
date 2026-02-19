@@ -61,7 +61,7 @@ impl Stream {
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
-        let sample_spec = params.sample_spec.clone();
+        let sample_spec = params.sample_spec;
 
         let format: SampleFormat = sample_spec
             .format
@@ -72,7 +72,7 @@ impl Stream {
         let callback = move |buf: &mut [u8]| {
             let now = SystemTime::now().duration_since(epoch).unwrap_or_default();
             let latency = latency_clone.load(atomic::Ordering::Relaxed);
-            let playback_time = now + time::Duration::from_micros(latency as u64);
+            let playback_time = now + time::Duration::from_micros(latency);
 
             let timestamp = OutputStreamTimestamp {
                 callback: StreamInstant {
@@ -156,7 +156,7 @@ impl Stream {
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
-        let sample_spec = params.sample_spec.clone();
+        let sample_spec = params.sample_spec;
 
         let format: SampleFormat = sample_spec
             .format
@@ -167,7 +167,7 @@ impl Stream {
             let now = SystemTime::now().duration_since(epoch).unwrap_or_default();
             let latency = latency_clone.load(atomic::Ordering::Relaxed);
             let capture_time = now
-                .checked_sub(time::Duration::from_micros(latency as u64))
+                .checked_sub(time::Duration::from_micros(latency))
                 .unwrap_or_default();
 
             let timestamp = InputStreamTimestamp {
@@ -232,9 +232,7 @@ fn store_latency(
     write_offset: i64,
     read_offset: i64,
 ) -> time::Duration {
-    let offset = (write_offset as u64)
-        .checked_sub(read_offset as u64)
-        .unwrap_or(0);
+    let offset = (write_offset as u64).saturating_sub(read_offset as u64);
 
     let latency = time::Duration::from_micros(device_latency_usec)
         + sample_spec.bytes_to_duration(offset as usize);
