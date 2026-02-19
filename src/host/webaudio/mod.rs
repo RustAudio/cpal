@@ -410,7 +410,7 @@ impl DeviceTrait for Device {
         Ok(Stream {
             ctx,
             on_ended_closures,
-            config: config.clone(),
+            config: *config,
             buffer_size_frames,
         })
     }

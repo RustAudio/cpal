@@ -773,7 +773,7 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                config: config.clone(),
+                config: *config,
                 sample_format,
             })
         }
@@ -877,7 +877,7 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                config: config.clone(),
+                config: *config,
                 sample_format,
             })
         }
