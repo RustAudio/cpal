@@ -193,8 +193,6 @@ impl DeviceTrait for Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        let config = config.clone();
-
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
 

@@ -406,7 +406,7 @@ impl Device {
             channel: handle,
             sample_format,
             num_descriptors,
-            conf: conf.clone(),
+            conf: *conf,
             period_samples,
             period_frames,
             silence_template,
