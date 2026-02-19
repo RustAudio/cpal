@@ -78,7 +78,7 @@ impl Device {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
-        let config = config.clone();
+        let config = *config;
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
@@ -305,7 +305,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
-        let config = config.clone();
+        let config = *config;
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {

@@ -376,7 +376,7 @@ fn set_timeout<D>(
                 .expect("The function was somehow not a function"),
             time,
             &stream.into(),
-            &((*config).clone()).into(),
+            &(*config).into(),
             &Closure::once_into_js(move || sample_format),
             &buffer_size_frames.into(),
         )
