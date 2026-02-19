@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
+- **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 
 ### Changed
 
