@@ -10,7 +10,7 @@ use crate::{
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
     DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
     DevicesError, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -178,8 +178,8 @@ impl DeviceTrait for Device {
             for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
                 ranges.push(SupportedStreamConfigRange {
                     channels: channel_count as _,
-                    min_sample_rate: SampleRate(1),
-                    max_sample_rate: SampleRate(protocol::sample_spec::MAX_RATE),
+                    min_sample_rate: 1,
+                    max_sample_rate: protocol::sample_spec::MAX_RATE,
                     buffer_size: SupportedBufferSize::Range {
                         min: 0,
                         max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
@@ -204,8 +204,8 @@ impl DeviceTrait for Device {
             for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
                 ranges.push(SupportedStreamConfigRange {
                     channels: channel_count as _,
-                    min_sample_rate: SampleRate(1),
-                    max_sample_rate: SampleRate(protocol::sample_spec::MAX_RATE),
+                    min_sample_rate: 1,
+                    max_sample_rate: protocol::sample_spec::MAX_RATE,
                     buffer_size: SupportedBufferSize::Range {
                         min: 0,
                         max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
@@ -225,7 +225,7 @@ impl DeviceTrait for Device {
 
         Ok(SupportedStreamConfig {
             channels: info.channel_map.num_channels() as _,
-            sample_rate: SampleRate(info.sample_spec.sample_rate),
+            sample_rate: info.sample_spec.sample_rate,
             buffer_size: SupportedBufferSize::Range {
                 min: 0,
                 max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
@@ -245,7 +245,7 @@ impl DeviceTrait for Device {
 
         Ok(SupportedStreamConfig {
             channels: info.channel_map.num_channels() as _,
-            sample_rate: SampleRate(info.sample_spec.sample_rate),
+            sample_rate: info.sample_spec.sample_rate,
             buffer_size: SupportedBufferSize::Range {
                 min: 0,
                 max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
@@ -366,7 +366,7 @@ impl DeviceTrait for Device {
 fn make_sample_spec(config: &StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {
     protocol::SampleSpec {
         format,
-        sample_rate: config.sample_rate.0,
+        sample_rate: config.sample_rate,
         channels: config.channels as _,
     }
 }
