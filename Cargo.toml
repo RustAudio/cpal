@@ -19,6 +19,12 @@ asio = [
     "dep:num-traits",
 ]
 
+# PulseAudio backend
+# Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
+# Requires: PulseAudio server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+pulseaudio = ["dep:pulseaudio", "dep:futures"]
+
 # JACK Audio Connection Kit backend
 # Provides low-latency connections between applications and audio hardware
 # Requires: JACK server and client libraries installed on the system
@@ -89,6 +95,8 @@ alsa = "0.11"
 libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
+pulseaudio = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.5"

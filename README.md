@@ -9,13 +9,14 @@ Low-level library for audio input and output in pure Rust.
 
 The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
 
-- **AAudio (Android):** Rust **1.82** (due to `ndk` crate requirements)
-- **ALSA (Linux/BSD):** Rust **1.82** (due to `alsa-sys` crate requirements)
-- **CoreAudio (macOS/iOS):** Rust **1.80** (due to `coreaudio-rs` crate requirements)
-- **JACK (Linux/BSD/macOS/Windows):** Rust **1.82** (due to `jack` crate requirements)
-- **WASAPI/ASIO (Windows):** Rust **1.82** (due to `windows` crate requirements)
-- **WASM (`wasm32-unknown`):** Rust **1.82** (due to `gloo` crate requirements)
-- **WASM (`wasm32-wasip1`):** Rust **1.78** (target stabilized in 1.78)
+- **AAudio (Android):** Rust **1.82**
+- **ALSA (Linux/BSD):** Rust **1.82**
+- **CoreAudio (macOS/iOS):** Rust **1.80**
+- **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
+- **PulseAudio (Linux/BSD):** Rust **1.88**
+- **WASAPI/ASIO (Windows):** Rust **1.82**
+- **WASM (`wasm32-unknown`):** Rust **1.82**
+- **WASM (`wasm32-wasip1`):** Rust **1.78**
 - **WASM (`audioworklet`):** Rust **nightly** (requires `-Zbuild-std` for atomics support)
 
 ## Supported Platforms
@@ -29,17 +30,20 @@ This library currently supports the following:
 - Get the current default input and output stream formats for a device.
 - Build and run input and output PCM streams on a chosen device with a given stream format.
 
-Currently, supported hosts include:
+Currently, supported platforms include:
 
-- Linux (via ALSA or JACK)
-- Windows (via WASAPI by default, ASIO or JACK optionally)
-- macOS (via CoreAudio or JACK)
-- iOS (via CoreAudio)
 - Android (via AAudio)
+- BSD (via ALSA by default, JACK or PulseAudio optionally)
 - Emscripten
+- iOS (via CoreAudio)
+- Linux (via ALSA by default, JACK or PulseAudio optionally)
+- macOS (via CoreAudio by default, JACK optionally)
 - WebAssembly (via Web Audio API or Audio Worklet)
+- Windows (via WASAPI by default, ASIO or JACK optionally)
 
-Note that on Linux, the ALSA development files are required for building (even when using JACK). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
+Note that on Linux, the ALSA development files are required for building (even when using JACK or
+PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu 
+distributions and `alsa-lib-devel` on Fedora.
 
 ## Compiling for WebAssembly
 
@@ -60,31 +64,6 @@ Enables the ASIO (Audio Stream Input/Output) backend. ASIO provides low-latency 
 - LLVM/Clang for build-time bindings generation
 
 **Setup:** See the [ASIO setup guide](#asio-on-windows) below for detailed installation instructions.
-
-### `jack`
-
-**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
-
-Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server providing low-latency connections between applications and audio hardware.
-
-**Requirements:**
-- JACK server and client libraries must be installed on the system
-
-**Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
-
-**Note:** JACK is available as an alternative backend on all supported platforms. It provides an option for pro-audio users who need JACK's routing and inter-application audio connectivity. The native backends (ALSA for Linux/BSD, WASAPI/ASIO for Windows, CoreAudio for macOS) remain the default and recommended choice for most applications.
-
-### `wasm-bindgen`
-
-**Platform:** WebAssembly (wasm32-unknown-unknown)
-
-Enables the Web Audio API backend for browser-based audio. This is the base feature required for any WebAssembly audio support.
-
-**Requirements:**
-- Target `wasm32-unknown-unknown`
-- Web browser with Web Audio API support
-
-**Usage:** See the `wasm-beep` example for basic WebAssembly audio setup.
 
 ### `audioworklet`
 
@@ -108,6 +87,42 @@ Enables the Audio Worklet backend for lower-latency web audio processing compare
 Enables support for user-defined custom host implementations, allowing integration with audio systems not natively supported by CPAL.
 
 **Usage:** See `examples/custom.rs` for implementation details.
+
+### `jack`
+
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
+
+Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server providing low-latency connections between applications and audio hardware.
+
+**Requirements:**
+- JACK server and client libraries must be installed on the system
+
+**Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
+
+**Note:** JACK is available as an alternative backend on all supported platforms. It provides an option for pro-audio users who need JACK's routing and inter-application audio connectivity. The native backends (ALSA for Linux/BSD, WASAPI/ASIO for Windows, CoreAudio for macOS) remain the default and recommended choice for most applications.
+
+### `pulseaudio`
+
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
+
+Enables the PulseAudio backend. PulseAudio is a sound server commonly used on Linux desktops.
+
+**Requirements:**
+- PulseAudio server and client libraries must be installed on the system
+- 
+**Usage:** See the [beep example](examples/beep.rs) for selecting the PulseAudio host at runtime.
+
+### `wasm-bindgen`
+
+**Platform:** WebAssembly (wasm32-unknown-unknown)
+
+Enables the Web Audio API backend for browser-based audio. This is the base feature required for any WebAssembly audio support.
+
+**Requirements:**
+- Target `wasm32-unknown-unknown`
+- Web browser with Web Audio API support
+
+**Usage:** See the `wasm-beep` example for basic WebAssembly audio setup.
 
 ## ASIO on Windows
 
