@@ -28,7 +28,7 @@ env:
   MSRV_ALSA: "1.82"
   MSRV_COREAUDIO: "1.80"
   MSRV_JACK: "1.82"
-  MSRV_PULSEAUDIO: "1.87"
+  MSRV_PULSEAUDIO: "1.88"
   MSRV_WASIP1: "1.78"
   MSRV_WASM: "1.82"
   MSRV_WINDOWS: "1.82"
@@ -282,11 +282,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Determine MSRV for all-features
+        id: msrv
+        uses: ./.github/actions/determine-msrv
+        with:
+          platform-msrv: ${{ env.MSRV_AAUDIO }}
+          jack-msrv: ${{ env.MSRV_JACK }}
+          pulseaudio-msrv: ${{ env.MSRV_PULSEAUDIO }}
+
       - name: Install Rust MSRV (${{ env.MSRV_AAUDIO }})
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV_AAUDIO }}
           targets: ${{ env.TARGET }},aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Install Rust MSRV (${{ steps.msrv.outputs.all-features }})
+        if: steps.msrv.outputs.all-features != env.MSRV_AAUDIO
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.all-features }}
+          targets: ${{ env.TARGET }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -300,7 +315,7 @@ jobs:
         run: cargo +${{ env.MSRV_AAUDIO }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cargo +${{ env.MSRV_AAUDIO }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check Android project
         working-directory: examples/android

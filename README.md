@@ -13,7 +13,7 @@ The minimum Rust version required depends on which audio backend and features yo
 - **ALSA (Linux/BSD):** Rust **1.82**
 - **CoreAudio (macOS/iOS):** Rust **1.80**
 - **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
-- **PulseAudio (Linux/BSD):** Rust **1.87**
+- **PulseAudio (Linux/BSD):** Rust **1.88**
 - **WASAPI/ASIO (Windows):** Rust **1.82**
 - **WASM (`wasm32-unknown`):** Rust **1.82**
 - **WASM (`wasm32-wasip1`):** Rust **1.78**
