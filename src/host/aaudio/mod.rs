@@ -405,7 +405,7 @@ impl DeviceTrait for Device {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
-                let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
+                let mut builder = DeviceDescriptionBuilder::new(self.name()?)
                     .device_type(info.device_type.into())
                     .interface_type(info.device_type.into())
                     .direction(info.direction);
