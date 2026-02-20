@@ -55,17 +55,14 @@ fn main() -> anyhow::Result<()> {
     let mut jack_host_id = Err(HostUnavailable);
     #[allow(unused_mut, unused_assignments)]
     let mut pulseaudio_host_id = Err(HostUnavailable);
-
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "jack",
-        not(feature = "pipewire")
-    ))]
+    #[allow(unused_mut, unused_assignments)]
+    let mut pipewire_host_id = Err(HostUnavailable);
+    #[cfg(all(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ),))]
     {
         #[cfg(feature = "jack")]
         {
@@ -75,6 +72,10 @@ fn main() -> anyhow::Result<()> {
         #[cfg(feature = "pulseaudio")]
         {
             pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
+        }
+        #[cfg(feature = "pipewire")]
+        {
+            pipewire_host_id = Ok(cpal::HostId::PipeWire);
         }
     }
 
@@ -88,42 +89,13 @@ fn main() -> anyhow::Result<()> {
         pulseaudio_host_id
             .and_then(cpal::host_from_id)
             .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
+    } else if opt.pipewire {
+        pipewire_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features pipewire` is specified, and the platform is supported")
     } else {
         cpal::default_host()
     };
-    // Conditionally compile with jack if the feature is specified.
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "pipewire"
-    ))]
-    // Manually check for flags. Can be passed through cargo with -- e.g.
-    // cargo run --release --example beep --features jack -- --jack
-    let host = if opt.pipewire {
-        cpal::host_from_id(cpal::available_hosts()
-            .into_iter()
-            .find(|id| *id == cpal::HostId::PipeWire)
-            .expect(
-                "make sure --features pipewire is specified. only works on OSes where jack is available",
-            )).expect("jack host unavailable")
-    } else {
-        cpal::default_host()
-    };
-
-    #[cfg(any(
-        not(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        )),
-        not(any(feature = "jack", feature = "pipewire"))
-    ))]
-    let host = cpal::default_host();
 
     let device = if let Some(device) = opt.device {
         let id = &device.parse().expect("failed to parse device id");
