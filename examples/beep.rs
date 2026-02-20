@@ -32,17 +32,8 @@ struct Opt {
     #[arg(long, default_value_t = false)]
     pulseaudio: bool,
     /// Use the pipewire host
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "pipewire"
-    ))]
-    #[arg(short, long)]
-    #[allow(dead_code)]
+
+    #[arg(long, default_value_t = false)]
     pipewire: bool,
 }
 
