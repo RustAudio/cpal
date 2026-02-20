@@ -405,8 +405,13 @@ impl DeviceTrait for Device {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
-                let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
-                    .device_type(info.device_type.into())
+                let device_type: DeviceType = info.device_type.into();
+                let name = match device_type {
+                    DeviceType::Unknown => info.product_name.clone(),
+                    _ => format!("{} ({})", info.product_name, device_type),
+                };
+                let mut builder = DeviceDescriptionBuilder::new(name)
+                    .device_type(device_type)
                     .interface_type(info.device_type.into())
                     .direction(info.direction);
 
@@ -432,7 +437,12 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
         let configs = if let Some(info) = &self.0 {
-            device_supported_configs(info)
+            // Output-only devices do not support input
+            if matches!(info.direction, DeviceDirection::Output) {
+                Vec::new().into_iter()
+            } else {
+                device_supported_configs(info)
+            }
         } else {
             default_supported_configs()
         };
@@ -443,7 +453,12 @@ impl DeviceTrait for Device {
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
         let configs = if let Some(info) = &self.0 {
-            device_supported_configs(info)
+            // Input-only devices do not support output
+            if matches!(info.direction, DeviceDirection::Input) {
+                Vec::new().into_iter()
+            } else {
+                device_supported_configs(info)
+            }
         } else {
             default_supported_configs()
         };
