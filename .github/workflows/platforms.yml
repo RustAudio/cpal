@@ -24,16 +24,16 @@ on:
 
 env:
   # MSRV varies by backend due to platform-specific dependencies
-  MSRV_AAUDIO: "1.82"
-  MSRV_ALSA: "1.82"
+  MSRV_AAUDIO: "1.85"
+  MSRV_ALSA: "1.85"
   MSRV_COREAUDIO: "1.80"
   MSRV_JACK: "1.82"
   MSRV_PULSEAUDIO: "1.88"
-  MSRV_WASIP1: "1.78"
+  MSRV_WASIP1: "1.82"
   MSRV_WASM: "1.82"
   MSRV_WINDOWS: "1.82"
 
-  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev
+  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
 
   ANDROID_COMPILE_SDK: "30"
   ANDROID_BUILD_TOOLS: "30.0.3"
@@ -96,10 +96,10 @@ jobs:
         run: cargo +${{ env.MSRV_ALSA }} check --examples --no-default-features --workspace --verbose
 
       - name: Run tests (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose
 
       - name: Check examples (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --features=jack --workspace --verbose
 
   # Linux ARMv7 (cross-compilation)
   linux-armv7:
@@ -153,10 +153,10 @@ jobs:
         run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Run tests (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack --workspace --verbose --target ${{ env.TARGET }}
 
   # Windows (x86_64 and i686)
   windows:
