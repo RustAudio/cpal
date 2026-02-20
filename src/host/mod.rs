@@ -32,6 +32,11 @@ pub(crate) mod emscripten;
 ))]
 pub(crate) mod jack;
 #[cfg(all(
+    any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+    feature = "pipewire"
+))]
+pub(crate) mod pipewire;
+#[cfg(all(
     any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -41,11 +46,6 @@ pub(crate) mod jack;
     feature = "pulseaudio"
 ))]
 pub(crate) mod pulseaudio;
-#[cfg(all(
-    any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
-    feature = "pipewire"
-))]
-pub(crate) mod pipewire;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
