@@ -2,6 +2,7 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
+use crate::host::pipewire::utils::METADATA_NAME;
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
 
@@ -543,7 +544,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                 pipewire::types::ObjectType::Metadata => {
                     if !global.props.is_some_and(|props| {
                         props
-                            .get("metadata.name")
+                            .get(*METADATA_NAME)
                             .is_some_and(|name| name == "settings")
                     }) {
                         return;
@@ -618,7 +619,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                     let Some(props) = global.props else {
                         return;
                     };
-                    let Some(media_class) = props.get("media.class") else {
+                    let Some(media_class) = props.get(*pw::keys::MEDIA_CLASS) else {
                         return;
                     };
                     if !matches!(media_class, "Audio/Sink" | "Audio/Source") {
@@ -634,7 +635,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             let Some(props) = info.props() else {
                                 return;
                             };
-                            let Some(media_class) = props.get("media.class") else {
+                            let Some(media_class) = props.get(*pw::keys::MEDIA_CLASS) else {
                                 return;
                             };
                             let role = match media_class {
@@ -656,30 +657,33 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 (_, Role::Sink) => DeviceDirection::Output,
                                 (_, Role::Source) => DeviceDirection::Input,
                             };
-                            let Some(object_id) = props.get("object.id") else {
+                            let Some(object_id) = props.get(*pw::keys::OBJECT_ID) else {
                                 return;
                             };
-                            let Some(device_id) = props.get("device.id") else {
+                            let Some(device_id) = props.get(*pw::keys::DEVICE_ID) else {
                                 return;
                             };
                             let Some(object_serial) = props
-                                .get("object.serial")
+                                .get(*pw::keys::OBJECT_SERIAL)
                                 .and_then(|serial| serial.parse().ok())
                             else {
                                 return;
                             };
                             let id = info.id();
-                            let node_name = props.get("node.name").unwrap_or("unknown").to_owned();
+                            let node_name = props
+                                .get(*pw::keys::NODE_NAME)
+                                .unwrap_or("unknown")
+                                .to_owned();
                             let description = props
-                                .get("node.description")
+                                .get(*pw::keys::NODE_DESCRIPTION)
                                 .unwrap_or("unknown")
                                 .to_owned();
                             let nick_name = props
-                                .get("node.nick")
+                                .get(*pw::keys::NODE_NICK)
                                 .unwrap_or(description.as_str())
                                 .to_owned();
                             let channels = props
-                                .get("audio.channels")
+                                .get(*pw::keys::AUDIO_CHANNELS)
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(2);
                             let limit_quantum: u32 = props
@@ -691,7 +695,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .unwrap_or("default")
                                 .to_owned();
 
-                            let interface_type = match props.get("device.api") {
+                            let interface_type = match props.get(*pw::keys::DEVICE_API) {
                                 Some("bluez5") => InterfaceType::Bluetooth,
                                 _ => match props.get("device.bus") {
                                     Some("pci") => InterfaceType::Pci,
@@ -707,7 +711,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .or_else(|| props.get("api.alsa.path"))
                                 .map(|s| s.to_owned());
 
-                            let driver = props.get("factory.name").map(|s| s.to_owned());
+                            let driver = props.get(*pw::keys::FACTORY_NAME).map(|s| s.to_owned());
 
                             let device = Device {
                                 id,

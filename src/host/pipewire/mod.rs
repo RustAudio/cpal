@@ -3,6 +3,8 @@ use device::{init_devices, Class, Device, Devices};
 use crate::traits::HostTrait;
 mod device;
 mod stream;
+mod utils;
+
 #[derive(Debug)]
 pub struct Host(Vec<Device>);
 

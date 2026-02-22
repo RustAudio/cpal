@@ -26,7 +26,6 @@ pub enum StreamCommand {
     Stop,
 }
 
-#[allow(unused)]
 pub struct Stream {
     pub(crate) handle: Option<JoinHandle<()>>,
     pub(crate) controller: pw::channel::Sender<StreamCommand>,
