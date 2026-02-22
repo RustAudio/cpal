@@ -2,7 +2,9 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
-use crate::host::pipewire::utils::METADATA_NAME;
+use crate::host::pipewire::utils::{
+    audio, clock, group, DEVICE_ICON_NAME, METADATA_NAME, PORT_GROUP,
+};
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
 
@@ -544,7 +546,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                 pipewire::types::ObjectType::Metadata => {
                     if !global.props.is_some_and(|props| {
                         props
-                            .get(*METADATA_NAME)
+                            .get(METADATA_NAME)
                             .is_some_and(|name| name == "settings")
                     }) {
                         return;
@@ -555,13 +557,13 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                         .add_listener_local()
                         .property(move |_, key, _, value| {
                             match (key, value) {
-                                (Some("clock.rate"), Some(rate)) => {
+                                (Some(clock::RATE), Some(rate)) => {
                                     let Ok(rate) = rate.parse() else {
                                         return 0;
                                     };
                                     settings.borrow_mut().rate = rate;
                                 }
-                                (Some("clock.allowed-rates"), Some(list)) => {
+                                (Some(clock::ALLOWED_RATES), Some(list)) => {
                                     let Some(list) = list.strip_prefix("[") else {
                                         return 0;
                                     };
@@ -583,19 +585,19 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                     }
                                     settings.borrow_mut().allow_rates = allow_rates;
                                 }
-                                (Some("clock.quantum"), Some(quantum)) => {
+                                (Some(clock::QUANTUM), Some(quantum)) => {
                                     let Ok(quantum) = quantum.parse() else {
                                         return 0;
                                     };
                                     settings.borrow_mut().quantum = quantum;
                                 }
-                                (Some("clock.min-quantum"), Some(min_quantum)) => {
+                                (Some(clock::MIN_QUANTUM), Some(min_quantum)) => {
                                     let Ok(min_quantum) = min_quantum.parse() else {
                                         return 0;
                                     };
                                     settings.borrow_mut().min_quantum = min_quantum;
                                 }
-                                (Some("clock.max-quantum"), Some(max_quantum)) => {
+                                (Some(clock::MAX_QUANTUM), Some(max_quantum)) => {
                                     let Ok(max_quantum) = max_quantum.parse() else {
                                         return 0;
                                     };
@@ -622,7 +624,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                     let Some(media_class) = props.get(*pw::keys::MEDIA_CLASS) else {
                         return;
                     };
-                    if !matches!(media_class, "Audio/Sink" | "Audio/Source") {
+                    if !matches!(media_class, audio::SINK | audio::SOURCE) {
                         return;
                     }
 
@@ -639,19 +641,19 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 return;
                             };
                             let role = match media_class {
-                                "Audio/Sink" => Role::Sink,
-                                "Audio/Source" => Role::Source,
+                                audio::SINK => Role::Sink,
+                                audio::SOURCE => Role::Source,
                                 _ => {
                                     return;
                                 }
                             };
-                            let Some(group) = props.get("port.group") else {
+                            let Some(group) = props.get(PORT_GROUP) else {
                                 return;
                             };
                             let direction = match (group, role) {
-                                ("playback", Role::Sink) => DeviceDirection::Duplex,
-                                ("playback", Role::Source) => DeviceDirection::Output,
-                                ("capture", _) => DeviceDirection::Input,
+                                (group::PLAY_BACK, Role::Sink) => DeviceDirection::Duplex,
+                                (group::PLAY_BACK, Role::Source) => DeviceDirection::Output,
+                                (group::CAPTURE, _) => DeviceDirection::Input,
                                 // Bluetooth and other non-ALSA devices use generic port group
                                 // names like "stream.0" — derive direction from media.class
                                 (_, Role::Sink) => DeviceDirection::Output,
@@ -687,13 +689,11 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(2);
                             let limit_quantum: u32 = props
-                                .get("clock.quantum-limit")
+                                .get(clock::QUANTUM_LIMIT)
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(0);
-                            let icon_name = props
-                                .get("device.icon_name")
-                                .unwrap_or("default")
-                                .to_owned();
+                            let icon_name =
+                                props.get(DEVICE_ICON_NAME).unwrap_or("default").to_owned();
 
                             let interface_type = match props.get(*pw::keys::DEVICE_API) {
                                 Some("bluez5") => InterfaceType::Bluetooth,

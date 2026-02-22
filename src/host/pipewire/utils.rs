@@ -1,19 +1,28 @@
-use pipewire::sys;
-use std::ffi::CStr;
-use std::sync::LazyLock;
+pub const METADATA_NAME: &str = "metadata.name";
+pub const PORT_GROUP: &str = "port.group";
 
-// unfortunately we have to take two args as concat_idents! is in experimental
-macro_rules! key_constant {
-    ($name:ident, $pw_symbol:ident, #[doc = $doc:expr]) => {
-        #[doc = $doc]
-        pub static $name: LazyLock<&'static str> = LazyLock::new(|| unsafe {
-            CStr::from_bytes_with_nul_unchecked(sys::$pw_symbol)
-                .to_str()
-                .unwrap()
-        });
-    };
+// NOTE: the icon name contains bluetooth and etc, not icon-name, but icon_name
+// I have tried to get the information, and get
+// "device.icon-name": "audio-card-analog",
+// "device.icon_name": "video-display",
+// So seems the `icon_name` is usable
+pub const DEVICE_ICON_NAME: &str = "device.icon_name";
+
+pub mod clock {
+    pub const RATE: &str = "clock.rate";
+    pub const ALLOWED_RATES: &str = "clock.allowed-rates";
+    pub const QUANTUM: &str = "clock.quantum";
+    pub const MIN_QUANTUM: &str = "clock.min-quantum";
+    pub const MAX_QUANTUM: &str = "clock.max-quantum";
+    pub const QUANTUM_LIMIT: &str = "clock.quantum-limit";
 }
 
-key_constant!(METADATA_NAME, PW_KEY_METADATA_NAME,
-    /// METADATA_NAME
-);
+pub mod audio {
+    pub const SINK: &str = "Audio/Sink";
+    pub const SOURCE: &str = "Audio/Source";
+}
+
+pub mod group {
+    pub const PLAY_BACK: &str = "playback";
+    pub const CAPTURE: &str = "capture";
+}
