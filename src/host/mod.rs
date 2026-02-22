@@ -32,7 +32,12 @@ pub(crate) mod emscripten;
 ))]
 pub(crate) mod jack;
 #[cfg(all(
-    any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd"),
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ),
     feature = "pipewire"
 ))]
 pub(crate) mod pipewire;

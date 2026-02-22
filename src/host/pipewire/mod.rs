@@ -1,4 +1,4 @@
-use device::{init_devices, ClassType, Device, Devices};
+use device::{init_devices, Class, Device, Devices};
 
 use crate::traits::HostTrait;
 mod device;
@@ -26,13 +26,13 @@ impl HostTrait for Host {
     fn default_input_device(&self) -> Option<Self::Device> {
         self.0
             .iter()
-            .find(|device| matches!(device.class_type(), ClassType::DefaultSink))
+            .find(|device| matches!(device.class_type(), Class::DefaultSink))
             .cloned()
     }
     fn default_output_device(&self) -> Option<Self::Device> {
         self.0
             .iter()
-            .find(|device| matches!(device.class_type(), ClassType::DefaultOutput))
+            .find(|device| matches!(device.class_type(), Class::DefaultOutput))
             .cloned()
     }
 }

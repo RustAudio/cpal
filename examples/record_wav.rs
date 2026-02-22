@@ -75,7 +75,7 @@ fn main() -> Result<(), anyhow::Error> {
         cpal::default_host()
     };
 
-    // Conditionally compile with jack if the feature is specified.
+    // Conditionally compile with pipewire if the feature is specified.
     #[cfg(all(
         any(
             target_os = "linux",

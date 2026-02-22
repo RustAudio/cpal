@@ -28,13 +28,14 @@ pub enum StreamCommand {
 
 #[allow(unused)]
 pub struct Stream {
-    pub(crate) handle: JoinHandle<()>,
+    pub(crate) handle: Option<JoinHandle<()>>,
     pub(crate) controller: pw::channel::Sender<StreamCommand>,
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
         let _ = self.controller.send(StreamCommand::Stop);
+        let _ = self.handle.take().map(|handle| handle.join());
     }
 }
 
@@ -260,7 +261,7 @@ where
 
                 let n_samples = samples.len() / user_data.sample_format.sample_size();
 
-                let data = samples.as_ptr() as *mut ();
+                let data = samples.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
                 if let Err(err) = user_data.publish_data_out(frames, &mut data) {
@@ -377,7 +378,7 @@ where
                 let Some(samples) = data.data() else {
                     return;
                 };
-                let data = samples.as_ptr() as *mut ();
+                let data = samples.as_mut_ptr() as *mut ();
                 let data =
                     unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
                 if let Err(err) = user_data.publish_data_in(frames as usize, &data) {

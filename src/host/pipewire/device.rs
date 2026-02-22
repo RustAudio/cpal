@@ -2,8 +2,8 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
-use crate::InterfaceType;
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
+use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
 
 use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use pipewire::{
@@ -20,9 +20,9 @@ use super::stream::Stream;
 
 pub type Devices = std::vec::IntoIter<Device>;
 
-/// This enum record whether it is created by human or just default device
+// This enum record whether it is created by human or just default device
 #[derive(Clone, Debug, Default, Copy)]
-pub(crate) enum ClassType {
+pub(crate) enum Class {
     #[default]
     Node,
     DefaultSink,
@@ -37,7 +37,7 @@ pub enum Role {
     Source,
 }
 
-#[allow(unused)]
+#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct Device {
     id: u32,
@@ -45,14 +45,14 @@ pub struct Device {
     nick_name: String,
     description: String,
     direction: DeviceDirection,
-    channels: u16,
-    limit_quantum: u32,
-    rate: u32,
-    allow_rates: Vec<u32>,
+    channels: ChannelCount,
+    limit_quantum: FrameCount,
+    rate: SampleRate,
+    allow_rates: Vec<SampleRate>,
     quantum: u32,
-    min_quantum: u32,
-    max_quantum: u32,
-    class_type: ClassType,
+    min_quantum: FrameCount,
+    max_quantum: FrameCount,
+    class: Class,
     object_id: String,
     device_id: String,
     role: Role,
@@ -64,8 +64,8 @@ pub struct Device {
 }
 
 impl Device {
-    pub(crate) fn class_type(&self) -> ClassType {
-        self.class_type
+    pub(crate) fn class_type(&self) -> Class {
+        self.class
     }
     fn sink_default() -> Self {
         Self {
@@ -75,7 +75,7 @@ impl Device {
             description: "default_sink".to_owned(),
             direction: DeviceDirection::Duplex,
             channels: 2,
-            class_type: ClassType::DefaultSink,
+            class: Class::DefaultSink,
             role: Role::Sink,
             ..Default::default()
         }
@@ -88,7 +88,7 @@ impl Device {
             description: "default_input".to_owned(),
             direction: DeviceDirection::Input,
             channels: 2,
-            class_type: ClassType::DefaultInput,
+            class: Class::DefaultInput,
             role: Role::Source,
             ..Default::default()
         }
@@ -101,7 +101,7 @@ impl Device {
             description: "default_output".to_owned(),
             direction: DeviceDirection::Output,
             channels: 2,
-            class_type: ClassType::DefaultOutput,
+            class: Class::DefaultOutput,
             role: Role::Source,
             ..Default::default()
         }
@@ -113,7 +113,6 @@ impl Device {
             "audio-headset" => crate::DeviceType::Headset,
             "audio-input-microphone" => crate::DeviceType::Microphone,
             "audio-speakers" => crate::DeviceType::Speaker,
-            "video-display" => crate::DeviceType::Speaker,
             _ => crate::DeviceType::Unknown,
         }
     }
@@ -127,19 +126,17 @@ impl Device {
             DeviceDirection::Output => pw::properties::properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Playback",
-                *pw::keys::MEDIA_ROLE => "Music",
             },
             DeviceDirection::Input => pw::properties::properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music",
             },
             _ => unreachable!(),
         };
         if matches!(self.role, Role::Sink) {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
-        if matches!(self.class_type, ClassType::Node) {
+        if matches!(self.class, Class::Node) {
             properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
         }
         if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
@@ -304,7 +301,7 @@ impl DeviceTrait for Device {
         let config = config.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let handle = thread::Builder::new()
-            .name("pw_capture_music_in".to_owned())
+            .name("pw_in".to_owned())
             .spawn(move || {
                 let properties = device.pw_properties(DeviceDirection::Input, &config);
                 let Ok(StreamData {
@@ -342,7 +339,7 @@ impl DeviceTrait for Device {
             .unwrap();
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
-                handle,
+                handle: Some(handle),
                 controller: pw_play_tx,
             }),
             Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
@@ -368,7 +365,7 @@ impl DeviceTrait for Device {
         let config = config.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let handle = thread::Builder::new()
-            .name("pw_capture_music_out".to_owned())
+            .name("pw_out".to_owned())
             .spawn(move || {
                 let properties = device.pw_properties(DeviceDirection::Output, &config);
 
@@ -408,7 +405,7 @@ impl DeviceTrait for Device {
             .unwrap();
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
-                handle,
+                handle: Some(handle),
                 controller: pw_play_tx,
             }),
             Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
@@ -417,7 +414,7 @@ impl DeviceTrait for Device {
 }
 
 impl Device {
-    pub fn channels(&self) -> u16 {
+    pub fn channels(&self) -> ChannelCount {
         self.channels
     }
     pub fn direction(&self) -> DeviceDirection {
@@ -427,33 +424,33 @@ impl Device {
         &self.node_name
     }
 
-    pub fn limit_quantam(&self) -> u32 {
+    pub fn limit_quantum(&self) -> FrameCount {
         self.limit_quantum
     }
-    pub fn min_quantum(&self) -> u32 {
+    pub fn min_quantum(&self) -> FrameCount {
         self.min_quantum
     }
-    pub fn max_quantum(&self) -> u32 {
+    pub fn max_quantum(&self) -> FrameCount {
         self.max_quantum
     }
-    pub fn quantum(&self) -> u32 {
+    pub fn quantum(&self) -> FrameCount {
         self.quantum
     }
-    pub fn rate(&self) -> u32 {
+    pub fn rate(&self) -> SampleRate {
         self.rate
     }
-    pub fn allow_rates(&self) -> &[u32] {
+    pub fn allow_rates(&self) -> &[FrameCount] {
         &self.allow_rates
     }
 }
 
 #[derive(Debug, Clone, Default)]
 struct Settings {
-    rate: u32,
-    allow_rates: Vec<u32>,
-    quantum: u32,
-    min_quantum: u32,
-    max_quantum: u32,
+    rate: SampleRate,
+    allow_rates: Vec<SampleRate>,
+    quantum: FrameCount,
+    min_quantum: FrameCount,
+    max_quantum: FrameCount,
 }
 
 #[allow(dead_code)]
@@ -492,15 +489,15 @@ fn init_roundtrip() -> Option<Vec<Device>> {
 
     // Trigger the sync event. The server's answer won't be processed until we start the main loop,
     // so we can safely do this before setting up a callback. This lets us avoid using a Cell.
-    let peddings: Rc<RefCell<Vec<AsyncSeq>>> = Rc::new(RefCell::new(vec![]));
+    let pending_events: Rc<RefCell<Vec<AsyncSeq>>> = Rc::new(RefCell::new(vec![]));
     let pending = core.sync(0).expect("sync failed");
 
-    peddings.borrow_mut().push(pending);
+    pending_events.borrow_mut().push(pending);
 
     let _listener_core = core
         .add_listener_local()
         .done({
-            let peddings = peddings.clone();
+            let peddings = pending_events.clone();
             move |id, seq| {
                 if id != pw::core::PW_ID_CORE {
                     return;
@@ -591,7 +588,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                         })
                         .register();
                     let pending = core.sync(0).expect("sync failed");
-                    peddings.borrow_mut().push(pending);
+                    pending_events.borrow_mut().push(pending);
                     requests
                         .borrow_mut()
                         .push((meta_settings.upcast(), Request::Meta(listener)));
@@ -713,7 +710,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                         })
                         .register();
                     let pending = core.sync(0).expect("sync failed");
-                    peddings.borrow_mut().push(pending);
+                    pending_events.borrow_mut().push(pending);
                     requests
                         .borrow_mut()
                         .push((node.upcast(), Request::Node(listener)));
