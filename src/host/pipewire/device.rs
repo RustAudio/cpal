@@ -518,17 +518,17 @@ fn init_roundtrip() -> Option<Vec<Device>> {
     let _listener_core = core
         .add_listener_local()
         .done({
-            let peddings = pending_events.clone();
+            let pending_events = pending_events.clone();
             move |id, seq| {
                 if id != pw::core::PW_ID_CORE {
                     return;
                 }
-                let mut peddinglist = peddings.borrow_mut();
-                let Some(index) = peddinglist.iter().position(|o_seq| *o_seq == seq) else {
+                let mut pendinglist = pending_events.borrow_mut();
+                let Some(index) = pendinglist.iter().position(|o_seq| *o_seq == seq) else {
                     return;
                 };
-                peddinglist.remove(index);
-                if !peddinglist.is_empty() {
+                pendinglist.remove(index);
+                if !pendinglist.is_empty() {
                     return;
                 }
                 loop_clone.quit();
