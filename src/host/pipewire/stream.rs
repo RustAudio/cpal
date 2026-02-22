@@ -15,7 +15,7 @@ use pipewire::{
         },
         pod::Pod,
     },
-    stream::{StreamListener, StreamRc},
+    stream::{StreamListener, StreamRc, StreamState},
 };
 
 use crate::Data;
@@ -128,7 +128,25 @@ pub struct UserData<D, E> {
     format: pw::spa::param::audio::AudioInfoRaw,
     created_instance: Instant,
 }
-
+impl<D, E> UserData<D, E>
+where
+    E: FnMut(StreamError) + Send + 'static,
+{
+    fn state_changed(&mut self, new: StreamState) {
+        match new {
+            pipewire::stream::StreamState::Error(e) => {
+                (self.error_callback)(StreamError::BackendSpecific {
+                    err: BackendSpecificError { description: e },
+                })
+            }
+            // TODO: maybe we need to log information when every new state comes?
+            pipewire::stream::StreamState::Paused => {}
+            pipewire::stream::StreamState::Streaming => {}
+            pipewire::stream::StreamState::Connecting => {}
+            pipewire::stream::StreamState::Unconnected => {}
+        }
+    }
+}
 impl<D, E> UserData<D, E>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -263,6 +281,9 @@ where
                 }
             }
         })
+        .state_changed(|_stream, user_data, _old, new| {
+            user_data.state_changed(new);
+        })
         .process(|stream, user_data| match stream.dequeue_buffer() {
             None => (user_data.error_callback)(StreamError::BufferUnderrun),
             Some(mut buffer) => {
@@ -393,6 +414,9 @@ where
                     });
                 }
             }
+        })
+        .state_changed(|_stream, user_data, _old, new| {
+            user_data.state_changed(new);
         })
         .process(|stream, user_data| match stream.dequeue_buffer() {
             None => (user_data.error_callback)(StreamError::BufferUnderrun),
