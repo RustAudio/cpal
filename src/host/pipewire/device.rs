@@ -460,7 +460,7 @@ impl Device {
     pub fn rate(&self) -> SampleRate {
         self.rate
     }
-    pub fn allow_rates(&self) -> &[FrameCount] {
+    pub fn allow_rates(&self) -> &[SampleRate] {
         &self.allow_rates
     }
 }
