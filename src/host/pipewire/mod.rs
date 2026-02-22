@@ -26,13 +26,13 @@ impl HostTrait for Host {
     fn default_input_device(&self) -> Option<Self::Device> {
         self.0
             .iter()
-            .find(|device| matches!(device.class_type(), Class::DefaultSink))
+            .find(|device| matches!(device.class(), Class::DefaultSink))
             .cloned()
     }
     fn default_output_device(&self) -> Option<Self::Device> {
         self.0
             .iter()
-            .find(|device| matches!(device.class_type(), Class::DefaultOutput))
+            .find(|device| matches!(device.class(), Class::DefaultOutput))
             .cloned()
     }
 }

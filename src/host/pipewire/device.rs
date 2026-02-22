@@ -64,7 +64,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub(crate) fn class_type(&self) -> Class {
+    pub(crate) fn class(&self) -> Class {
         self.class
     }
     fn sink_default() -> Self {
