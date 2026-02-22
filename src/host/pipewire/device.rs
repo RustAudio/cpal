@@ -336,13 +336,22 @@ impl DeviceTrait for Device {
                 drop(listener);
                 drop(context);
             })
-            .unwrap();
+            .map_err(|e| crate::BuildStreamError::BackendSpecific {
+                err: crate::BackendSpecificError {
+                    description: format!("failed to create thread: {e}"),
+                },
+            })?;
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
             }),
-            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+            Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+            Err(_) => Err(crate::BuildStreamError::BackendSpecific {
+                err: crate::BackendSpecificError {
+                    description: "pipewire timeout".to_owned(),
+                },
+            }),
         }
     }
 
@@ -402,13 +411,22 @@ impl DeviceTrait for Device {
                 drop(listener);
                 drop(context);
             })
-            .unwrap();
+            .map_err(|e| crate::BuildStreamError::BackendSpecific {
+                err: crate::BackendSpecificError {
+                    description: format!("failed to create thread: {e}"),
+                },
+            })?;
         match pw_init_rv.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
             }),
-            Ok(false) | Err(_) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+            Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
+            Err(_) => Err(crate::BuildStreamError::BackendSpecific {
+                err: crate::BackendSpecificError {
+                    description: "pipewire timeout".to_owned(),
+                },
+            }),
         }
     }
 }
@@ -490,7 +508,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
     // Trigger the sync event. The server's answer won't be processed until we start the main loop,
     // so we can safely do this before setting up a callback. This lets us avoid using a Cell.
     let pending_events: Rc<RefCell<Vec<AsyncSeq>>> = Rc::new(RefCell::new(vec![]));
-    let pending = core.sync(0).expect("sync failed");
+    let pending = core.sync(0).ok()?;
 
     pending_events.borrow_mut().push(pending);
 
@@ -587,7 +605,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             0
                         })
                         .register();
-                    let pending = core.sync(0).expect("sync failed");
+                    let Ok(pending) = core.sync(0) else {
+                        // TODO: maybe we should add a log?
+                        return;
+                    };
                     pending_events.borrow_mut().push(pending);
                     requests
                         .borrow_mut()
@@ -709,7 +730,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                             devices.borrow_mut().push(device);
                         })
                         .register();
-                    let pending = core.sync(0).expect("sync failed");
+                    let Ok(pending) = core.sync(0) else {
+                        // TODO: maybe we should add a log?
+                        return;
+                    };
                     pending_events.borrow_mut().push(pending);
                     requests
                         .borrow_mut()

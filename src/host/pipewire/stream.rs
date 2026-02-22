@@ -41,11 +41,23 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), crate::PlayStreamError> {
-        let _ = self.controller.send(StreamCommand::Toggle(true));
+        self.controller
+            .send(StreamCommand::Toggle(true))
+            .map_err(|_| crate::PlayStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Cannot send message".to_owned(),
+                },
+            })?;
         Ok(())
     }
     fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        let _ = self.controller.send(StreamCommand::Toggle(false));
+        self.controller
+            .send(StreamCommand::Toggle(false))
+            .map_err(|_| crate::PauseStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Cannot send message".to_owned(),
+                },
+            })?;
         Ok(())
     }
 }
