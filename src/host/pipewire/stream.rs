@@ -294,14 +294,13 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
+    // TODO: what about RT_PROCESS?
     /* Now connect this stream. We ask that our process function is
      * called in a realtime thread. */
     stream.connect(
         pw::spa::utils::Direction::Output,
         None,
-        pw::stream::StreamFlags::AUTOCONNECT
-            | pw::stream::StreamFlags::MAP_BUFFERS
-            | pw::stream::StreamFlags::RT_PROCESS,
+        pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
         &mut params,
     )?;
 
@@ -407,14 +406,13 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
+    // TODO: what about RT_PROCESS?
     /* Now connect this stream. We ask that our process function is
      * called in a realtime thread. */
     stream.connect(
         pw::spa::utils::Direction::Input,
         None,
-        pw::stream::StreamFlags::AUTOCONNECT
-            | pw::stream::StreamFlags::MAP_BUFFERS
-            | pw::stream::StreamFlags::RT_PROCESS,
+        pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
         &mut params,
     )?;
 
