@@ -233,6 +233,7 @@ impl DeviceTrait for Device {
         //
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
+        let data_callback = std::panic::AssertUnwindSafe(data_callback);
         set_timeout(
             10,
             stream.clone(),
@@ -279,7 +280,7 @@ impl StreamTrait for Stream {
 }
 
 fn audio_callback_fn<D>(
-    mut data_callback: D,
+    mut data_callback: std::panic::AssertUnwindSafe<D>,
 ) -> impl FnOnce(Stream, StreamConfig, SampleFormat, u32)
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -361,7 +362,7 @@ where
 fn set_timeout<D>(
     time: i32,
     stream: Stream,
-    data_callback: D,
+    data_callback: std::panic::AssertUnwindSafe<D>,
     config: &StreamConfig,
     sample_format: SampleFormat,
     buffer_size_frames: u32,
