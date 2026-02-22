@@ -493,6 +493,7 @@ impl From<MetadataListener> for Request {
 }
 
 fn init_roundtrip() -> Option<Vec<Device>> {
+    pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
     let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
     let core = context.connect_rc(None).ok()?;
