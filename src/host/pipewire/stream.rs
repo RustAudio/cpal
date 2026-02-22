@@ -287,6 +287,8 @@ where
         .process(|stream, user_data| match stream.dequeue_buffer() {
             None => (user_data.error_callback)(StreamError::BufferUnderrun),
             Some(mut buffer) => {
+                // Read the requested frame count before mutably borrowing datas_mut().
+                let requested = buffer.requested() as usize;
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
@@ -294,13 +296,17 @@ where
                 let buf_data = &mut datas[0];
                 let n_channels = user_data.format.channels();
 
+                let stride = user_data.sample_format.sample_size() * n_channels as usize;
+                // frames = samples / channels or frames = data_len / stride
+                // Honor the frame count PipeWire requests this cycle, capped by the
+                // mapped buffer capacity to guard against any mismatch.
+                let frames = requested.min(buf_data.as_raw().maxsize as usize / stride);
                 let Some(samples) = buf_data.data() else {
                     return;
                 };
-                let stride = user_data.sample_format.sample_size() * n_channels as usize;
-                let frames = samples.len() / stride;
 
-                let n_samples = samples.len() / user_data.sample_format.sample_size();
+                // samples = frames * channels or samples = data_len / sample_size
+                let n_samples = frames * n_channels as usize;
 
                 let data = samples.as_mut_ptr() as *mut ();
                 let mut data =
