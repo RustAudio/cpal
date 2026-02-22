@@ -227,11 +227,12 @@ where
         format: Default::default(),
         created_instance: Instant::now(),
     };
-
+    let channels = config.channels as _;
+    let rate = config.sample_rate as _;
     let stream = pw::stream::StreamRc::new(core, "cpal-playback", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
-        .param_changed(|_, user_data, id, param| {
+        .param_changed(move|_, user_data, id, param| {
             let Some(param) = param else {
                 return;
             };
@@ -248,12 +249,20 @@ where
             if media_type != MediaType::Audio || media_subtype != MediaSubtype::Raw {
                 return;
             }
-
             // call a helper function to parse the format for us.
-            user_data
-                .format
-                .parse(param)
-                .expect("Failed to parse param changed to AudioInfoRaw");
+            // When the format update, we check the format first, in case it does not fit what we
+            // set
+            if user_data.format.parse(param).is_ok() {
+                let current_channels = user_data.format.channels();
+                let current_rate = user_data.format.rate();
+                if current_channels != channels || rate != current_rate {
+                    (user_data.error_callback)(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
+                        },
+                    });
+                }
+            }
         })
         .process(|stream, user_data| match stream.dequeue_buffer() {
             None => (user_data.error_callback)(StreamError::BufferUnderrun),
@@ -288,8 +297,8 @@ where
         .register()?;
     let mut audio_info = pw::spa::param::audio::AudioInfoRaw::new();
     audio_info.set_format(sample_format.into());
-    audio_info.set_rate(config.sample_rate);
-    audio_info.set_channels(config.channels as u32);
+    audio_info.set_rate(rate);
+    audio_info.set_channels(channels);
 
     let obj = pw::spa::pod::Object {
         type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
@@ -347,10 +356,13 @@ where
         created_instance: Instant::now(),
     };
 
+    let channels = config.channels as _;
+    let rate = config.sample_rate as _;
+
     let stream = pw::stream::StreamRc::new(core, "cpal-capture", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
-        .param_changed(|_, user_data, id, param| {
+        .param_changed(move |_, user_data, id, param| {
             let Some(param) = param else {
                 return;
             };
@@ -369,10 +381,19 @@ where
             }
 
             // call a helper function to parse the format for us.
-            user_data
-                .format
-                .parse(param)
-                .expect("Failed to parse param changed to AudioInfoRaw");
+            // When the format update, we check the format first, in case it does not fit what we
+            // set
+            if user_data.format.parse(param).is_ok() {
+                let current_channels = user_data.format.channels();
+                let current_rate = user_data.format.rate();
+                if current_channels != channels || rate != current_rate {
+                    (user_data.error_callback)(StreamError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
+                        },
+                    });
+                }
+            }
         })
         .process(|stream, user_data| match stream.dequeue_buffer() {
             None => (user_data.error_callback)(StreamError::BufferUnderrun),
@@ -400,8 +421,8 @@ where
         .register()?;
     let mut audio_info = pw::spa::param::audio::AudioInfoRaw::new();
     audio_info.set_format(sample_format.into());
-    audio_info.set_rate(config.sample_rate);
-    audio_info.set_channels(config.channels as u32);
+    audio_info.set_rate(rate);
+    audio_info.set_channels(channels);
 
     let obj = pw::spa::pod::Object {
         type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
