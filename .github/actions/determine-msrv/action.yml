@@ -8,6 +8,10 @@ inputs:
   jack-msrv:
     description: The MSRV for JACK backend
     required: true
+  pulseaudio-msrv:
+    description: The MSRV for PulseAudio backend (optional, Linux only)
+    required: false
+    default: ''
 
 outputs:
   all-features:
@@ -23,7 +27,12 @@ runs:
       run: |
         PLATFORM_MSRV="${{ inputs.platform-msrv }}"
         JACK_MSRV="${{ inputs.jack-msrv }}"
+        PULSEAUDIO_MSRV="${{ inputs.pulseaudio-msrv }}"
         # Use sort -V to find the maximum version
-        MAX_MSRV=$(printf '%s\n' "$PLATFORM_MSRV" "$JACK_MSRV" | sort -V | tail -n1)
+        VERSIONS="$PLATFORM_MSRV $JACK_MSRV"
+        if [ -n "$PULSEAUDIO_MSRV" ]; then
+          VERSIONS="$VERSIONS $PULSEAUDIO_MSRV"
+        fi
+        MAX_MSRV=$(printf '%s\n' $VERSIONS | sort -V | tail -n1)
         echo "all-features=$MAX_MSRV" >> $GITHUB_OUTPUT
-        echo "Platform MSRV: $PLATFORM_MSRV, JACK MSRV: $JACK_MSRV, Using for --all-features: $MAX_MSRV"
+        echo "Platform MSRV: $PLATFORM_MSRV, JACK MSRV: $JACK_MSRV, PulseAudio MSRV: $PULSEAUDIO_MSRV, Using for --all-features: $MAX_MSRV"

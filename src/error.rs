@@ -45,6 +45,7 @@ impl Error for BackendSpecificError {}
 
 /// An error that might occur while attempting to enumerate the available devices on a system.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DevicesError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
@@ -68,6 +69,7 @@ impl From<BackendSpecificError> for DevicesError {
 
 /// An error that may occur while attempting to retrieve a device ID.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum DeviceIdError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific {
@@ -95,6 +97,7 @@ impl From<BackendSpecificError> for DeviceIdError {
 
 /// An error that may occur while attempting to retrieve a device name.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DeviceNameError {
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
     BackendSpecific { err: BackendSpecificError },
@@ -118,10 +121,14 @@ impl From<BackendSpecificError> for DeviceNameError {
 
 /// Error that can happen when enumerating the list of supported formats.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SupportedStreamConfigsError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+    /// The device is temporarily busy. This can happen when another application or stream
+    /// is using the device. Retrying may succeed.
+    DeviceBusy,
     /// We called something the C-Layer did not understand
     InvalidArgument,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
@@ -133,6 +140,7 @@ impl Display for SupportedStreamConfigsError {
         match self {
             Self::BackendSpecific { err } => err.fmt(f),
             Self::DeviceNotAvailable => f.write_str("The requested device is no longer available. For example, it has been unplugged."),
+            Self::DeviceBusy => f.write_str("The requested device is temporarily busy. Another application or stream may be using it."),
             Self::InvalidArgument => f.write_str("Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")
         }
     }
@@ -148,10 +156,14 @@ impl From<BackendSpecificError> for SupportedStreamConfigsError {
 
 /// May occur when attempting to request the default input or output stream format from a [`Device`](crate::Device).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DefaultStreamConfigError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+    /// The device is temporarily busy. This can happen when another application or stream
+    /// is using the device. Retrying after a short delay may succeed.
+    DeviceBusy,
     /// Returned if e.g. the default input format was requested on an output-only audio device.
     StreamTypeNotSupported,
     /// See the [`BackendSpecificError`] docs for more information about this error variant.
@@ -164,6 +176,9 @@ impl Display for DefaultStreamConfigError {
             Self::BackendSpecific { err } => err.fmt(f),
             Self::DeviceNotAvailable => f.write_str(
                 "The requested device is no longer available. For example, it has been unplugged.",
+            ),
+            Self::DeviceBusy => f.write_str(
+                "The requested device is temporarily busy. Another application or stream may be using it.",
             ),
             Self::StreamTypeNotSupported => {
                 f.write_str("The requested stream type is not supported by the device.")
@@ -181,10 +196,14 @@ impl From<BackendSpecificError> for DefaultStreamConfigError {
 }
 /// Error that can happen when creating a [`Stream`](crate::Stream).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BuildStreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.
     DeviceNotAvailable,
+    /// The device is temporarily busy. This can happen when another application or stream
+    /// is using the device. Retrying may succeed.
+    DeviceBusy,
     /// The specified stream configuration is not supported.
     StreamConfigNotSupported,
     /// We called something the C-Layer did not understand
@@ -204,6 +223,9 @@ impl Display for BuildStreamError {
             Self::BackendSpecific { err } => err.fmt(f),
             Self::DeviceNotAvailable => f.write_str(
                 "The requested device is no longer available. For example, it has been unplugged.",
+            ),
+            Self::DeviceBusy => f.write_str(
+                "The requested device is temporarily busy. Another application or stream may be using it.",
             ),
             Self::StreamConfigNotSupported => {
                 f.write_str("The requested stream configuration is not supported by the device.")
@@ -230,6 +252,7 @@ impl From<BackendSpecificError> for BuildStreamError {
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PlayStreamError {
     /// The device associated with the stream is no longer available.
     DeviceNotAvailable,
@@ -262,6 +285,7 @@ impl From<BackendSpecificError> for PlayStreamError {
 /// is because both the alsa and wasapi backends only enqueue these commands and do not process
 /// them immediately.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PauseStreamError {
     /// The device associated with the stream is no longer available.
     DeviceNotAvailable,
@@ -290,6 +314,7 @@ impl From<BackendSpecificError> for PauseStreamError {
 
 /// Errors that might occur while a stream is running.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum StreamError {
     /// The device no longer exists. This can happen if the device is disconnected while the
     /// program is running.

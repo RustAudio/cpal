@@ -7,13 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
+  `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
+- **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
+
 ### Changed
 
+- Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
+  SemVer-breaking changes.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
 
+- Reintroduce `audio_thread_priority` feature.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
+- **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 
 ## [0.17.3] - 2026-02-18
 
@@ -32,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
+- **ALSA**: Support for native DSD playback.
 - **WASAPI**: Enable as-necessary resampling in the WASAPI server process.
 
 ### Changed
@@ -97,7 +108,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `BufferSize::Fixed` validation against supported range.
-- **ALSA**: Add support for native DSD playback.
 
 ### Changed
 

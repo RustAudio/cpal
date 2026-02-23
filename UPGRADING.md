@@ -1,3 +1,50 @@
+# Upgrading from v0.17 to v0.18
+
+This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
+
+## Breaking Changes Checklist
+
+- [ ] Add wildcard arms to exhaustive `match` expressions on cpal error enums
+- [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors (ALSA)
+
+## 1. Error enums are now `#[non_exhaustive]`
+
+**What changed:** Public error enums in `cpal` are now marked `#[non_exhaustive]`. This lets cpal 
+add new variants in future minor releases without a SemVer-breaking change.
+
+```rust
+// Before (v0.17)
+match device.default_output_config() {
+    Ok(config) => config,
+    Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
+    Err(DefaultStreamConfigError::StreamTypeNotSupported) => panic!("unsupported"),
+    Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
+}
+
+// After (v0.18)
+loop {
+    match device.default_output_config() {
+        Ok(config) => break config,
+        Err(DefaultStreamConfigError::DeviceBusy) => {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
+        Err(DefaultStreamConfigError::StreamTypeNotSupported) => panic!("unsupported"),
+        Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
+        Err(_) => panic!("unknown error"),
+    }
+}
+```
+
+## 2. New `DeviceBusy` variant (ALSA)
+
+**What changed:** On ALSA, `EBUSY`/`EAGAIN` errors from device open calls now produce `DeviceBusy`
+instead of `DeviceNotAvailable`.
+
+Unlike `DeviceNotAvailable` (device is gone), `DeviceBusy` signals a transient condition. Retrying after a short delay may succeed, as shown in the example above.
+
+---
+
 # Upgrading from v0.16 to v0.17
 
 This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
@@ -6,7 +53,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 
 - [ ] Replace `SampleRate(n)` with plain `n` values
 - [ ] Update `windows` crate to >= 0.59, <= 0.62 (Windows only)
-- [ ] Update `alsa` crate to 0.10 (Linux only)
+- [ ] Update `alsa` crate to 0.11 (Linux only)
 - [ ] Remove `wee_alloc` feature from Wasm builds (if used)
 - [ ] Wrap CoreAudio streams in `Arc` if you were cloning them (macOS only)
 - [ ] Handle `BuildStreamError::StreamConfigNotSupported` for `BufferSize::Fixed` (JACK, strict validation)
@@ -40,8 +87,6 @@ let config = StreamConfig {
 
 **Impact:** Remove `SampleRate()` constructor calls. The type is now just `u32`, so use integer literals or variables directly.
 
----
-
 ## 2. Device::name() deprecated (soft deprecation)
 
 **What changed:** `Device::name()` is deprecated in favor of `id()` and `description()`.
@@ -65,8 +110,6 @@ let device = host.device_by_id(&id_string.parse()?)?;
 
 **Why:** Separates stable device identification (`id()`) from human-readable names (`description()`).
 
----
-
 ## 3. CoreAudio Stream no longer Clone (macOS)
 
 **What changed:** On macOS, `Stream` no longer implements `Clone`. Use `Arc` instead.
@@ -82,8 +125,6 @@ let stream_clone = Arc::clone(&stream);
 ```
 
 **Why:** Removed as part of making `Stream` implement `Send` on macOS.
-
----
 
 ## 4. BufferSize behavior changes
 
@@ -131,8 +172,6 @@ match device.build_output_stream(&config, data_fn, err_fn, None) {
 
 **JACK users:** Use `BufferSize::Default` to automatically match the server's configured size.
 
----
-
 ## 5. Dependency updates
 
 Update these dependencies if you use them directly:
@@ -142,12 +181,10 @@ Update these dependencies if you use them directly:
 cpal = "0.17"
 
 # Platform-specific (if used directly):
-alsa = "0.10"  # Linux only
+alsa = "0.11"  # Linux only
 windows = { version = ">=0.59, <=0.62" }  # Windows only
 audio_thread_priority = "0.34"  # All platforms
 ```
-
----
 
 ## 6. ALSA device enumeration changed (Linux)
 
@@ -157,8 +194,6 @@ audio_thread_priority = "0.34"  # All platforms
 * v0.17: All aplay -L devices (default, hw:CARD=X,DEV=Y, plughw:, front:, surround51:, etc.)
 
 **Impact:** Many more devices will be enumerated. Device names/IDs will be much more detailed. Update any code that matches specific ALSA device names.
-
----
 
 ## 7. Wasm wee_alloc feature removed
 
@@ -171,8 +206,6 @@ cpal = { version = "0.16", features = ["wasm-bindgen", "wee_alloc"] }
 # After (v0.17)
 cpal = { version = "0.17", features = ["wasm-bindgen"] }
 ```
-
----
 
 ## Notable Non-Breaking Improvements
 
