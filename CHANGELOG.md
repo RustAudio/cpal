@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reintroduce `audio_thread_priority` feature.
+- **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 
 ## [0.17.3] - 2026-02-18
 
