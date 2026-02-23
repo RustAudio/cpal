@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
   SemVer-breaking changes.
 
+### Fixed
+
+- Reintroduce `audio_thread_priority` feature.
+
 ## [0.17.3] - 2026-02-18
 
 ### Changed
