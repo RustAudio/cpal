@@ -3,6 +3,7 @@
 //! Default backend on Emscripten.
 
 use js_sys::Float32Array;
+use std::panic::AssertUnwindSafe;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -233,7 +234,7 @@ impl DeviceTrait for Device {
         //
         // See also: The call to `set_timeout` at the end of the `audio_callback_fn` which creates
         // the loop.
-        let data_callback = std::panic::AssertUnwindSafe(data_callback);
+        let data_callback = AssertUnwindSafe(data_callback);
         set_timeout(
             10,
             stream.clone(),
@@ -280,7 +281,7 @@ impl StreamTrait for Stream {
 }
 
 fn audio_callback_fn<D>(
-    mut data_callback: std::panic::AssertUnwindSafe<D>,
+    mut data_callback: AssertUnwindSafe<D>,
 ) -> impl FnOnce(Stream, StreamConfig, SampleFormat, u32)
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -362,7 +363,7 @@ where
 fn set_timeout<D>(
     time: i32,
     stream: Stream,
-    data_callback: std::panic::AssertUnwindSafe<D>,
+    data_callback: AssertUnwindSafe<D>,
     config: &StreamConfig,
     sample_format: SampleFormat,
     buffer_size_frames: u32,
