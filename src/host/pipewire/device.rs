@@ -552,7 +552,9 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                     }) {
                         return;
                     }
-                    let meta_settings: Metadata = registry.bind(global).unwrap();
+                    let meta_settings: Metadata = registry
+                        .bind(global)
+                        .expect("settings is checked, and should exists");
                     let settings = settings.clone();
                     let listener = meta_settings
                         .add_listener_local()
@@ -629,7 +631,9 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                         return;
                     }
 
-                    let node: Node = registry.bind(global).expect("should ok");
+                    let node: Node = registry
+                        .bind(global)
+                        .expect("global is checked and should exists");
 
                     let devices = devices.clone();
                     let listener = node
