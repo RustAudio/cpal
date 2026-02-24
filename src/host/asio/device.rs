@@ -183,12 +183,9 @@ impl Iterator for Devices {
                             continue;
                         }
 
-                        let Ok(sample_rate) = driver.sample_rate() else {
-                            continue;
-                        };
-                        if sample_rate == 0.0 {
-                            continue;
-                        }
+                        // Some drivers (e.g. Realtek ASIO) return 0 for sample_rate() until a
+                        // stream is active. Treat 0 as "not yet known" rather than skipping.
+                        let sample_rate = driver.sample_rate().unwrap_or(0.0);
 
                         let Ok((buffer_size_min, buffer_size_max)) = driver.buffersize_range()
                         else {
@@ -203,18 +200,12 @@ impl Iterator for Devices {
                             .output_data_type()
                             .ok()
                             .and_then(|t| convert_data_type(&t));
-                        if input_sample_format.is_none() && output_sample_format.is_none() {
-                            continue;
-                        }
 
                         let supported_sample_rates: Vec<SampleRate> = crate::COMMON_SAMPLE_RATES
                             .iter()
                             .copied()
                             .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
                             .collect();
-                        if supported_sample_rates.is_empty() {
-                            continue;
-                        }
 
                         self.current_driver = Some(driver);
 
