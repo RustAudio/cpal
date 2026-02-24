@@ -1,7 +1,6 @@
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 use super::sys;
-use crate::BackendSpecificError;
 use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
@@ -10,7 +9,9 @@ use crate::DeviceId;
 use crate::DeviceIdError;
 use crate::DeviceNameError;
 use crate::DevicesError;
+use crate::FrameCount;
 use crate::SampleFormat;
+use crate::SampleRate;
 use crate::SupportedBufferSize;
 use crate::SupportedStreamConfig;
 use crate::SupportedStreamConfigRange;
@@ -23,25 +24,35 @@ use std::sync::{Arc, Mutex};
 /// A ASIO Device
 #[derive(Clone)]
 pub struct Device {
-    /// The driver represented by this device.
-    pub driver: Arc<sys::Driver>,
+    name: String,
+
+    // Metadata cached during enumeration
+    channels_in: ChannelCount,
+    channels_out: ChannelCount,
+    sample_rate: SampleRate,
+    buffer_size_min: FrameCount,
+    buffer_size_max: FrameCount,
+    input_sample_format: Option<SampleFormat>,
+    output_sample_format: Option<SampleFormat>,
+    supported_sample_rates: Vec<SampleRate>,
 
     // Input and/or Output stream.
     // A driver can only have one of each.
     // They need to be created at the same time.
-    pub asio_streams: Arc<Mutex<sys::AsioStreams>>,
-    pub current_callback_flag: Arc<AtomicU32>,
+    pub(super) asio_streams: Arc<Mutex<sys::AsioStreams>>,
+    pub(super) current_callback_flag: Arc<AtomicU32>,
 }
 
 /// All available devices.
 pub struct Devices {
     asio: Arc<sys::Asio>,
     drivers: std::vec::IntoIter<String>,
+    current_driver: Option<sys::Driver>,
 }
 
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
-        self.driver.name() == other.driver.name()
+        self.name == other.name
     }
 }
 
@@ -49,30 +60,25 @@ impl Eq for Device {}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.driver.name().hash(state);
+        self.name.hash(state);
     }
 }
 
 impl Device {
     pub fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
-        let driver_name = self.driver.name().to_string();
-
         let direction = crate::device_description::direction_from_counts(
-            self.driver.channels().ok().map(|c| c.ins as ChannelCount),
-            self.driver.channels().ok().map(|c| c.outs as ChannelCount),
+            Some(self.channels_in),
+            Some(self.channels_out),
         );
 
-        Ok(DeviceDescriptionBuilder::new(driver_name.clone())
-            .driver(driver_name)
+        Ok(DeviceDescriptionBuilder::new(self.name.clone())
+            .driver(self.name.clone())
             .direction(direction)
             .build())
     }
 
     pub fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Ok(DeviceId(
-            crate::platform::HostId::Asio,
-            self.driver.name().to_string(),
-        ))
+        Ok(DeviceId(crate::platform::HostId::Asio, self.name.clone()))
     }
 
     /// Gets the supported input configs.
@@ -81,35 +87,10 @@ impl Device {
     pub fn supported_input_configs(
         &self,
     ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
-        // Retrieve the default config for the total supported channels and supported sample
-        // format.
-        let f = match self.default_input_config() {
-            Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
-            Ok(f) => f,
-        };
-
-        // Collect a config for every combination of supported sample rate and number of channels.
-        let mut supported_configs = vec![];
-        for &rate in crate::COMMON_SAMPLE_RATES {
-            if !self
-                .driver
-                .can_sample_rate(rate.into())
-                .ok()
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            for channels in 1..f.channels + 1 {
-                supported_configs.push(SupportedStreamConfigRange {
-                    channels,
-                    min_sample_rate: rate,
-                    max_sample_rate: rate,
-                    buffer_size: f.buffer_size,
-                    sample_format: f.sample_format,
-                })
-            }
-        }
-        Ok(supported_configs.into_iter())
+        let default = self
+            .default_input_config()
+            .map_err(|_| SupportedStreamConfigsError::DeviceNotAvailable)?;
+        Ok(self.configs_for(default).into_iter())
     }
 
     /// Gets the supported output configs.
@@ -118,107 +99,149 @@ impl Device {
     pub fn supported_output_configs(
         &self,
     ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
-        // Retrieve the default config for the total supported channels and supported sample
-        // format.
-        let f = match self.default_output_config() {
-            Err(_) => return Err(SupportedStreamConfigsError::DeviceNotAvailable),
-            Ok(f) => f,
-        };
-
-        // Collect a config for every combination of supported sample rate and number of channels.
-        let mut supported_configs = vec![];
-        for &rate in crate::COMMON_SAMPLE_RATES {
-            if !self
-                .driver
-                .can_sample_rate(rate.into())
-                .ok()
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            for channels in 1..f.channels + 1 {
-                supported_configs.push(SupportedStreamConfigRange {
-                    channels,
-                    min_sample_rate: rate,
-                    max_sample_rate: rate,
-                    buffer_size: f.buffer_size,
-                    sample_format: f.sample_format,
-                })
-            }
-        }
-        Ok(supported_configs.into_iter())
+        let default = self
+            .default_output_config()
+            .map_err(|_| SupportedStreamConfigsError::DeviceNotAvailable)?;
+        Ok(self.configs_for(default).into_iter())
     }
 
     /// Returns the default input config
     pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let channels = self.driver.channels().map_err(default_config_err)?.ins as u16;
-        let sample_rate = self.driver.sample_rate().map_err(default_config_err)? as u32;
-        let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
-        let buffer_size = SupportedBufferSize::Range {
-            min: min as u32,
-            max: max as u32,
-        };
-        // Map th ASIO sample type to a CPAL sample type
-        let data_type = self.driver.input_data_type().map_err(default_config_err)?;
-        let sample_format = convert_data_type(&data_type)
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
-        Ok(SupportedStreamConfig {
-            channels,
-            sample_rate,
-            buffer_size,
-            sample_format,
-        })
+        self.default_config(self.channels_in, self.input_sample_format)
     }
 
     /// Returns the default output config
     pub fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let channels = self.driver.channels().map_err(default_config_err)?.outs as u16;
-        let sample_rate = self.driver.sample_rate().map_err(default_config_err)? as u32;
-        let (min, max) = self.driver.buffersize_range().map_err(default_config_err)?;
-        let buffer_size = SupportedBufferSize::Range {
-            min: min as u32,
-            max: max as u32,
-        };
-        let data_type = self.driver.output_data_type().map_err(default_config_err)?;
-        let sample_format = convert_data_type(&data_type)
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
+        self.default_config(self.channels_out, self.output_sample_format)
+    }
+
+    fn default_config(
+        &self,
+        channels: ChannelCount,
+        sample_format: Option<SampleFormat>,
+    ) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+        if channels == 0 {
+            return Err(DefaultStreamConfigError::StreamTypeNotSupported);
+        }
+        let sample_format =
+            sample_format.ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
         Ok(SupportedStreamConfig {
             channels,
-            sample_rate,
-            buffer_size,
+            sample_rate: self.sample_rate,
+            buffer_size: SupportedBufferSize::Range {
+                min: self.buffer_size_min,
+                max: self.buffer_size_max,
+            },
             sample_format,
         })
+    }
+
+    fn configs_for(&self, default: SupportedStreamConfig) -> Vec<SupportedStreamConfigRange> {
+        let mut configs = Vec::with_capacity(default.channels as usize);
+        for &rate in &self.supported_sample_rates {
+            for channels in 1..=default.channels {
+                configs.push(SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rate,
+                    max_sample_rate: rate,
+                    buffer_size: default.buffer_size,
+                    sample_format: default.sample_format,
+                });
+            }
+        }
+        configs
     }
 }
 
 impl Devices {
     pub fn new(asio: Arc<sys::Asio>) -> Result<Self, DevicesError> {
         let drivers = asio.driver_names().into_iter();
-        Ok(Devices { asio, drivers })
+        Ok(Self {
+            asio,
+            drivers,
+            current_driver: None,
+        })
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
 
-    /// Load drivers and return device
+    /// Enumerate devices by briefly loading each driver to capture its metadata.
     fn next(&mut self) -> Option<Device> {
+        // Drop the previously loaded driver before attempting to load the next one.
+        self.current_driver = None;
+
         loop {
             match self.drivers.next() {
                 Some(name) => match self.asio.load_driver(&name) {
                     Ok(driver) => {
-                        let driver = Arc::new(driver);
+                        let Ok(channels) = driver.channels() else {
+                            continue;
+                        };
+                        if channels.ins == 0 && channels.outs == 0 {
+                            continue;
+                        }
+
+                        let Ok(sample_rate) = driver.sample_rate() else {
+                            continue;
+                        };
+                        if sample_rate == 0.0 {
+                            continue;
+                        }
+
+                        let Ok((buffer_size_min, buffer_size_max)) = driver.buffersize_range()
+                        else {
+                            continue;
+                        };
+
+                        let input_sample_format = driver
+                            .input_data_type()
+                            .ok()
+                            .and_then(|t| convert_data_type(&t));
+                        let output_sample_format = driver
+                            .output_data_type()
+                            .ok()
+                            .and_then(|t| convert_data_type(&t));
+                        if input_sample_format.is_none() && output_sample_format.is_none() {
+                            continue;
+                        }
+
+                        let supported_sample_rates: Vec<SampleRate> = crate::COMMON_SAMPLE_RATES
+                            .iter()
+                            .copied()
+                            .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
+                            .collect();
+                        if supported_sample_rates.is_empty() {
+                            continue;
+                        }
+
+                        self.current_driver = Some(driver);
+
                         let asio_streams = Arc::new(Mutex::new(sys::AsioStreams {
                             input: None,
                             output: None,
                         }));
+
                         return Some(Device {
-                            driver,
+                            name,
+                            channels_in: channels.ins as ChannelCount,
+                            channels_out: channels.outs as ChannelCount,
+                            sample_rate: sample_rate as SampleRate,
+                            buffer_size_min: buffer_size_min as FrameCount,
+                            buffer_size_max: buffer_size_max as FrameCount,
+                            input_sample_format,
+                            output_sample_format,
+                            supported_sample_rates,
                             asio_streams,
                             // Initialize with sentinel value so it never matches global flag state (0 or 1).
                             current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
                         });
                     }
+                    // A different driver is already loaded (e.g. an active Stream holds it). Stop
+                    // cleanly rather than spinning through the rest of the list.
+                    Err(sys::LoadDriverError::DriverAlreadyExists) => return None,
+                    // Driver failed to load for its own reasons; skip and try the next.
                     Err(_) => continue,
                 },
                 None => return None,
@@ -242,17 +265,4 @@ pub(crate) fn convert_data_type(ty: &sys::AsioSampleType) -> Option<SampleFormat
         _ => return None,
     };
     Some(fmt)
-}
-
-fn default_config_err(e: sys::AsioError) -> DefaultStreamConfigError {
-    match e {
-        sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
-            DefaultStreamConfigError::DeviceNotAvailable
-        }
-        sys::AsioError::NoRate => DefaultStreamConfigError::StreamTypeNotSupported,
-        err => {
-            let description = format!("{}", err);
-            BackendSpecificError { description }.into()
-        }
-    }
 }

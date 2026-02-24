@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
   SemVer-breaking changes.
+- **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+
+### Fixed
+
+- Reintroduce `audio_thread_priority` feature.
+- **ASIO**: Fix enumeration returning only the first device when using `collect`.
+- **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 
 ## [0.17.3] - 2026-02-18
 

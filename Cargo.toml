@@ -32,6 +32,12 @@ pulseaudio = ["dep:pulseaudio", "dep:futures"]
 # Note: JACK must be installed separately on all platforms
 jack = ["dep:jack"]
 
+# Audio thread priority elevation
+# Raises the audio callback thread to real-time priority for lower latency and fewer glitches
+# Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows
+audio_thread_priority = ["dep:audio_thread_priority"]
+
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
 # Required for any WebAssembly audio support
