@@ -92,8 +92,8 @@ fn main() -> Result<(), anyhow::Error> {
             .into_iter()
             .find(|id| *id == cpal::HostId::PipeWire)
             .expect(
-                "make sure --features pipewire is specified. only works on OSes where jack is available",
-            )).expect("jack host unavailable")
+                "make sure --features pipewire is specified. only works on OSes where pipewire is available",
+            )).expect("pipewire host unavailable")
     } else {
         cpal::default_host()
     };
