@@ -567,25 +567,10 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                     settings.borrow_mut().rate = rate;
                                 }
                                 (Some(clock::ALLOWED_RATES), Some(list)) => {
-                                    let Some(list) = list.strip_prefix("[") else {
+                                    let Some(allow_rates) = parse_allow_rates(list) else {
                                         return 0;
                                     };
-                                    let Some(list) = list.strip_suffix("]") else {
-                                        return 0;
-                                    };
-                                    let list = list.trim();
-                                    let list_normalized = list.replace(',', " ");
-                                    let list: Vec<&str> = list_normalized
-                                        .split(' ')
-                                        .filter(|s| !s.is_empty())
-                                        .collect();
-                                    let mut allow_rates = vec![];
-                                    for rate in list {
-                                        let Ok(rate) = rate.parse() else {
-                                            return 0;
-                                        };
-                                        allow_rates.push(rate);
-                                    }
+
                                     settings.borrow_mut().allow_rates = allow_rates;
                                 }
                                 (Some(clock::QUANTUM), Some(quantum)) => {
@@ -770,4 +755,42 @@ fn init_roundtrip() -> Option<Vec<Device>> {
 pub fn init_devices() -> Option<Vec<Device>> {
     let devices = init_roundtrip()?;
     Some(devices)
+}
+
+fn parse_allow_rates(list: &str) -> Option<Vec<u32>> {
+    let list: Vec<&str> = list
+        .trim()
+        .strip_prefix("[")?
+        .strip_suffix("]")?
+        .split(' ')
+        .flat_map(|s| s.split(','))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut allow_rates = vec![];
+    for rate in list {
+        let rate = rate.parse().ok()?;
+        allow_rates.push(rate);
+    }
+    Some(allow_rates)
+}
+
+#[cfg(test)]
+mod test {
+    use super::parse_allow_rates;
+    #[test]
+    fn rate_parse() {
+        // In documents, the rates are separated by space
+        let rate_str = r#"  [ 44100 48000 88200 96000 176400 192000 ] "#;
+        let rates = parse_allow_rates(rate_str).unwrap();
+        assert_eq!(rates, vec![44100, 48000, 88200, 96000, 176400, 192000]);
+        // ',' is also allowed
+        let rate_str = r#"  [ 44100, 48000, 88200, 96000 ,176400 ,192000 ] "#;
+        let rates = parse_allow_rates(rate_str).unwrap();
+        assert_eq!(rates, vec![44100, 48000, 88200, 96000, 176400, 192000]);
+        assert_eq!(rates, vec![44100, 48000, 88200, 96000, 176400, 192000]);
+        // We only use [] to define the list
+        let rate_str = r#"  { 44100, 48000, 88200, 96000 ,176400 ,192000 } "#;
+        let rates = parse_allow_rates(rate_str);
+        assert_eq!(rates, None);
+    }
 }
