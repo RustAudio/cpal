@@ -14,7 +14,6 @@ pub mod clock {
     pub const QUANTUM: &str = "clock.quantum";
     pub const MIN_QUANTUM: &str = "clock.min-quantum";
     pub const MAX_QUANTUM: &str = "clock.max-quantum";
-    pub const QUANTUM_LIMIT: &str = "clock.quantum-limit";
 }
 
 pub mod audio {

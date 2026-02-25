@@ -49,7 +49,6 @@ pub struct Device {
     description: String,
     direction: DeviceDirection,
     channels: ChannelCount,
-    limit_quantum: FrameCount,
     rate: SampleRate,
     allow_rates: Vec<SampleRate>,
     quantum: u32,
@@ -445,9 +444,6 @@ impl Device {
         &self.node_name
     }
 
-    pub fn limit_quantum(&self) -> FrameCount {
-        self.limit_quantum
-    }
     pub fn min_quantum(&self) -> FrameCount {
         self.min_quantum
     }
@@ -678,10 +674,7 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 .get(*pw::keys::AUDIO_CHANNELS)
                                 .and_then(|channels| channels.parse().ok())
                                 .unwrap_or(2);
-                            let limit_quantum: u32 = props
-                                .get(clock::QUANTUM_LIMIT)
-                                .and_then(|channels| channels.parse().ok())
-                                .unwrap_or(0);
+
                             let icon_name =
                                 props.get(DEVICE_ICON_NAME).unwrap_or("default").to_owned();
 
@@ -711,7 +704,6 @@ fn init_roundtrip() -> Option<Vec<Device>> {
                                 direction,
                                 role,
                                 channels,
-                                limit_quantum,
                                 icon_name,
                                 object_id: object_id.to_owned(),
                                 device_id: device_id.to_owned(),
