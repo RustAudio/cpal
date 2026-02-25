@@ -488,7 +488,7 @@ impl From<MetadataListener> for Request {
     }
 }
 
-fn init_roundtrip() -> Option<Vec<Device>> {
+pub fn init_devices() -> Option<Vec<Device>> {
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
     let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
@@ -741,11 +741,6 @@ fn init_roundtrip() -> Option<Vec<Device>> {
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
     }
-    Some(devices)
-}
-
-pub fn init_devices() -> Option<Vec<Device>> {
-    let devices = init_roundtrip()?;
     Some(devices)
 }
 
