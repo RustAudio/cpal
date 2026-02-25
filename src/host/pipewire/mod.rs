@@ -1,15 +1,16 @@
-use device::{init_devices, Class, Device, Devices};
-use pipewire as pw;
-
 use crate::traits::HostTrait;
+use device::{init_devices, Class, Device, Devices};
 mod device;
 mod stream;
 mod utils;
 
 // just init the pipewire the check if it is available
+#[inline]
 fn pipewire_available() -> bool {
-    pw::init();
-    pw::main_loop::MainLoopRc::new(None).is_ok()
+    let dir = std::env::var("PIPEWIRE_RUNTIME_DIR")
+        .or_else(|_| std::env::var("XDG_RUNTIME_DIR"))
+        .unwrap_or_default();
+    std::path::Path::new(&dir).join("pipewire-0").exists()
 }
 
 #[derive(Debug)]
