@@ -43,9 +43,9 @@ pub enum Role {
     StreamInput,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct Device {
+    #[allow(dead_code)]
     id: u32,
     node_name: String,
     nick_name: String,
@@ -58,6 +58,7 @@ pub struct Device {
     min_quantum: FrameCount,
     max_quantum: FrameCount,
     class: Class,
+    #[allow(dead_code)]
     object_id: String,
     role: Role,
     icon_name: String,
@@ -472,6 +473,7 @@ struct Settings {
     max_quantum: FrameCount,
 }
 
+// NOTE: it is just used to keep the lifetime
 #[allow(dead_code)]
 enum Request {
     Node(NodeListener),
