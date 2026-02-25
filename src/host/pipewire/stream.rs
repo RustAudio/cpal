@@ -115,7 +115,8 @@ impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
             SampleFormat::F64 => Self::F64LE,
             #[cfg(target_endian = "big")]
             SampleFormat::F64 => Self::F64BE,
-            // TODO: maybe we also need to support others
+            // NOTE: Seems PipeWire does support U64 and I64, but libspa doesn't yet.
+            // TODO: Maybe add the support in the future
             _ => Self::Unknown,
         }
     }
