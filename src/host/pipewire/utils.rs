@@ -19,6 +19,9 @@ pub mod clock {
 pub mod audio {
     pub const SINK: &str = "Audio/Sink";
     pub const SOURCE: &str = "Audio/Source";
+    pub const DUPLEX: &str = "Audio/Duplex";
+    pub const STREAM_OUTPUT: &str = "Stream/Output/Audio";
+    pub const STREAM_INPUT: &str = "Stream/Input/Audio";
 }
 
 pub mod group {

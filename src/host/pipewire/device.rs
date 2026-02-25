@@ -38,6 +38,9 @@ pub enum Role {
     Sink,
     #[default]
     Source,
+    Duplex,
+    StreamOutput,
+    StreamInput,
 }
 
 #[allow(dead_code)]
@@ -56,7 +59,6 @@ pub struct Device {
     max_quantum: FrameCount,
     class: Class,
     object_id: String,
-    device_id: String,
     role: Role,
     icon_name: String,
     object_serial: u32,
@@ -608,7 +610,14 @@ pub fn init_devices() -> Option<Vec<Device>> {
                     let Some(media_class) = props.get(*pw::keys::MEDIA_CLASS) else {
                         return;
                     };
-                    if !matches!(media_class, audio::SINK | audio::SOURCE) {
+                    if !matches!(
+                        media_class,
+                        audio::SINK
+                            | audio::SOURCE
+                            | audio::DUPLEX
+                            | audio::STREAM_INPUT
+                            | audio::STREAM_OUTPUT
+                    ) {
                         return;
                     }
 
@@ -629,6 +638,9 @@ pub fn init_devices() -> Option<Vec<Device>> {
                             let role = match media_class {
                                 audio::SINK => Role::Sink,
                                 audio::SOURCE => Role::Source,
+                                audio::DUPLEX => Role::Duplex,
+                                audio::STREAM_OUTPUT => Role::StreamOutput,
+                                audio::STREAM_INPUT => Role::StreamInput,
                                 _ => {
                                     return;
                                 }
@@ -640,15 +652,15 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                 (group::PLAY_BACK, Role::Sink) => DeviceDirection::Duplex,
                                 (group::PLAY_BACK, Role::Source) => DeviceDirection::Output,
                                 (group::CAPTURE, _) => DeviceDirection::Input,
-                                // Bluetooth and other non-ALSA devices use generic port group
-                                // names like "stream.0" — derive direction from media.class
                                 (_, Role::Sink) => DeviceDirection::Output,
                                 (_, Role::Source) => DeviceDirection::Input,
+                                (_, Role::Duplex) => DeviceDirection::Duplex,
+                                // Bluetooth and other non-ALSA devices use generic port group
+                                // names like "stream.0" — derive direction from media.class
+                                (_, Role::StreamOutput) => DeviceDirection::Output,
+                                (_, Role::StreamInput) => DeviceDirection::Input,
                             };
                             let Some(object_id) = props.get(*pw::keys::OBJECT_ID) else {
-                                return;
-                            };
-                            let Some(device_id) = props.get(*pw::keys::DEVICE_ID) else {
                                 return;
                             };
                             let Some(object_serial) = props
@@ -706,7 +718,6 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                 channels,
                                 icon_name,
                                 object_id: object_id.to_owned(),
-                                device_id: device_id.to_owned(),
                                 object_serial,
                                 interface_type,
                                 address,
