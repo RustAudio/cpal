@@ -28,7 +28,7 @@ struct Opt {
     #[arg(long, default_value_t = false)]
     pulseaudio: bool,
 
-    /// Use the pipewire host
+    /// Use the pipewire host. Requires `--feature pipewire`
     #[arg(long, default_value_t = false)]
     pipewire: bool,
 }
