@@ -299,9 +299,9 @@ impl DeviceTrait for Device {
         D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<StreamCommand>();
+        let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
-        let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
+        let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let config = config.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
@@ -328,7 +328,7 @@ impl DeviceTrait for Device {
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
-                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
+                let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         let _ = stream.set_active(state);
                     }
@@ -346,7 +346,7 @@ impl DeviceTrait for Device {
                     description: format!("failed to create thread: {e}"),
                 },
             })?;
-        match pw_init_rv.recv_timeout(wait_timeout) {
+        match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
@@ -372,9 +372,9 @@ impl DeviceTrait for Device {
         D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
         E: FnMut(crate::StreamError) + Send + 'static,
     {
-        let (pw_play_tx, pw_play_rv) = pw::channel::channel::<StreamCommand>();
+        let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
-        let (pw_init_tx, pw_init_rv) = std::sync::mpsc::channel::<bool>();
+        let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let config = config.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
@@ -403,7 +403,7 @@ impl DeviceTrait for Device {
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
-                let _receiver = pw_play_rv.attach(mainloop.loop_(), move |play| match play {
+                let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         let _ = stream.set_active(state);
                     }
@@ -421,7 +421,7 @@ impl DeviceTrait for Device {
                     description: format!("failed to create thread: {e}"),
                 },
             })?;
-        match pw_init_rv.recv_timeout(wait_timeout) {
+        match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
