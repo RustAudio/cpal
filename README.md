@@ -112,6 +112,17 @@ Enables the PulseAudio backend. PulseAudio is a sound server commonly used on Li
 - 
 **Usage:** See the [beep example](examples/beep.rs) for selecting the PulseAudio host at runtime.
 
+### `pipewire`
+
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
+
+Enables the Pipewire backend. Pipewire is a media server commonly used on Linux desktops.
+
+**Requirements:**
+- Pipewire server and client libraries must be installed on the system
+- 
+**Usage:** See the [beep example](examples/beep.rs) for selecting the Pipewire host at runtime.
+
 ### `wasm-bindgen`
 
 **Platform:** WebAssembly (wasm32-unknown-unknown)
@@ -198,6 +209,7 @@ If you receive errors about no default input or output device:
 
 - **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
 - **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
+- **Linux/Pipewire:** Check that Pipewire is running: `systemd --user status pipewire`
 - **Windows:** Verify your audio device is enabled in Sound Settings
 - **macOS:** Check System Preferences > Sound for available devices
 - **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
@@ -236,6 +248,8 @@ For platform-specific features, enable the relevant features:
 ```bash
 cargo run --example beep --features asio  # Windows ASIO
 cargo run --example beep --features jack  # JACK backend
+cargo run --example beep --features pulseaudio  # PulseAudio backend
+cargo run --example beep --features pipewire  # Pipewire backend
 ```
 
 ## Contributing
