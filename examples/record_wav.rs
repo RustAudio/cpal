@@ -44,12 +44,12 @@ fn main() -> Result<(), anyhow::Error> {
     let mut pulseaudio_host_id = Err(HostUnavailable);
     #[allow(unused_mut, unused_assignments)]
     let mut pipewire_host_id = Err(HostUnavailable);
-    #[cfg(all(any(
+    #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "netbsd"
-    ),))]
+    ))]
     {
         #[cfg(feature = "jack")]
         {
