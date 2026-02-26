@@ -45,8 +45,6 @@ pub enum Role {
 
 #[derive(Clone, Debug, Default)]
 pub struct Device {
-    #[allow(dead_code)]
-    id: u32,
     node_name: String,
     nick_name: String,
     description: String,
@@ -58,8 +56,6 @@ pub struct Device {
     min_quantum: FrameCount,
     max_quantum: FrameCount,
     class: Class,
-    #[allow(dead_code)]
-    object_id: String,
     role: Role,
     icon_name: String,
     object_serial: u32,
@@ -74,7 +70,6 @@ impl Device {
     }
     fn sink_default() -> Self {
         Self {
-            id: 0,
             node_name: "sink_default".to_owned(),
             nick_name: "sink_default".to_owned(),
             description: "default_sink".to_owned(),
@@ -87,7 +82,6 @@ impl Device {
     }
     fn input_default() -> Self {
         Self {
-            id: 0,
             node_name: "input_default".to_owned(),
             nick_name: "input_default".to_owned(),
             description: "default_input".to_owned(),
@@ -100,7 +94,6 @@ impl Device {
     }
     fn output_default() -> Self {
         Self {
-            id: 0,
             node_name: "output_default".to_owned(),
             nick_name: "output_default".to_owned(),
             description: "default_output".to_owned(),
@@ -164,7 +157,7 @@ impl DeviceTrait for Device {
 
     fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
         let mut builder = crate::DeviceDescriptionBuilder::new(&self.nick_name)
-            .direction(self.direction())
+            .direction(self.direction)
             .device_type(self.device_type())
             .interface_type(self.interface_type);
         if let Some(address) = self.address.as_ref() {
@@ -437,22 +430,10 @@ impl DeviceTrait for Device {
 }
 
 impl Device {
-    pub fn channels(&self) -> ChannelCount {
-        self.channels
-    }
-    pub fn direction(&self) -> DeviceDirection {
-        self.direction
-    }
     pub fn node_name(&self) -> &str {
         &self.node_name
     }
 
-    pub fn min_quantum(&self) -> FrameCount {
-        self.min_quantum
-    }
-    pub fn max_quantum(&self) -> FrameCount {
-        self.max_quantum
-    }
     pub fn quantum(&self) -> FrameCount {
         self.quantum
     }
@@ -662,16 +643,12 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                 (_, Role::StreamOutput) => DeviceDirection::Output,
                                 (_, Role::StreamInput) => DeviceDirection::Input,
                             };
-                            let Some(object_id) = props.get(*pw::keys::OBJECT_ID) else {
-                                return;
-                            };
                             let Some(object_serial) = props
                                 .get(*pw::keys::OBJECT_SERIAL)
                                 .and_then(|serial| serial.parse().ok())
                             else {
                                 return;
                             };
-                            let id = info.id();
                             let node_name = props
                                 .get(*pw::keys::NODE_NAME)
                                 .unwrap_or("unknown")
@@ -711,7 +688,6 @@ pub fn init_devices() -> Option<Vec<Device>> {
                             let driver = props.get(*pw::keys::FACTORY_NAME).map(|s| s.to_owned());
 
                             let device = Device {
-                                id,
                                 node_name,
                                 nick_name,
                                 description,
@@ -719,7 +695,6 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                 role,
                                 channels,
                                 icon_name,
-                                object_id: object_id.to_owned(),
                                 object_serial,
                                 interface_type,
                                 address,
