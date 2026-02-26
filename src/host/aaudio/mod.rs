@@ -405,7 +405,15 @@ impl DeviceTrait for Device {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
-                let mut builder = DeviceDescriptionBuilder::new(self.name()?)
+                let name = if info.address.is_empty() {
+                    format!("{}:{:?}", info.product_name, info.device_type)
+                } else {
+                    format!(
+                        "{}:{:?}:{}",
+                        info.product_name, info.device_type, info.address
+                    )
+                };
+                let mut builder = DeviceDescriptionBuilder::new(name)
                     .device_type(info.device_type.into())
                     .interface_type(info.device_type.into())
                     .direction(info.direction);
