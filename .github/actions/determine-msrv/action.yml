@@ -32,7 +32,7 @@ runs:
         PLATFORM_MSRV="${{ inputs.platform-msrv }}"
         JACK_MSRV="${{ inputs.jack-msrv }}"
         PULSEAUDIO_MSRV="${{ inputs.pulseaudio-msrv }}"
-        PIPEWIRE_MSRV="${{ inputs.pulseaudio-msrv }}"
+        PIPEWIRE_MSRV="${{ inputs.pipewire-msrv }}"
         # Use sort -V to find the maximum version
         VERSIONS="$PLATFORM_MSRV $JACK_MSRV"
         if [ -n "$PULSEAUDIO_MSRV" ]; then
