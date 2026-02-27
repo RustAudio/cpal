@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{self, AtomicU64},
-        Arc,
+        Arc, Mutex,
     },
     time::{self, SystemTime},
 };
@@ -51,7 +51,7 @@ impl Stream {
         client: pulseaudio::Client,
         params: protocol::PlaybackStreamParams,
         mut data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
     ) -> Result<Self, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -67,6 +67,16 @@ impl Stream {
             .format
             .try_into()
             .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+
+        // Silence for unsigned formats is the midpoint, not zero. Among
+        // PulseAudio's supported formats, only U8 is unsigned and has a
+        // single-byte repeatable silence representation (0x80). Multi-byte
+        // unsigned formats (U16, U32, ...) are not currently supported.
+        let silence_byte = if format == SampleFormat::U8 {
+            0x80u8
+        } else {
+            0u8
+        };
 
         // Wrap the write callback to match the pulseaudio signature.
         let callback = move |buf: &mut [u8]| {
@@ -85,10 +95,10 @@ impl Stream {
                 },
             };
 
-            // Preemptively zero the buffer.
-            for b in buf.iter_mut() {
-                *b = 0;
-            }
+            // Preemptively fill the buffer with silence in case the user
+            // callback doesn't fill it completely (cpal's API doesn't allow
+            // short writes).
+            buf.fill(silence_byte);
 
             let bps = sample_spec.format.bytes_per_sample();
             let n_samples = buf.len() / bps;
@@ -101,17 +111,28 @@ impl Stream {
             data_callback(&mut data, &OutputCallbackInfo { timestamp });
 
             // We always consider the full buffer filled, because cpal's
-            // user-facing api doesn't allow for short writes.
-            n_samples * bps
+            // user-facing API doesn't allow short writes.
+            buf.len()
         };
 
         let stream = block_on(client.create_playback_stream(params, callback.as_playback_source()))
             .map_err(Into::<BackendSpecificError>::into)?;
 
+        // Share the error callback between the worker and latency threads so
+        // both can surface errors to the user.
+        let error_callback = Arc::new(Mutex::new(error_callback));
+
         // Spawn a thread to drive the stream future. It will exit automatically
         // when the stream is stopped by the user.
         let stream_clone = stream.clone();
-        let _worker_thread = std::thread::spawn(move || block_on(stream_clone.play_all()));
+        let error_callback_clone = error_callback.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = block_on(stream_clone.play_all()) {
+                error_callback_clone.lock().unwrap()(StreamError::from(BackendSpecificError {
+                    description: e.to_string(),
+                }));
+            }
+        });
 
         // Spawn a thread to monitor the stream's latency in a loop. It will
         // exit automatically when the stream ends.
@@ -121,7 +142,7 @@ impl Stream {
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
-                    error_callback(StreamError::from(BackendSpecificError {
+                    error_callback.lock().unwrap()(StreamError::from(BackendSpecificError {
                         description: e.to_string(),
                     }));
                     break;
@@ -136,7 +157,7 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(time::Duration::from_millis(100));
+            std::thread::sleep(time::Duration::from_millis(5));
         });
 
         Ok(Self::Playback(stream))
@@ -186,7 +207,9 @@ impl Stream {
 
             // SAFETY: we calculated the number of samples based on
             // `sample_spec.format`, and `format` is directly derived from (and
-            // equivalent to) `sample_spec.format`.
+            // equivalent to) `sample_spec.format`. The pointer is cast from
+            // *const to *mut, but cpal's Data type for input streams only
+            // exposes shared references (&[T]), so no mutation occurs.
             let data = unsafe { Data::from_parts(buf.as_ptr() as *mut _, n_samples, format) };
 
             data_callback(&data, &InputCallbackInfo { timestamp });
@@ -213,12 +236,12 @@ impl Stream {
             store_latency(
                 &latency_clone,
                 sample_spec,
-                timing_info.sink_usec,
+                timing_info.source_usec,
                 timing_info.write_offset,
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(time::Duration::from_millis(100));
+            std::thread::sleep(time::Duration::from_millis(5));
         });
 
         Ok(Self::Record(stream))
@@ -231,8 +254,8 @@ fn store_latency(
     device_latency_usec: u64,
     write_offset: i64,
     read_offset: i64,
-) -> time::Duration {
-    let offset = (write_offset as u64).saturating_sub(read_offset as u64);
+) {
+    let offset = (write_offset - read_offset).max(0) as u64;
 
     let latency = time::Duration::from_micros(device_latency_usec)
         + sample_spec.bytes_to_duration(offset as usize);
@@ -241,6 +264,4 @@ fn store_latency(
         latency.as_micros().try_into().unwrap_or(u64::MAX),
         atomic::Ordering::Relaxed,
     );
-
-    latency
 }
