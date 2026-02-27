@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
+- **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
+- **AAudio**: Fix invalid capture and playback timestamps.
 
 ## [0.17.3] - 2026-02-18
 
