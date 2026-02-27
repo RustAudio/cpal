@@ -598,18 +598,18 @@ impl DeviceTrait for Device {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        match self {
-            Self::Input(stream) => stream
-                .lock()
-                .unwrap()
-                .request_start()
-                .map_err(PlayStreamError::from),
-            Self::Output(stream) => stream
-                .lock()
-                .unwrap()
-                .request_start()
-                .map_err(PlayStreamError::from),
+        let stream = match self {
+            Self::Input(stream) => stream,
+            Self::Output(stream) => stream,
         }
+        .lock()
+        .unwrap();
+
+        stream.request_start().map_err(PlayStreamError::from)?;
+        stream
+            .wait_for_state_change(ndk::audio::AudioStreamState::Starting, 300_000_000)
+            .map(|_| ())
+            .map_err(PlayStreamError::from)
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
