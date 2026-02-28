@@ -4,7 +4,6 @@ mod device;
 mod stream;
 mod utils;
 
-// just init the pipewire the check if it is available
 #[inline]
 fn pipewire_available() -> bool {
     let dir = std::env::var("PIPEWIRE_RUNTIME_DIR")
