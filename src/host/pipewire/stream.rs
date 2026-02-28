@@ -148,13 +148,40 @@ where
         }
     }
 }
+
+/// Returns a hardware timestamp for the current graph cycle, or `None` if
+/// the driver has not started yet or the rate is unavailable.
+fn pw_stream_time(stream: &pw::stream::Stream) -> Option<crate::StreamInstant> {
+    use pw::sys as pw_sys;
+    use std::mem;
+    let mut t: pw_sys::pw_time = unsafe { mem::zeroed() };
+    let rc = unsafe {
+        pw_sys::pw_stream_get_time_n(
+            stream.as_raw_ptr(),
+            &mut t,
+            mem::size_of::<pw_sys::pw_time>(),
+        )
+    };
+    if rc != 0 || t.now == 0 || t.rate.denom == 0 {
+        return None;
+    }
+    debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
+    Some(crate::StreamInstant::from_nanos(t.now))
+}
+
 impl<D, E> UserData<D, E>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
-    fn publish_data_in(&mut self, frames: usize, data: &Data) -> Result<(), BackendSpecificError> {
-        let callback = stream_timestamp_fallback(self.created_instance)?;
+    fn publish_data_in(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data: &Data,
+    ) -> Result<(), BackendSpecificError> {
+        let callback =
+            pw_stream_time(stream).unwrap_or(stream_timestamp_fallback(self.created_instance)?);
         let delay_duration = frames_to_duration(frames, self.format.rate());
         let capture = callback
             .add(delay_duration)
@@ -175,10 +202,12 @@ where
 {
     fn publish_data_out(
         &mut self,
+        stream: &pw::stream::Stream,
         frames: usize,
         data: &mut Data,
     ) -> Result<(), BackendSpecificError> {
-        let callback = stream_timestamp_fallback(self.created_instance)?;
+        let callback =
+            pw_stream_time(stream).unwrap_or(stream_timestamp_fallback(self.created_instance)?);
         let delay_duration = frames_to_duration(frames, self.format.rate());
         let playback = callback
             .add(delay_duration)
@@ -321,7 +350,7 @@ where
                 let data = samples.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
-                if let Err(err) = user_data.publish_data_out(frames, &mut data) {
+                if let Err(err) = user_data.publish_data_out(stream, frames, &mut data) {
                     (user_data.error_callback)(StreamError::BackendSpecific { err });
                 }
                 let chunk = buf_data.chunk_mut();
@@ -452,7 +481,7 @@ where
                 let data = samples.as_mut_ptr() as *mut ();
                 let data =
                     unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                if let Err(err) = user_data.publish_data_in(frames as usize, &data) {
+                if let Err(err) = user_data.publish_data_in(stream, frames as usize, &data) {
                     (user_data.error_callback)(StreamError::BackendSpecific { err });
                 }
             }
