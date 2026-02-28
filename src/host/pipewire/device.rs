@@ -533,9 +533,15 @@ pub fn init_devices() -> Option<Vec<Device>> {
                     }) {
                         return;
                     }
-                    let meta_settings: Metadata = registry
-                        .bind(global)
-                        .expect("settings is checked, and should exists");
+                    let meta_settings: Metadata = match registry.bind(global) {
+                        Ok(meta_settings) => meta_settings,
+                        Err(_) => {
+                            // TODO: do something about this error
+                            // Though it is already checked, but maybe something happened with
+                            // pipewire?
+                            return;
+                        }
+                    };
                     let settings = settings.clone();
                     let listener = meta_settings
                         .add_listener_local()
@@ -604,9 +610,15 @@ pub fn init_devices() -> Option<Vec<Device>> {
                         return;
                     }
 
-                    let node: Node = registry
-                        .bind(global)
-                        .expect("global is checked and should exists");
+                    let node: Node = match registry.bind(global) {
+                        Ok(node) => node,
+                        Err(_) => {
+                            // TODO: do something about this error
+                            // Though it is already checked, but maybe something happened with
+                            // pipewire?
+                            return;
+                        }
+                    };
 
                     let devices = devices.clone();
                     let listener = node
