@@ -250,7 +250,7 @@ where
     let stream = pw::stream::StreamRc::new(core, "cpal-playback", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
-        .param_changed(move|_, user_data, id, param| {
+        .param_changed(move|stream, user_data, id, param| {
             let Some(param) = param else {
                 return;
             };
@@ -279,7 +279,16 @@ where
                             description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
                         },
                     });
+                    // if the channels and rate do not match, we stop the stream
+                    if let Err(e) = stream.set_active(false) {
+                        (user_data.error_callback)(StreamError::BackendSpecific {
+                            err: BackendSpecificError {
+                                description: format!("failed to stop the stream, reason: {e}"),
+                            },
+                        });
+                    }
                 }
+
             }
         })
         .state_changed(|_stream, user_data, _old, new| {
