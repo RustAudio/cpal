@@ -52,7 +52,7 @@ pub struct Device {
     channels: ChannelCount,
     rate: SampleRate,
     allow_rates: Vec<SampleRate>,
-    quantum: u32,
+    quantum: FrameCount,
     min_quantum: FrameCount,
     max_quantum: FrameCount,
     class: Class,
@@ -426,22 +426,6 @@ impl DeviceTrait for Device {
                 },
             }),
         }
-    }
-}
-
-impl Device {
-    pub fn node_name(&self) -> &str {
-        &self.node_name
-    }
-
-    pub fn quantum(&self) -> FrameCount {
-        self.quantum
-    }
-    pub fn rate(&self) -> SampleRate {
-        self.rate
-    }
-    pub fn allow_rates(&self) -> &[SampleRate] {
-        &self.allow_rates
     }
 }
 
