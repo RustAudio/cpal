@@ -436,33 +436,37 @@ impl DeviceTrait for Device {
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        let configs = if let Some(info) = &self.0 {
+        if let Some(info) = &self.0 {
             // Output-only devices do not support input
             if matches!(info.direction, DeviceDirection::Output) {
-                Vec::new().into_iter()
-            } else {
-                device_supported_configs(info)
+                return Err(SupportedStreamConfigsError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "output-only device does not support input".to_string(),
+                    },
+                });
             }
+            Ok(device_supported_configs(info))
         } else {
-            default_supported_configs()
-        };
-        Ok(configs)
+            Ok(default_supported_configs())
+        }
     }
 
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        let configs = if let Some(info) = &self.0 {
+        if let Some(info) = &self.0 {
             // Input-only devices do not support output
             if matches!(info.direction, DeviceDirection::Input) {
-                Vec::new().into_iter()
-            } else {
-                device_supported_configs(info)
+                return Err(SupportedStreamConfigsError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "input-only device does not support output".to_string(),
+                    },
+                });
             }
+            Ok(device_supported_configs(info))
         } else {
-            default_supported_configs()
-        };
-        Ok(configs)
+            Ok(default_supported_configs())
+        }
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
