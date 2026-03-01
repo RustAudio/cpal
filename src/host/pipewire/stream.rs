@@ -2,7 +2,7 @@ use std::{thread::JoinHandle, time::Instant};
 
 use crate::{
     traits::StreamTrait, BackendSpecificError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamError,
+    StreamConfig, StreamError, StreamInstant,
 };
 use pipewire::{
     self as pw,
@@ -149,9 +149,19 @@ where
     }
 }
 
+/// Hardware timestamp from a PipeWire graph cycle.
+struct PwTime {
+    /// CLOCK_MONOTONIC nanoseconds, stamped at the start of the graph cycle.
+    now_ns: i64,
+    /// Pipeline delay converted to nanoseconds.
+    /// For output: how far ahead of the driver our next sample will be played.
+    /// For input:  how long ago the data in the buffer was captured.
+    delay_ns: i64,
+}
+
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
 /// the driver has not started yet or the rate is unavailable.
-fn pw_stream_time(stream: &pw::stream::Stream) -> Option<crate::StreamInstant> {
+fn pw_stream_time(stream: &pw::stream::Stream) -> Option<(StreamInstant, PwTime)> {
     use pw::sys as pw_sys;
     use std::mem;
     let mut t: pw_sys::pw_time = unsafe { mem::zeroed() };
@@ -166,7 +176,15 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<crate::StreamInstant> {
         return None;
     }
     debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
-    Some(crate::StreamInstant::from_nanos(t.now))
+    let delay_ns = t.delay * 1_000_000_000i64 / t.rate.denom as i64;
+    let callback = crate::StreamInstant::from_nanos(t.now);
+    Some((
+        callback,
+        PwTime {
+            now_ns: t.now,
+            delay_ns,
+        },
+    ))
 }
 
 impl<D, E> UserData<D, E>
@@ -180,15 +198,22 @@ where
         frames: usize,
         data: &Data,
     ) -> Result<(), BackendSpecificError> {
-        let callback =
-            pw_stream_time(stream).unwrap_or(stream_timestamp_fallback(self.created_instance)?);
-        let delay_duration = frames_to_duration(frames, self.format.rate());
-        let capture = callback
-            .add(delay_duration)
-            .ok_or_else(|| BackendSpecificError {
-                description: "`playback` occurs beyond representation supported by `StreamInstant`"
-                    .to_string(),
-            })?;
+        let (callback, capture) = match pw_stream_time(stream) {
+            Some((cb, PwTime { now_ns, delay_ns })) => {
+                (cb, crate::StreamInstant::from_nanos(now_ns - delay_ns))
+            }
+            None => {
+                let cb = stream_timestamp_fallback(self.created_instance)?;
+                let pl = cb
+                    .sub(frames_to_duration(frames, self.format.rate()))
+                    .ok_or_else(|| BackendSpecificError {
+                        description:
+                            "`capture` occurs beyond representation supported by `StreamInstant`"
+                                .to_string(),
+                    })?;
+                (cb, pl)
+            }
+        };
         let timestamp = crate::InputStreamTimestamp { callback, capture };
         let info = crate::InputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
@@ -206,15 +231,22 @@ where
         frames: usize,
         data: &mut Data,
     ) -> Result<(), BackendSpecificError> {
-        let callback =
-            pw_stream_time(stream).unwrap_or(stream_timestamp_fallback(self.created_instance)?);
-        let delay_duration = frames_to_duration(frames, self.format.rate());
-        let playback = callback
-            .add(delay_duration)
-            .ok_or_else(|| BackendSpecificError {
-                description: "`playback` occurs beyond representation supported by `StreamInstant`"
-                    .to_string(),
-            })?;
+        let (callback, playback) = match pw_stream_time(stream) {
+            Some((cb, PwTime { now_ns, delay_ns })) => {
+                (cb, crate::StreamInstant::from_nanos(now_ns + delay_ns))
+            }
+            None => {
+                let cb = stream_timestamp_fallback(self.created_instance)?;
+                let pl = cb
+                    .add(frames_to_duration(frames, self.format.rate()))
+                    .ok_or_else(|| BackendSpecificError {
+                        description:
+                            "`playback` occurs beyond representation supported by `StreamInstant`"
+                                .to_string(),
+                    })?;
+                (cb, pl)
+            }
+        };
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
         let info = crate::OutputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
