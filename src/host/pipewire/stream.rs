@@ -344,6 +344,9 @@ where
                     return;
                 };
 
+                // set buffers to zero
+                samples.fill(crate::Sample::EQUILIBRIUM);
+
                 // samples = frames * channels or samples = data_len / sample_size
                 let n_samples = frames * n_channels as usize;
 
