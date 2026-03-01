@@ -484,10 +484,11 @@ pub struct Data {
 /// | Host | Source |
 /// | ---- | ------ |
 /// | alsa | `snd_pcm_status_get_htstamp` |
-/// | coreaudio | `mach_absolute_time` |
-/// | wasapi | `QueryPerformanceCounter` |
 /// | asio | `timeGetTime` |
+/// | coreaudio | `mach_absolute_time` |
 /// | emscripten | `AudioContext.getOutputTimestamp` |
+/// | pulseaudio | `std::time::Instant` |
+/// | wasapi | `QueryPerformanceCounter` |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
     secs: i64,

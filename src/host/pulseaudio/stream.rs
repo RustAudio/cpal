@@ -3,7 +3,7 @@ use std::{
         atomic::{self, AtomicU64},
         Arc, Mutex,
     },
-    time::{self, SystemTime},
+    time,
 };
 
 use futures::executor::block_on;
@@ -57,10 +57,15 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let epoch = std::time::SystemTime::now();
+        // Use a monotonic clock relative to stream creation for StreamInstants.
+        let start = std::time::Instant::now();
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
+        // Microseconds since stream creation at the time of the last latency poll, used
+        // to interpolate the latency between polls.
+        let last_poll_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
+        let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
 
         let format: SampleFormat = sample_spec
@@ -80,14 +85,23 @@ impl Stream {
 
         // Wrap the write callback to match the pulseaudio signature.
         let callback = move |buf: &mut [u8]| {
-            let now = SystemTime::now().duration_since(epoch).unwrap_or_default();
-            let latency = latency_clone.load(atomic::Ordering::Relaxed);
-            let playback_time = now + time::Duration::from_micros(latency);
+            let elapsed = std::time::Instant::now().saturating_duration_since(start);
+            let elapsed_usec = elapsed.as_micros() as u64;
+
+            // Interpolate the latency based on elapsed time since the last
+            // poll: as audio plays, the DAC drains the buffer at a constant
+            // rate, so the latency decreases linearly between polls.
+            let stored_latency = latency_clone.load(atomic::Ordering::Relaxed);
+            let poll_usec = poll_clone.load(atomic::Ordering::Relaxed);
+            let elapsed_since_poll = elapsed_usec.saturating_sub(poll_usec);
+            let latency = stored_latency.saturating_sub(elapsed_since_poll);
+
+            let playback_time = elapsed + time::Duration::from_micros(latency);
 
             let timestamp = OutputStreamTimestamp {
                 callback: StreamInstant {
-                    secs: now.as_secs() as i64,
-                    nanos: now.subsec_nanos(),
+                    secs: elapsed.as_secs() as i64,
+                    nanos: elapsed.subsec_nanos(),
                 },
                 playback: StreamInstant {
                     secs: playback_time.as_secs() as i64,
@@ -138,6 +152,7 @@ impl Stream {
         // exit automatically when the stream ends.
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
+        let poll_clone = last_poll_micros.clone();
         std::thread::spawn(move || loop {
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
@@ -148,6 +163,11 @@ impl Stream {
                     break;
                 }
             };
+
+            let poll_since_epoch = std::time::Instant::now()
+                .saturating_duration_since(start)
+                .as_micros() as u64;
+            poll_clone.store(poll_since_epoch, atomic::Ordering::Relaxed);
 
             store_latency(
                 &latency_clone,
@@ -173,7 +193,7 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let epoch = std::time::SystemTime::now();
+        let start = std::time::Instant::now();
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
@@ -185,16 +205,16 @@ impl Stream {
             .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
 
         let callback = move |buf: &[u8]| {
-            let now = SystemTime::now().duration_since(epoch).unwrap_or_default();
+            let elapsed = std::time::Instant::now().saturating_duration_since(start);
             let latency = latency_clone.load(atomic::Ordering::Relaxed);
-            let capture_time = now
+            let capture_time = elapsed
                 .checked_sub(time::Duration::from_micros(latency))
                 .unwrap_or_default();
 
             let timestamp = InputStreamTimestamp {
                 callback: StreamInstant {
-                    secs: now.as_secs() as i64,
-                    nanos: now.subsec_nanos(),
+                    secs: elapsed.as_secs() as i64,
+                    nanos: elapsed.subsec_nanos(),
                 },
                 capture: StreamInstant {
                     secs: capture_time.as_secs() as i64,
