@@ -1,8 +1,8 @@
 use std::{thread::JoinHandle, time::Instant};
 
 use crate::{
-    traits::StreamTrait, BackendSpecificError, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamError, StreamInstant,
+    host::fill_with_equilibrium, traits::StreamTrait, BackendSpecificError, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, StreamConfig, StreamError, StreamInstant,
 };
 use pipewire::{
     self as pw,
@@ -377,7 +377,7 @@ where
                 };
 
                 // set buffers to zero
-                samples.fill(crate::Sample::EQUILIBRIUM);
+                fill_with_equilibrium(samples, user_data.sample_format);
 
                 // samples = frames * channels or samples = data_len / sample_size
                 let n_samples = frames * n_channels as usize;

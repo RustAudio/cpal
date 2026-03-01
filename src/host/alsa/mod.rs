@@ -20,14 +20,15 @@ use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 
 use crate::{
+    host::fill_with_equilibrium,
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 mod enumerate;
@@ -1237,59 +1238,6 @@ fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount
         .map(clamp_frame_count)
         .unwrap_or(FrameCount::MAX);
     (min_buf, max_buf)
-}
-
-// Fill a buffer with equilibrium values for any sample format.
-// Works with any buffer size, even if not perfectly aligned to sample boundaries.
-fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
-    macro_rules! fill_typed {
-        ($sample_type:ty) => {{
-            let sample_size = std::mem::size_of::<$sample_type>();
-
-            assert_eq!(
-                buffer.len() % sample_size,
-                0,
-                "Buffer size must be aligned to sample size for format {:?}",
-                sample_format
-            );
-
-            let num_samples = buffer.len() / sample_size;
-            let equilibrium = <$sample_type as Sample>::EQUILIBRIUM;
-
-            // Safety: We verified the buffer size is correctly aligned for the sample type
-            let samples = unsafe {
-                std::slice::from_raw_parts_mut(
-                    buffer.as_mut_ptr() as *mut $sample_type,
-                    num_samples,
-                )
-            };
-
-            for sample in samples {
-                *sample = equilibrium;
-            }
-        }};
-    }
-    const DSD_SILENCE_BYTE: u8 = 0x69;
-
-    match sample_format {
-        SampleFormat::I8 => fill_typed!(i8),
-        SampleFormat::I16 => fill_typed!(i16),
-        SampleFormat::I24 => fill_typed!(I24),
-        SampleFormat::I32 => fill_typed!(i32),
-        // SampleFormat::I48 => fill_typed!(I48),
-        SampleFormat::I64 => fill_typed!(i64),
-        SampleFormat::U8 => fill_typed!(u8),
-        SampleFormat::U16 => fill_typed!(u16),
-        SampleFormat::U24 => fill_typed!(U24),
-        SampleFormat::U32 => fill_typed!(u32),
-        // SampleFormat::U48 => fill_typed!(U48),
-        SampleFormat::U64 => fill_typed!(u64),
-        SampleFormat::F32 => fill_typed!(f32),
-        SampleFormat::F64 => fill_typed!(f64),
-        SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => {
-            buffer.fill(DSD_SILENCE_BYTE)
-        }
-    }
 }
 
 fn init_hw_params<'a>(
