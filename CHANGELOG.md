@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reintroduce `audio_thread_priority` feature.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
+- Fix numeric overflows in calls to create `StreamInstant` in hosts:
+  - asio
+  - jack
+  - coreaudio
 
 ## [0.17.3] - 2026-02-18
 

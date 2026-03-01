@@ -402,10 +402,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
 }
 
 fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
-    let nanos = micros * 1000;
-    let secs = micros / 1_000_000;
-    let subsec_nanos = nanos - secs * 1_000_000_000;
-    crate::StreamInstant::new(secs as i64, subsec_nanos as u32)
+    crate::StreamInstant::from_nanos_i128(micros as i128 * 1_000)
+        .expect("`micros` out of range of `StreamInstant` representation")
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
