@@ -82,7 +82,7 @@ pub(crate) fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleForm
         ($sample_type:ty) => {{
             let sample_size = std::mem::size_of::<$sample_type>();
 
-            assert_eq!(
+            debug_assert_eq!(
                 buffer.len() % sample_size,
                 0,
                 "Buffer size must be aligned to sample size for format {:?}",

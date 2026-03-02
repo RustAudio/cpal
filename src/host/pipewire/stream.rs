@@ -161,15 +161,13 @@ struct PwTime {
 
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
 /// the driver has not started yet or the rate is unavailable.
-fn pw_stream_time(stream: &pw::stream::Stream) -> Option<(StreamInstant, PwTime)> {
-    use pw::sys as pw_sys;
-    use std::mem;
-    let mut t: pw_sys::pw_time = unsafe { mem::zeroed() };
+fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
+    let mut t: pw::sys::pw_time = unsafe { std::mem::zeroed() };
     let rc = unsafe {
-        pw_sys::pw_stream_get_time_n(
+        pw::sys::pw_stream_get_time_n(
             stream.as_raw_ptr(),
             &mut t,
-            mem::size_of::<pw_sys::pw_time>(),
+            std::mem::size_of::<pw::sys::pw_time>(),
         )
     };
     if rc != 0 || t.now == 0 || t.rate.denom == 0 {
@@ -177,14 +175,10 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<(StreamInstant, PwTime)
     }
     debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
     let delay_ns = t.delay * 1_000_000_000i64 / t.rate.denom as i64;
-    let callback = crate::StreamInstant::from_nanos(t.now);
-    Some((
-        callback,
-        PwTime {
-            now_ns: t.now,
-            delay_ns,
-        },
-    ))
+    Some(PwTime {
+        now_ns: t.now,
+        delay_ns,
+    })
 }
 
 impl<D, E> UserData<D, E>
@@ -199,9 +193,10 @@ where
         data: &Data,
     ) -> Result<(), BackendSpecificError> {
         let (callback, capture) = match pw_stream_time(stream) {
-            Some((cb, PwTime { now_ns, delay_ns })) => {
-                (cb, crate::StreamInstant::from_nanos(now_ns - delay_ns))
-            }
+            Some(PwTime { now_ns, delay_ns }) => (
+                StreamInstant::from_nanos(now_ns),
+                StreamInstant::from_nanos(now_ns - delay_ns),
+            ),
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb
@@ -215,7 +210,7 @@ where
             }
         };
         let timestamp = crate::InputStreamTimestamp { callback, capture };
-        let info = crate::InputCallbackInfo { timestamp };
+        let info = InputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
         Ok(())
     }
@@ -232,9 +227,10 @@ where
         data: &mut Data,
     ) -> Result<(), BackendSpecificError> {
         let (callback, playback) = match pw_stream_time(stream) {
-            Some((cb, PwTime { now_ns, delay_ns })) => {
-                (cb, crate::StreamInstant::from_nanos(now_ns + delay_ns))
-            }
+            Some(PwTime { now_ns, delay_ns }) => (
+                StreamInstant::from_nanos(now_ns),
+                StreamInstant::from_nanos(now_ns + delay_ns),
+            ),
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb
@@ -248,7 +244,7 @@ where
             }
         };
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = crate::OutputCallbackInfo { timestamp };
+        let info = OutputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
         Ok(())
     }
@@ -266,10 +262,10 @@ pub struct StreamData<D, E> {
 #[inline]
 fn stream_timestamp_fallback(
     creation: std::time::Instant,
-) -> Result<crate::StreamInstant, BackendSpecificError> {
+) -> Result<StreamInstant, BackendSpecificError> {
     let now = std::time::Instant::now();
     let duration = now.duration_since(creation);
-    crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(BackendSpecificError {
+    StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(BackendSpecificError {
         description: "stream duration has exceeded `StreamInstant` representation".to_string(),
     })
 }
@@ -376,13 +372,14 @@ where
                     return;
                 };
 
-                // set buffers to zero
-                fill_with_equilibrium(samples, user_data.sample_format);
-
                 // samples = frames * channels or samples = data_len / sample_size
                 let n_samples = frames * n_channels as usize;
 
-                let data = samples.as_mut_ptr() as *mut ();
+                // Pre-fill only the active region with silence before handing it to the callback.
+                let active = &mut samples[..frames * stride];
+                fill_with_equilibrium(active, user_data.sample_format);
+
+                let data = active.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
                 if let Err(err) = user_data.publish_data_out(stream, frames, &mut data) {
@@ -462,7 +459,7 @@ where
     let stream = pw::stream::StreamRc::new(core, "cpal-capture", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
-        .param_changed(move |_, user_data, id, param| {
+        .param_changed(move |stream, user_data, id, param| {
             let Some(param) = param else {
                 return;
             };
@@ -492,6 +489,14 @@ where
                             description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
                         },
                     });
+                    // if the channels and rate do not match, we stop the stream
+                    if let Err(e) = stream.set_active(false) {
+                        (user_data.error_callback)(StreamError::BackendSpecific {
+                            err: BackendSpecificError {
+                                description: format!("failed to stop the stream, reason: {e}"),
+                            },
+                        });
+                    }
                 }
             }
         })
