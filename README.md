@@ -13,6 +13,7 @@ The minimum Rust version required depends on which audio backend and features yo
 - **ALSA (Linux/BSD):** Rust **1.82**
 - **CoreAudio (macOS/iOS):** Rust **1.80**
 - **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
+- **PipeWire (Linux/BSD):** Rust **1.82**
 - **PulseAudio (Linux/BSD):** Rust **1.88**
 - **WASAPI/ASIO (Windows):** Rust **1.82**
 - **WASM (`wasm32-unknown`):** Rust **1.82**
@@ -33,17 +34,15 @@ This library currently supports the following:
 Currently, supported platforms include:
 
 - Android (via AAudio)
-- BSD (via ALSA by default, JACK or PulseAudio optionally)
+- BSD (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
 - Emscripten
 - iOS (via CoreAudio)
-- Linux (via ALSA by default, JACK or PulseAudio optionally)
+- Linux (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
 - macOS (via CoreAudio by default, JACK optionally)
 - WebAssembly (via Web Audio API or Audio Worklet)
 - Windows (via WASAPI by default, ASIO or JACK optionally)
 
-Note that on Linux, the ALSA development files are required for building (even when using JACK or
-PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu 
-distributions and `alsa-lib-devel` on Fedora.
+Note that on Linux, the ALSA development files are required for building (even when using JACK, PipeWire or PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
 
 ## Compiling for WebAssembly
 
@@ -100,6 +99,17 @@ Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server pr
 **Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
 
 **Note:** JACK is available as an alternative backend on all supported platforms. It provides an option for pro-audio users who need JACK's routing and inter-application audio connectivity. The native backends (ALSA for Linux/BSD, WASAPI/ASIO for Windows, CoreAudio for macOS) remain the default and recommended choice for most applications.
+
+### `pipewire`
+
+**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
+
+Enables the PipewWre backend. PipeWire is a media server commonly used on Linux desktops.
+
+**Requirements:**
+- PipeWire server and client libraries must be installed on the system
+- 
+**Usage:** See the [beep example](examples/beep.rs) for selecting the PipeWire host at runtime.
 
 ### `pulseaudio`
 
@@ -198,6 +208,7 @@ If you receive errors about no default input or output device:
 
 - **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
 - **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
+- **Linux/Pipewire:** Check that Pipewire is running: `systemd --user status pipewire`
 - **Windows:** Verify your audio device is enabled in Sound Settings
 - **macOS:** Check System Preferences > Sound for available devices
 - **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
@@ -236,6 +247,8 @@ For platform-specific features, enable the relevant features:
 ```bash
 cargo run --example beep --features asio  # Windows ASIO
 cargo run --example beep --features jack  # JACK backend
+cargo run --example beep --features pulseaudio  # PulseAudio backend
+cargo run --example beep --features pipewire  # Pipewire backend
 ```
 
 ## Contributing

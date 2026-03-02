@@ -405,8 +405,13 @@ impl DeviceTrait for Device {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
-                let mut builder = DeviceDescriptionBuilder::new(info.product_name.clone())
-                    .device_type(info.device_type.into())
+                let device_type: DeviceType = info.device_type.into();
+                let name = match device_type {
+                    DeviceType::Unknown => info.product_name.clone(),
+                    _ => format!("{} ({})", info.product_name, device_type),
+                };
+                let mut builder = DeviceDescriptionBuilder::new(name)
+                    .device_type(device_type)
                     .interface_type(info.device_type.into())
                     .direction(info.direction);
 
@@ -431,23 +436,37 @@ impl DeviceTrait for Device {
     fn supported_input_configs(
         &self,
     ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        let configs = if let Some(info) = &self.0 {
-            device_supported_configs(info)
+        if let Some(info) = &self.0 {
+            // Output-only devices do not support input
+            if matches!(info.direction, DeviceDirection::Output) {
+                return Err(SupportedStreamConfigsError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "output-only device does not support input".to_string(),
+                    },
+                });
+            }
+            Ok(device_supported_configs(info))
         } else {
-            default_supported_configs()
-        };
-        Ok(configs)
+            Ok(default_supported_configs())
+        }
     }
 
     fn supported_output_configs(
         &self,
     ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        let configs = if let Some(info) = &self.0 {
-            device_supported_configs(info)
+        if let Some(info) = &self.0 {
+            // Input-only devices do not support output
+            if matches!(info.direction, DeviceDirection::Input) {
+                return Err(SupportedStreamConfigsError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "input-only device does not support output".to_string(),
+                    },
+                });
+            }
+            Ok(device_supported_configs(info))
         } else {
-            default_supported_configs()
-        };
-        Ok(configs)
+            Ok(default_supported_configs())
+        }
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {

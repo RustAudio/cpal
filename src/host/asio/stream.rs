@@ -688,19 +688,13 @@ impl Drop for Stream {
     }
 }
 
-fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
-    const TWO_RAISED_TO_32: f64 = 4294967296.0;
-    val.lo as f64 + val.hi as f64 * TWO_RAISED_TO_32
-}
-
 /// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
 fn system_time_to_stream_instant(
     system_time: sys::bindings::asio_import::ASIOTimeStamp,
 ) -> crate::StreamInstant {
-    let systime_ns = asio_ns_to_double(system_time);
-    let secs = systime_ns as i64 / 1_000_000_000;
-    let nanos = (systime_ns as i64 - secs * 1_000_000_000) as u32;
-    crate::StreamInstant::new(secs, nanos)
+    let nanos = (system_time.hi as u64) << 32 | system_time.lo as u64;
+    crate::StreamInstant::from_nanos_i128(nanos as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation")
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.

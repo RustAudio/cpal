@@ -31,6 +31,10 @@ struct Opt {
     /// Use the PulseAudio host. Requires `--features pulseaudio`.
     #[arg(long, default_value_t = false)]
     pulseaudio: bool,
+
+    /// Use the Pipewire host. Requires `--features pipewire`
+    #[arg(long, default_value_t = false)]
+    pipewire: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -42,7 +46,8 @@ fn main() -> anyhow::Result<()> {
     let mut jack_host_id = Err(HostUnavailable);
     #[allow(unused_mut, unused_assignments)]
     let mut pulseaudio_host_id = Err(HostUnavailable);
-
+    #[allow(unused_mut, unused_assignments)]
+    let mut pipewire_host_id = Err(HostUnavailable);
     #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -59,6 +64,10 @@ fn main() -> anyhow::Result<()> {
         {
             pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
         }
+        #[cfg(feature = "pipewire")]
+        {
+            pipewire_host_id = Ok(cpal::HostId::PipeWire);
+        }
     }
 
     // Manually check for flags. Can be passed through cargo with -- e.g.
@@ -71,6 +80,10 @@ fn main() -> anyhow::Result<()> {
         pulseaudio_host_id
             .and_then(cpal::host_from_id)
             .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
+    } else if opt.pipewire {
+        pipewire_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features pipewire` is specified, and the platform is supported")
     } else {
         cpal::default_host()
     };

@@ -12,16 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
+- **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 
 ### Changed
 
 - Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
   SemVer-breaking changes.
+- **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
+  for easier identification when enumerating devices.
+- **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
+  direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
+  silently returning an empty list.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
 
 - Reintroduce `audio_thread_priority` feature.
+- Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
