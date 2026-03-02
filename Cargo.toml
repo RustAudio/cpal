@@ -10,6 +10,12 @@ edition = "2021"
 rust-version = "1.78"
 
 [features]
+# Audio thread priority elevation
+# Raises the audio callback thread to real-time priority for lower latency and fewer glitches
+# Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows
+audio_thread_priority = ["dep:audio_thread_priority"]
+
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
 # Requires: ASIO drivers and LLVM/Clang for build-time bindings
@@ -18,38 +24,6 @@ asio = [
     "dep:asio-sys",
     "dep:num-traits",
 ]
-
-# PulseAudio backend
-# Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
-# Requires: PulseAudio server and client libraries installed on the system
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
-pulseaudio = ["dep:pulseaudio", "dep:futures"]
-
-# JACK Audio Connection Kit backend
-# Provides low-latency connections between applications and audio hardware
-# Requires: JACK server and client libraries installed on the system
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
-# Note: JACK must be installed separately on all platforms
-jack = ["dep:jack"]
-
-# PipeWire backend
-# Provides audio I/O on Linux and some BSDs via the PipeWire multimedia server
-# Requires: PipeWire server and client libraries installed on the system
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
-pipewire = ["dep:pipewire"]
-
-# Audio thread priority elevation
-# Raises the audio callback thread to real-time priority for lower latency and fewer glitches
-# Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows
-audio_thread_priority = ["dep:audio_thread_priority"]
-
-# WebAssembly backend using wasm-bindgen
-# Enables the Web Audio API backend for browser-based audio
-# Required for any WebAssembly audio support
-# Platform: WebAssembly (wasm32-unknown-unknown)
-# Note: This is typically enabled automatically when targeting wasm32
-wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
@@ -70,6 +44,32 @@ audioworklet = [
 # See examples/custom.rs for usage
 # Platform: All platforms
 custom = []
+
+# JACK Audio Connection Kit backend
+# Provides low-latency connections between applications and audio hardware
+# Requires: JACK server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
+# Note: JACK must be installed separately on all platforms
+jack = ["dep:jack"]
+
+# PipeWire backend
+# Provides audio I/O on Linux and some BSDs via the PipeWire multimedia server
+# Requires: PipeWire server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+pipewire = ["dep:pipewire"]
+
+# PulseAudio backend
+# Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
+# Requires: PulseAudio server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+pulseaudio = ["dep:pulseaudio", "dep:futures"]
+
+# WebAssembly backend using wasm-bindgen
+# Enables the Web Audio API backend for browser-based audio
+# Required for any WebAssembly audio support
+# Platform: WebAssembly (wasm32-unknown-unknown)
+# Note: This is typically enabled automatically when targeting wasm32
+wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 
 [dependencies]
 dasp_sample = "0.11"
