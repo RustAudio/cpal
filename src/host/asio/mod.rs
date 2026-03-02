@@ -25,7 +25,7 @@ mod stream;
 ///
 /// ASIO only supports loading a single driver at a time globally, so all Host instances
 /// must share the same underlying sys::Asio wrapper to properly coordinate driver access.
-static GLOBAL_ASIO: OnceLock<Arc<sys::Asio>> = OnceLock::new();
+pub(crate) static GLOBAL_ASIO: OnceLock<Arc<sys::Asio>> = OnceLock::new();
 
 /// The host for ASIO.
 #[derive(Debug)]

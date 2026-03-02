@@ -31,11 +31,27 @@ impl AsioDeviceExt for Device {
     }
 
     fn asio_open_control_panel(&self) -> Result<(), BackendSpecificError> {
+        use crate::host::asio::GLOBAL_ASIO;
         use crate::platform::DeviceInner;
 
         if let DeviceInner::Asio(ref asio_device) = self.as_inner() {
-            asio_device
-                .driver
+            let description = asio_device
+                .description()
+                .map_err(|e| BackendSpecificError {
+                    description: format!("Could not get device name: {:?}", e),
+                })?;
+
+            let driver = GLOBAL_ASIO
+                .get()
+                .ok_or(BackendSpecificError {
+                    description: "ASIO not initialized.".into(),
+                })?
+                .load_driver(description.name())
+                .map_err(|e| BackendSpecificError {
+                    description: format!("Failed to load driver: {:?}", e),
+                })?;
+
+            driver
                 .open_control_panel()
                 .map_err(|e| BackendSpecificError {
                     description: format!("Failed to open control panel: {:?}", e),
