@@ -1,6 +1,6 @@
 //! Handles COM initialization and cleanup.
 
-use super::IoError;
+use std::io::Error as IoError;
 use std::marker::PhantomData;
 
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;

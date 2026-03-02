@@ -15,7 +15,6 @@ use crate::DevicesError;
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
-mod com;
 mod device;
 mod stream;
 

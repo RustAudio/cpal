@@ -1,6 +1,7 @@
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 use super::sys;
+use crate::host::com;
 use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
@@ -155,6 +156,8 @@ impl Device {
 
 impl Devices {
     pub fn new(asio: Arc<sys::Asio>) -> Result<Self, DevicesError> {
+        // Make sure that COM is initialized.
+        com::com_initialized();
         let drivers = asio.driver_names().into_iter();
         Ok(Self {
             asio,
