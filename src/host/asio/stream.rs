@@ -688,11 +688,6 @@ impl Drop for Stream {
     }
 }
 
-fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
-    const TWO_RAISED_TO_32: f64 = 4294967296.0;
-    val.lo as f64 + val.hi as f64 * TWO_RAISED_TO_32
-}
-
 /// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
 fn system_time_to_stream_instant(
     system_time: sys::bindings::asio_import::ASIOTimeStamp,
