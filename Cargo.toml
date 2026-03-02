@@ -32,6 +32,12 @@ pulseaudio = ["dep:pulseaudio", "dep:futures"]
 # Note: JACK must be installed separately on all platforms
 jack = ["dep:jack"]
 
+# PipeWire backend
+# Provides audio I/O on Linux and some BSDs via the PipeWire multimedia server
+# Requires: PipeWire server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+pipewire = ["dep:pipewire"]
+
 # Audio thread priority elevation
 # Raises the audio callback thread to real-time priority for lower latency and fewer glitches
 # Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
@@ -103,6 +109,7 @@ audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
+pipewire = { version = "0.9", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.5"
