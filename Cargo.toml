@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.17.1"
+version = "0.18.0"
 description = "Low-level cross-platform audio I/O library in pure Rust."
 repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
@@ -19,12 +19,24 @@ asio = [
     "dep:num-traits",
 ]
 
+# PulseAudio backend
+# Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
+# Requires: PulseAudio server and client libraries installed on the system
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+pulseaudio = ["dep:pulseaudio", "dep:futures"]
+
 # JACK Audio Connection Kit backend
 # Provides low-latency connections between applications and audio hardware
 # Requires: JACK server and client libraries installed on the system
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
 # Note: JACK must be installed separately on all platforms
 jack = ["dep:jack"]
+
+# Audio thread priority elevation
+# Raises the audio callback thread to real-time priority for lower latency and fewer glitches
+# Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows
+audio_thread_priority = ["dep:audio_thread_priority"]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
@@ -80,7 +92,7 @@ windows = { version = ">=0.59, <=0.62", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 audio_thread_priority = { version = "0.34", optional = true }
-asio-sys = { version = "0.2", path = "asio-sys", optional = true }
+asio-sys = { version = "0.2.6", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
 
@@ -89,10 +101,12 @@ alsa = "0.11"
 libc = "0.2"
 audio_thread_priority = { version = "0.34", optional = true }
 jack = { version = "0.13", optional = true }
+pulseaudio = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.5"
-coreaudio-rs = { version = "0.13", default-features = false, features = [
+coreaudio-rs = { version = "0.14", default-features = false, features = [
     "core_audio",
     "audio_toolbox",
 ] }

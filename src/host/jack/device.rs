@@ -44,7 +44,7 @@ impl Device {
             Ok(client) => Ok(Device {
                 // The name given to the client by JACK, could potentially be different from the name supplied e.g.if there is a name collision
                 name: client.name().to_string(),
-                sample_rate: client.sample_rate() as u32,
+                sample_rate: client.sample_rate(),
                 buffer_size: SupportedBufferSize::Range {
                     min: client.buffer_size(),
                     max: client.buffer_size(),

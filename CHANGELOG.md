@@ -9,24 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
-- **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
-- **ALSA**: Example demonstrating ALSA error suppression during enumeration.
-- **ASIO**: Extension trait for ASIO devices, which allows opening the control panel.
-- **WASAPI**: Allow non-native sample rates to be used via as-necessary resampling in the WASAPI server process.
+- `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
+  `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
+- **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 
 ### Changed
 
-- Overall MSRV increased to 1.78.
-- **ALSA**: Update `alsa` dependency from 0.10 to 0.11.
-- **ALSA**: MSRV increased from 1.77 to 1.82 (required by alsa-sys 0.4.0).
+- Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
+  SemVer-breaking changes.
+- **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+
+### Fixed
+
+- Reintroduce `audio_thread_priority` feature.
+- **ASIO**: Fix enumeration returning only the first device when using `collect`.
+- **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
+
+## [0.17.3] - 2026-02-18
+
+### Changed
+
+- Reverted SemVer-breaking `DeviceBusy` error variant addition.
+
+### Fixed
+
+- **ASIO**: Fix linker errors.
+
+## [0.17.2] - 2026-02-08 [YANKED]
+
+### Added
+
+- `DeviceBusy` error variant for retriable device access errors (EBUSY, EAGAIN).
+- **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
+- **ALSA**: Example demonstrating ALSA error suppression during enumeration.
+- **ALSA**: Support for native DSD playback.
+- **WASAPI**: Enable as-necessary resampling in the WASAPI server process.
+- **ASIO**: Extension trait for ASIO devices, which allows opening the control panel.
+
+
+### Changed
+
+- Bump overall MSRV to 1.78.
+- **ALSA**: Update `alsa` dependency to 0.11.
+- **ALSA**: Bump MSRV to 1.82.
+- **CoreAudio**: Update `core-audio-rs` dependency to 0.14.
 
 ### Fixed
 
 - **ALSA**: Enumerating input and output devices no longer interferes with each other.
 - **ALSA**: Device handles are no longer exclusively held between operations.
-- **ALSA**: Valgrind memory leak reports from ALSA global configuration cache.
+- **ALSA**: Reduce Valgrind memory leak reports from ALSA global configuration cache.
 - **ALSA**: Fix possible race condition on drop.
+- **ALSA**: Fix audio callback stalling when start threshold is not met.
 
 ## [0.17.1] - 2026-01-04
 
@@ -76,7 +110,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `Send` and `Sync` implementations to `Stream`.
 - **WebAudio**: `BufferSize::Fixed` validation against supported range.
-- **ALSA**: Add support for native DSD playback.
 
 ### Changed
 
@@ -1058,7 +1091,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.17.3...HEAD
+[0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
+[0.17.2]: https://github.com/RustAudio/cpal/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/RustAudio/cpal/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/RustAudio/cpal/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/RustAudio/cpal/compare/v0.15.3...v0.16.0

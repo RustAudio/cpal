@@ -70,7 +70,7 @@ impl Stream {
         let input_process_handler = LocalProcessHandler::new(
             vec![],
             ports,
-            client.sample_rate() as u32,
+            client.sample_rate(),
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
@@ -135,7 +135,7 @@ impl Stream {
         let output_process_handler = LocalProcessHandler::new(
             ports,
             vec![],
-            client.sample_rate() as u32,
+            client.sample_rate(),
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),
