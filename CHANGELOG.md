@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
+  direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
+  silently returning an empty list.
+- **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
+  for easier identification when enumerating devices.
 - Reintroduce `audio_thread_priority` feature.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
