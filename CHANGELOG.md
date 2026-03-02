@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
   SemVer-breaking changes.
+- **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
+  for easier identification when enumerating devices.
+- **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
+  direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
+  silently returning an empty list.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
