@@ -383,10 +383,8 @@ impl Device {
         // Check to see if we can retrieve valid timestamps from the device.
         // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let ts = handle.status()?.get_htstamp();
-        let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
-            (0, 0) => Some(std::time::Instant::now()),
-            _ => None,
-        };
+        let creation_instant = std::time::Instant::now();
+        let use_hw_timestamps = !(ts.tv_sec == 0 && ts.tv_nsec == 0);
 
         if let alsa::Direction::Capture = stream_type {
             handle.start()?;
@@ -413,6 +411,7 @@ impl Device {
             silence_template,
             can_pause,
             creation_instant,
+            use_hw_timestamps,
             _context: self._context.clone(),
         };
 
@@ -701,15 +700,15 @@ struct StreamInner {
     // TODO: We need an API to expose this. See #197, #284.
     can_pause: bool,
 
-    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
-    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
+    // Whether to attempt hardware timestamps via `get_htstamp` / `get_trigger_htstamp`.
     //
-    // If this field is `Some`, then the stream will use the duration since this instant as a
-    // source for timestamps.
-    //
-    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
-    // `get_htstamp` is used.
-    creation_instant: Option<std::time::Instant>,
+    // When `true`, hardware timestamps are tried first on every callback and we fall back silently
+    // to `creation_instant` if they are transiently unavailable; e.g. the PulseAudio ALSA plugin
+    // returns `(0, 0)` for the first several periods after the stream is triggered.
+    use_hw_timestamps: bool,
+
+    // Timestamp origin used by the fallback path. Faster without `Option`.
+    creation_instant: std::time::Instant,
 
     // Keep ALSA context alive to prevent premature ALSA config cleanup
     _context: Arc<AlsaContext>,
@@ -990,10 +989,12 @@ fn process_input(
     stream.channel.io_bytes().readi(buffer)?;
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback = match stream.creation_instant {
-        None => stream_timestamp_hardware(&status)?,
-        Some(creation) => stream_timestamp_fallback(creation)?,
-    };
+    let callback = if stream.use_hw_timestamps {
+        stream_timestamp_hardware(&status)
+            .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
+    } else {
+        stream_timestamp_fallback(stream.creation_instant)
+    }?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
         .sub(delay_duration)
@@ -1025,10 +1026,12 @@ fn process_output(
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =
             unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-        let callback = match stream.creation_instant {
-            None => stream_timestamp_hardware(&status)?,
-            Some(creation) => stream_timestamp_fallback(creation)?,
-        };
+        let callback = if stream.use_hw_timestamps {
+            stream_timestamp_hardware(&status)
+                .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
+        } else {
+            stream_timestamp_fallback(stream.creation_instant)
+        }?;
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
         let playback = callback
             .add(delay_duration)
