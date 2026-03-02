@@ -1,6 +1,7 @@
 extern crate asio_sys as sys;
 extern crate num_traits;
 
+use crate::host::com;
 use crate::I24;
 
 use self::num_traits::PrimInt;
@@ -52,6 +53,7 @@ impl Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        com::com_initialized();
         let description = self
             .description()
             .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
@@ -289,6 +291,7 @@ impl Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        com::com_initialized();
         let description = self
             .description()
             .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
