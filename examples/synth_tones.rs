@@ -96,18 +96,18 @@ where
     let (_host, device, config) = host_device_setup()?;
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => make_stream::<i8>(&device, &config.into()),
-        cpal::SampleFormat::I16 => make_stream::<i16>(&device, &config.into()),
-        cpal::SampleFormat::I24 => make_stream::<I24>(&device, &config.into()),
-        cpal::SampleFormat::I32 => make_stream::<i32>(&device, &config.into()),
-        cpal::SampleFormat::I64 => make_stream::<i64>(&device, &config.into()),
-        cpal::SampleFormat::U8 => make_stream::<u8>(&device, &config.into()),
-        cpal::SampleFormat::U16 => make_stream::<u16>(&device, &config.into()),
-        cpal::SampleFormat::U24 => make_stream::<U24>(&device, &config.into()),
-        cpal::SampleFormat::U32 => make_stream::<u32>(&device, &config.into()),
-        cpal::SampleFormat::U64 => make_stream::<u64>(&device, &config.into()),
-        cpal::SampleFormat::F32 => make_stream::<f32>(&device, &config.into()),
-        cpal::SampleFormat::F64 => make_stream::<f64>(&device, &config.into()),
+        cpal::SampleFormat::I8 => make_stream::<i8>(&device, config.into()),
+        cpal::SampleFormat::I16 => make_stream::<i16>(&device, config.into()),
+        cpal::SampleFormat::I24 => make_stream::<I24>(&device, config.into()),
+        cpal::SampleFormat::I32 => make_stream::<i32>(&device, config.into()),
+        cpal::SampleFormat::I64 => make_stream::<i64>(&device, config.into()),
+        cpal::SampleFormat::U8 => make_stream::<u8>(&device, config.into()),
+        cpal::SampleFormat::U16 => make_stream::<u16>(&device, config.into()),
+        cpal::SampleFormat::U24 => make_stream::<U24>(&device, config.into()),
+        cpal::SampleFormat::U32 => make_stream::<u32>(&device, config.into()),
+        cpal::SampleFormat::U64 => make_stream::<u64>(&device, config.into()),
+        cpal::SampleFormat::F32 => make_stream::<f32>(&device, config.into()),
+        cpal::SampleFormat::F64 => make_stream::<f64>(&device, config.into()),
         sample_format => Err(anyhow::Error::msg(format!(
             "Unsupported sample format '{sample_format}'"
         ))),
@@ -131,7 +131,7 @@ pub fn host_device_setup(
 
 pub fn make_stream<T>(
     device: &cpal::Device,
-    config: &cpal::StreamConfig,
+    config: cpal::StreamConfig,
 ) -> Result<cpal::Stream, anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,

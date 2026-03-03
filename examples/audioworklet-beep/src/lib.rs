@@ -57,14 +57,14 @@ fn beep() -> Stream {
     let config = device.default_output_config().unwrap();
 
     match config.sample_format() {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
+        cpal::SampleFormat::F32 => run::<f32>(&device, config.into()),
+        cpal::SampleFormat::I16 => run::<i16>(&device, config.into()),
+        cpal::SampleFormat::U16 => run::<u16>(&device, config.into()),
         _ => panic!("unsupported sample format"),
     }
 }
 
-fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Stream
+fn run<T>(device: &cpal::Device, config: cpal::StreamConfig) -> Stream
 where
     T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
 {

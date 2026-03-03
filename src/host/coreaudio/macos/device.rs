@@ -294,7 +294,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -316,7 +316,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -733,7 +733,7 @@ impl Device {
     #[allow(clippy::float_cmp)]
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
@@ -845,7 +845,7 @@ impl Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
@@ -954,7 +954,7 @@ impl Device {
 /// - Configures buffer size for Fixed buffer size requests
 fn configure_stream_format_and_buffer(
     audio_unit: &mut AudioUnit,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
     scope: Scope,
     element: Element,
@@ -991,7 +991,7 @@ fn configure_stream_format_and_buffer(
 /// Returns (bytes_per_channel, sample_rate, device_buffer_frames)
 fn setup_callback_vars(
     audio_unit: &AudioUnit,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> (usize, crate::SampleRate, Option<usize>) {
     let bytes_per_channel = sample_format.sample_size();

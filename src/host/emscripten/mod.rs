@@ -185,7 +185,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        _config: StreamConfig,
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
@@ -200,7 +200,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         _error_callback: E,
@@ -353,7 +353,7 @@ where
             1000 * buffer_size_frames as i32 / sample_rate as i32,
             stream.clone().clone(),
             data_callback,
-            &config,
+            config,
             sample_format,
             buffer_size_frames,
         );
@@ -364,7 +364,7 @@ fn set_timeout<D>(
     time: i32,
     stream: Stream,
     data_callback: AssertUnwindSafe<D>,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
     buffer_size_frames: u32,
 ) where
@@ -378,7 +378,7 @@ fn set_timeout<D>(
                 .expect("The function was somehow not a function"),
             time,
             &stream.into(),
-            &(*config).into(),
+            &config.into(),
             &Closure::once_into_js(move || sample_format),
             &buffer_size_frames.into(),
         )
@@ -422,7 +422,7 @@ fn is_webaudio_available() -> bool {
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
+fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
     conf.channels <= MAX_CHANNELS
         && conf.channels >= MIN_CHANNELS
         && conf.sample_rate <= MAX_SAMPLE_RATE

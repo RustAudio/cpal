@@ -20,25 +20,25 @@ fn main() {
     let config = device.default_output_config().unwrap();
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()).unwrap(),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()).unwrap(),
-        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()).unwrap(),
+        cpal::SampleFormat::I8 => run::<i8>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::I16 => run::<i16>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::I24 => run::<I24>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::I32 => run::<i32>(&device, config.into()).unwrap(),
+        // cpal::SampleFormat::I48 => run::<I48>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::I64 => run::<i64>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::U8 => run::<u8>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::U16 => run::<u16>(&device, config.into()).unwrap(),
+        // cpal::SampleFormat::U24 => run::<U24>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::U32 => run::<u32>(&device, config.into()).unwrap(),
+        // cpal::SampleFormat::U48 => run::<U48>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::U64 => run::<u64>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::F32 => run::<f32>(&device, config.into()).unwrap(),
+        cpal::SampleFormat::F64 => run::<f64>(&device, config.into()).unwrap(),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
-fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
+fn run<T>(device: &cpal::Device, config: cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
 {
