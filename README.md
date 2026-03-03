@@ -136,11 +136,11 @@ export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11
 If you receive errors about no default input or output device:
 
 - **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
+- **Linux/PipeWire:** Check that PipeWire is running: `pw-cli info`
 - **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
-- **Linux/Pipewire:** Check that Pipewire is running: `systemd --user status pipewire`
-- **Windows:** Verify your audio device is enabled in Sound Settings
 - **macOS:** Check System Preferences > Sound for available devices
 - **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
+- **Windows:** Verify your audio device is enabled in Sound Settings
 
 ### Buffer Size Issues
 
@@ -153,19 +153,14 @@ If you experience audio glitches or dropouts:
 
 ### Build Errors
 
+If you are unable to build the library:
+
+- Verify you have installed the required development libraries, as documented above
 - **ASIO on Windows:** Verify `LIBCLANG_PATH` is set and LLVM is installed
-- **ALSA on Linux:** Install development packages: `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora)
-- **JACK:** Install JACK development libraries before enabling the `jack` feature
 
 ## Examples
 
-CPAL comes with several examples demonstrating various features:
-
-- `beep` - Generate a simple sine wave tone
-- `enumerate` - List all available audio devices and their capabilities
-- `feedback` - Pass input audio directly to output (microphone loopback)
-- `record_wav` - Record audio from the default input device to a WAV file
-- `synth_tones` - Generate multiple tones simultaneously
+CPAL comes with several examples in `examples/`.
 
 Run an example with:
 ```bash
@@ -174,10 +169,10 @@ cargo run --example beep
 
 For platform-specific features, enable the relevant features:
 ```bash
-cargo run --example beep --features asio  # Windows ASIO
-cargo run --example beep --features jack  # JACK backend
+cargo run --example beep --features asio        # Windows ASIO backend
+cargo run --example beep --features jack        # JACK backend
+cargo run --example beep --features pipewire    # PipeWire backend
 cargo run --example beep --features pulseaudio  # PulseAudio backend
-cargo run --example beep --features pipewire  # Pipewire backend
 ```
 
 ## Contributing
