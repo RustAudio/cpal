@@ -400,6 +400,24 @@ pub struct StreamConfig {
     pub buffer_size: BufferSize,
 }
 
+impl StreamConfig {
+    /// This function set the channels in [StreamConfig]
+    pub fn with_channels(mut self, channels: ChannelCount) -> Self {
+        self.channels = channels;
+        self
+    }
+    /// This function set the buffer_size in [StreamConfig] to a fixed size
+    pub fn with_fixed_buffer_size(mut self, buffer_size: FrameCount) -> Self {
+        self.buffer_size = BufferSize::Fixed(buffer_size);
+        self
+    }
+    /// This function set the sample_rate in [StreamConfig]
+    pub fn with_sample_rate(mut self, sample_rate: SampleRate) -> Self {
+        self.sample_rate = sample_rate;
+        self
+    }
+}
+
 /// Describes the minimum and maximum supported buffer size for the device
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SupportedBufferSize {
