@@ -278,10 +278,10 @@ impl TriggerReceiver {
     }
 }
 
-fn trigger() -> (TriggerSender, TriggerReceiver) {
+fn trigger() -> (TriggerSender, Arc<TriggerReceiver>) {
     let mut fds = [0, 0];
     match unsafe { libc::pipe(fds.as_mut_ptr()) } {
-        0 => (TriggerSender(fds[1]), TriggerReceiver(fds[0])),
+        0 => (TriggerSender(fds[1]), Arc::new(TriggerReceiver(fds[0]))),
         _ => panic!("Could not create pipe"),
     }
 }
@@ -728,6 +728,10 @@ pub struct Stream {
 
     /// Used to signal to stop processing.
     trigger: TriggerSender,
+
+    /// Keeps the read end of the self-pipe alive for the lifetime of the Stream, so that
+    /// `trigger.wakeup()` never writes to a closed pipe, even if the worker exited early.
+    _rx: Arc<TriggerReceiver>,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -788,7 +792,7 @@ impl StreamWorkerContext {
 }
 
 fn input_stream_worker(
-    rx: TriggerReceiver,
+    rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
@@ -837,7 +841,7 @@ fn input_stream_worker(
 }
 
 fn output_stream_worker(
-    rx: TriggerReceiver,
+    rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
@@ -1152,13 +1156,13 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
+        let rx_thread = rx.clone();
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
                 input_stream_worker(
-                    rx,
+                    rx_thread,
                     &stream,
                     &mut data_callback,
                     &mut error_callback,
@@ -1170,6 +1174,7 @@ impl Stream {
             thread: Some(thread),
             inner,
             trigger: tx,
+            _rx: rx,
         }
     }
 
@@ -1184,13 +1189,13 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
+        let rx_thread = rx.clone();
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
                 output_stream_worker(
-                    rx,
+                    rx_thread,
                     &stream,
                     &mut data_callback,
                     &mut error_callback,
@@ -1202,6 +1207,7 @@ impl Stream {
             thread: Some(thread),
             inner,
             trigger: tx,
+            _rx: rx,
         }
     }
 }
