@@ -50,89 +50,18 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 
 ## Optional Features
 
-CPAL provides the following optional features:
+| Feature | Platform | Description |
+|---------|----------|-------------|
+| `audio_thread_priority` | Linux, BSD, Windows | Raises the audio callback thread to real-time priority for lower latency and fewer glitches. On Linux, requires `rtkit` or appropriate user permissions (`limits.conf` or capabilities). |
+| `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio-on-windows). |
+| `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
+| `custom` | All | User-defined host implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
+| `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
+| `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
+| `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
+| `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
-### `asio`
-
-**Platform:** Windows
-
-Enables the ASIO (Audio Stream Input/Output) backend. ASIO provides low-latency audio I/O by bypassing the Windows audio stack.
-
-**Requirements:**
-- ASIO drivers for your audio device
-- LLVM/Clang for build-time bindings generation
-
-**Setup:** See the [ASIO setup guide](#asio-on-windows) below for detailed installation instructions.
-
-### `audioworklet`
-
-**Platform:** WebAssembly (wasm32-unknown-unknown)
-
-Enables the Audio Worklet backend for lower-latency web audio processing compared to the default Web Audio API backend.
-
-**Requirements:**
-- The `wasm-bindgen` feature (automatically enabled)
-- Build with atomics support: `RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`
-- Web server must send Cross-Origin headers for SharedArrayBuffer support
-
-**Setup:** See the `audioworklet-beep` example README for complete setup instructions.
-
-**Note:** Audio Worklet provides better performance than the default Web Audio API by running audio processing on a separate thread.
-
-### `custom`
-
-**Platform:** All platforms
-
-Enables support for user-defined custom host implementations, allowing integration with audio systems not natively supported by CPAL.
-
-**Usage:** See `examples/custom.rs` for implementation details.
-
-### `jack`
-
-**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD, macOS, Windows
-
-Enables the JACK (JACK Audio Connection Kit) backend. JACK is an audio server providing low-latency connections between applications and audio hardware.
-
-**Requirements:**
-- JACK server and client libraries must be installed on the system
-
-**Usage:** See the [beep example](examples/beep.rs) for selecting the JACK host at runtime.
-
-**Note:** JACK is available as an alternative backend on all supported platforms. It provides an option for pro-audio users who need JACK's routing and inter-application audio connectivity. The native backends (ALSA for Linux/BSD, WASAPI/ASIO for Windows, CoreAudio for macOS) remain the default and recommended choice for most applications.
-
-### `pipewire`
-
-**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
-
-Enables the PipewWre backend. PipeWire is a media server commonly used on Linux desktops.
-
-**Requirements:**
-- PipeWire server and client libraries must be installed on the system
-- 
-**Usage:** See the [beep example](examples/beep.rs) for selecting the PipeWire host at runtime.
-
-### `pulseaudio`
-
-**Platform:** Linux, DragonFly BSD, FreeBSD, NetBSD
-
-Enables the PulseAudio backend. PulseAudio is a sound server commonly used on Linux desktops.
-
-**Requirements:**
-- PulseAudio server and client libraries must be installed on the system
-- 
-**Usage:** See the [beep example](examples/beep.rs) for selecting the PulseAudio host at runtime.
-
-### `wasm-bindgen`
-
-**Platform:** WebAssembly (wasm32-unknown-unknown)
-
-Enables the Web Audio API backend for browser-based audio. This is the base feature required for any WebAssembly audio support.
-
-**Requirements:**
-- Target `wasm32-unknown-unknown`
-- Web browser with Web Audio API support
-
-**Usage:** See the `wasm-beep` example for basic WebAssembly audio setup.
+See the [beep example](examples/beep.rs) for selecting the host at runtime.
 
 ## ASIO on Windows
 
