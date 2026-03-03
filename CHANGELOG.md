@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
+- **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable` instead of looping.
+- **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reintroduce `audio_thread_priority` feature.
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
+- **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 

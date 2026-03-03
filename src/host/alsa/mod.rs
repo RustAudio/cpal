@@ -800,8 +800,8 @@ fn input_stream_worker(
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err.into());
-                PollDescriptorsFlow::Continue
+                error_callback(err);
+                PollDescriptorsFlow::Return
             });
 
         match flow {
@@ -811,6 +811,8 @@ fn input_stream_worker(
             PollDescriptorsFlow::XRun => {
                 error_callback(StreamError::BufferUnderrun);
                 if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                } else if let Err(err) = stream.channel.start() {
                     error_callback(err.into());
                 }
                 continue;
@@ -848,8 +850,8 @@ fn output_stream_worker(
     loop {
         let flow =
             poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err.into());
-                PollDescriptorsFlow::Continue
+                error_callback(err);
+                PollDescriptorsFlow::Return
             });
 
         match flow {
@@ -915,7 +917,7 @@ fn poll_descriptors_and_prepare_buffer(
     rx: &TriggerReceiver,
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
-) -> Result<PollDescriptorsFlow, BackendSpecificError> {
+) -> Result<PollDescriptorsFlow, StreamError> {
     if stream.dropping.load(Ordering::Acquire) {
         // The stream has been requested to be destroyed.
         rx.clear_pipe();
@@ -930,8 +932,8 @@ fn poll_descriptors_and_prepare_buffer(
 
     let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
-        let description = String::from("`alsa::poll()` spuriously returned");
-        return Err(BackendSpecificError { description });
+        // poll() returned 0: either a timeout or a spurious wakeup. Nothing to do.
+        return Ok(PollDescriptorsFlow::Continue);
     }
 
     if descriptors[0].revents != 0 {
@@ -941,16 +943,16 @@ fn poll_descriptors_and_prepare_buffer(
     }
 
     let revents = stream.channel.revents(&descriptors[1..])?;
-    if revents.contains(alsa::poll::Flags::ERR) {
-        let description = String::from("`alsa::poll()` returned POLLERR");
-        return Err(BackendSpecificError { description });
-    }
-
-    // Check if data is ready for processing (either input or output)
-    if !revents.contains(alsa::poll::Flags::IN) && !revents.contains(alsa::poll::Flags::OUT) {
-        // Nothing to process, poll again
+    // No events: spurious wakeup, poll again.
+    if revents.is_empty() {
         return Ok(PollDescriptorsFlow::Continue);
     }
+    // POLLHUP/POLLNVAL: the device has been disconnected.
+    if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
+        return Err(StreamError::DeviceNotAvailable);
+    }
+    // POLLERR signals an xrun; avail() below returns EPIPE which maps to XRun recovery.
+    // POLLIN/POLLOUT: data is ready, fall through to process it.
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
