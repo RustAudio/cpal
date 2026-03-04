@@ -135,21 +135,35 @@ export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11
 
 If you receive errors about no default input or output device:
 
-- **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
 - **Linux/PipeWire:** Check that PipeWire is running: `pw-cli info`
 - **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
 - **macOS:** Check System Preferences > Sound for available devices
 - **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
 - **Windows:** Verify your audio device is enabled in Sound Settings
 
+## ALSA, PipeWire, and PulseAudio
+
+When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second stream attempting to open it via the ALSA backend will fail with a `DeviceBusy` error. To route audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of `default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
+
+Reserve `hw:` and `plughw:` device names for targets that have no sound server. On those targets, ensure the user is a member of the `audio` group if the system does not grant audio device access automatically via `logind`.
+
 ### Buffer Size Issues
 
-If you experience audio glitches or dropouts:
+`BufferSize::Default` uses the system-configured device default, which on **ALSA** can range from a PipeWire quantum (typically 1024 frames) to `u32::MAX` on misconfigured or exotic hardware. A very deep buffer causes samples to be consumed far faster than audible playback, making audio appear to fast-forward ahead of actual output.
 
-- Try `BufferSize::Default` first before requesting specific sizes
-- When using `BufferSize::Fixed`, query `SupportedBufferSize` to find valid ranges
-- Smaller buffers reduce latency but increase CPU load and risk dropouts
-- Ensure your audio callback completes quickly and avoids blocking operations
+Configure the system and/or request a fixed size in your application:
+
+| System | File | Setting |
+|--------|------|---------|
+| ALSA | `~/.asoundrc` or `/etc/asound.conf` | `buffer_size`, `periods` * `period_size` |
+| PipeWire | `~/.config/pipewire/pipewire.conf.d/` | `default.clock.quantum` |
+| PulseAudio | `~/.config/pulse/daemon.conf` | `default-fragments` * `default-fragment-size-msec` |
+
+```rust
+config.buffer_size = cpal::BufferSize::Fixed(1024);
+```
+
+Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller buffers reduce latency but increase CPU load and the risk of glitches.
 
 ### Build Errors
 
