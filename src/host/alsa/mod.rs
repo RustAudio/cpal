@@ -802,30 +802,15 @@ fn input_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
-        let flow =
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err);
-                PollDescriptorsFlow::Return
-            });
-
-        match flow {
-            PollDescriptorsFlow::Continue => {
-                continue;
-            }
-            PollDescriptorsFlow::XRun => {
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                } else if let Err(err) = stream.channel.start() {
-                    error_callback(err.into());
-                }
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
+        if stream.dropping.load(Ordering::Acquire) {
+            return;
+        }
+        match poll_for_period(&rx, stream, &mut ctxt) {
+            Ok(Poll::Pending) => continue,
+            Ok(Poll::Ready {
                 status,
                 delay_frames,
-            } => {
+            }) => {
                 if let Err(err) = process_input(
                     stream,
                     &mut ctxt.transfer_buffer,
@@ -835,6 +820,25 @@ fn input_stream_worker(
                 ) {
                     error_callback(err.into());
                 }
+            }
+            Err(StreamError::BufferUnderrun) => {
+                error_callback(StreamError::BufferUnderrun);
+
+                // Input streams don't have an automatic start threshold, so restart manually.
+                if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                } else if let Err(err) = stream.channel.start() {
+                    error_callback(err.into());
+                }
+                continue;
+            }
+            Err(StreamError::DeviceNotAvailable) => {
+                error_callback(StreamError::DeviceNotAvailable);
+                return;
+            }
+            Err(err) => {
+                error_callback(err);
+                continue;
             }
         }
     }
@@ -852,26 +856,15 @@ fn output_stream_worker(
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
     loop {
-        let flow =
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err);
-                PollDescriptorsFlow::Return
-            });
-
-        match flow {
-            PollDescriptorsFlow::Continue => continue,
-            PollDescriptorsFlow::XRun => {
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                }
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
+        if stream.dropping.load(Ordering::Acquire) {
+            return;
+        }
+        match poll_for_period(&rx, stream, &mut ctxt) {
+            Ok(Poll::Pending) => continue,
+            Ok(Poll::Ready {
                 status,
                 delay_frames,
-            } => {
+            }) => {
                 if let Err(err) = process_output(
                     stream,
                     &mut ctxt.transfer_buffer,
@@ -882,6 +875,21 @@ fn output_stream_worker(
                 ) {
                     error_callback(err.into());
                 }
+            }
+            Err(StreamError::BufferUnderrun) => {
+                error_callback(StreamError::BufferUnderrun);
+                if let Err(err) = stream.channel.prepare() {
+                    error_callback(err.into());
+                }
+                continue;
+            }
+            Err(StreamError::DeviceNotAvailable) => {
+                error_callback(StreamError::DeviceNotAvailable);
+                return;
+            }
+            Err(err) => {
+                error_callback(err);
+                continue;
             }
         }
     }
@@ -906,28 +914,20 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
 #[cfg(not(feature = "audio_thread_priority"))]
 fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
 
-enum PollDescriptorsFlow {
-    Continue,
-    Return,
+enum Poll {
+    Pending,
     Ready {
         status: alsa::pcm::Status,
         delay_frames: usize,
     },
-    XRun,
 }
 
 // This block is shared between both input and output stream worker functions.
-fn poll_descriptors_and_prepare_buffer(
+fn poll_for_period(
     rx: &TriggerReceiver,
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
-) -> Result<PollDescriptorsFlow, StreamError> {
-    if stream.dropping.load(Ordering::Acquire) {
-        // The stream has been requested to be destroyed.
-        rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
-    }
-
+) -> Result<Poll, StreamError> {
     let StreamWorkerContext {
         ref mut descriptors,
         ref poll_timeout,
@@ -937,34 +937,34 @@ fn poll_descriptors_and_prepare_buffer(
     let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
         // poll() returned 0: either a timeout or a spurious wakeup. Nothing to do.
-        return Ok(PollDescriptorsFlow::Continue);
+        return Ok(Poll::Pending);
     }
 
     if descriptors[0].revents != 0 {
-        // The stream has been requested to be destroyed.
+        // Self-pipe fired: the stream is being dropped. Clear the pipe and let the
+        // worker loop detect the dropping flag on the next iteration.
         rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
+        return Ok(Poll::Pending);
     }
 
     let revents = stream.channel.revents(&descriptors[1..])?;
     // No events: spurious wakeup, poll again.
     if revents.is_empty() {
-        return Ok(PollDescriptorsFlow::Continue);
+        return Ok(Poll::Pending);
     }
     // POLLHUP/POLLNVAL: the device has been disconnected.
     if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
         return Err(StreamError::DeviceNotAvailable);
     }
-    // POLLERR signals an xrun; avail() below returns EPIPE which maps to XRun recovery.
+    // POLLERR signals an xrun; avail() below returns EPIPE which triggers recovery.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == libc::EPIPE => return Ok(PollDescriptorsFlow::XRun),
+        Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
-        // Buffer underrun detected, but notification happens in XRun handler
         d if d < 0 => 0,
         d => d as usize,
     };
@@ -975,10 +975,10 @@ fn poll_descriptors_and_prepare_buffer(
     // Verify we have room for at least one full period before processing.
     // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
     if available_samples < stream.period_samples {
-        return Ok(PollDescriptorsFlow::Continue);
+        return Ok(Poll::Pending);
     }
 
-    Ok(PollDescriptorsFlow::Ready {
+    Ok(Poll::Ready {
         status,
         delay_frames,
     })
