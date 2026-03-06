@@ -265,16 +265,34 @@ struct TriggerReceiver(libc::c_int);
 impl TriggerSender {
     fn wakeup(&self) {
         let buf = 1u64;
-        let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
-        assert_eq!(ret, 8);
+        loop {
+            let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
+            if ret == 8 {
+                return;
+            }
+            // write() can be interrupted by a signal before writing any bytes; retry.
+            assert_eq!(ret, -1, "wakeup: unexpected return value {ret}");
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                panic!("wakeup: {}", std::io::Error::last_os_error());
+            }
+        }
     }
 }
 
 impl TriggerReceiver {
     fn clear_pipe(&self) {
         let mut out = 0u64;
-        let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
-        assert_eq!(ret, 8);
+        loop {
+            let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
+            if ret == 8 {
+                return;
+            }
+            // read() can be interrupted by a signal before reading any bytes; retry.
+            assert_eq!(ret, -1, "clear_pipe: unexpected return value {ret}");
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                panic!("clear_pipe: {}", std::io::Error::last_os_error());
+            }
+        }
     }
 }
 
