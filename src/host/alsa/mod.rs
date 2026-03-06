@@ -1069,11 +1069,13 @@ fn process_output(
         data_callback(&mut data, &info);
     }
 
-    // try_recover handles both Xrun (EPIPE) or suspend (ESTRPIPE) during write.
+    // try_recover handles both xrun (EPIPE) and suspend (ESTRPIPE) during write.
     if let Err(err) = stream.channel.io_bytes().writei(buffer) {
         if matches!(err.errno(), libc::EPIPE | libc::ESTRPIPE) {
-            stream.channel.try_recover(err, true).ok();
-            return Err(StreamError::BufferUnderrun);
+            return match stream.channel.try_recover(err, true) {
+                Ok(()) => Err(StreamError::BufferUnderrun),
+                Err(recover_err) => Err(recover_err.into()),
+            };
         }
         return Err(err.into());
     }
