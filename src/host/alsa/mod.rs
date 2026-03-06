@@ -409,7 +409,6 @@ impl Device {
         }
 
         // Pre-compute a period-sized buffer filled with silence values.
-        let period_frames = period_samples / conf.channels as usize;
         let period_bytes = period_samples * sample_format.sample_size();
         let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
 
@@ -425,7 +424,6 @@ impl Device {
             num_descriptors,
             conf: conf.clone(),
             period_samples,
-            period_frames,
             silence_template,
             can_pause,
             creation_instant,
@@ -710,7 +708,6 @@ struct StreamInner {
 
     // Cached values for performance in audio callback hot path
     period_samples: usize,
-    period_frames: usize,
     silence_template: Box<[u8]>,
 
     #[allow(dead_code)]
@@ -889,9 +886,8 @@ fn output_stream_worker(
                     status,
                     delay_frames,
                     data_callback,
-                    error_callback,
                 ) {
-                    error_callback(err.into());
+                    error_callback(err);
                 }
             }
             Err(StreamError::BufferUnderrun) => {
@@ -1042,16 +1038,13 @@ fn process_input(
 }
 
 // Request data from the user's function and write it via ALSA.
-//
-// Returns `true`
 fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> Result<(), BackendSpecificError> {
+) -> Result<(), StreamError> {
     // Buffer is always pre-filled with equilibrium, user overwrites what they want
     buffer.copy_from_slice(&stream.silence_template);
     {
@@ -1076,35 +1069,13 @@ fn process_output(
         data_callback(&mut data, &info);
     }
 
-    loop {
-        match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == libc::EPIPE => {
-                // ALSA underrun or overrun.
-                // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
-                // Even if these recover successfully, they still may cause audible glitches.
-
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(recover_err) = stream.channel.try_recover(err, true) {
-                    error_callback(recover_err.into());
-                }
-            }
-            Err(err) => {
-                error_callback(err.into());
-                continue;
-            }
-            Ok(result) if result != stream.period_frames => {
-                let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                        result {result} (this should never happen)",
-                    stream.period_frames
-                );
-                error_callback(BackendSpecificError { description }.into());
-                continue;
-            }
-            _ => {
-                break;
-            }
+    // try_recover handles both Xrun (EPIPE) or suspend (ESTRPIPE) during write.
+    if let Err(err) = stream.channel.io_bytes().writei(buffer) {
+        if matches!(err.errno(), libc::EPIPE | libc::ESTRPIPE) {
+            stream.channel.try_recover(err, true).ok();
+            return Err(StreamError::BufferUnderrun);
         }
+        return Err(err.into());
     }
     Ok(())
 }
