@@ -974,12 +974,20 @@ fn poll_for_period(
     if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
         return Err(StreamError::DeviceNotAvailable);
     }
-    // POLLERR signals an xrun; avail() below returns EPIPE which triggers recovery.
+    // POLLERR signals an xrun or suspend; avail() below returns EPIPE/ESTRPIPE accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
+        // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
         Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
+        // Suspend: try hardware resume first; fall back to prepare() if unsupported.
+        Err(err) if err.errno() == libc::ESTRPIPE => match stream.channel.resume() {
+            Ok(()) => return Ok(Poll::Pending),
+            Err(e) if e.errno() == libc::EAGAIN => return Ok(Poll::Pending),
+            Err(e) if e.errno() == libc::ENOSYS => return Err(StreamError::BufferUnderrun),
+            Err(e) => return Err(e.into()),
+        },
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
