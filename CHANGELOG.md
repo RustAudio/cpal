@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
+- **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 
 ## [0.17.3] - 2026-02-18
