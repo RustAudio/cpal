@@ -302,6 +302,28 @@ pub trait StreamTrait {
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
+
+    /// Query the stream's callback buffer size in frames.
+    ///
+    /// Returns the actual buffer size chosen by the platform, which may differ from a requested
+    /// `BufferSize::Fixed` value due to hardware constraints, or is determined by the platform
+    /// when using `BufferSize::Default`.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(frames)` if the callback buffer size is known, or `None` if:
+    /// - The platform doesn't support querying buffer size at runtime
+    /// - The stream hasn't been fully initialized yet
+    ///
+    /// # Note on Variable Callback Sizes
+    ///
+    /// Some platforms (notably WASAPI and mobile) may deliver variable-sized buffers to callbacks
+    /// that are smaller than the reported buffer size. When `buffer_size()` returns a value, it
+    /// should be treated as the maximum expected size, but applications should always check the
+    /// actual buffer size passed to each callback.
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        None
+    }
 }
 
 /// Compile-time assertion that a stream type implements [`Send`].

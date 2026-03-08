@@ -44,6 +44,21 @@ impl StreamTrait for Stream {
         res.map_err(Into::<BackendSpecificError>::into)?;
         Ok(())
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        let (spec, bytes) = match self {
+            Stream::Playback(s) => (
+                s.sample_spec(),
+                s.buffer_attr().minimum_request_length as usize,
+            ),
+            Stream::Record(s) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
+        };
+        let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
+        if bytes == 0 {
+            return None;
+        }
+        Some((bytes / frame_size) as _)
+    }
 }
 
 impl Stream {
