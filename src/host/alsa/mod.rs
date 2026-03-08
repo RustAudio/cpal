@@ -211,7 +211,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -234,7 +234,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -327,7 +327,7 @@ impl std::hash::Hash for Device {
 impl Device {
     fn build_stream_inner(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
@@ -405,7 +405,7 @@ impl Device {
             channel: handle,
             sample_format,
             num_descriptors,
-            conf: conf.clone(),
+            conf,
             period_samples,
             period_frames,
             silence_template,
@@ -1245,7 +1245,7 @@ fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount
 
 fn init_hw_params<'a>(
     pcm_handle: &'a alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
@@ -1341,7 +1341,7 @@ fn sample_format_to_alsa_format(
 
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
     let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
@@ -1380,7 +1380,7 @@ fn set_hw_params_from_format(
 
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     stream_type: alsa::Direction,
 ) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;

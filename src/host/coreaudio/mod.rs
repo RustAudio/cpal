@@ -41,7 +41,7 @@ fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
 
 // Create a coreaudio AudioStreamBasicDescription from a CPAL Format.
 fn asbd_from_config(
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> AudioStreamBasicDescription {
     let n_channels = config.channels as usize;

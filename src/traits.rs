@@ -171,7 +171,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream<T, D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -209,7 +209,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream<T, D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -250,7 +250,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -277,7 +277,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,

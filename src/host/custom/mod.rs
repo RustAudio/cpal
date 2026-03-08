@@ -156,7 +156,7 @@ trait DeviceErased: Send + Sync {
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
     fn build_input_stream_raw(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: InputCallback,
         error_callback: ErrorCallback,
@@ -164,7 +164,7 @@ trait DeviceErased: Send + Sync {
     ) -> Result<Stream, BuildStreamError>;
     fn build_output_stream_raw(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: OutputCallback,
         error_callback: ErrorCallback,
@@ -260,7 +260,7 @@ where
 
     fn build_input_stream_raw(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: InputCallback,
         error_callback: ErrorCallback,
@@ -279,7 +279,7 @@ where
 
     fn build_output_stream_raw(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: OutputCallback,
         error_callback: ErrorCallback,
@@ -386,7 +386,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -407,7 +407,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,

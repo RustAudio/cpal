@@ -280,7 +280,7 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
 }
 
 pub fn connect_output<D, E>(
-    config: &StreamConfig,
+    config: StreamConfig,
     properties: pw::properties::PropertiesBox,
     sample_format: SampleFormat,
     data_callback: D,
@@ -430,7 +430,7 @@ where
     })
 }
 pub fn connect_input<D, E>(
-    config: &StreamConfig,
+    config: StreamConfig,
     properties: pw::properties::PropertiesBox,
     sample_format: SampleFormat,
     data_callback: D,
