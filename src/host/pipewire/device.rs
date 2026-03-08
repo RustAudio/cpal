@@ -1,3 +1,4 @@
+use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
@@ -297,6 +298,8 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
+        let last_quantum = Arc::new(AtomicU64::new(0));
+        let last_quantum_clone = last_quantum.clone();
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
             .spawn(move || {
@@ -312,6 +315,7 @@ impl DeviceTrait for Device {
                     sample_format,
                     data_callback,
                     error_callback,
+                    last_quantum_clone,
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -342,6 +346,7 @@ impl DeviceTrait for Device {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
+                last_quantum,
             }),
             Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
             Err(_) => Err(crate::BuildStreamError::BackendSpecific {
@@ -369,6 +374,8 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
+        let last_quantum = Arc::new(AtomicU64::new(0));
+        let last_quantum_clone = last_quantum.clone();
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())
             .spawn(move || {
@@ -385,6 +392,7 @@ impl DeviceTrait for Device {
                     sample_format,
                     data_callback,
                     error_callback,
+                    last_quantum_clone,
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -416,6 +424,7 @@ impl DeviceTrait for Device {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
+                last_quantum,
             }),
             Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
             Err(_) => Err(crate::BuildStreamError::BackendSpecific {
