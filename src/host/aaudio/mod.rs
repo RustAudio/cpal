@@ -363,6 +363,7 @@ where
     let builder = configure_for_device(builder, device, config);
     let created = Instant::now();
     let channel_count = config.channels as i32;
+    let tune_dynamically = config.buffer_size == BufferSize::Default;
 
     let tuning = Arc::new(BufferTuningState::default());
     let tuning_for_callback = tuning.clone();
@@ -389,40 +390,42 @@ where
 
             // Dynamic buffer tuning for output streams
             // See: https://developer.android.com/ndk/guides/audio/aaudio/aaudio#tuning-buffers
-            let underrun_count = stream.x_run_count();
-            let previous = tuning_for_callback
-                .previous_underrun_count
-                .load(Ordering::Relaxed);
-
-            if underrun_count > previous {
-                // The number of frames per burst can vary dynamically
-                let mut burst_size = stream.frames_per_burst();
-                if burst_size <= 0 {
-                    burst_size = 256; // fallback from AAudio documentation
-                } else if burst_size < 16 {
-                    burst_size = 16; // floor from Oboe
-                }
-
-                let new_mixer_bursts = tuning_for_callback
-                    .mixer_bursts
-                    .load(Ordering::Relaxed)
-                    .saturating_add(1);
-                let mut buffer_size = burst_size * new_mixer_bursts;
-
-                let buffer_capacity = tuning_for_callback.capacity.load(Ordering::Relaxed);
-                if buffer_size > buffer_capacity {
-                    buffer_size = buffer_capacity;
-                }
-
-                if stream.set_buffer_size_in_frames(buffer_size).is_ok() {
-                    tuning_for_callback
-                        .mixer_bursts
-                        .store(new_mixer_bursts, Ordering::Relaxed);
-                }
-
-                tuning_for_callback
+            if tune_dynamically {
+                let underrun_count = stream.x_run_count();
+                let previous = tuning_for_callback
                     .previous_underrun_count
-                    .store(underrun_count, Ordering::Relaxed);
+                    .load(Ordering::Relaxed);
+
+                if underrun_count > previous {
+                    // The number of frames per burst can vary dynamically
+                    let mut burst_size = stream.frames_per_burst();
+                    if burst_size <= 0 {
+                        burst_size = 256; // fallback from AAudio documentation
+                    } else if burst_size < 16 {
+                        burst_size = 16; // floor from Oboe
+                    }
+
+                    let new_mixer_bursts = tuning_for_callback
+                        .mixer_bursts
+                        .load(Ordering::Relaxed)
+                        .saturating_add(1);
+                    let mut buffer_size = burst_size * new_mixer_bursts;
+
+                    let buffer_capacity = tuning_for_callback.capacity.load(Ordering::Relaxed);
+                    if buffer_size > buffer_capacity {
+                        buffer_size = buffer_capacity;
+                    }
+
+                    if stream.set_buffer_size_in_frames(buffer_size).is_ok() {
+                        tuning_for_callback
+                            .mixer_bursts
+                            .store(new_mixer_bursts, Ordering::Relaxed);
+                    }
+
+                    tuning_for_callback
+                        .previous_underrun_count
+                        .store(underrun_count, Ordering::Relaxed);
+                }
             }
 
             ndk::audio::AudioCallbackResult::Continue

@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - `StreamConfig` now implements `Copy`.
-- **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 
@@ -26,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
+- **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 
 ### Fixed
