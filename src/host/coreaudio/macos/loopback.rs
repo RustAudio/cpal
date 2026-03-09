@@ -103,18 +103,20 @@ impl LoopbackDevice {
 
         let mut tap_obj_id: MaybeUninit<AudioObjectID> = MaybeUninit::uninit();
         let tap_obj_id = unsafe {
-            AudioHardwareCreateProcessTap(Some(tap_desc.as_ref()), tap_obj_id.as_mut_ptr());
+            let status =
+                AudioHardwareCreateProcessTap(Some(tap_desc.as_ref()), tap_obj_id.as_mut_ptr());
+            check_os_status(status)?;
             tap_obj_id.assume_init()
         };
         let tap_uid = unsafe { tap_desc.UUID().UUIDString() };
 
         // 2 - Create aggregate device
         let aggregate_device_properties = create_audio_aggregate_device_properties(tap_uid);
-        let aggregate_device_id: AudioObjectID = 0;
+        let mut aggregate_device_id: AudioObjectID = 0;
         let status = unsafe {
             AudioHardwareCreateAggregateDevice(
                 aggregate_device_properties.as_ref(),
-                NonNull::from(&aggregate_device_id),
+                NonNull::from(&mut aggregate_device_id),
             )
         };
         check_os_status(status)?;
