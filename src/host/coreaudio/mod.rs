@@ -15,7 +15,7 @@ use crate::{BackendSpecificError, SampleFormat, StreamConfig};
 #[cfg(target_os = "ios")]
 mod ios;
 #[cfg(target_os = "macos")]
-mod macos;
+pub mod macos;
 
 #[cfg(target_os = "ios")]
 #[allow(unused_imports)]
