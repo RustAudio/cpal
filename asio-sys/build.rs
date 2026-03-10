@@ -238,6 +238,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .allowlist_function("ASIOStart")
         .allowlist_function("ASIOStop")
         .allowlist_function("ASIODisposeBuffers")
+        .allowlist_function("ASIOControlPanel")
         .allowlist_function("ASIOExit")
         .allowlist_function("load_asio_driver")
         .allowlist_function("remove_current_driver")
