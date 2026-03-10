@@ -5,6 +5,7 @@
 
 extern crate asio_sys as sys;
 
+use crate::host::com;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
@@ -35,6 +36,7 @@ pub struct Host {
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
+        com::com_initialized();
         let asio = GLOBAL_ASIO
             .get_or_init(|| Arc::new(sys::Asio::new()))
             .clone();
@@ -102,7 +104,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -124,7 +126,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,

@@ -1,6 +1,7 @@
 extern crate asio_sys as sys;
 extern crate num_traits;
 
+use crate::host::com;
 use crate::I24;
 
 use self::num_traits::PrimInt;
@@ -42,7 +43,7 @@ impl Stream {
 impl Device {
     pub fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
@@ -52,6 +53,7 @@ impl Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        com::com_initialized();
         let description = self
             .description()
             .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
@@ -87,7 +89,6 @@ impl Device {
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
-        let config = config.clone();
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
             if !playing.load(Ordering::SeqCst) {
@@ -279,7 +280,7 @@ impl Device {
 
     pub fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
@@ -289,6 +290,7 @@ impl Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
+        com::com_initialized();
         let description = self
             .description()
             .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
@@ -323,7 +325,6 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
-        let config = config.clone();
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
@@ -573,7 +574,7 @@ impl Device {
     fn get_or_create_input_stream(
         &self,
         driver: &sys::Driver,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<usize, BuildStreamError> {
         let num_asio_channels = self
@@ -619,7 +620,7 @@ impl Device {
     fn get_or_create_output_stream(
         &self,
         driver: &sys::Driver,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<usize, BuildStreamError> {
         let num_asio_channels = self
@@ -688,19 +689,13 @@ impl Drop for Stream {
     }
 }
 
-fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
-    const TWO_RAISED_TO_32: f64 = 4294967296.0;
-    val.lo as f64 + val.hi as f64 * TWO_RAISED_TO_32
-}
-
 /// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
 fn system_time_to_stream_instant(
     system_time: sys::bindings::asio_import::ASIOTimeStamp,
 ) -> crate::StreamInstant {
-    let systime_ns = asio_ns_to_double(system_time);
-    let secs = systime_ns as i64 / 1_000_000_000;
-    let nanos = (systime_ns as i64 - secs * 1_000_000_000) as u32;
-    crate::StreamInstant::new(secs, nanos)
+    let nanos = (system_time.hi as u64) << 32 | system_time.lo as u64;
+    crate::StreamInstant::from_nanos_i128(nanos as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation")
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
@@ -717,7 +712,7 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
 /// Checks sample rate, data type, number of channels, and buffer size.
 fn check_config(
     driver: &sys::Driver,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
     num_asio_channels: u16,
 ) -> Result<(), BuildStreamError> {
@@ -733,14 +728,14 @@ fn check_config(
     // behavior is unspecified.
     if let BufferSize::Fixed(requested_size) = buffer_size {
         let (min, max) = driver.buffersize_range().map_err(build_stream_err)?;
-        let requested_size_i32 = *requested_size as i32;
+        let requested_size_i32 = requested_size as i32;
         if !(min..=max).contains(&requested_size_i32) {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
     }
 
     // Try and set the sample rate to what the user selected.
-    let sample_rate = (*sample_rate).into();
+    let sample_rate = sample_rate.into();
     if sample_rate != driver.sample_rate().map_err(build_stream_err)? {
         if driver
             .can_sample_rate(sample_rate)
@@ -758,7 +753,7 @@ fn check_config(
         SampleFormat::I16 | SampleFormat::I24 | SampleFormat::I32 | SampleFormat::F32 => (),
         _ => return Err(BuildStreamError::StreamConfigNotSupported),
     }
-    if *channels > num_asio_channels {
+    if channels > num_asio_channels {
         return Err(BuildStreamError::StreamConfigNotSupported);
     }
     Ok(())

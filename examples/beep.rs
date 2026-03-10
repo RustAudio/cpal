@@ -31,6 +31,10 @@ struct Opt {
     /// Use the PulseAudio host. Requires `--features pulseaudio`.
     #[arg(long, default_value_t = false)]
     pulseaudio: bool,
+
+    /// Use the Pipewire host. Requires `--features pipewire`
+    #[arg(long, default_value_t = false)]
+    pipewire: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -42,7 +46,8 @@ fn main() -> anyhow::Result<()> {
     let mut jack_host_id = Err(HostUnavailable);
     #[allow(unused_mut, unused_assignments)]
     let mut pulseaudio_host_id = Err(HostUnavailable);
-
+    #[allow(unused_mut, unused_assignments)]
+    let mut pipewire_host_id = Err(HostUnavailable);
     #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -59,6 +64,10 @@ fn main() -> anyhow::Result<()> {
         {
             pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
         }
+        #[cfg(feature = "pipewire")]
+        {
+            pipewire_host_id = Ok(cpal::HostId::PipeWire);
+        }
     }
 
     // Manually check for flags. Can be passed through cargo with -- e.g.
@@ -71,6 +80,10 @@ fn main() -> anyhow::Result<()> {
         pulseaudio_host_id
             .and_then(cpal::host_from_id)
             .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
+    } else if opt.pipewire {
+        pipewire_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features pipewire` is specified, and the platform is supported")
     } else {
         cpal::default_host()
     };
@@ -88,25 +101,25 @@ fn main() -> anyhow::Result<()> {
     println!("Default output config: {config:?}");
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, &config.into()),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
-        cpal::SampleFormat::I24 => run::<I24>(&device, &config.into()),
-        cpal::SampleFormat::I32 => run::<i32>(&device, &config.into()),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, &config.into()),
-        cpal::SampleFormat::I64 => run::<i64>(&device, &config.into()),
-        cpal::SampleFormat::U8 => run::<u8>(&device, &config.into()),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, &config.into()),
-        cpal::SampleFormat::U32 => run::<u32>(&device, &config.into()),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, &config.into()),
-        cpal::SampleFormat::U64 => run::<u64>(&device, &config.into()),
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
-        cpal::SampleFormat::F64 => run::<f64>(&device, &config.into()),
+        cpal::SampleFormat::I8 => run::<i8>(&device, config.into()),
+        cpal::SampleFormat::I16 => run::<i16>(&device, config.into()),
+        cpal::SampleFormat::I24 => run::<I24>(&device, config.into()),
+        cpal::SampleFormat::I32 => run::<i32>(&device, config.into()),
+        // cpal::SampleFormat::I48 => run::<I48>(&device, config.into()),
+        cpal::SampleFormat::I64 => run::<i64>(&device, config.into()),
+        cpal::SampleFormat::U8 => run::<u8>(&device, config.into()),
+        cpal::SampleFormat::U16 => run::<u16>(&device, config.into()),
+        // cpal::SampleFormat::U24 => run::<U24>(&device, config.into()),
+        cpal::SampleFormat::U32 => run::<u32>(&device, config.into()),
+        // cpal::SampleFormat::U48 => run::<U48>(&device, config.into()),
+        cpal::SampleFormat::U64 => run::<u64>(&device, config.into()),
+        cpal::SampleFormat::F32 => run::<f32>(&device, config.into()),
+        cpal::SampleFormat::F64 => run::<f64>(&device, config.into()),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
-pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
+pub fn run<T>(device: &cpal::Device, config: cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
 {

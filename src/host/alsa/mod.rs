@@ -20,14 +20,15 @@ use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 
 use crate::{
+    host::fill_with_equilibrium,
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError, I24, U24,
+    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
+    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 mod enumerate;
@@ -210,7 +211,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -233,7 +234,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -326,7 +327,7 @@ impl std::hash::Hash for Device {
 impl Device {
     fn build_stream_inner(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, BuildStreamError> {
@@ -382,10 +383,8 @@ impl Device {
         // Check to see if we can retrieve valid timestamps from the device.
         // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let ts = handle.status()?.get_htstamp();
-        let creation_instant = match (ts.tv_sec, ts.tv_nsec) {
-            (0, 0) => Some(std::time::Instant::now()),
-            _ => None,
-        };
+        let creation_instant = std::time::Instant::now();
+        let use_hw_timestamps = !(ts.tv_sec == 0 && ts.tv_nsec == 0);
 
         if let alsa::Direction::Capture = stream_type {
             handle.start()?;
@@ -406,12 +405,13 @@ impl Device {
             channel: handle,
             sample_format,
             num_descriptors,
-            conf: conf.clone(),
+            conf,
             period_samples,
             period_frames,
             silence_template,
             can_pause,
             creation_instant,
+            use_hw_timestamps,
             _context: self._context.clone(),
         };
 
@@ -700,15 +700,15 @@ struct StreamInner {
     // TODO: We need an API to expose this. See #197, #284.
     can_pause: bool,
 
-    // In the case that the device does not return valid timestamps via `get_htstamp`, this field
-    // will be `Some` and will contain an `Instant` representing the moment the stream was created.
+    // Whether to attempt hardware timestamps via `get_htstamp` / `get_trigger_htstamp`.
     //
-    // If this field is `Some`, then the stream will use the duration since this instant as a
-    // source for timestamps.
-    //
-    // If this field is `None` then the elapsed duration between `get_trigger_htstamp` and
-    // `get_htstamp` is used.
-    creation_instant: Option<std::time::Instant>,
+    // When `true`, hardware timestamps are tried first on every callback and we fall back silently
+    // to `creation_instant` if they are transiently unavailable; e.g. the PulseAudio ALSA plugin
+    // returns `(0, 0)` for the first several periods after the stream is triggered.
+    use_hw_timestamps: bool,
+
+    // Timestamp origin used by the fallback path. Faster without `Option`.
+    creation_instant: std::time::Instant,
 
     // Keep ALSA context alive to prevent premature ALSA config cleanup
     _context: Arc<AlsaContext>,
@@ -989,10 +989,12 @@ fn process_input(
     stream.channel.io_bytes().readi(buffer)?;
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback = match stream.creation_instant {
-        None => stream_timestamp_hardware(&status)?,
-        Some(creation) => stream_timestamp_fallback(creation)?,
-    };
+    let callback = if stream.use_hw_timestamps {
+        stream_timestamp_hardware(&status)
+            .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
+    } else {
+        stream_timestamp_fallback(stream.creation_instant)
+    }?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
         .sub(delay_duration)
@@ -1024,10 +1026,12 @@ fn process_output(
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =
             unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-        let callback = match stream.creation_instant {
-            None => stream_timestamp_hardware(&status)?,
-            Some(creation) => stream_timestamp_fallback(creation)?,
-        };
+        let callback = if stream.use_hw_timestamps {
+            stream_timestamp_hardware(&status)
+                .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
+        } else {
+            stream_timestamp_fallback(stream.creation_instant)
+        }?;
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
         let playback = callback
             .add(delay_duration)
@@ -1239,62 +1243,9 @@ fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount
     (min_buf, max_buf)
 }
 
-// Fill a buffer with equilibrium values for any sample format.
-// Works with any buffer size, even if not perfectly aligned to sample boundaries.
-fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
-    macro_rules! fill_typed {
-        ($sample_type:ty) => {{
-            let sample_size = std::mem::size_of::<$sample_type>();
-
-            assert_eq!(
-                buffer.len() % sample_size,
-                0,
-                "Buffer size must be aligned to sample size for format {:?}",
-                sample_format
-            );
-
-            let num_samples = buffer.len() / sample_size;
-            let equilibrium = <$sample_type as Sample>::EQUILIBRIUM;
-
-            // Safety: We verified the buffer size is correctly aligned for the sample type
-            let samples = unsafe {
-                std::slice::from_raw_parts_mut(
-                    buffer.as_mut_ptr() as *mut $sample_type,
-                    num_samples,
-                )
-            };
-
-            for sample in samples {
-                *sample = equilibrium;
-            }
-        }};
-    }
-    const DSD_SILENCE_BYTE: u8 = 0x69;
-
-    match sample_format {
-        SampleFormat::I8 => fill_typed!(i8),
-        SampleFormat::I16 => fill_typed!(i16),
-        SampleFormat::I24 => fill_typed!(I24),
-        SampleFormat::I32 => fill_typed!(i32),
-        // SampleFormat::I48 => fill_typed!(I48),
-        SampleFormat::I64 => fill_typed!(i64),
-        SampleFormat::U8 => fill_typed!(u8),
-        SampleFormat::U16 => fill_typed!(u16),
-        SampleFormat::U24 => fill_typed!(U24),
-        SampleFormat::U32 => fill_typed!(u32),
-        // SampleFormat::U48 => fill_typed!(U48),
-        SampleFormat::U64 => fill_typed!(u64),
-        SampleFormat::F32 => fill_typed!(f32),
-        SampleFormat::F64 => fill_typed!(f64),
-        SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => {
-            buffer.fill(DSD_SILENCE_BYTE)
-        }
-    }
-}
-
 fn init_hw_params<'a>(
     pcm_handle: &'a alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<alsa::pcm::HwParams<'a>, BackendSpecificError> {
     let hw_params = alsa::pcm::HwParams::any(pcm_handle)?;
@@ -1390,7 +1341,7 @@ fn sample_format_to_alsa_format(
 
 fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> Result<bool, BackendSpecificError> {
     let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
@@ -1429,7 +1380,7 @@ fn set_hw_params_from_format(
 
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    config: &StreamConfig,
+    config: StreamConfig,
     stream_type: alsa::Direction,
 ) -> Result<usize, BackendSpecificError> {
     let sw_params = pcm_handle.sw_params_current()?;

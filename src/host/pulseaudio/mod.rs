@@ -260,7 +260,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -280,7 +280,8 @@ impl DeviceTrait for Device {
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
-        let buffer_attr = make_buffer_attr(config, format);
+        let buffer_attr = make_record_buffer_attr(config, format);
+        let adjust_latency = matches!(config.buffer_size, crate::BufferSize::Fixed(_));
 
         let params = protocol::RecordStreamParams {
             sample_spec,
@@ -290,6 +291,9 @@ impl DeviceTrait for Device {
             flags: protocol::stream::StreamFlags {
                 // Start the stream suspended.
                 start_corked: true,
+                // When a fixed buffer size is requested, ask PA to configure
+                // the source hardware to hit the requested latency end-to-end.
+                adjust_latency,
                 ..Default::default()
             },
             ..Default::default()
@@ -300,7 +304,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -320,7 +324,8 @@ impl DeviceTrait for Device {
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
-        let buffer_attr = make_buffer_attr(config, format);
+        let buffer_attr = make_playback_buffer_attr(config, format);
+        let adjust_latency = matches!(config.buffer_size, crate::BufferSize::Fixed(_));
 
         let params = protocol::PlaybackStreamParams {
             sink_index: Some(info.index),
@@ -330,6 +335,9 @@ impl DeviceTrait for Device {
             flags: protocol::stream::StreamFlags {
                 // Start the stream suspended.
                 start_corked: true,
+                // When a fixed buffer size is requested, ask PA to configure
+                // the sink hardware to hit the requested latency end-to-end.
+                adjust_latency,
                 ..Default::default()
             },
             ..Default::default()
@@ -363,7 +371,7 @@ impl DeviceTrait for Device {
     }
 }
 
-fn make_sample_spec(config: &StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {
+fn make_sample_spec(config: StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {
     protocol::SampleSpec {
         format,
         sample_rate: config.sample_rate,
@@ -371,21 +379,84 @@ fn make_sample_spec(config: &StreamConfig, format: protocol::SampleFormat) -> pr
     }
 }
 
-fn make_channel_map(config: &StreamConfig) -> protocol::ChannelMap {
-    if config.channels == 2 {
-        return protocol::ChannelMap::stereo();
+fn make_channel_map(config: StreamConfig) -> protocol::ChannelMap {
+    use protocol::ChannelPosition::*;
+
+    // Standard channel layouts following the PulseAudio default channel map
+    // (PA_CHANNEL_MAP_DEFAULT) for 1-8 channels, and common Atmos height-
+    // channel conventions for 10 and 12 channels. Counts without a widely
+    // agreed layout (9, 11, >12) fall back to sequential Aux positions.
+    let standard: &[protocol::ChannelPosition] = match config.channels {
+        1 => &[Mono],
+        2 => &[FrontLeft, FrontRight],
+        3 => &[FrontLeft, FrontRight, FrontCenter],
+        4 => &[FrontLeft, FrontRight, RearLeft, RearRight],
+        5 => &[FrontLeft, FrontRight, FrontCenter, RearLeft, RearRight],
+        6 => &[FrontLeft, FrontRight, FrontCenter, Lfe, RearLeft, RearRight],
+        7 => &[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            Lfe,
+            RearLeft,
+            RearRight,
+            RearCenter,
+        ],
+        8 => &[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            Lfe,
+            RearLeft,
+            RearRight,
+            SideLeft,
+            SideRight,
+        ],
+        // 7.1.2 (Dolby Atmos): 7.1 + top-front L/R
+        10 => &[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            Lfe,
+            RearLeft,
+            RearRight,
+            SideLeft,
+            SideRight,
+            TopFrontLeft,
+            TopFrontRight,
+        ],
+        // 7.1.4 (Dolby Atmos): 7.1 + top-front L/R + top-rear L/R
+        12 => &[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            Lfe,
+            RearLeft,
+            RearRight,
+            SideLeft,
+            SideRight,
+            TopFrontLeft,
+            TopFrontRight,
+            TopRearLeft,
+            TopRearRight,
+        ],
+        _ => &[],
+    };
+
+    if !standard.is_empty() {
+        return protocol::ChannelMap::new(standard.iter().copied());
     }
 
-    let mut map = protocol::ChannelMap::empty();
-    for _ in 0..config.channels {
-        map.push(protocol::ChannelPosition::Mono);
-    }
-
-    map
+    let aux = [
+        Aux0, Aux1, Aux2, Aux3, Aux4, Aux5, Aux6, Aux7, Aux8, Aux9, Aux10, Aux11, Aux12, Aux13,
+        Aux14, Aux15, Aux16, Aux17, Aux18, Aux19, Aux20, Aux21, Aux22, Aux23, Aux24, Aux25, Aux26,
+        Aux27, Aux28, Aux29, Aux30, Aux31,
+    ];
+    protocol::ChannelMap::new(aux.iter().copied().take(config.channels as usize))
 }
 
-fn make_buffer_attr(
-    config: &StreamConfig,
+fn make_playback_buffer_attr(
+    config: StreamConfig,
     format: protocol::SampleFormat,
 ) -> protocol::stream::BufferAttr {
     match config.buffer_size {
@@ -393,8 +464,32 @@ fn make_buffer_attr(
         crate::BufferSize::Fixed(frame_count) => {
             let len = frame_count * config.channels as u32 * format.bytes_per_sample() as u32;
             protocol::stream::BufferAttr {
+                // Double-buffer: total buffer = 2 callback periods. With
+                // adjust_latency this becomes the end-to-end latency target,
+                // Minimum request = one callback period, ensuring the server
+                // always asks for exactly frame_count frames per call.
+                max_length: 2 * len,
+                target_length: 2 * len,
+                minimum_request_length: len,
+                ..Default::default()
+            }
+        }
+    }
+}
+
+fn make_record_buffer_attr(
+    config: StreamConfig,
+    format: protocol::SampleFormat,
+) -> protocol::stream::BufferAttr {
+    match config.buffer_size {
+        crate::BufferSize::Default => Default::default(),
+        crate::BufferSize::Fixed(frame_count) => {
+            let len = frame_count * config.channels as u32 * format.bytes_per_sample() as u32;
+            protocol::stream::BufferAttr {
+                // fragment_size controls the delivery chunk size for record
+                // streams; target_length is playback-only and is ignored here.
                 max_length: len,
-                target_length: len,
+                fragment_size: len,
                 ..Default::default()
             }
         }

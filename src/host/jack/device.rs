@@ -136,7 +136,7 @@ impl Device {
     /// Validate buffer size if Fixed is specified. This is necessary because JACK buffer size
     /// is controlled by the JACK server and cannot be changed by clients. Without validation,
     /// cpal would silently use the server's buffer size even if a different value was requested.
-    fn validate_buffer_size(&self, conf: &StreamConfig) -> Result<(), BuildStreamError> {
+    fn validate_buffer_size(&self, conf: StreamConfig) -> Result<(), BuildStreamError> {
         if let crate::BufferSize::Fixed(requested_size) = conf.buffer_size {
             if let SupportedBufferSize::Range { min, max } = self.buffer_size {
                 if !(min..=max).contains(&requested_size) {
@@ -191,7 +191,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -232,7 +232,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        conf: &StreamConfig,
+        conf: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,

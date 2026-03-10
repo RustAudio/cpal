@@ -4,7 +4,7 @@
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, Sample};
+use cpal::{FromSample, HostUnavailable, Sample};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
@@ -20,57 +20,69 @@ struct Opt {
     #[arg(long, default_value_t = 3)]
     duration: u64,
 
-    /// Use the JACK host
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "jack"
-    ))]
-    #[arg(short, long)]
-    #[allow(dead_code)]
+    /// Use the JACK host. Requires `--features jack`.
+    #[arg(long, default_value_t = false)]
     jack: bool,
+
+    /// Use the PulseAudio host. Requires `--features pulseaudio`.
+    #[arg(long, default_value_t = false)]
+    pulseaudio: bool,
+
+    /// Use the Pipewire host. Requires `--features pipewire`
+    #[arg(long, default_value_t = false)]
+    pipewire: bool,
 }
 
 fn main() -> Result<(), anyhow::Error> {
     let opt = Opt::parse();
 
-    // Conditionally compile with jack if the feature is specified.
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        ),
-        feature = "jack"
+    // Jack/PulseAudio support must be enabled at compile time, and is
+    // only available on some platforms.
+    #[allow(unused_mut, unused_assignments)]
+    let mut jack_host_id = Err(HostUnavailable);
+    #[allow(unused_mut, unused_assignments)]
+    let mut pulseaudio_host_id = Err(HostUnavailable);
+    #[allow(unused_mut, unused_assignments)]
+    let mut pipewire_host_id = Err(HostUnavailable);
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd"
     ))]
+    {
+        #[cfg(feature = "jack")]
+        {
+            jack_host_id = Ok(cpal::HostId::Jack);
+        }
+
+        #[cfg(feature = "pulseaudio")]
+        {
+            pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
+        }
+        #[cfg(feature = "pipewire")]
+        {
+            pipewire_host_id = Ok(cpal::HostId::PipeWire);
+        }
+    }
+
     // Manually check for flags. Can be passed through cargo with -- e.g.
-    // cargo run --release --example beep --features jack -- --jack
+    // cargo run --release --example record_wav --features jack -- --jack
     let host = if opt.jack {
-        cpal::host_from_id(cpal::available_hosts()
-            .into_iter()
-            .find(|id| *id == cpal::HostId::Jack)
-            .expect(
-                "make sure --features jack is specified. only works on OSes where jack is available",
-            )).expect("jack host unavailable")
+        jack_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features jack` is specified, and the platform is supported")
+    } else if opt.pulseaudio {
+        pulseaudio_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
+    } else if opt.pipewire {
+        pipewire_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features pipewire` is specified, and the platform is supported")
     } else {
         cpal::default_host()
     };
-
-    #[cfg(any(
-        not(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd"
-        )),
-        not(feature = "jack")
-    ))]
-    let host = cpal::default_host();
 
     // Set up the input device and stream with the default input config.
     let device = if let Some(device) = opt.device {
@@ -109,25 +121,25 @@ fn main() -> Result<(), anyhow::Error> {
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::I8 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::I32 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
             None,
