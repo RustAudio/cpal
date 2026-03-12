@@ -30,7 +30,7 @@ This library currently supports the following:
 - Enumerate known supported input and output stream formats for a device.
 - Get the current default input and output stream formats for a device.
 - Build and run input and output PCM streams on a chosen device with a given stream format.
-- Build and run duplex (simultaneous input/output) streams with hardware clock synchronization (macOS only, more platforms coming soon).
+- Build and run duplex (simultaneous input/output) streams with hardware clock synchronization.
 
 Currently, supported platforms include:
 
