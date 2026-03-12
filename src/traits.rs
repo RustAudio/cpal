@@ -301,8 +301,6 @@ pub trait DeviceTrait {
 
     /// Create a duplex stream with synchronized input and output sharing the same hardware clock.
     ///
-    /// Essential for DAWs, real-time effects, and any application requiring sample-accurate I/O sync.
-    ///
     /// Check [`supports_duplex`](Self::supports_duplex) before calling. See the example below for usage.
     fn build_duplex_stream<T, D, E>(
         &self,

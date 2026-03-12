@@ -3,20 +3,9 @@
 //! This module provides types for building duplex (simultaneous input/output) audio streams
 //! with hardware clock synchronization.
 //!
-//! # Overview
-//!
-//! Unlike separate input and output streams which may have independent clocks, a duplex stream
-//! uses a single device context for both input and output, ensuring they share the same
-//! hardware clock. This is essential for applications like:
-//!
-//! - DAWs (Digital Audio Workstations)
-//! - Real-time audio effects processing
-//! - Audio measurement and analysis
-//! - Any application requiring sample-accurate I/O synchronization
-//!
 //! See `examples/duplex_feedback.rs` for a working example.
 
-use crate::{InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
+use crate::{ChannelCount, InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
 
 /// Information passed to duplex callbacks.
 ///
@@ -66,10 +55,10 @@ impl DuplexCallbackInfo {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DuplexStreamConfig {
     /// Number of input channels.
-    pub input_channels: u16,
+    pub input_channels: ChannelCount,
 
     /// Number of output channels.
-    pub output_channels: u16,
+    pub output_channels: ChannelCount,
 
     /// Sample rate in Hz.
     pub sample_rate: SampleRate,

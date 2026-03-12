@@ -61,7 +61,7 @@ type ErrorCallback = Box<dyn FnMut(crate::StreamError) + Send + 'static>;
 /// Invoke error callback, recovering from poisoned mutex if needed.
 /// Returns true if callback was invoked, false if skipped due to WouldBlock.
 #[inline]
-fn invoke_error_callback<E>(error_callback: &Arc<Mutex<E>>, err: crate::StreamError) -> bool
+fn invoke_error_callback<E>(error_callback: &Mutex<E>, err: crate::StreamError) -> bool
 where
     E: FnMut(crate::StreamError) + Send,
 {

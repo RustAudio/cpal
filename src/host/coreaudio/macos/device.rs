@@ -8,6 +8,7 @@ use crate::duplex::DuplexCallbackInfo;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
+use crate::StreamInstant;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, InputCallbackInfo,
@@ -54,6 +55,11 @@ use std::time::{Duration, Instant};
 use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
+
+/// Value for `kAudioOutputUnitProperty_EnableIO` to enable I/O on an AudioUnit element.
+const AUDIO_UNIT_IO_ENABLED: u32 = 1;
+/// Value for `kAudioOutputUnitProperty_EnableIO` to disable I/O on an AudioUnit element.
+const AUDIO_UNIT_IO_DISABLED: u32 = 0;
 
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
@@ -220,21 +226,19 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 
     if input {
         // Enable input processing.
-        let enable_input = 1u32;
         audio_unit.set_property(
             kAudioOutputUnitProperty_EnableIO,
             Scope::Input,
             Element::Input,
-            Some(&enable_input),
+            Some(&AUDIO_UNIT_IO_ENABLED),
         )?;
 
         // Disable output processing.
-        let disable_output = 0u32;
         audio_unit.set_property(
             kAudioOutputUnitProperty_EnableIO,
             Scope::Output,
             Element::Output,
-            Some(&disable_output),
+            Some(&AUDIO_UNIT_IO_DISABLED),
         )?;
     }
 
@@ -263,6 +267,48 @@ fn get_io_buffer_frame_size_range(
     Ok(SupportedBufferSize::Range {
         min: buffer_size_range.mMinimum as u32,
         max: buffer_size_range.mMaximum as u32,
+    })
+}
+
+fn estimate_capture_instant<E>(
+    callback_instant: StreamInstant,
+    delay: Duration,
+    error_callback: &Mutex<E>,
+) -> StreamInstant
+where
+    E: FnMut(StreamError) + Send,
+{
+    callback_instant.sub(delay).unwrap_or_else(|| {
+        invoke_error_callback(
+            error_callback,
+            StreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Timestamp underflow calculating capture time".into(),
+                },
+            },
+        );
+        callback_instant
+    })
+}
+
+fn estimate_playback_instant<E>(
+    callback_instant: StreamInstant,
+    delay: Duration,
+    error_callback: &Mutex<E>,
+) -> StreamInstant
+where
+    E: FnMut(StreamError) + Send,
+{
+    callback_instant.add(delay).unwrap_or_else(|| {
+        invoke_error_callback(
+            error_callback,
+            StreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Timestamp overflow calculating playback time".into(),
+                },
+            },
+        );
+        callback_instant
     })
 }
 
@@ -821,9 +867,7 @@ impl Device {
                 buffer_frames,
             );
             let delay = frames_to_duration(latency_frames, sample_rate);
-            let capture = callback
-                .sub(delay)
-                .expect("`capture` occurs before origin of alsa `StreamInstant`");
+            let capture = estimate_capture_instant(callback, delay, &error_callback);
             let timestamp = crate::InputStreamTimestamp { callback, capture };
 
             let info = InputCallbackInfo { timestamp };
@@ -925,9 +969,7 @@ impl Device {
                 buffer_frames,
             );
             let delay = frames_to_duration(latency_frames, sample_rate);
-            let playback = callback
-                .add(delay)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let playback = estimate_playback_instant(callback, delay, &error_callback);
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
 
             let info = OutputCallbackInfo { timestamp };
@@ -970,60 +1012,6 @@ impl Device {
         Ok(stream)
     }
 
-    /// Calculate latency-adjusted capture and playback timestamps with graceful error handling.
-    ///
-    /// Note: input/output streams use .expect() here and will panic - while it is
-    /// inconsistent, I believe it is safer for duplex to handle gracefully on the real-time
-    /// audio thread. Errors here should be extremely rare (timestamp arithmetic
-    /// overflow/underflow).
-    ///
-    /// While theoretically and probably practically impossible, this is a critical
-    /// user-experience issue -- the app shouldn't crash and potentially lose end-user data.
-    /// The only reason `sub` would overflow is if delay is massively too large, which would
-    /// indicate some kind of major bug or failure in the OS since callback_instant is derived
-    /// from host time. Still, I think the best practice is NOT to panic but tell the app
-    /// and fallback to a degraded latency estimate of no latency.
-    fn calculate_duplex_timestamps<E>(
-        callback_instant: crate::StreamInstant,
-        delay: std::time::Duration,
-        error_callback: &Arc<Mutex<E>>,
-    ) -> (crate::StreamInstant, crate::StreamInstant)
-    where
-        E: FnMut(StreamError) + Send + 'static,
-    {
-        let capture = match callback_instant.sub(delay) {
-            Some(c) => c,
-            None => {
-                invoke_error_callback(
-                    error_callback,
-                    StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "Timestamp underflow calculating capture time".to_string(),
-                        },
-                    },
-                );
-                callback_instant
-            }
-        };
-
-        let playback = match callback_instant.add(delay) {
-            Some(p) => p,
-            None => {
-                invoke_error_callback(
-                    error_callback,
-                    StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: "Timestamp overflow calculating playback time".to_string(),
-                        },
-                    },
-                );
-                callback_instant
-            }
-        };
-
-        (capture, playback)
-    }
-
     /// Build a duplex stream with synchronized input and output.
     ///
     /// This creates a single HAL AudioUnit with both input and output enabled,
@@ -1041,7 +1029,7 @@ impl Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         // Validate that device supports duplex
-        if !self.supports_input() || !self.supports_output() {
+        if !self.supports_duplex() {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
@@ -1052,14 +1040,12 @@ impl Device {
         let mut audio_unit = AudioUnit::new(coreaudio::audio_unit::IOType::HalOutput)?;
 
         // Enable BOTH input and output on the AudioUnit
-        let enable: u32 = 1;
-
         // Enable input on Element 1
         audio_unit.set_property(
             kAudioOutputUnitProperty_EnableIO,
             Scope::Input,
             Element::Input,
-            Some(&enable),
+            Some(&AUDIO_UNIT_IO_ENABLED),
         )?;
 
         // Enable output on Element 0 (usually enabled by default, but be explicit)
@@ -1067,7 +1053,7 @@ impl Device {
             kAudioOutputUnitProperty_EnableIO,
             Scope::Output,
             Element::Output,
-            Some(&enable),
+            Some(&AUDIO_UNIT_IO_ENABLED),
         )?;
 
         // Set device for the unit (applies to both input and output)
@@ -1080,14 +1066,14 @@ impl Device {
 
         // Create StreamConfig for input side
         let input_stream_config = StreamConfig {
-            channels: config.input_channels as ChannelCount,
+            channels: config.input_channels,
             sample_rate: config.sample_rate,
             buffer_size: config.buffer_size,
         };
 
         // Create StreamConfig for output side
         let output_stream_config = StreamConfig {
-            channels: config.output_channels as ChannelCount,
+            channels: config.output_channels,
             sample_rate: config.sample_rate,
             buffer_size: config.buffer_size,
         };
@@ -1155,20 +1141,10 @@ impl Device {
         //     changes
         // Recovery requires the user to destroy and recreate the stream, which will query
         // the new buffer size range and allocate appropriately.
-        let buffer_size_range = get_io_buffer_frame_size_range(&audio_unit)?;
-        let max_buffer_size = match buffer_size_range {
+        let max_buffer_size = match get_io_buffer_frame_size_range(&audio_unit)? {
             crate::SupportedBufferSize::Range { max, .. } => max,
             crate::SupportedBufferSize::Unknown => {
-                // Fallback: query current size and add headroom for safety
-                let current: u32 = audio_unit
-                    .get_property(
-                        kAudioDevicePropertyBufferFrameSize,
-                        Scope::Global,
-                        Element::Output,
-                    )
-                    .unwrap_or(512);
-                // Add 2x headroom when range is unknown to handle potential size increases
-                current * 2
+                return Err(BuildStreamError::StreamConfigNotSupported);
             }
         };
 
@@ -1278,7 +1254,9 @@ impl Device {
                 );
                 let delay = frames_to_duration(latency_frames, sample_rate);
 
-                let (capture, playback) = Self::calculate_duplex_timestamps(
+                let capture =
+                    estimate_capture_instant(callback_instant, delay, &error_callback_for_callback);
+                let playback = estimate_playback_instant(
                     callback_instant,
                     delay,
                     &error_callback_for_callback,
@@ -1544,11 +1522,8 @@ unsafe impl Send for DuplexProcWrapper {}
 ///
 /// Note: `extern "C-unwind"` is required here because `AURenderCallbackStruct`
 /// from coreaudio-sys types the `inputProc` field as `extern "C-unwind"`.
-/// Ideally this would be `extern "C"` so that a panic aborts rather than
-/// unwinding through CoreAudio's C frames (this callback runs on CoreAudio's
-/// audio thread with no Rust frames above to catch an unwind). Per RFC 2945
-/// (https://github.com/rust-lang/rust/issues/115285), `extern "C"` aborts on
-/// panic, which would be the correct behavior here.
+/// We use `catch_unwind` to prevent panics from unwinding through CoreAudio's
+/// C frames, which would be undefined behavior.
 extern "C-unwind" fn duplex_input_proc(
     in_ref_con: NonNull<c_void>,
     io_action_flags: NonNull<AudioUnitRenderActionFlags>,
@@ -1564,11 +1539,16 @@ extern "C-unwind" fn duplex_input_proc(
     // guarantees single-threaded callback invocation — this function is never
     // called concurrently, so only one `&mut` to the wrapper exists at a time.
     let wrapper = unsafe { in_ref_con.cast::<DuplexProcWrapper>().as_mut() };
-    (wrapper.callback)(
-        io_action_flags,
-        in_time_stamp,
-        in_bus_number,
-        in_number_frames,
-        io_data,
-    )
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (wrapper.callback)(
+            io_action_flags,
+            in_time_stamp,
+            in_bus_number,
+            in_number_frames,
+            io_data,
+        )
+    })) {
+        Ok(result) => result,
+        Err(_) => kAudio_ParamError,
+    }
 }
