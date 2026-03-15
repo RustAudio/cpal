@@ -268,7 +268,7 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
 fn configure_for_device(
     builder: ndk::audio::AudioStreamBuilder,
     device: &Device,
-    config: &StreamConfig,
+    config: StreamConfig,
 ) -> ndk::audio::AudioStreamBuilder {
     let mut builder = if let Some(info) = &device.0 {
         builder.device_id(info.id)
@@ -289,7 +289,7 @@ fn configure_for_device(
 
 fn build_input_stream<D, E>(
     device: &Device,
-    config: &StreamConfig,
+    config: StreamConfig,
     mut data_callback: D,
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
@@ -335,7 +335,7 @@ where
 
 fn build_output_stream<D, E>(
     device: &Device,
-    config: &StreamConfig,
+    config: StreamConfig,
     mut data_callback: D,
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
@@ -493,7 +493,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -545,7 +545,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,

@@ -27,8 +27,8 @@ use std::sync::OnceLock;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use super::com;
 use super::{windows_err_to_cpal_err, windows_err_to_cpal_err_message};
+use crate::host::com;
 use windows::core::Interface;
 use windows::core::GUID;
 use windows::Win32::Devices::Properties;
@@ -122,7 +122,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -142,7 +142,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -553,7 +553,7 @@ impl Device {
                     SampleFormat::F32,
                 ] {
                     if let Some(waveformat) = config_to_waveformatextensible(
-                        &StreamConfig {
+                        StreamConfig {
                             channels: format.channels,
                             sample_rate,
                             buffer_size: BufferSize::Default,
@@ -657,7 +657,7 @@ impl Device {
 
     pub(crate) fn build_input_stream_raw_inner(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
@@ -773,7 +773,7 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                config: config.clone(),
+                config,
                 sample_format,
             })
         }
@@ -781,7 +781,7 @@ impl Device {
 
     pub(crate) fn build_output_stream_raw_inner(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
     ) -> Result<StreamInner, BuildStreamError> {
         unsafe {
@@ -877,7 +877,7 @@ impl Device {
                 playing: false,
                 max_frames_in_buffer,
                 bytes_per_frame: waveformatex.nBlockAlign,
-                config: config.clone(),
+                config,
                 sample_format,
             })
         }
@@ -1157,7 +1157,7 @@ unsafe fn get_audio_clock(
 //
 // Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
 fn config_to_waveformatextensible(
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
 ) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
     let format_tag = match sample_format {

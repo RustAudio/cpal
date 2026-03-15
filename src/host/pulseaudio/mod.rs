@@ -260,7 +260,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -304,7 +304,7 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -371,7 +371,7 @@ impl DeviceTrait for Device {
     }
 }
 
-fn make_sample_spec(config: &StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {
+fn make_sample_spec(config: StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {
     protocol::SampleSpec {
         format,
         sample_rate: config.sample_rate,
@@ -379,7 +379,7 @@ fn make_sample_spec(config: &StreamConfig, format: protocol::SampleFormat) -> pr
     }
 }
 
-fn make_channel_map(config: &StreamConfig) -> protocol::ChannelMap {
+fn make_channel_map(config: StreamConfig) -> protocol::ChannelMap {
     use protocol::ChannelPosition::*;
 
     // Standard channel layouts following the PulseAudio default channel map
@@ -456,7 +456,7 @@ fn make_channel_map(config: &StreamConfig) -> protocol::ChannelMap {
 }
 
 fn make_playback_buffer_attr(
-    config: &StreamConfig,
+    config: StreamConfig,
     format: protocol::SampleFormat,
 ) -> protocol::stream::BufferAttr {
     match config.buffer_size {
@@ -478,7 +478,7 @@ fn make_playback_buffer_attr(
 }
 
 fn make_record_buffer_attr(
-    config: &StreamConfig,
+    config: StreamConfig,
     format: protocol::SampleFormat,
 ) -> protocol::stream::BufferAttr {
     match config.buffer_size {

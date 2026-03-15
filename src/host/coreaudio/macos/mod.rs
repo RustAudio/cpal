@@ -286,7 +286,7 @@ mod test {
 
         let stream = device
             .build_output_stream(
-                &config,
+                config,
                 write_silence::<f32>,
                 move |err| println!("Error: {err}"),
                 None, // None=blocking, Some(Duration)=timeout
@@ -315,7 +315,7 @@ mod test {
 
         let stream = device
             .build_input_stream(
-                &config,
+                config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
@@ -348,7 +348,7 @@ mod test {
         println!("Building input stream");
         let stream = device
             .build_input_stream(
-                &config,
+                config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);

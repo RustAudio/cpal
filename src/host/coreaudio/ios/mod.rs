@@ -152,7 +152,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -189,7 +189,7 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -389,7 +389,7 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
 
 /// Setup audio unit with common configuration for input or output streams.
 fn setup_stream_audio_unit(
-    config: &StreamConfig,
+    config: StreamConfig,
     sample_format: SampleFormat,
     is_input: bool,
 ) -> Result<AudioUnit, BuildStreamError> {

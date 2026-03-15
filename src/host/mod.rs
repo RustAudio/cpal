@@ -17,6 +17,8 @@ pub(crate) mod asio;
     target_feature = "atomics"
 ))]
 pub(crate) mod audioworklet;
+#[cfg(windows)]
+pub(crate) mod com;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod coreaudio;
 #[cfg(target_os = "emscripten")]

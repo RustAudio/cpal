@@ -121,25 +121,25 @@ fn main() -> Result<(), anyhow::Error> {
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::I8 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::I32 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
             err_fn,
             None,
         )?,
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
             None,

@@ -135,37 +135,46 @@ export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11
 
 If you receive errors about no default input or output device:
 
-- **Linux/ALSA:** Ensure your user is in the `audio` group and that ALSA is properly configured
+- **Linux/PipeWire:** Check that PipeWire is running: `pw-cli info`
 - **Linux/PulseAudio:** Check that PulseAudio is running: `pulseaudio --check`
-- **Linux/Pipewire:** Check that Pipewire is running: `systemd --user status pipewire`
-- **Windows:** Verify your audio device is enabled in Sound Settings
 - **macOS:** Check System Preferences > Sound for available devices
 - **Mobile (iOS/Android):** Ensure your app has microphone/audio permissions
+- **Windows:** Verify your audio device is enabled in Sound Settings
+
+## ALSA, PipeWire, and PulseAudio
+
+When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second stream attempting to open it via the ALSA backend will fail with a `DeviceBusy` error. To route audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of `default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
+
+Reserve `hw:` and `plughw:` device names for targets that have no sound server. On those targets, ensure the user is a member of the `audio` group if the system does not grant audio device access automatically via `logind`.
 
 ### Buffer Size Issues
 
-If you experience audio glitches or dropouts:
+`BufferSize::Default` uses the system-configured device default, which on **ALSA** can range from a PipeWire quantum (typically 1024 frames) to `u32::MAX` on misconfigured or exotic hardware. A very deep buffer causes samples to be consumed far faster than audible playback, making audio appear to fast-forward ahead of actual output.
 
-- Try `BufferSize::Default` first before requesting specific sizes
-- When using `BufferSize::Fixed`, query `SupportedBufferSize` to find valid ranges
-- Smaller buffers reduce latency but increase CPU load and risk dropouts
-- Ensure your audio callback completes quickly and avoids blocking operations
+Configure the system and/or request a fixed size in your application:
+
+| System | File | Setting |
+|--------|------|---------|
+| ALSA | `~/.asoundrc` or `/etc/asound.conf` | `buffer_size`, `periods` * `period_size` |
+| PipeWire | `~/.config/pipewire/pipewire.conf.d/` | `default.clock.quantum` |
+| PulseAudio | `~/.config/pulse/daemon.conf` | `default-fragments` * `default-fragment-size-msec` |
+
+```rust
+config.buffer_size = cpal::BufferSize::Fixed(1024);
+```
+
+Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller buffers reduce latency but increase CPU load and the risk of glitches.
 
 ### Build Errors
 
+If you are unable to build the library:
+
+- Verify you have installed the required development libraries, as documented above
 - **ASIO on Windows:** Verify `LIBCLANG_PATH` is set and LLVM is installed
-- **ALSA on Linux:** Install development packages: `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora)
-- **JACK:** Install JACK development libraries before enabling the `jack` feature
 
 ## Examples
 
-CPAL comes with several examples demonstrating various features:
-
-- `beep` - Generate a simple sine wave tone
-- `enumerate` - List all available audio devices and their capabilities
-- `feedback` - Pass input audio directly to output (microphone loopback)
-- `record_wav` - Record audio from the default input device to a WAV file
-- `synth_tones` - Generate multiple tones simultaneously
+CPAL comes with several examples in `examples/`.
 
 Run an example with:
 ```bash
@@ -174,10 +183,10 @@ cargo run --example beep
 
 For platform-specific features, enable the relevant features:
 ```bash
-cargo run --example beep --features asio  # Windows ASIO
-cargo run --example beep --features jack  # JACK backend
+cargo run --example beep --features asio        # Windows ASIO backend
+cargo run --example beep --features jack        # JACK backend
+cargo run --example beep --features pipewire    # PipeWire backend
 cargo run --example beep --features pulseaudio  # PulseAudio backend
-cargo run --example beep --features pipewire  # Pipewire backend
 ```
 
 ## Contributing
