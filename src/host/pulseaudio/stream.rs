@@ -10,9 +10,9 @@ use futures::executor::block_on;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
-    traits::StreamTrait, BackendSpecificError, BuildStreamError, Data, InputCallbackInfo,
-    InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp, PlayStreamError, SampleFormat,
-    StreamError, StreamInstant,
+    traits::StreamTrait, BackendSpecificError, BuildStreamError, Data, FrameCount,
+    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
+    PlayStreamError, SampleFormat, StreamError, StreamInstant,
 };
 
 pub enum Stream {
@@ -45,7 +45,7 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
+    fn buffer_size(&self) -> Option<FrameCount> {
         let (spec, bytes) = match self {
             Stream::Playback(s) => (
                 s.sample_spec(),
@@ -54,10 +54,11 @@ impl StreamTrait for Stream {
             Stream::Record(s) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
-        if bytes == 0 {
-            return None;
+        if bytes > 0 {
+            Some((bytes / frame_size) as _)
+        } else {
+            None
         }
-        Some((bytes / frame_size) as _)
     }
 }
 

@@ -9,8 +9,8 @@ use crate::{
     traits::{DeviceTrait, HostTrait},
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
     DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DevicesError, FrameCount, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo,
+    SampleFormat, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -157,7 +157,7 @@ fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
     for format in PULSE_FORMATS {
         for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
             let bytes_per_frame = channel_count as usize * format.sample_size();
-            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as u32;
+            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as FrameCount;
             ranges.push(SupportedStreamConfigRange {
                 channels: channel_count as _,
                 min_sample_rate: 1,
