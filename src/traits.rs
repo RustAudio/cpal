@@ -303,24 +303,21 @@ pub trait StreamTrait {
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
 
-    /// Query the stream's callback buffer size in frames.
+    /// Query the stream's buffer size in frames per callback invocation.
     ///
-    /// Returns the actual buffer size chosen by the platform, which may differ from a requested
-    /// `BufferSize::Fixed` value due to hardware constraints, or is determined by the platform
-    /// when using `BufferSize::Default`.
+    /// Returns the platform's best estimate of the number of frames per callback.
     ///
-    /// # Returns
+    /// - [`BufferSize::Fixed`]: the actual callback size after hardware negotiation, which may
+    ///   differ from the requested value due to hardware constraints.
+    /// - [`BufferSize::Default`]: the system-configured callback size (e.g. ALSA period,
+    ///   JACK buffer size, AAudio burst size). This reflects the typical callback size, not a
+    ///   guaranteed upper bound.
     ///
-    /// Returns `Some(frames)` if the callback buffer size is known, or `None` if:
-    /// - The platform doesn't support querying buffer size at runtime
-    /// - The stream hasn't been fully initialized yet
+    /// Returns `None` if the platform cannot report a meaningful estimate — for example, before
+    /// the first callback has fired, or on platforms that do not expose this information.
     ///
-    /// # Note on Variable Callback Sizes
-    ///
-    /// Some platforms (notably WASAPI and mobile) may deliver variable-sized buffers to callbacks
-    /// that are smaller than the reported buffer size. When `buffer_size()` returns a value, it
-    /// should be treated as the maximum expected size, but applications should always check the
-    /// actual buffer size passed to each callback.
+    /// Applications should use this value to size pre-allocated buffers or estimate latency, but
+    /// must always use the actual frame count passed to each individual callback invocation.
     fn buffer_size(&self) -> Option<crate::FrameCount> {
         None
     }
