@@ -1086,14 +1086,13 @@ fn stream_timestamp_hardware(
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
     let trigger_ts = status.get_trigger_htstamp();
     // trigger_htstamp records when the PCM stream started.
-    // On the first few callbacks, it might not have been set yet.
-    // If we only subtract zero from htstamp we'd get a huge timestamp
-    // which would later cause non-monotonicity once it is set.
-    // So instead we bail out and let the caller use the fallback.
+    // On the first few callbacks, it might not have been set yet,
+    // which would yield a huge positive nanos nd cause non-monotonicity
+    // once it is set. Bail out and let the caller use the fallback.
     // See https://github.com/RustAudio/cpal/issues/710
     if trigger_ts.tv_sec == 0 && trigger_ts.tv_nsec == 0 {
         return Err(BackendSpecificError {
-            description: "trigger_htstamp not set yet".to_string(),
+            description: "trigger_htstamp not yet set".to_string(),
         });
     }
     let ts = status.get_htstamp();
