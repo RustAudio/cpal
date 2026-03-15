@@ -409,6 +409,7 @@ impl Device {
         }
 
         // Pre-compute a period-sized buffer filled with silence values.
+        let period_frames = period_samples / conf.channels as usize;
         let period_bytes = period_samples * sample_format.sample_size();
         let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
 
@@ -424,7 +425,7 @@ impl Device {
             num_descriptors,
             conf: conf.clone(),
             period_samples,
-            period_frames: period_samples / conf.channels as usize,
+            period_frames,
             silence_template,
             can_pause,
             creation_instant,
@@ -894,7 +895,7 @@ fn output_stream_worker(
                     }
                     // No need to call start() for output streams after prepare();
                     // ALSA automatically restarts them when the buffer is refilled
-                    //and the stream is triggered again.
+                    // and the stream is triggered again.
                 }
                 StreamError::DeviceNotAvailable => {
                     error_callback(StreamError::DeviceNotAvailable);
@@ -939,6 +940,7 @@ fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
 }
 
 /// Validate the result of a `writei` or `readi` call and map ALSA errors to [`StreamError`].
+#[inline]
 fn check_io_result(
     result: Result<usize, alsa::Error>,
     period_frames: usize,
