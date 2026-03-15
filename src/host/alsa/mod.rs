@@ -424,6 +424,7 @@ impl Device {
             num_descriptors,
             conf: conf.clone(),
             period_samples,
+            period_frames: period_samples / conf.channels as usize,
             silence_template,
             can_pause,
             creation_instant,
@@ -708,6 +709,7 @@ struct StreamInner {
 
     // Cached values for performance in audio callback hot path
     period_samples: usize,
+    period_frames: usize,
     silence_template: Box<[u8]>,
 
     #[allow(dead_code)]
@@ -820,40 +822,35 @@ fn input_stream_worker(
         if stream.dropping.load(Ordering::Acquire) {
             return;
         }
-        match poll_for_period(&rx, stream, &mut ctxt) {
+        let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
             Ok(Poll::Ready {
                 status,
                 delay_frames,
-            }) => {
-                if let Err(err) = process_input(
-                    stream,
-                    &mut ctxt.transfer_buffer,
-                    status,
-                    delay_frames,
-                    data_callback,
-                ) {
-                    error_callback(err.into());
+            }) => process_input(
+                stream,
+                &mut ctxt.transfer_buffer,
+                status,
+                delay_frames,
+                data_callback,
+            ),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result {
+            match err {
+                StreamError::BufferUnderrun => {
+                    error_callback(StreamError::BufferUnderrun);
+                    if let Err(err) = stream.channel.prepare() {
+                        error_callback(err.into());
+                    } else if let Err(err) = stream.channel.start() {
+                        error_callback(err.into());
+                    }
                 }
-            }
-            Err(StreamError::BufferUnderrun) => {
-                error_callback(StreamError::BufferUnderrun);
-
-                // Input streams don't have an automatic start threshold, so restart manually.
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                } else if let Err(err) = stream.channel.start() {
-                    error_callback(err.into());
+                StreamError::DeviceNotAvailable => {
+                    error_callback(StreamError::DeviceNotAvailable);
+                    return;
                 }
-                continue;
-            }
-            Err(StreamError::DeviceNotAvailable) => {
-                error_callback(StreamError::DeviceNotAvailable);
-                return;
-            }
-            Err(err) => {
-                error_callback(err);
-                continue;
+                err => error_callback(err),
             }
         }
     }
@@ -874,36 +871,36 @@ fn output_stream_worker(
         if stream.dropping.load(Ordering::Acquire) {
             return;
         }
-        match poll_for_period(&rx, stream, &mut ctxt) {
+        let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
             Ok(Poll::Ready {
                 status,
                 delay_frames,
-            }) => {
-                if let Err(err) = process_output(
-                    stream,
-                    &mut ctxt.transfer_buffer,
-                    status,
-                    delay_frames,
-                    data_callback,
-                ) {
-                    error_callback(err);
+            }) => process_output(
+                stream,
+                &mut ctxt.transfer_buffer,
+                status,
+                delay_frames,
+                data_callback,
+            ),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result {
+            match err {
+                StreamError::BufferUnderrun => {
+                    error_callback(StreamError::BufferUnderrun);
+                    if let Err(err) = stream.channel.prepare() {
+                        error_callback(err.into());
+                    }
+                    // No need to call start() for output streams after prepare();
+                    // ALSA automatically restarts them when the buffer is refilled
+                    //and the stream is triggered again.
                 }
-            }
-            Err(StreamError::BufferUnderrun) => {
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
+                StreamError::DeviceNotAvailable => {
+                    error_callback(StreamError::DeviceNotAvailable);
+                    return;
                 }
-                continue;
-            }
-            Err(StreamError::DeviceNotAvailable) => {
-                error_callback(StreamError::DeviceNotAvailable);
-                return;
-            }
-            Err(err) => {
-                error_callback(err);
-                continue;
+                err => error_callback(err),
             }
         }
     }
@@ -927,6 +924,45 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
 
 #[cfg(not(feature = "audio_thread_priority"))]
 fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
+
+/// Attempt hardware resume from a suspend event (`ESTRPIPE`).
+fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
+    match channel.resume() {
+        // device resumed successfully and will continue running on its own
+        Ok(()) => Ok(Poll::Pending),
+        // device is still resuming; poll again until it is ready.
+        Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
+        // hardware does not support soft resume
+        Err(e) if e.errno() == libc::ENOSYS => Err(StreamError::BufferUnderrun),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Validate the result of a `writei` or `readi` call and map ALSA errors to [`StreamError`].
+fn check_io_result(
+    result: Result<usize, alsa::Error>,
+    period_frames: usize,
+    channel: &alsa::PCM,
+    direction: alsa::Direction,
+) -> Result<(), StreamError> {
+    match result {
+        Ok(n) if n != period_frames => Err(BackendSpecificError {
+            description: format!(
+                "partial {}: expected {period_frames} frames, transferred {n}",
+                match direction {
+                    alsa::Direction::Capture => "read",
+                    alsa::Direction::Playback => "write",
+                }
+            ),
+        }
+        .into()),
+        Ok(_) => Ok(()),
+        Err(err) if err.errno() == libc::EPIPE => Err(StreamError::BufferUnderrun),
+        Err(err) if err.errno() == libc::ESTRPIPE => try_resume(channel).map(|_| ()),
+        Err(err) if err.errno() == libc::ENODEV => Err(StreamError::DeviceNotAvailable),
+        Err(err) => Err(err.into()),
+    }
+}
 
 enum Poll {
     Pending,
@@ -978,12 +1014,7 @@ fn poll_for_period(
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
         Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
         // Suspend: try hardware resume first; fall back to prepare() if unsupported.
-        Err(err) if err.errno() == libc::ESTRPIPE => match stream.channel.resume() {
-            Ok(()) => return Ok(Poll::Pending),
-            Err(e) if e.errno() == libc::EAGAIN => return Ok(Poll::Pending),
-            Err(e) if e.errno() == libc::ENOSYS => return Err(StreamError::BufferUnderrun),
-            Err(e) => return Err(e.into()),
-        },
+        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.channel),
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
@@ -1013,8 +1044,14 @@ fn process_input(
     status: alsa::pcm::Status,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
-) -> Result<(), BackendSpecificError> {
-    stream.channel.io_bytes().readi(buffer)?;
+) -> Result<(), StreamError> {
+    let result = stream.channel.io_bytes().readi(buffer);
+    check_io_result(
+        result,
+        stream.period_frames,
+        &stream.channel,
+        alsa::Direction::Capture,
+    )?;
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
     let callback = if stream.use_hw_timestamps {
@@ -1069,17 +1106,13 @@ fn process_output(
         data_callback(&mut data, &info);
     }
 
-    // try_recover handles both xrun (EPIPE) and suspend (ESTRPIPE) during write.
-    if let Err(err) = stream.channel.io_bytes().writei(buffer) {
-        if matches!(err.errno(), libc::EPIPE | libc::ESTRPIPE) {
-            return match stream.channel.try_recover(err, true) {
-                Ok(()) => Err(StreamError::BufferUnderrun),
-                Err(recover_err) => Err(recover_err.into()),
-            };
-        }
-        return Err(err.into());
-    }
-    Ok(())
+    let result = stream.channel.io_bytes().writei(buffer);
+    check_io_result(
+        result,
+        stream.period_frames,
+        &stream.channel,
+        alsa::Direction::Playback,
+    )
 }
 
 // Use hardware timestamps from ALSA.
