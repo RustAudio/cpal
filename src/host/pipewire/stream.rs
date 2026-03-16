@@ -1,4 +1,11 @@
-use std::{thread::JoinHandle, time::Instant};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+    time::Instant,
+};
 
 use crate::{
     host::fill_with_equilibrium, traits::StreamTrait, BackendSpecificError, InputCallbackInfo,
@@ -29,6 +36,7 @@ pub enum StreamCommand {
 pub struct Stream {
     pub(crate) handle: Option<JoinHandle<()>>,
     pub(crate) controller: pw::channel::Sender<StreamCommand>,
+    pub(crate) last_quantum: Arc<AtomicU64>,
 }
 
 impl Drop for Stream {
@@ -58,6 +66,13 @@ impl StreamTrait for Stream {
                 },
             })?;
         Ok(())
+    }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        match self.last_quantum.load(Ordering::Relaxed) {
+            0 => None,
+            n => Some(n as _),
+        }
     }
 }
 
@@ -128,6 +143,7 @@ pub struct UserData<D, E> {
     sample_format: SampleFormat,
     format: pw::spa::param::audio::AudioInfoRaw,
     created_instance: Instant,
+    last_quantum: Arc<AtomicU64>,
 }
 impl<D, E> UserData<D, E>
 where
@@ -157,6 +173,8 @@ struct PwTime {
     /// For output: how far ahead of the driver our next sample will be played.
     /// For input:  how long ago the data in the buffer was captured.
     delay_ns: i64,
+    /// Quantum size in samples (frames) for this graph cycle.
+    quantum: u64,
 }
 
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
@@ -178,6 +196,7 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
     Some(PwTime {
         now_ns: t.now,
         delay_ns,
+        quantum: t.size,
     })
 }
 
@@ -193,10 +212,17 @@ where
         data: &Data,
     ) -> Result<(), BackendSpecificError> {
         let (callback, capture) = match pw_stream_time(stream) {
-            Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns),
-                StreamInstant::from_nanos(now_ns - delay_ns),
-            ),
+            Some(PwTime {
+                now_ns,
+                delay_ns,
+                quantum,
+            }) => {
+                self.last_quantum.store(quantum, Ordering::Relaxed);
+                (
+                    StreamInstant::from_nanos(now_ns),
+                    StreamInstant::from_nanos(now_ns - delay_ns),
+                )
+            }
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb
@@ -227,10 +253,17 @@ where
         data: &mut Data,
     ) -> Result<(), BackendSpecificError> {
         let (callback, playback) = match pw_stream_time(stream) {
-            Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns),
-                StreamInstant::from_nanos(now_ns + delay_ns),
-            ),
+            Some(PwTime {
+                now_ns,
+                delay_ns,
+                quantum,
+            }) => {
+                self.last_quantum.store(quantum, Ordering::Relaxed);
+                (
+                    StreamInstant::from_nanos(now_ns),
+                    StreamInstant::from_nanos(now_ns + delay_ns),
+                )
+            }
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb
@@ -280,11 +313,12 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
 }
 
 pub fn connect_output<D, E>(
-    config: &StreamConfig,
+    config: StreamConfig,
     properties: pw::properties::PropertiesBox,
     sample_format: SampleFormat,
     data_callback: D,
     error_callback: E,
+    last_quantum: Arc<AtomicU64>,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -301,6 +335,7 @@ where
         sample_format,
         format: Default::default(),
         created_instance: Instant::now(),
+        last_quantum,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -430,11 +465,12 @@ where
     })
 }
 pub fn connect_input<D, E>(
-    config: &StreamConfig,
+    config: StreamConfig,
     properties: pw::properties::PropertiesBox,
     sample_format: SampleFormat,
     data_callback: D,
     error_callback: E,
+    last_quantum: Arc<AtomicU64>,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -451,6 +487,7 @@ where
         sample_format,
         format: Default::default(),
         created_instance: Instant::now(),
+        last_quantum,
     };
 
     let channels = config.channels as _;

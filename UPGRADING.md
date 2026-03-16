@@ -5,12 +5,13 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 ## Breaking Changes Checklist
 
 - [ ] Add wildcard arms to exhaustive `match` expressions on cpal error enums
-- [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors (ALSA)
+- [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors
+- [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
+- [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
 
 ## 1. Error enums are now `#[non_exhaustive]`
 
-**What changed:** Public error enums in `cpal` are now marked `#[non_exhaustive]`. This lets cpal 
-add new variants in future minor releases without a SemVer-breaking change.
+**What changed:** Public error enums in `cpal` are now marked `#[non_exhaustive]`.
 
 ```rust
 // Before (v0.17)
@@ -36,18 +37,33 @@ loop {
 }
 ```
 
-## 2. New `DeviceBusy` variant (ALSA)
+**Why:** This lets cpal add new variants in future minor releases without a SemVer-breaking change.
 
-**What changed:** On ALSA, `EBUSY`/`EAGAIN` errors from device open calls now produce `DeviceBusy`
-instead of `DeviceNotAvailable`.
+## 2. New `DeviceBusy` variant
 
-Unlike `DeviceNotAvailable` (device is gone), `DeviceBusy` signals a transient condition. Retrying after a short delay may succeed, as shown in the example above.
+**What changed:** On ALSA, `EBUSY`/`EAGAIN` errors from device open calls now produce `DeviceBusy` instead of `DeviceNotAvailable`. This may be added to other hosts in the future.
+
+**Why:** Unlike `DeviceNotAvailable` (device is gone), `DeviceBusy` signals a transient condition. Retrying after a short delay may succeed, as shown in the example above.
+
+## 3. `StreamConfig` is now passed by value
+
+**What changed:** `StreamConfig` now implements `Copy`, and all `DeviceTrait` stream-building methods accept it by value.
+
+```rust
+// Before (v0.17)
+let stream = device.build_output_stream(&config, data_fn, err_fn, None)?;
+
+// After (v0.18)
+let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
+```
+
+**Impact:** Remove the `&` at every `build_*_stream` call site. Because `StreamConfig` is `Copy`, you can reuse the same binding across multiple calls without cloning.
+
+If you implement `DeviceTrait` on your own type (via the `custom` feature), update your `build_input_stream_raw` and `build_output_stream_raw` signatures from `config: &StreamConfig` to `config: StreamConfig`. Any `config.clone()` calls before `move` closures can also be removed.
 
 ---
 
 # Upgrading from v0.16 to v0.17
-
-This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
 
 ## Breaking Changes Checklist
 
@@ -137,7 +153,7 @@ let stream_clone = Arc::clone(&stream);
 - **May underrun or have different latency** depending on what the host chooses
 - **Better integration** with system audio configuration: cpal now respects configured settings instead of imposing its own buffers. For example, on ALSA, PipeWire quantum settings (via the pipewire-alsa device) are now honored instead of being overridden.
 
-**Migration:** If you experience underruns or need specific latency, use `BufferSize::Fixed(size)` instead of relying on defaults.
+**Migration:** If you experience underruns, fast-forwarding behavior or need specific latency, use `BufferSize::Fixed(size)` instead of relying on possibly misconfigured system defaults.
 
 **Platform-specific notes:**
 - **ALSA:** Previously used cpal's hardcoded 25ms periods / 100ms buffer, now uses device defaults

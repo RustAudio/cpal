@@ -467,7 +467,7 @@ macro_rules! impl_platform_host {
 
             fn build_input_stream_raw<D, E>(
                 &self,
-                config: &crate::StreamConfig,
+                config: crate::StreamConfig,
                 sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
@@ -496,7 +496,7 @@ macro_rules! impl_platform_host {
 
             fn build_output_stream_raw<D, E>(
                 &self,
-                config: &crate::StreamConfig,
+                config: crate::StreamConfig,
                 sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
@@ -588,6 +588,17 @@ macro_rules! impl_platform_host {
                         $(#[cfg($feat)])?
                         StreamInner::$HostVariant(ref s) => {
                             s.pause()
+                        }
+                    )*
+                }
+            }
+
+            fn buffer_size(&self) -> Option<crate::FrameCount> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInner::$HostVariant(ref s) => {
+                            s.buffer_size()
                         }
                     )*
                 }

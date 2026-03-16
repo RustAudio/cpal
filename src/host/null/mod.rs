@@ -84,7 +84,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        _config: StreamConfig,
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
@@ -100,7 +100,7 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        _config: StreamConfig,
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,

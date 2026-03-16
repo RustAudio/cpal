@@ -262,6 +262,14 @@ impl StreamTrait for Stream {
 
         stream.pause()
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        let stream = self.inner.lock().ok()?;
+
+        device::get_device_buffer_frame_size(&stream.audio_unit)
+            .ok()
+            .map(|size| size as crate::FrameCount)
+    }
 }
 
 #[cfg(test)]
@@ -286,7 +294,7 @@ mod test {
 
         let stream = device
             .build_output_stream(
-                &config,
+                config,
                 write_silence::<f32>,
                 move |err| println!("Error: {err}"),
                 None, // None=blocking, Some(Duration)=timeout
@@ -315,7 +323,7 @@ mod test {
 
         let stream = device
             .build_input_stream(
-                &config,
+                config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
@@ -348,7 +356,7 @@ mod test {
         println!("Building input stream");
         let stream = device
             .build_input_stream(
-                &config,
+                config,
                 move |data: &[f32], _: &crate::InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);

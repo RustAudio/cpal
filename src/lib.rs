@@ -66,7 +66,7 @@
 //! # let device = host.default_output_device().unwrap();
 //! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
-//!     &config,
+//!     config,
 //!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
@@ -103,9 +103,9 @@
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
-//!     SampleFormat::F32 => device.build_output_stream(&config, write_silence::<f32>, err_fn, None),
-//!     SampleFormat::I16 => device.build_output_stream(&config, write_silence::<i16>, err_fn, None),
-//!     SampleFormat::U16 => device.build_output_stream(&config, write_silence::<u16>, err_fn, None),
+//!     SampleFormat::F32 => device.build_output_stream(config, write_silence::<f32>, err_fn, None),
+//!     SampleFormat::I16 => device.build_output_stream(config, write_silence::<i16>, err_fn, None),
+//!     SampleFormat::U16 => device.build_output_stream(config, write_silence::<u16>, err_fn, None),
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
@@ -128,7 +128,7 @@
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
+//! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.play().unwrap();
 //! ```
 //!
@@ -144,7 +144,7 @@
 //! # let config = supported_config.into();
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
-//! # let stream = device.build_output_stream_raw(&config, sample_format, data_fn, err_fn, None).unwrap();
+//! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.pause().unwrap();
 //! ```
 //!
@@ -393,7 +393,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     ),
     wasm_bindgen
 )]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,

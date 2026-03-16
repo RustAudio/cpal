@@ -104,7 +104,7 @@ impl DeviceTrait for MyDevice {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _: &cpal::StreamConfig,
+        _: cpal::StreamConfig,
         _: cpal::SampleFormat,
         _: D,
         _: E,
@@ -123,7 +123,7 @@ impl DeviceTrait for MyDevice {
     // a proper impl would also check the stream config and sample format, as well as handle errors
     fn build_output_stream_raw<D, E>(
         &self,
-        _: &cpal::StreamConfig,
+        _: cpal::StreamConfig,
         _: cpal::SampleFormat,
         mut data_callback: D,
         _: E,
@@ -212,7 +212,7 @@ fn main() {
     let device = host.default_output_device().unwrap();
     let config = device.default_output_config().unwrap();
 
-    let stream = make_stream(&device, &config.into()).unwrap();
+    let stream = make_stream(&device, config.into()).unwrap();
     stream.play().unwrap();
     std::thread::sleep(std::time::Duration::from_millis(4000));
 }
@@ -297,7 +297,7 @@ impl Oscillator {
 
 pub fn make_stream(
     device: &cpal::Device,
-    config: &cpal::StreamConfig,
+    config: cpal::StreamConfig,
 ) -> Result<cpal::Stream, anyhow::Error> {
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {

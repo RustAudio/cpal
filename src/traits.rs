@@ -171,7 +171,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream<T, D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -209,7 +209,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream<T, D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
@@ -250,7 +250,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_input_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -277,7 +277,7 @@ pub trait DeviceTrait {
     ///   `Some(duration)` sets a maximum wait time. Not all backends support timeouts.
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
@@ -302,6 +302,25 @@ pub trait StreamTrait {
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
+
+    /// Query the stream's buffer size in frames per callback invocation.
+    ///
+    /// Returns the platform's best estimate of the number of frames per callback.
+    ///
+    /// - [`crate::BufferSize::Fixed`]: the actual callback size after hardware negotiation, which may
+    ///   differ from the requested value due to hardware constraints.
+    /// - [`crate::BufferSize::Default`]: the system-configured callback size (e.g. ALSA period,
+    ///   JACK buffer size, AAudio burst size). This reflects the typical callback size, not a
+    ///   guaranteed upper bound.
+    ///
+    /// Returns `None` if the platform cannot report a meaningful estimate — for example, before
+    /// the first callback has fired, or on platforms that do not expose this information.
+    ///
+    /// Applications should use this value to size pre-allocated buffers or estimate latency, but
+    /// must always use the actual frame count passed to each individual callback invocation.
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        None
+    }
 }
 
 /// Compile-time assertion that a stream type implements [`Send`].

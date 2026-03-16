@@ -162,7 +162,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        _config: StreamConfig,
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
@@ -179,7 +179,7 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         mut data_callback: D,
         mut error_callback: E,
@@ -192,8 +192,6 @@ impl DeviceTrait for Device {
         if !valid_config(config, sample_format) {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
-
-        let config = config.clone();
 
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
@@ -330,7 +328,7 @@ impl Iterator for Devices {
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
+fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
     conf.channels <= MAX_CHANNELS
         && conf.channels >= MIN_CHANNELS
         && conf.sample_rate <= MAX_SAMPLE_RATE

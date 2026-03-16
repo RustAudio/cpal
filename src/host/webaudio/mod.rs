@@ -186,7 +186,7 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: &StreamConfig,
+        _config: StreamConfig,
         _sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
@@ -203,7 +203,7 @@ impl DeviceTrait for Device {
     /// Create an output stream.
     fn build_output_stream_raw<D, E>(
         &self,
-        config: &StreamConfig,
+        config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
         _error_callback: E,
@@ -410,7 +410,7 @@ impl DeviceTrait for Device {
         Ok(Stream {
             ctx,
             on_ended_closures,
-            config: config.clone(),
+            config,
             buffer_size_frames,
         })
     }
@@ -470,6 +470,10 @@ impl StreamTrait for Stream {
             }
         }
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        Some(self.buffer_size_frames as crate::FrameCount)
+    }
 }
 
 impl Drop for Stream {
@@ -520,7 +524,7 @@ fn is_webaudio_available() -> bool {
 }
 
 // Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: &StreamConfig, sample_format: SampleFormat) -> bool {
+fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
     conf.channels <= MAX_CHANNELS
         && conf.channels >= MIN_CHANNELS
         && conf.sample_rate <= MAX_SAMPLE_RATE
