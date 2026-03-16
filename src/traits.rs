@@ -307,9 +307,9 @@ pub trait StreamTrait {
     ///
     /// Returns the platform's best estimate of the number of frames per callback.
     ///
-    /// - [`BufferSize::Fixed`]: the actual callback size after hardware negotiation, which may
+    /// - [`crate::BufferSize::Fixed`]: the actual callback size after hardware negotiation, which may
     ///   differ from the requested value due to hardware constraints.
-    /// - [`BufferSize::Default`]: the system-configured callback size (e.g. ALSA period,
+    /// - [`crate::BufferSize::Default`]: the system-configured callback size (e.g. ALSA period,
     ///   JACK buffer size, AAudio burst size). This reflects the typical callback size, not a
     ///   guaranteed upper bound.
     ///

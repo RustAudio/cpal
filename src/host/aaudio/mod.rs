@@ -291,8 +291,10 @@ fn configure_for_device(
     // - https://developer.android.com/ndk/reference/group/audio#aaudiostreambuilder_setframesperdatacallback
     // - https://developer.android.com/ndk/guides/audio/audio-latency#buffer-size
     if let BufferSize::Fixed(size) = config.buffer_size {
-        // Only for fixed sizes, the user explicitly wants control over the callback size.
-        builder = builder.frames_per_data_callback(size as i32);
+        // For fixed sizes, the user explicitly wants control over the callback size.
+        builder = builder
+            .frames_per_data_callback(size as i32)
+            .buffer_capacity_in_frames(2 * size as i32);
     }
 
     builder
@@ -440,7 +442,7 @@ where
     tuning.capacity.store(capacity, Ordering::Relaxed);
 
     let mixer_bursts = match AudioManager::get_mixer_bursts() {
-        Ok(bursts) => bursts,
+        Ok(bursts) => bursts.max(0),
         Err(_) => {
             let burst_size = stream.frames_per_burst();
             if burst_size > 0 {
