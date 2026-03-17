@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+- **Linux/BSD**: Default host now is, in order from first to last available: PipeWire, PulseAudio, ALSA.
 
 ### Fixed
 
