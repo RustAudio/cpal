@@ -241,7 +241,10 @@ impl DeviceTrait for Device {
                         .ok()
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
-                let total_output_latency_secs = base_latency_secs + output_latency_secs;
+                let total_output_latency_secs = {
+                    let sum = base_latency_secs + output_latency_secs;
+                    if sum.is_finite() { sum.max(0.0) } else { 0.0 }
+                };
 
                 options.set_processor_options(Some(&js_sys::Array::of3(
                     &wasm_bindgen::module(),

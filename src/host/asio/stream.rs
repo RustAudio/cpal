@@ -353,7 +353,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
-        // Query hardware input latency (order matters: needs buffers created above).
+        // Query hardware output latency (order matters: needs buffers created above).
         let hardware_output_latency = driver
             .latencies()
             .map(|(_, output)| output.max(0) as usize)
