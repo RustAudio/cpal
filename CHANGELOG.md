@@ -31,7 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+- **ASIO**: Timestamps now include driver-reported hardware latency.
+- **CoreAudio**: Timestamps now include device latency and safety offset.
+- **JACK**: Timestamps now use the precise hardware deadline.
 - **Linux/BSD**: Default host now is, in order from first to last available: PipeWire, PulseAudio, ALSA.
+- **WASAPI**: Timestamps now include hardware pipeline latency.
+- **WebAudio**: Timestamps now include base and output latency.
 
 ### Fixed
 

@@ -768,6 +768,16 @@ impl Device {
 
             let audio_clock = get_audio_clock(&audio_client)?;
 
+            let stream_latency = {
+                let hns = audio_client.GetStreamLatency().map_err(|e| {
+                    windows_err_to_cpal_err_message::<BuildStreamError>(
+                        e,
+                        "failed to get stream latency: ",
+                    )
+                })?;
+                Duration::from_nanos(hns.max(0) as u64 * 100)
+            };
+
             Ok(StreamInner {
                 audio_client,
                 audio_clock,
@@ -779,6 +789,7 @@ impl Device {
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config,
                 sample_format,
+                stream_latency,
             })
         }
     }
@@ -876,6 +887,16 @@ impl Device {
 
             let audio_clock = get_audio_clock(&audio_client)?;
 
+            let stream_latency = {
+                let hns = audio_client.GetStreamLatency().map_err(|e| {
+                    windows_err_to_cpal_err_message::<BuildStreamError>(
+                        e,
+                        "failed to get stream latency: ",
+                    )
+                })?;
+                Duration::from_nanos(hns.max(0) as u64 * 100)
+            };
+
             Ok(StreamInner {
                 audio_client,
                 audio_clock,
@@ -887,6 +908,7 @@ impl Device {
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config,
                 sample_format,
+                stream_latency,
             })
         }
     }

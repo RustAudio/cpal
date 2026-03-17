@@ -228,6 +228,21 @@ impl DeviceTrait for Device {
                 options.set_output_channel_count(&js_array);
                 options.set_number_of_inputs(0);
 
+                // Capture audio output latency here: the closure runs in a separate worker and cannot access AudioContext properties directly.
+                // While baseLatency is fixed for the context lifetime, outputLatency can change but not be re-read from inside the worklet;
+                // we snapshot it here.
+                let base_latency_secs =
+                    js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("baseLatency"))
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                let output_latency_secs =
+                    js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("outputLatency"))
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                let total_output_latency_secs = base_latency_secs + output_latency_secs;
+
                 options.set_processor_options(Some(&js_sys::Array::of3(
                     &wasm_bindgen::module(),
                     &wasm_bindgen::memory(),
@@ -239,11 +254,12 @@ impl DeviceTrait for Device {
                             };
 
                             let callback = crate::StreamInstant::from_secs_f64(now);
-
                             let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
-                            let playback = callback.add(buffer_duration).expect(
-                            "`playback` occurs beyond representation supported by `StreamInstant`",
-                        );
+                            let playback = callback
+                                .add(buffer_duration + Duration::from_secs_f64(total_output_latency_secs))
+                                .expect(
+                                "`playback` occurs beyond representation supported by `StreamInstant`",
+                            );
                             let timestamp = crate::OutputStreamTimestamp { callback, playback };
                             let info = OutputCallbackInfo { timestamp };
                             (data_callback)(&mut data, &info);

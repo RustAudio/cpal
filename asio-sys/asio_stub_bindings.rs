@@ -137,6 +137,13 @@ pub unsafe extern "C" fn ASIOGetChannels(_ins: *mut c_long, _outs: *mut c_long) 
     0
 }
 #[no_mangle]
+pub unsafe extern "C" fn ASIOGetLatencies(
+    _in_latency: *mut c_long,
+    _out_latency: *mut c_long,
+) -> ASIOError {
+    0
+}
+#[no_mangle]
 pub unsafe extern "C" fn ASIOGetChannelInfo(_info: *mut ASIOChannelInfo) -> ASIOError {
     0
 }

@@ -298,15 +298,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
         let current_frame_count = process_scope.n_frames() as usize;
 
         // Get timestamp data
-        let cycle_times = process_scope.cycle_times();
-        let current_start_usecs = match cycle_times {
-            Ok(times) => times.current_usecs,
+        let (current_start_usecs, next_usecs_opt) = match process_scope.cycle_times() {
+            Ok(times) => (times.current_usecs, Some(times.next_usecs)),
             Err(_) => {
                 // jack was unable to get the current time information
                 // Fall back to using Instants
                 let now = std::time::Instant::now();
                 let duration = now.duration_since(self.creation_timestamp);
-                duration.as_micros() as u64
+                (duration.as_micros() as u64, None)
             }
         };
         let start_cycle_instant = micros_to_stream_instant(current_start_usecs);
@@ -363,10 +362,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let callback = start_callback_instant
                 .add(duration_since_cycle_start)
                 .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-            let buffer_duration = frames_to_duration(current_frame_count, self.sample_rate);
-            let playback = start_cycle_instant
-                .add(buffer_duration)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            // Use next_usecs (the hardware deadline for this cycle) when available; it is the
+            // exact instant at which the last sample written here will be consumed by the device.
+            let playback = match next_usecs_opt {
+                Some(next_usecs) => micros_to_stream_instant(next_usecs),
+                None => start_cycle_instant
+                    .add(frames_to_duration(current_frame_count, self.sample_rate))
+                    .expect("`playback` occurs beyond representation supported by `StreamInstant`"),
+            };
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
             let info = crate::OutputCallbackInfo { timestamp };
             output_callback(&mut data, &info);
