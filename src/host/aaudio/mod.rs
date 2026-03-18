@@ -700,12 +700,18 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         match self.direction {
-            DeviceDirection::Output => self
-                .inner
-                .lock()
-                .unwrap()
-                .request_pause()
-                .map_err(PauseStreamError::from),
+            DeviceDirection::Output => {
+                let stream = self.inner.lock().unwrap();
+
+                stream.request_pause().map_err(PauseStreamError::from)?;
+                stream
+                    .wait_for_state_change(
+                        ndk::audio::AudioStreamState::Pausing,
+                        DEFAULT_TIMEOUT_NANOS,
+                    )
+                    .map(|_| ())
+                    .map_err(PauseStreamError::from)
+            }
             _ => Err(BackendSpecificError {
                 description: "Pause only supported on output streams.".to_owned(),
             }
