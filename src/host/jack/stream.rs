@@ -335,12 +335,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 current_frame_count * num_in_channels,
             );
             // Create timestamp
-            let frames_since_cycle_start = process_scope.frames_since_cycle_start() as usize;
-            let duration_since_cycle_start =
-                frames_to_duration(frames_since_cycle_start, self.sample_rate);
-            let callback = start_callback_instant
-                .add(duration_since_cycle_start)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let callback = start_callback_instant;
             // Input data was made available at the start of the cycle (current_usecs).
             let capture = start_cycle_instant;
             let timestamp = crate::InputStreamTimestamp { callback, capture };
@@ -357,12 +352,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 current_frame_count * num_out_channels,
             );
             // Create timestamp
-            let frames_since_cycle_start = process_scope.frames_since_cycle_start() as usize;
-            let duration_since_cycle_start =
-                frames_to_duration(frames_since_cycle_start, self.sample_rate);
-            let callback = start_callback_instant
-                .add(duration_since_cycle_start)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let callback = start_callback_instant;
             // Use next_usecs (the hardware deadline for this cycle) when available; it is the
             // exact instant at which the last sample written here will be consumed by the device.
             let playback = match next_usecs_opt {
