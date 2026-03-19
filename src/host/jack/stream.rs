@@ -341,7 +341,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let callback = start_callback_instant
                 .add(duration_since_cycle_start)
                 .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-            let capture = start_callback_instant;
+            // Input data was made available at the start of the cycle (current_usecs).
+            let capture = start_cycle_instant;
             let timestamp = crate::InputStreamTimestamp { callback, capture };
             let info = crate::InputCallbackInfo { timestamp };
             input_callback(&data, &info);

@@ -151,7 +151,6 @@ impl Device {
                 apply_input_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
@@ -407,7 +406,6 @@ impl Device {
                 apply_output_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
@@ -908,7 +906,6 @@ unsafe fn process_output_callback_i24<D>(
     apply_output_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
@@ -1006,7 +1003,6 @@ unsafe fn process_input_callback_i24<D>(
     apply_input_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
@@ -1018,7 +1014,6 @@ unsafe fn process_input_callback_i24<D>(
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     sample_format: SampleFormat,
@@ -1033,10 +1028,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
         sample_format,
     );
     let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(
-        asio_stream.buffer_size as usize + hardware_latency_frames,
-        sample_rate,
-    );
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let playback = callback
         .add(delay)
         .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -1049,7 +1041,6 @@ unsafe fn apply_output_callback_to_data<A, D>(
 unsafe fn apply_input_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     format: SampleFormat,
@@ -1064,10 +1055,7 @@ unsafe fn apply_input_callback_to_data<A, D>(
         format,
     );
     let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(
-        asio_stream.buffer_size as usize + hardware_latency_frames,
-        sample_rate,
-    );
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let capture = callback
         .sub(delay)
         .expect("`capture` occurs before origin of alsa `StreamInstant`");

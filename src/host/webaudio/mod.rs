@@ -321,12 +321,12 @@ impl DeviceTrait for Device {
                             .expect("Unable to get a read lock on the time cursor");
                         // Synchronise first buffer as necessary (eg. keep the time value
                         // referenced to the context clock).
-                        if *time_at_start_of_buffer > 0.001 {
+                        if *time_at_start_of_buffer > 0.0 {
                             *time_at_start_of_buffer
                         } else {
-                            // 25ms of time to fetch the first sample data, increase to avoid
-                            // initial underruns.
-                            now + 0.025
+                            // Schedule the first buffer one buffer-duration ahead so the
+                            // browser has time to fill and start it without an underrun.
+                            now + buffer_time_step_secs
                         }
                     };
 
@@ -344,9 +344,17 @@ impl DeviceTrait for Device {
                         .ok()
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
+                        let total_hw_latency_secs = {
+                            let sum = base_latency_secs + output_latency_secs;
+                            if sum.is_finite() {
+                                sum.max(0.0)
+                            } else {
+                                0.0
+                            }
+                        };
                         let callback = crate::StreamInstant::from_secs_f64(now);
                         let playback = crate::StreamInstant::from_secs_f64(
-                            time_at_start_of_buffer + base_latency_secs + output_latency_secs,
+                            time_at_start_of_buffer + total_hw_latency_secs,
                         );
                         let timestamp = crate::OutputStreamTimestamp { callback, playback };
                         let info = OutputCallbackInfo { timestamp };
