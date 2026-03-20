@@ -324,9 +324,10 @@ impl DeviceTrait for Device {
                         if *time_at_start_of_buffer > 0.0 {
                             *time_at_start_of_buffer
                         } else {
-                            // Schedule the first buffer one buffer-duration ahead so the
-                            // browser has time to fill and start it without an underrun.
-                            now + buffer_time_step_secs
+                            // Schedule the first buffer far enough ahead for the browser's
+                            // internal audio pipeline (baseLatency) plus one full buffer of
+                            // data, so playback starts underrun-free at any buffer size.
+                            now + base_latency_secs + buffer_time_step_secs
                         }
                     };
 
