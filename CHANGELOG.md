@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable` instead of looping.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
+- **ALSA**: Loop partial reads and writes to completion.
+- **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
