@@ -1039,8 +1039,11 @@ fn process_input(
             .readi(&mut buffer[frames_read * stream.frame_size..])
         {
             Ok(n) => frames_read += n,
-            Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
-            Err(err) if err.errno() == libc::ESTRPIPE => return Err(StreamError::BufferUnderrun),
+            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
+                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
+                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
+                return Err(StreamError::BufferUnderrun);
+            }
             Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
             Err(err) => return Err(err.into()),
         }
@@ -1107,8 +1110,11 @@ fn process_output(
             .writei(&buffer[frames_written * stream.frame_size..])
         {
             Ok(n) => frames_written += n,
-            Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
-            Err(err) if err.errno() == libc::ESTRPIPE => return Err(StreamError::BufferUnderrun),
+            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
+                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
+                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
+                return Err(StreamError::BufferUnderrun);
+            }
             Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
             Err(err) => return Err(err.into()),
         }
