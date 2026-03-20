@@ -391,8 +391,16 @@ impl Asio {
     /// an error. That said, if this method is called with the name of a driver that has already
     /// been loaded, that driver will be returned successfully.
     pub fn load_driver(&self, driver_name: &str) -> Result<Driver, LoadDriverError> {
+        // Hold the lock for the entire operation to prevent a TOCTOU race where two threads
+        // both pass the "no driver loaded" check and then both call load_asio_driver.
+        let mut loaded = self
+            .loaded_driver
+            .lock()
+            .expect("failed to acquire loaded driver lock");
+
         // Check whether or not a driver is already loaded.
-        if let Some(driver) = self.loaded_driver() {
+        if let Some(inner) = loaded.upgrade() {
+            let driver = Driver { inner };
             if driver.name() == driver_name {
                 return Ok(driver);
             } else {
@@ -406,7 +414,6 @@ impl Asio {
         let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
-            // TODO: Check that a driver of the same name does not already exist?
             match ai::load_asio_driver(driver_name_cstring.as_ptr() as *mut i8) {
                 false => Err(LoadDriverError::LoadDriverFailed),
                 true => {
@@ -421,10 +428,7 @@ impl Asio {
                         state,
                         destroyed,
                     });
-                    *self
-                        .loaded_driver
-                        .lock()
-                        .expect("failed to acquire loaded driver lock") = Arc::downgrade(&inner);
+                    *loaded = Arc::downgrade(&inner);
                     let driver = Driver { inner };
                     Ok(driver)
                 }
