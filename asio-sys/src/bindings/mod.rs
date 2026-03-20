@@ -458,6 +458,19 @@ impl Driver {
         Ok(channel)
     }
 
+    /// Get the input and output hardware latency in frames.
+    pub fn latencies(&self) -> Result<(c_long, c_long), AsioError> {
+        let mut input_latency: c_long = 0;
+        let mut output_latency: c_long = 0;
+        unsafe {
+            asio_result!(ai::ASIOGetLatencies(
+                &mut input_latency,
+                &mut output_latency
+            ))?;
+        }
+        Ok((input_latency, output_latency))
+    }
+
     /// Get the min and max supported buffersize of the driver.
     pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> {
         let buffer_sizes = asio_get_buffer_sizes()?;

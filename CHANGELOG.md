@@ -31,12 +31,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+- **ASIO**: Timestamps now include driver-reported hardware latency.
+- **CoreAudio**: Timestamps now include device latency and safety offset.
+- **JACK**: Timestamps now use the precise hardware deadline.
 - **Linux/BSD**: Default host now is, in order from first to last available: PipeWire, PulseAudio, ALSA.
+- **WASAPI**: Timestamps now include hardware pipeline latency.
+- **WebAudio**: Timestamps now include base and output latency.
+- **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 
 ### Fixed
 
 - Reintroduce `audio_thread_priority` feature.
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
+- **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
+- **AAudio**: Fix invalid capture and playback timestamps.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
@@ -46,8 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
-- **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
-- **AAudio**: Fix invalid capture and playback timestamps.
+- **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 
 ## [0.17.3] - 2026-02-18
 

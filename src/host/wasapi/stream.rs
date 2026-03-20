@@ -8,6 +8,7 @@ use std::mem;
 use std::ptr;
 use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
@@ -102,6 +103,8 @@ pub struct StreamInner {
     pub config: crate::StreamConfig,
     // The sample format with which the stream was created.
     pub sample_format: SampleFormat,
+    // Hardware pipeline latency.
+    pub stream_latency: Duration,
 }
 
 impl Stream {
@@ -547,12 +550,12 @@ fn process_output(
     ControlFlow::Continue
 }
 
-/// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> std::time::Duration {
+/// Convert the given duration in frames at the given sample rate to a `Duration`.
+fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
     let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
+    Duration::new(secs, nanos)
 }
 
 /// Use the stream's `IAudioClock` to produce the current stream instant.
@@ -597,19 +600,17 @@ fn input_timestamp(
 /// result of `GetCurrentPadding` from the maximum buffer size.
 ///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
-///
-/// TODO: The returned `playback` is an estimate that assumes audio is delivered immediately after
-/// `frames_available` are consumed. The reality is that there is likely a tiny amount of latency
-/// after this, but not sure how to determine this.
 fn output_timestamp(
     stream: &StreamInner,
     frames_available: FrameCount,
     sample_rate: SampleRate,
 ) -> Result<crate::OutputStreamTimestamp, StreamError> {
     let callback = stream_instant(stream)?;
-    let buffer_duration = frames_to_duration(frames_available, sample_rate);
+    // `padding` is the number of frames already queued in the endpoint buffer ahead of the
+    // frames we are about to write. Those frames must drain before ours are heard.
+    let padding = stream.max_frames_in_buffer - frames_available;
     let playback = callback
-        .add(buffer_duration)
+        .add(frames_to_duration(padding, sample_rate) + stream.stream_latency)
         .expect("`playback` occurs beyond representation supported by `StreamInstant`");
     Ok(crate::OutputStreamTimestamp { callback, playback })
 }

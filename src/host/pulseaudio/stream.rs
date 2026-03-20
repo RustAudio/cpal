@@ -3,7 +3,7 @@ use std::{
         atomic::{self, AtomicU64},
         Arc, Mutex,
     },
-    time,
+    time::{Duration, Instant},
 };
 
 use futures::executor::block_on;
@@ -14,6 +14,8 @@ use crate::{
     InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
     PlayStreamError, SampleFormat, StreamError, StreamInstant,
 };
+
+const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub enum Stream {
     Playback(pulseaudio::PlaybackStream),
@@ -101,7 +103,7 @@ impl Stream {
 
         // Wrap the write callback to match the pulseaudio signature.
         let callback = move |buf: &mut [u8]| {
-            let elapsed = std::time::Instant::now().saturating_duration_since(start);
+            let elapsed = Instant::now().saturating_duration_since(start);
             let elapsed_usec = elapsed.as_micros() as u64;
 
             // Interpolate the latency based on elapsed time since the last
@@ -109,10 +111,15 @@ impl Stream {
             // rate, so the latency decreases linearly between polls.
             let stored_latency = latency_clone.load(atomic::Ordering::Relaxed);
             let poll_usec = poll_clone.load(atomic::Ordering::Relaxed);
-            let elapsed_since_poll = elapsed_usec.saturating_sub(poll_usec);
+            // Cap to one poll interval: the linear-drain assumption is only valid
+            // for that window, and a stale poll_usec (e.g. after cork/uncork where
+            // timing_info blocks) would otherwise saturate latency to zero.
+            let elapsed_since_poll = elapsed_usec
+                .saturating_sub(poll_usec)
+                .min(LATENCY_POLL_INTERVAL.as_micros() as u64);
             let latency = stored_latency.saturating_sub(elapsed_since_poll);
 
-            let playback_time = elapsed + time::Duration::from_micros(latency);
+            let playback_time = elapsed + Duration::from_micros(latency);
 
             let timestamp = OutputStreamTimestamp {
                 callback: StreamInstant {
@@ -180,9 +187,8 @@ impl Stream {
                 }
             };
 
-            let poll_since_epoch = std::time::Instant::now()
-                .saturating_duration_since(start)
-                .as_micros() as u64;
+            let poll_since_epoch =
+                Instant::now().saturating_duration_since(start).as_micros() as u64;
             poll_clone.store(poll_since_epoch, atomic::Ordering::Relaxed);
 
             store_latency(
@@ -193,7 +199,7 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(time::Duration::from_millis(5));
+            std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
         Ok(Self::Playback(stream))
@@ -209,7 +215,7 @@ impl Stream {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
@@ -221,10 +227,10 @@ impl Stream {
             .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
 
         let callback = move |buf: &[u8]| {
-            let elapsed = std::time::Instant::now().saturating_duration_since(start);
+            let elapsed = Instant::now().saturating_duration_since(start);
             let latency = latency_clone.load(atomic::Ordering::Relaxed);
             let capture_time = elapsed
-                .checked_sub(time::Duration::from_micros(latency))
+                .checked_sub(Duration::from_micros(latency))
                 .unwrap_or_default();
 
             let timestamp = InputStreamTimestamp {
@@ -277,7 +283,7 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(time::Duration::from_millis(5));
+            std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
         Ok(Self::Record(stream))
@@ -293,8 +299,8 @@ fn store_latency(
 ) {
     let offset = (write_offset - read_offset).max(0) as u64;
 
-    let latency = time::Duration::from_micros(device_latency_usec)
-        + sample_spec.bytes_to_duration(offset as usize);
+    let latency =
+        Duration::from_micros(device_latency_usec) + sample_spec.bytes_to_duration(offset as usize);
 
     latency_micros.store(
         latency.as_micros().try_into().unwrap_or(u64::MAX),

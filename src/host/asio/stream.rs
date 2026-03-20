@@ -96,6 +96,12 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
+        // Query hardware input latency (order matters: needs buffers created above).
+        let hardware_input_latency = driver
+            .latencies()
+            .map(|(input, _)| input.max(0) as usize)
+            .unwrap_or(0);
+
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
@@ -113,6 +119,7 @@ impl Device {
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
+            #[allow(clippy::too_many_arguments)]
             unsafe fn process_input_callback<A, D, F>(
                 data_callback: &mut D,
                 interleaved: &mut [u8],
@@ -121,6 +128,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 format: SampleFormat,
                 from_endianness: F,
+                hardware_latency_frames: usize,
             ) where
                 A: Copy,
                 D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -143,10 +151,10 @@ impl Device {
                 apply_input_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
+                    hardware_latency_frames,
                 );
             }
 
@@ -160,6 +168,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I16,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -171,6 +180,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I16,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -183,6 +193,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F32,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
@@ -194,6 +205,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F32,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -206,6 +218,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I32,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -217,6 +230,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I32,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -229,6 +243,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F64,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
@@ -240,6 +255,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F64,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -251,6 +267,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         true,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
@@ -261,6 +278,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         false,
+                        hardware_input_latency,
                     );
                 }
 
@@ -334,6 +352,12 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
 
+        // Query hardware output latency (order matters: needs buffers created above).
+        let hardware_output_latency = driver
+            .latencies()
+            .map(|(_, output)| output.max(0) as usize)
+            .unwrap_or(0);
+
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::SeqCst) {
@@ -372,6 +396,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 format: SampleFormat,
                 mix_samples: F,
+                hardware_latency_frames: usize,
             ) where
                 A: Copy,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -381,10 +406,10 @@ impl Device {
                 apply_output_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
+                    hardware_latency_frames,
                 );
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
                 let buffer_index = asio_info.buffer_index as usize;
@@ -415,6 +440,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
@@ -429,6 +455,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
@@ -445,6 +472,7 @@ impl Device {
                                 .to_bits()
                                 .to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -462,6 +490,7 @@ impl Device {
                                 .to_bits()
                                 .to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -477,6 +506,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
@@ -491,6 +521,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -508,6 +539,7 @@ impl Device {
                                 .to_bits()
                                 .to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -525,6 +557,7 @@ impl Device {
                                 .to_bits()
                                 .to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -537,6 +570,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
+                        hardware_output_latency,
                     );
                 }
 
@@ -549,6 +583,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
+                        hardware_output_latency,
                     );
                 }
 
@@ -853,6 +888,7 @@ fn i24_bytes_to_i32(i24_bytes: &[u8; 3], little_endian: bool) -> i32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn process_output_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
@@ -861,6 +897,7 @@ unsafe fn process_output_callback_i24<D>(
     asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
+    hardware_latency_frames: usize,
 ) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
@@ -869,10 +906,10 @@ unsafe fn process_output_callback_i24<D>(
     apply_output_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
+        hardware_latency_frames,
     );
 
     // Size of samples in the ASIO buffer (has to be 3 in this case)
@@ -930,6 +967,7 @@ unsafe fn process_input_callback_i24<D>(
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     little_endian: bool,
+    hardware_latency_frames: usize,
 ) where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
@@ -965,10 +1003,10 @@ unsafe fn process_input_callback_i24<D>(
     apply_input_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
+        hardware_latency_frames,
     );
 }
 
@@ -976,10 +1014,10 @@ unsafe fn process_input_callback_i24<D>(
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     sample_format: SampleFormat,
+    hardware_latency_frames: usize,
 ) where
     A: Copy,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -990,7 +1028,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
         sample_format,
     );
     let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let playback = callback
         .add(delay)
         .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -1003,10 +1041,10 @@ unsafe fn apply_output_callback_to_data<A, D>(
 unsafe fn apply_input_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     format: SampleFormat,
+    hardware_latency_frames: usize,
 ) where
     A: Copy,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -1017,7 +1055,7 @@ unsafe fn apply_input_callback_to_data<A, D>(
         format,
     );
     let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let capture = callback
         .sub(delay)
         .expect("`capture` occurs before origin of alsa `StreamInstant`");
