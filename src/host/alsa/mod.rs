@@ -375,7 +375,7 @@ impl Device {
         }
 
         let open_result = {
-            let _guard = ALSA_OPEN_MUTEX.lock().unwrap();
+            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             alsa::pcm::PCM::new(&self.pcm_id, stream_type, true).map_err(|e| (e, e.errno()))
         };
         let handle = match open_result {
@@ -480,7 +480,7 @@ impl Device {
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
         let open_result = {
-            let _guard = ALSA_OPEN_MUTEX.lock().unwrap();
+            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             alsa::pcm::PCM::new(&self.pcm_id, stream_t, true).map_err(|e| (e, e.errno()))
         };
         let pcm = match open_result {
