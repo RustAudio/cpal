@@ -86,6 +86,9 @@ mod enumerate;
 
 const DEFAULT_DEVICE: &str = "default";
 
+// Some ALSA plugins (e.g. alsaequal, certain USB drivers) are not reentrant.
+static ALSA_OPEN_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // TODO: Not yet defined in rust-lang/libc crate
 const LIBC_ENOTSUPP: libc::c_int = 524;
 
@@ -371,9 +374,11 @@ impl Device {
             }
         }
 
-        let handle = match alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)
-            .map_err(|e| (e, e.errno()))
-        {
+        let open_result = {
+            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+            alsa::pcm::PCM::new(&self.pcm_id, stream_type, true).map_err(|e| (e, e.errno()))
+        };
+        let handle = match open_result {
             Err((_, libc::ENOENT))
             | Err((_, libc::EPERM))
             | Err((_, libc::ENODEV))
@@ -410,7 +415,8 @@ impl Device {
 
         // Pre-compute a period-sized buffer filled with silence values.
         let period_frames = period_samples / conf.channels as usize;
-        let period_bytes = period_samples * sample_format.sample_size();
+        let frame_size = sample_format.sample_size() * conf.channels as usize;
+        let period_bytes = period_frames * frame_size;
         let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
 
         // Only fill buffer for unsigned formats that don't have a zero value for silence.
@@ -426,6 +432,7 @@ impl Device {
             conf,
             period_samples,
             period_frames,
+            frame_size,
             silence_template,
             can_pause,
             creation_instant,
@@ -472,21 +479,24 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, SupportedStreamConfigsError> {
-        let pcm =
-            match alsa::pcm::PCM::new(&self.pcm_id, stream_t, true).map_err(|e| (e, e.errno())) {
-                Err((_, libc::ENOENT))
-                | Err((_, libc::EPERM))
-                | Err((_, libc::ENODEV))
-                | Err((_, LIBC_ENOTSUPP)) => {
-                    return Err(SupportedStreamConfigsError::DeviceNotAvailable)
-                }
-                Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
-                    return Err(SupportedStreamConfigsError::DeviceBusy)
-                }
-                Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
-                Err((e, _)) => return Err(e.into()),
-                Ok(pcm) => pcm,
-            };
+        let open_result = {
+            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+            alsa::pcm::PCM::new(&self.pcm_id, stream_t, true).map_err(|e| (e, e.errno()))
+        };
+        let pcm = match open_result {
+            Err((_, libc::ENOENT))
+            | Err((_, libc::EPERM))
+            | Err((_, libc::ENODEV))
+            | Err((_, LIBC_ENOTSUPP)) => {
+                return Err(SupportedStreamConfigsError::DeviceNotAvailable)
+            }
+            Err((_, libc::EBUSY)) | Err((_, libc::EAGAIN)) => {
+                return Err(SupportedStreamConfigsError::DeviceBusy)
+            }
+            Err((_, libc::EINVAL)) => return Err(SupportedStreamConfigsError::InvalidArgument),
+            Err((e, _)) => return Err(e.into()),
+            Ok(pcm) => pcm,
+        };
 
         let hw_params = alsa::pcm::HwParams::any(&pcm)?;
 
@@ -711,6 +721,7 @@ struct StreamInner {
     // Cached values for performance in audio callback hot path
     period_samples: usize,
     period_frames: usize,
+    frame_size: usize,
     silence_template: Box<[u8]>,
 
     #[allow(dead_code)]
@@ -939,33 +950,6 @@ fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
     }
 }
 
-/// Validate the result of a `writei` or `readi` call and map ALSA errors to [`StreamError`].
-#[inline]
-fn check_io_result(
-    result: Result<usize, alsa::Error>,
-    period_frames: usize,
-    channel: &alsa::PCM,
-    direction: alsa::Direction,
-) -> Result<(), StreamError> {
-    match result {
-        Ok(n) if n != period_frames => Err(BackendSpecificError {
-            description: format!(
-                "partial {}: expected {period_frames} frames, transferred {n}",
-                match direction {
-                    alsa::Direction::Capture => "read",
-                    alsa::Direction::Playback => "write",
-                }
-            ),
-        }
-        .into()),
-        Ok(_) => Ok(()),
-        Err(err) if err.errno() == libc::EPIPE => Err(StreamError::BufferUnderrun),
-        Err(err) if err.errno() == libc::ESTRPIPE => try_resume(channel).map(|_| ()),
-        Err(err) if err.errno() == libc::ENODEV => Err(StreamError::DeviceNotAvailable),
-        Err(err) => Err(err.into()),
-    }
-}
-
 enum Poll {
     Pending,
     Ready {
@@ -1047,13 +1031,23 @@ fn process_input(
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), StreamError> {
-    let result = stream.channel.io_bytes().readi(buffer);
-    check_io_result(
-        result,
-        stream.period_frames,
-        &stream.channel,
-        alsa::Direction::Capture,
-    )?;
+    let mut frames_read = 0;
+    while frames_read < stream.period_frames {
+        match stream
+            .channel
+            .io_bytes()
+            .readi(&mut buffer[frames_read * stream.frame_size..])
+        {
+            Ok(n) => frames_read += n,
+            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
+                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
+                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
+                return Err(StreamError::BufferUnderrun);
+            }
+            Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
+            Err(err) => return Err(err.into()),
+        }
+    }
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
     let callback = if stream.use_hw_timestamps {
@@ -1108,13 +1102,24 @@ fn process_output(
         data_callback(&mut data, &info);
     }
 
-    let result = stream.channel.io_bytes().writei(buffer);
-    check_io_result(
-        result,
-        stream.period_frames,
-        &stream.channel,
-        alsa::Direction::Playback,
-    )
+    let mut frames_written = 0;
+    while frames_written < stream.period_frames {
+        match stream
+            .channel
+            .io_bytes()
+            .writei(&buffer[frames_written * stream.frame_size..])
+        {
+            Ok(n) => frames_written += n,
+            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
+                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
+                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
+                return Err(StreamError::BufferUnderrun);
+            }
+            Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(())
 }
 
 // Use hardware timestamps from ALSA.
