@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
+use std::time::Duration;
 
 // On Windows (where ASIO actually runs), c_long is i32.
 // On non-Windows platforms (for docs.rs and local testing), redefine c_long as i32 to match.
@@ -505,9 +506,64 @@ impl Driver {
 
     /// Set the sample rate for the driver.
     pub fn set_sample_rate(&self, sample_rate: c_double) -> Result<(), AsioError> {
-        unsafe {
-            asio_result!(ai::set_sample_rate(sample_rate))?;
+        unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+
+        // Check whether the driver applied the rate immediately.
+        unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+        if (actual - sample_rate).abs() < 1.0 {
+            return Ok(());
         }
+
+        // Some ASIO drivers (e.g. Steinberg) do not apply a rate change until after a
+        // complete buffer-creation cycle (CreateBuffers -> Start -> Stop -> DisposeBuffers),
+        // followed by a full driver teardown and reload.
+        let mut actual: c_double = 0.0;
+        let mut dummy_infos = prepare_buffer_infos(false, 1);
+        let buffer_size = self.create_buffers(&mut dummy_infos, None)?;
+
+        // Start briefly so the driver reconfigures its hardware clock.
+        self.start()?;
+
+        // Wait for one full buffer to be processed: this guarantees the driver has
+        // applied the rate change to the hardware clock before we stop it.
+        let buffer_duration = Duration::from_secs_f64(buffer_size as f64 / sample_rate);
+        std::thread::sleep(buffer_duration);
+
+        self.stop()?;
+        self.dispose_buffers()?;
+
+        // Full teardown so the driver is reset to a clean state. Some drivers
+        // (e.g. Steinberg) return errors from ASIOGetChannels after DisposeBuffers
+        // unless the driver is fully exited and reloaded.
+        {
+            let mut state = self.inner.lock_state();
+            unsafe {
+                let _ = asio_result!(ai::ASIOExit());
+                ai::remove_current_driver();
+            }
+            std::thread::sleep(buffer_duration);
+
+            let name_cstring =
+                CString::new(self.inner.name.as_str()).expect("driver name contains null byte");
+            unsafe {
+                if !ai::load_asio_driver(name_cstring.as_ptr() as *mut i8) {
+                    return Err(AsioError::NoDrivers);
+                }
+                let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
+                asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
+            }
+            *state = DriverState::Initialized;
+        }
+
+        // Now set the rate again on the freshly initialized driver.
+        unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+
+        let mut actual: c_double = 0.0;
+        unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+        if (actual - sample_rate).abs() >= 1.0 {
+            return Err(AsioError::NoRate);
+        }
+
         Ok(())
     }
 
