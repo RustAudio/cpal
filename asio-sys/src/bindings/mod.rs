@@ -330,7 +330,7 @@ static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MessageCallbackId(usize);
 
-struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) + Send + Sync>);
+struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) -> bool + Send + Sync>);
 
 /// A global registry for ASIO message callbacks.
 static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
@@ -509,6 +509,7 @@ impl Driver {
         unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
 
         // Check whether the driver applied the rate immediately.
+        let mut actual: c_double = 0.0;
         unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
         if (actual - sample_rate).abs() < 1.0 {
             return Ok(());
@@ -517,7 +518,6 @@ impl Driver {
         // Some ASIO drivers (e.g. Steinberg) do not apply a rate change until after a
         // complete buffer-creation cycle (CreateBuffers -> Start -> Stop -> DisposeBuffers),
         // followed by a full driver teardown and reload.
-        let mut actual: c_double = 0.0;
         let mut dummy_infos = prepare_buffer_infos(false, 1);
         let buffer_size = self.create_buffers(&mut dummy_infos, None)?;
 
@@ -841,7 +841,7 @@ impl Driver {
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
     pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
     where
-        F: Fn(AsioMessageSelectors) + Send + Sync + 'static,
+        F: Fn(AsioMessageSelectors) -> bool + Send + Sync + 'static,
     {
         let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
         let id = mcb
@@ -1026,6 +1026,20 @@ extern "C" fn sample_rate_did_change(s_rate: c_double) {
     eprintln!("unhandled sample rate change to {}", s_rate);
 }
 
+const ASIO_VERSION: c_long = 2;
+
+/// Call each registered message callback with `selector`.
+///
+/// Returns `true` if any callback returns `true`. All callbacks are always called so that
+/// notification side-effects (e.g. stream invalidation) reach every registered listener.
+fn dispatch_message(selector: AsioMessageSelectors) -> bool {
+    let callbacks: Vec<_> = {
+        let lock = MESSAGE_CALLBACKS.lock().unwrap();
+        lock.iter().map(|(_, cb)| cb.0.clone()).collect()
+    };
+    callbacks.iter().fold(false, |handled, cb| cb(selector) || handled)
+}
+
 /// Message callback for ASIO to notify of certain events.
 extern "C" fn asio_message(
     selector: c_long,
@@ -1035,78 +1049,62 @@ extern "C" fn asio_message(
 ) -> c_long {
     match AsioMessageSelectors::from_i64(selector as i64) {
         Some(AsioMessageSelectors::kAsioSelectorSupported) => {
-            // Indicate what message selectors are supported.
+            // For selectors that asio-sys always handles, advertise support unconditionally.
+            // For all others, advertise support only if a registered callback returns
+            // true for that selector — keeping this list automatically consistent with
+            // what asio_message actually handles below.
             match AsioMessageSelectors::from_i64(value as i64) {
+                Some(AsioMessageSelectors::kAsioSelectorSupported)
                 | Some(AsioMessageSelectors::kAsioResetRequest)
                 | Some(AsioMessageSelectors::kAsioEngineVersion)
                 | Some(AsioMessageSelectors::kAsioResyncRequest)
                 | Some(AsioMessageSelectors::kAsioLatenciesChanged)
-                // Following added in ASIO 2.0.
-                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo)
-                | Some(AsioMessageSelectors::kAsioSupportsTimeCode)
-                | Some(AsioMessageSelectors::kAsioSupportsInputMonitor) => 1,
-                _ => 0,
-            }
+                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => true,
+                Some(other) => dispatch_message(other),
+                None => false,
+            } as c_long
         }
 
         Some(AsioMessageSelectors::kAsioResetRequest) => {
-            // Defer the task and perform the reset of the driver during the next "safe" situation
-            // You cannot reset the driver right now, as this code is called from the driver. Reset
-            // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
-            // Destruction. Afterwards you initialize the driver again.
-
-            // Get the list of active message callbacks.
-            let callbacks: Vec<_> = {
-                let lock = MESSAGE_CALLBACKS.lock().unwrap();
-                lock.iter().map(|(_, cb)| cb.0.clone()).collect()
-            };
-            // Release lock and call them.
-            for cb in callbacks {
-                cb(AsioMessageSelectors::kAsioResetRequest);
-            }
-
-            1
+            // The driver requests a full teardown and reinitialisation. Cannot be performed
+            // here as this callback is invoked from within the driver; notify the host to
+            // defer the reset to a safe point.
+            dispatch_message(AsioMessageSelectors::kAsioResetRequest);
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioResyncRequest) => {
-            // This informs the application, that the driver encountered some non fatal data loss.
-            // It is used for synchronization purposes of different media. Added mainly to work
-            // around the Win16Mutex problems in Windows 95/98 with the Windows Multimedia system,
-            // which could loose data because the Mutex was hold too long by another thread.
-            // However a driver can issue it in other situations, too.
-            // TODO: Handle this.
-            1
+            // The driver encountered non-fatal data loss (e.g. a timestamp discontinuity).
+            // Notify the host so it can handle the gap appropriately.
+            dispatch_message(AsioMessageSelectors::kAsioResyncRequest);
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioLatenciesChanged) => {
-            // This will inform the host application that the drivers were latencies changed.
-            // Beware, it this does not mean that the buffer sizes have changed! You might need to
-            // update internal delay data.
-            // TODO: Handle this.
-            1
+            // The driver latencies have changed; have them re-queried.
+            dispatch_message(AsioMessageSelectors::kAsioLatenciesChanged);
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioEngineVersion) => {
-            // Return the supported ASIO version of the host application If a host applications
-            // does not implement this selector, ASIO 1.0 is assumed by the driver
-            2
+            // Return the supported ASIO version of the host application. If a host application
+            // does not implement this selector, ASIO 1.0 is assumed by the driver.
+            ASIO_VERSION
         }
 
         Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => {
             // Informs the driver whether the asioCallbacks.bufferSwitchTimeInfo() callback is
             // supported. For compatibility with ASIO 1.0 drivers the host application should
             // always support the "old" bufferSwitch method, too, which we do.
-            1
+            true as c_long
         }
 
-        Some(AsioMessageSelectors::kAsioSupportsTimeCode) => {
-            // Informs the driver whether the application is interested in time code info. If an
-            // application does not need to know about time code, the driver has less work to do.
-            // TODO: Provide an option for this?
-            1
-        }
+        // For all other known selectors, delegate to registered callbacks. Capabilities such as
+        // kAsioBufferSizeChange and kAsioSupportsTimeCode are opted into by returning true; false
+        // declines.
+        Some(other) => dispatch_message(other) as c_long,
 
-        _ => 0, // Unknown/unhandled message type.
+        None => false as c_long, // Unrecognised selector.
     }
 }
 

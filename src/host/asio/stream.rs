@@ -10,7 +10,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -81,9 +81,6 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        // Register the message callback with the driver
-        let message_callback_id = self.add_message_callback(&driver, error_callback);
-
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(&driver, config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
@@ -92,15 +89,27 @@ impl Device {
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
 
+        // Query hardware input latency (order matters: needs buffers created above).
+        // Wrapped in Arc<AtomicUsize> so the message callback can update it on
+        // kAsioLatenciesChanged without touching the buffer callback.
+        let hardware_input_latency = Arc::new(AtomicUsize::new(
+            driver
+                .latencies()
+                .map(|(input, _)| input.max(0) as usize)
+                .unwrap_or(0),
+        ));
+
+        let message_callback_id = self.add_message_callback(
+            &driver,
+            error_callback,
+            Arc::clone(&hardware_input_latency),
+            true,
+        );
+
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
-
-        // Query hardware input latency (order matters: needs buffers created above).
-        let hardware_input_latency = driver
-            .latencies()
-            .map(|(input, _)| input.max(0) as usize)
-            .unwrap_or(0);
+        let mut current_buffer_size = buffer_size as i32;
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -116,6 +125,20 @@ impl Device {
                 Some(ref asio_stream) => asio_stream,
                 None => return,
             };
+
+            // Resize the buffer only when the driver issues a buffer size change request.
+            // In normal operation this branch is never taken.
+            if asio_stream.buffer_size != current_buffer_size {
+                current_buffer_size = asio_stream.buffer_size;
+                interleaved.resize(
+                    current_buffer_size as usize
+                        * num_channels as usize
+                        * sample_format.sample_size(),
+                    0,
+                );
+            }
+
+            let hardware_input_latency = hardware_input_latency.load(Ordering::Relaxed);
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
@@ -336,27 +359,36 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        // Register the message callback with the driver
-        let message_callback_id = self.add_message_callback(&driver, error_callback);
-
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(&driver, config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
-        // Create buffers depending on data type.
+        // Create the buffer depending on data type.
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
         let current_callback_flag = self.current_callback_flag.clone();
 
+        // Query hardware output latency (order matters: needs buffers created above).
+        // Wrapped in Arc<AtomicUsize> so the message callback can update it on
+        // kAsioLatenciesChanged without touching the buffer callback.
+        let hardware_output_latency = Arc::new(AtomicUsize::new(
+            driver
+                .latencies()
+                .map(|(_, output)| output.max(0) as usize)
+                .unwrap_or(0),
+        ));
+
+        let message_callback_id = self.add_message_callback(
+            &driver,
+            error_callback,
+            Arc::clone(&hardware_output_latency),
+            false,
+        );
+
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
-
-        // Query hardware output latency (order matters: needs buffers created above).
-        let hardware_output_latency = driver
-            .latencies()
-            .map(|(_, output)| output.max(0) as usize)
-            .unwrap_or(0);
+        let mut current_buffer_size = buffer_size as i32;
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
@@ -370,6 +402,20 @@ impl Device {
                 Some(ref mut asio_stream) => asio_stream,
                 None => return,
             };
+
+            // Resize the buffer only when the driver issues a buffer size change request.
+            // In normal operation this branch is never taken.
+            if asio_stream.buffer_size != current_buffer_size {
+                current_buffer_size = asio_stream.buffer_size;
+                interleaved.resize(
+                    current_buffer_size as usize
+                        * num_channels as usize
+                        * sample_format.sample_size(),
+                    0,
+                );
+            }
+
+            let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed);
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -708,19 +754,40 @@ impl Device {
         &self,
         driver: &sys::Driver,
         error_callback: E,
+        hardware_latency: Arc<AtomicUsize>,
+        is_input: bool,
     ) -> sys::MessageCallbackId
     where
         E: FnMut(StreamError) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
+        let driver_for_latency = driver.clone();
 
         driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_callback_shared.lock() {
-                    cb(StreamError::StreamInvalidated);
+            match msg {
+                sys::AsioMessageSelectors::kAsioResetRequest => {
+                    if let Ok(mut cb) = error_callback_shared.lock() {
+                        cb(StreamError::StreamInvalidated);
+                    }
                 }
+                sys::AsioMessageSelectors::kAsioResyncRequest => {
+                    if let Ok(mut cb) = error_callback_shared.lock() {
+                        cb(StreamError::BufferUnderrun);
+                    }
+                }
+                sys::AsioMessageSelectors::kAsioLatenciesChanged => {
+                    if let Ok(latencies) = driver_for_latency.latencies() {
+                        let latency = if is_input { latencies.0 } else { latencies.1 };
+                        hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
+                    }
+                }
+                sys::AsioMessageSelectors::kAsioBufferSizeChange => {
+                    // The buffer callback will resize its buffer on the next
+                    // invocation when it detects the new asio_stream.buffer_size.
+                }
+                _ => return false,
             }
+            true
         })
     }
 }

@@ -9,12 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `Driver::latencies()`
+- `asio_message` now dispatches `kAsioResyncRequest` and `kAsioLatenciesChanged` to callbacks
+  instead of silently ignoring them
+
+### Changed
+- `Driver::add_message_callback` now takes `Fn(AsioMessageSelectors) -> bool`:
+  return `true` to handle a selector or opt in to a capability, `false` to pass
+- `asio_message` now delegates unknown selectors to registered callbacks; capabilities
+  like `kAsioBufferSizeChange`, `kAsioSupportsTimeCode`, and `kAsioSupportsInputMonitor`
+  are opted into only if a callback returns `true` for them
 
 ### Fixed
 - Fixed TOCTOU race condition when creating streams concurrently
 - `Driver::set_sample_rate` now performs a dummy buffer cycle and driver reload when
   the driver does not apply the rate change immediately, as required by some drivers
   (e.g. Steinberg)
+- Fixed `asio_message` not advertising `kAsioSelectorSupported` itself as a supported selector
 
 ## [0.2.6] - 2026-02-18
 
