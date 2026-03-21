@@ -37,9 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
+- **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: Buffer size is now adjusted when the driver reports `kAsioBufferSizeChange`.
+- **ASIO**: Stream error callback now receives `StreamError::BufferUnderrun` on `kAsioResyncRequest`.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **JACK**: Timestamps now use the precise hardware deadline.
-- **Linux/BSD**: Default host now is, in order from first to last available: PipeWire, PulseAudio, ALSA.
+- **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio, ALSA.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
 - **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
