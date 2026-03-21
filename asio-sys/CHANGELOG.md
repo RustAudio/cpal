@@ -8,20 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Added `Driver::latencies()`.
+- Added `Driver::latencies()`
 
 ### Fixed
-- Fixed TOCTOU race condition when creating streams concurrently.
+- Fixed TOCTOU race condition when creating streams concurrently
+- `Driver::set_sample_rate` now performs a dummy buffer cycle and driver reload when
+  the driver does not apply the rate change immediately, as required by some drivers
+  (e.g. Steinberg)
 
 ## [0.2.6] - 2026-02-18
 
 ### Fixed
-- Link `advapi32` to resolve Windows Registry API symbols.
+- Link `advapi32` to resolve Windows Registry API symbols
 
 ## [0.2.5] - 2026-01-04
 
 ### Fixed
-- Fixed ASIO SDK discovery on case sensitive filesystems.
+- Fixed ASIO SDK discovery on case sensitive filesystems
 
 ## [0.2.4] - 2025-12-20
 
