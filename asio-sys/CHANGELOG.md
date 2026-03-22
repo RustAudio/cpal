@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callbacks, so each host decides which capabilities it opts into
 
 ### Fixed
+- `Asio::load_driver` now returns `LoadDriverError::LoadDriverFailed` instead of panicking when the 
+  driver name contains a null byte
 - Fixed TOCTOU race condition when creating streams concurrently
 - `Driver::set_sample_rate` now performs a dummy buffer cycle and driver reload when
   the driver does not apply the rate change immediately, as required by some drivers
