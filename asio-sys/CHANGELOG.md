@@ -11,9 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Driver::latencies()`
 - `asio_message` now dispatches `kAsioResyncRequest` and `kAsioLatenciesChanged` to callbacks
   instead of silently ignoring them
+- `sample_rate_did_change` now dispatches `AsioDriverEvent::SampleRateChanged` to registered
+  callbacks when the reported rate differs from the last known rate
 
 ### Changed
-- `Driver::add_message_callback` now takes `Fn(AsioMessageSelectors, c_long) -> bool`
+- `Driver::add_message_callback` and `Driver::remove_message_callback` replaced by
+  `Driver::add_event_callback` and `Driver::remove_event_callback`
+- `MessageCallback` renamed to `DriverEventCallbackId` taking `Fn(AsioDriverEvent) -> bool`, where 
+  `AsioDriverEvent` is a new enum covering both `asioMessage` selector events and
+  `sampleRateDidChange` notifications
+- `CallbackId` renamed to `BufferCallbackId`
 - `asio_message` delegates `kAsioSelectorSupported` for unknown selectors to registered
   callbacks, so each host decides which capabilities it opts into
 
