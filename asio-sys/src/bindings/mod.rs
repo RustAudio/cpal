@@ -429,7 +429,7 @@ impl Asio {
 
         // Make owned CString to send to load driver
         let driver_name_cstring =
-            CString::new(driver_name).expect("failed to create `CString` from driver name");
+            CString::new(driver_name).map_err(|_| LoadDriverError::LoadDriverFailed)?;
         let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
@@ -564,8 +564,9 @@ impl Driver {
             }
             std::thread::sleep(buffer_duration);
 
-            let name_cstring =
-                CString::new(self.inner.name.as_str()).expect("driver name contains null byte");
+            // Safety: the name was validated as null-free when the driver was first loaded.
+            let name_cstring = CString::new(self.inner.name.as_str())
+                .expect("driver name already stored must not contain null bytes");
             unsafe {
                 if !ai::load_asio_driver(name_cstring.as_ptr() as *mut i8) {
                     return Err(AsioError::NoDrivers);
