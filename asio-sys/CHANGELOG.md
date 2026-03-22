@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AsioDriverEvent` is a new enum covering both `asioMessage` selector events and
   `sampleRateDidChange` notifications
 - `CallbackId` renamed to `BufferCallbackId`
+- Public-facing `c_long` fields and return types replaced with `i32`
 - `asio_message` delegates `kAsioSelectorSupported` for unknown selectors to registered
   callbacks, so each host decides which capabilities it opts into
 
@@ -30,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the driver does not apply the rate change immediately, as required by some drivers
   (e.g. Steinberg)
 - Fixed `asio_message` not advertising `kAsioSelectorSupported` itself as a supported selector
+
+### Removed
+- Removed unused `SampleRate` struct
+- `DriverState` is no longer part of the public API
 
 ## [0.2.6] - 2026-02-18
 
