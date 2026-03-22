@@ -330,7 +330,7 @@ static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MessageCallbackId(usize);
 
-struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) -> bool + Send + Sync>);
+struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors, c_long) -> bool + Send + Sync>);
 
 /// A global registry for ASIO message callbacks.
 static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
@@ -838,10 +838,15 @@ impl Driver {
 
     /// Adds a callback to the list of message listeners.
     ///
+    /// The callback receives `(selector, value)` where `value` is the raw `value` argument from
+    /// the ASIO `asioMessage` callback. For [`AsioMessageSelectors::kAsioSelectorSupported`]
+    /// queries, `value` is the selector being queried — return `true` to advertise support for
+    /// it, `false` to decline. For notification selectors the return value is ignored by asio-sys.
+    ///
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
     pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
     where
-        F: Fn(AsioMessageSelectors) -> bool + Send + Sync + 'static,
+        F: Fn(AsioMessageSelectors, c_long) -> bool + Send + Sync + 'static,
     {
         let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
         let id = mcb
@@ -1028,16 +1033,18 @@ extern "C" fn sample_rate_did_change(s_rate: c_double) {
 
 const ASIO_VERSION: c_long = 2;
 
-/// Call each registered message callback with `selector`.
+/// Call each registered message callback with `selector` and `value`.
 ///
 /// Returns `true` if any callback returns `true`. All callbacks are always called so that
 /// notification side-effects (e.g. stream invalidation) reach every registered listener.
-fn dispatch_message(selector: AsioMessageSelectors) -> bool {
+fn dispatch_message(selector: AsioMessageSelectors, value: c_long) -> bool {
     let callbacks: Vec<_> = {
         let lock = MESSAGE_CALLBACKS.lock().unwrap();
         lock.iter().map(|(_, cb)| cb.0.clone()).collect()
     };
-    callbacks.iter().fold(false, |handled, cb| cb(selector) || handled)
+    callbacks
+        .iter()
+        .fold(false, |handled, cb| cb(selector, value) || handled)
 }
 
 /// Message callback for ASIO to notify of certain events.
@@ -1049,40 +1056,40 @@ extern "C" fn asio_message(
 ) -> c_long {
     match AsioMessageSelectors::from_i64(selector as i64) {
         Some(AsioMessageSelectors::kAsioSelectorSupported) => {
-            // For selectors that asio-sys always handles, advertise support unconditionally.
-            // For all others, advertise support only if a registered callback returns
-            // true for that selector — keeping this list automatically consistent with
-            // what asio_message actually handles below.
+            // For selectors that asio-sys itself always handles, advertise support
+            // unconditionally. For all others, delegate to registered callbacks so
+            // each host can opt-in.
             match AsioMessageSelectors::from_i64(value as i64) {
                 Some(AsioMessageSelectors::kAsioSelectorSupported)
                 | Some(AsioMessageSelectors::kAsioResetRequest)
                 | Some(AsioMessageSelectors::kAsioEngineVersion)
                 | Some(AsioMessageSelectors::kAsioResyncRequest)
                 | Some(AsioMessageSelectors::kAsioLatenciesChanged)
-                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => true,
-                Some(other) => dispatch_message(other),
-                None => false,
-            } as c_long
+                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => true as c_long,
+                _ => {
+                    dispatch_message(AsioMessageSelectors::kAsioSelectorSupported, value) as c_long
+                }
+            }
         }
 
         Some(AsioMessageSelectors::kAsioResetRequest) => {
             // The driver requests a full teardown and reinitialisation. Cannot be performed
             // here as this callback is invoked from within the driver; notify the host to
             // defer the reset to a safe point.
-            dispatch_message(AsioMessageSelectors::kAsioResetRequest);
+            dispatch_message(AsioMessageSelectors::kAsioResetRequest, value);
             true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioResyncRequest) => {
             // The driver encountered non-fatal data loss (e.g. a timestamp discontinuity).
             // Notify the host so it can handle the gap appropriately.
-            dispatch_message(AsioMessageSelectors::kAsioResyncRequest);
+            dispatch_message(AsioMessageSelectors::kAsioResyncRequest, value);
             true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioLatenciesChanged) => {
             // The driver latencies have changed; have them re-queried.
-            dispatch_message(AsioMessageSelectors::kAsioLatenciesChanged);
+            dispatch_message(AsioMessageSelectors::kAsioLatenciesChanged, value);
             true as c_long
         }
 
@@ -1099,10 +1106,8 @@ extern "C" fn asio_message(
             true as c_long
         }
 
-        // For all other known selectors, delegate to registered callbacks. Capabilities such as
-        // kAsioBufferSizeChange and kAsioSupportsTimeCode are opted into by returning true; false
-        // declines.
-        Some(other) => dispatch_message(other) as c_long,
+        // For all other selectors, delegate to registered callbacks.
+        Some(other) => dispatch_message(other, value) as c_long,
 
         None => false as c_long, // Unrecognised selector.
     }
