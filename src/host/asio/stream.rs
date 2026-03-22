@@ -20,8 +20,8 @@ pub struct Stream {
     driver: Arc<sys::Driver>,
     #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
-    callback_id: sys::CallbackId,
-    message_callback_id: sys::MessageCallbackId,
+    callback_id: sys::BufferCallbackId,
+    driver_event_callback_id: sys::DriverEventCallbackId,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -99,11 +99,12 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let message_callback_id = self.add_message_callback(
+        let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_input_latency),
             true,
+            config.sample_rate as f64,
         );
 
         let stream_playing = Arc::new(AtomicBool::new(false));
@@ -324,7 +325,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
-            message_callback_id,
+            driver_event_callback_id,
         })
     }
 
@@ -378,11 +379,12 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let message_callback_id = self.add_message_callback(
+        let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_output_latency),
             false,
+            config.sample_rate as f64,
         );
 
         let stream_playing = Arc::new(AtomicBool::new(false));
@@ -652,7 +654,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
-            message_callback_id,
+            driver_event_callback_id,
         })
     }
 
@@ -750,53 +752,68 @@ impl Device {
         }
     }
 
-    fn add_message_callback<E>(
+    fn add_event_callback<E>(
         &self,
         driver: &sys::Driver,
         error_callback: E,
         hardware_latency: Arc<AtomicUsize>,
         is_input: bool,
-    ) -> sys::MessageCallbackId
+        configured_sample_rate: f64,
+    ) -> sys::DriverEventCallbackId
     where
         E: FnMut(StreamError) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
         let driver_for_latency = driver.clone();
 
-        driver.add_message_callback(move |msg, value| {
-            match msg {
-                sys::AsioMessageSelectors::kAsioSelectorSupported => {
-                    // Signal which selectors this stream opts into.
-                    if matches!(
-                        sys::AsioMessageSelectors::from_i64(value as i64),
-                        Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
-                    ) {
-                        return true;
+        driver.add_event_callback(move |event| {
+            match event {
+                sys::AsioDriverEvent::Message {
+                    selector: msg,
+                    value,
+                } => match msg {
+                    sys::AsioMessageSelectors::kAsioSelectorSupported => {
+                        // Signal which selectors this stream opts into.
+                        matches!(
+                            sys::AsioMessageSelectors::from_i64(value as i64),
+                            Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
+                        )
                     }
-                }
-                sys::AsioMessageSelectors::kAsioResetRequest => {
-                    if let Ok(mut cb) = error_callback_shared.lock() {
-                        cb(StreamError::StreamInvalidated);
+                    sys::AsioMessageSelectors::kAsioResetRequest => {
+                        if let Ok(mut cb) = error_callback_shared.lock() {
+                            cb(StreamError::StreamInvalidated);
+                        }
+                        false
                     }
-                }
-                sys::AsioMessageSelectors::kAsioResyncRequest => {
-                    if let Ok(mut cb) = error_callback_shared.lock() {
-                        cb(StreamError::BufferUnderrun);
+                    sys::AsioMessageSelectors::kAsioResyncRequest => {
+                        if let Ok(mut cb) = error_callback_shared.lock() {
+                            cb(StreamError::BufferUnderrun);
+                        }
+                        false
                     }
-                }
-                sys::AsioMessageSelectors::kAsioLatenciesChanged => {
-                    if let Ok(latencies) = driver_for_latency.latencies() {
-                        let latency = if is_input { latencies.0 } else { latencies.1 };
-                        hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
+                    sys::AsioMessageSelectors::kAsioLatenciesChanged => {
+                        if let Ok(latencies) = driver_for_latency.latencies() {
+                            let latency = if is_input { latencies.0 } else { latencies.1 };
+                            hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
+                        }
+                        false
                     }
+                    sys::AsioMessageSelectors::kAsioBufferSizeChange => {
+                        // The buffer callback will resize its buffer on the next
+                        // invocation when it detects the new asio_stream.buffer_size.
+                        false
+                    }
+                    _ => false,
+                },
+                sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
+                    if (new_rate - configured_sample_rate).abs() >= 1.0 {
+                        if let Ok(mut cb) = error_callback_shared.lock() {
+                            cb(StreamError::StreamInvalidated);
+                        }
+                    }
+                    false
                 }
-                sys::AsioMessageSelectors::kAsioBufferSizeChange => {
-                    // The buffer callback will resize its buffer on the next
-                    // invocation when it detects the new asio_stream.buffer_size.
-                }
-                _ => (),
             }
-            false
         })
     }
 }
@@ -805,7 +822,7 @@ impl Drop for Stream {
     fn drop(&mut self) {
         self.driver.remove_callback(self.callback_id);
         self.driver
-            .remove_message_callback(self.message_callback_id);
+            .remove_event_callback(self.driver_event_callback_id);
     }
 }
 

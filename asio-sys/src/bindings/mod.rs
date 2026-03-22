@@ -9,7 +9,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
 use std::time::Duration;
@@ -209,7 +209,7 @@ static ASIO_CALLBACKS: AsioCallbacks = AsioCallbacks {
 /// This is a direct copy of the asioMessage selectors
 /// inside ASIO SDK.
 #[rustfmt::skip]
-#[derive(Debug, FromPrimitive)]
+#[derive(Clone, Copy, Debug, FromPrimitive)]
 #[repr(C)]
 pub enum AsioMessageSelectors {
     kAsioSelectorSupported = 1, // selector in <value>, returns 1L if supported,
@@ -250,6 +250,28 @@ pub enum AsioMessageSelectors {
     kAsioOverload,              // driver detected an overload
 
     kAsioNumMessageSelectors
+}
+
+/// Events dispatched to registered driver event callbacks.
+#[derive(Clone, Copy, Debug)]
+pub enum AsioDriverEvent {
+    /// A message from the ASIO driver's `asioMessage` callback.
+    ///
+    /// `selector` identifies the message type; `value` is the raw payload passed by the driver.
+    /// For [`AsioMessageSelectors::kAsioSelectorSupported`] queries, `value` is the selector being
+    /// queried. Return `true` to advertise support for it, `false` to decline. For other selectors,
+    /// the return value is ignored.
+    Message {
+        selector: AsioMessageSelectors,
+        value: c_long,
+    },
+
+    /// The ASIO driver reported a sample rate change.
+    ///
+    /// Only dispatched when the reported rate differs from the last known rate, so spurious
+    /// `sampleRateDidChange` calls (e.g. on AES/EBU sync status changes where the rate has not
+    /// actually changed) are suppressed.
+    SampleRateChanged(f64),
 }
 
 /// A rust-usable version of the `ASIOTime` type that does not contain a binary blob for fields.
@@ -313,27 +335,29 @@ struct BufferSizes {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CallbackId(usize);
+pub struct BufferCallbackId(usize);
 
 /// A global way to access all the callbacks.
 ///
 /// This is required because of how ASIO calls the `buffer_switch` function with no data
 /// parameters.
-static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
+static BUFFER_CALLBACK: Mutex<Vec<(BufferCallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 
 /// Used to identify when to clear buffers.
 static CALLBACK_FLAG: AtomicU32 = AtomicU32::new(0);
 
 /// Indicates that ASIOOutputReady should be called
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
+static CURRENT_SAMPLE_RATE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MessageCallbackId(usize);
+pub struct DriverEventCallbackId(usize);
 
-struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors, c_long) -> bool + Send + Sync>);
+struct DriverEventCallback(Arc<dyn Fn(AsioDriverEvent) -> bool + Send + Sync>);
 
-/// A global registry for ASIO message callbacks.
-static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
+/// A global registry for ASIO driver event callbacks.
+static DRIVER_EVENT_CALLBACKS: Mutex<Vec<(DriverEventCallbackId, DriverEventCallback)>> =
+    Mutex::new(Vec::new());
 
 impl Asio {
     /// Initialise the ASIO API.
@@ -421,6 +445,11 @@ impl Asio {
                     // Initialize ASIO.
                     asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
                     let _driver_info = driver_info.assume_init();
+                    let mut rate: c_double = 0.0;
+                    let _ = asio_result!(ai::get_sample_rate(&mut rate));
+                    if rate > 0.0 {
+                        CURRENT_SAMPLE_RATE.store(rate.to_bits(), Ordering::Release);
+                    }
                     let state = Mutex::new(DriverState::Initialized);
                     let name = driver_name.to_string();
                     let destroyed = false;
@@ -512,6 +541,7 @@ impl Driver {
         let mut actual: c_double = 0.0;
         unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
         if (actual - sample_rate).abs() < 1.0 {
+            CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
             return Ok(());
         }
 
@@ -564,6 +594,7 @@ impl Driver {
             return Err(AsioError::NoRate);
         }
 
+        CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
         Ok(())
     }
 
@@ -796,22 +827,22 @@ impl Driver {
     /// The given function receives the index of the buffer currently ready for processing.
     ///
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
-    pub fn add_callback<F>(&self, callback: F) -> CallbackId
+    pub fn add_callback<F>(&self, callback: F) -> BufferCallbackId
     where
         F: 'static + FnMut(&CallbackInfo) + Send,
     {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
         let id = bc
             .last()
-            .map(|&(id, _)| CallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
-            .unwrap_or(CallbackId(0));
+            .map(|&(id, _)| BufferCallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
+            .unwrap_or(BufferCallbackId(0));
         let cb = BufferCallback(Box::new(callback));
         bc.push((id, cb));
         id
     }
 
     /// Remove the callback with the given ID.
-    pub fn remove_callback(&self, rem_id: CallbackId) {
+    pub fn remove_callback(&self, rem_id: BufferCallbackId) {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
         bc.retain(|&(id, _)| id != rem_id);
     }
@@ -836,35 +867,38 @@ impl Driver {
         }
     }
 
-    /// Adds a callback to the list of message listeners.
+    /// Register a callback to receive ASIO driver events.
     ///
-    /// The callback receives `(selector, value)` where `value` is the raw `value` argument from
-    /// the ASIO `asioMessage` callback. For [`AsioMessageSelectors::kAsioSelectorSupported`]
-    /// queries, `value` is the selector being queried — return `true` to advertise support for
-    /// it, `false` to decline. For notification selectors the return value is ignored by asio-sys.
+    /// The callback receives an [`AsioDriverEvent`] and returns a `bool`. The return value is
+    /// meaningful only for [`AsioDriverEvent::Message`] with selector
+    /// [`AsioMessageSelectors::kAsioSelectorSupported`]: return `true` to advertise support for
+    /// the queried selector, `false` to decline. For all other events the return value is ignored.
     ///
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
-    pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
+    pub fn add_event_callback<F>(&self, callback: F) -> DriverEventCallbackId
     where
-        F: Fn(AsioMessageSelectors, c_long) -> bool + Send + Sync + 'static,
+        F: Fn(AsioDriverEvent) -> bool + Send + Sync + 'static,
     {
-        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
-        let id = mcb
+        let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
+        let id = dcb
             .last()
             .map(|&(id, _)| {
-                MessageCallbackId(id.0.checked_add(1).expect("MessageCallbackId overflowed"))
+                DriverEventCallbackId(
+                    id.0.checked_add(1)
+                        .expect("DriverEventCallbackId overflowed"),
+                )
             })
-            .unwrap_or(MessageCallbackId(0));
+            .unwrap_or(DriverEventCallbackId(0));
 
-        let cb = MessageCallback(Arc::new(callback));
-        mcb.push((id, cb));
+        let cb = DriverEventCallback(Arc::new(callback));
+        dcb.push((id, cb));
         id
     }
 
-    /// Remove the callback with the given ID.
-    pub fn remove_message_callback(&self, rem_id: MessageCallbackId) {
-        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
-        mcb.retain(|&(id, _)| id != rem_id);
+    /// Remove the event callback with the given ID.
+    pub fn remove_event_callback(&self, rem_id: DriverEventCallbackId) {
+        let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
+        dcb.retain(|&(id, _)| id != rem_id);
     }
 }
 
@@ -1017,34 +1051,29 @@ fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
-/// ASIO uses null terminated c strings for channel names.
-///
-/// This converts to utf8.
-fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
-    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
-}
-
 /// Indicates the stream sample rate has changed.
-///
-/// TODO: Provide some way of allowing CPAL to handle this.
 extern "C" fn sample_rate_did_change(s_rate: c_double) {
-    eprintln!("unhandled sample rate change to {}", s_rate);
+    let old_bits = CURRENT_SAMPLE_RATE.load(Ordering::Acquire);
+    if s_rate.to_bits() != old_bits {
+        CURRENT_SAMPLE_RATE.store(s_rate.to_bits(), Ordering::Release);
+        dispatch_event(AsioDriverEvent::SampleRateChanged(s_rate));
+    }
 }
 
 const ASIO_VERSION: c_long = 2;
 
-/// Call each registered message callback with `selector` and `value`.
+/// Dispatch `event` to all registered driver event callbacks.
 ///
 /// Returns `true` if any callback returns `true`. All callbacks are always called so that
 /// notification side-effects (e.g. stream invalidation) reach every registered listener.
-fn dispatch_message(selector: AsioMessageSelectors, value: c_long) -> bool {
+fn dispatch_event(event: AsioDriverEvent) -> bool {
     let callbacks: Vec<_> = {
-        let lock = MESSAGE_CALLBACKS.lock().unwrap();
+        let lock = DRIVER_EVENT_CALLBACKS.lock().unwrap();
         lock.iter().map(|(_, cb)| cb.0.clone()).collect()
     };
     callbacks
         .iter()
-        .fold(false, |handled, cb| cb(selector, value) || handled)
+        .fold(false, |handled, cb| cb(event) || handled)
 }
 
 /// Message callback for ASIO to notify of certain events.
@@ -1066,9 +1095,10 @@ extern "C" fn asio_message(
                 | Some(AsioMessageSelectors::kAsioResyncRequest)
                 | Some(AsioMessageSelectors::kAsioLatenciesChanged)
                 | Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => true as c_long,
-                _ => {
-                    dispatch_message(AsioMessageSelectors::kAsioSelectorSupported, value) as c_long
-                }
+                _ => dispatch_event(AsioDriverEvent::Message {
+                    selector: AsioMessageSelectors::kAsioSelectorSupported,
+                    value,
+                }) as c_long,
             }
         }
 
@@ -1076,20 +1106,29 @@ extern "C" fn asio_message(
             // The driver requests a full teardown and reinitialisation. Cannot be performed
             // here as this callback is invoked from within the driver; notify the host to
             // defer the reset to a safe point.
-            dispatch_message(AsioMessageSelectors::kAsioResetRequest, value);
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioResetRequest,
+                value,
+            });
             true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioResyncRequest) => {
             // The driver encountered non-fatal data loss (e.g. a timestamp discontinuity).
             // Notify the host so it can handle the gap appropriately.
-            dispatch_message(AsioMessageSelectors::kAsioResyncRequest, value);
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioResyncRequest,
+                value,
+            });
             true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioLatenciesChanged) => {
             // The driver latencies have changed; have them re-queried.
-            dispatch_message(AsioMessageSelectors::kAsioLatenciesChanged, value);
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioLatenciesChanged,
+                value,
+            });
             true as c_long
         }
 
@@ -1107,7 +1146,10 @@ extern "C" fn asio_message(
         }
 
         // For all other selectors, delegate to registered callbacks.
-        Some(other) => dispatch_message(other, value) as c_long,
+        Some(other) => dispatch_event(AsioDriverEvent::Message {
+            selector: other,
+            value,
+        }) as c_long,
 
         None => false as c_long, // Unrecognised selector.
     }

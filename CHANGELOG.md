@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
 - **ASIO**: Buffer size is now adjusted when the driver reports `kAsioBufferSizeChange`.
 - **ASIO**: Stream error callback now receives `StreamError::BufferUnderrun` on `kAsioResyncRequest`.
+- **ASIO**: Stream error callback now receives `StreamError::StreamInvalidated` on `kAsioSampleRateChanged` by 1 Hz or more.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio, ALSA.
