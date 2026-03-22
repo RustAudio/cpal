@@ -13,11 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of silently ignoring them
 
 ### Changed
-- `Driver::add_message_callback` now takes `Fn(AsioMessageSelectors) -> bool`:
-  return `true` to handle a selector or opt in to a capability, `false` to pass
-- `asio_message` now delegates unknown selectors to registered callbacks; capabilities
-  like `kAsioBufferSizeChange`, `kAsioSupportsTimeCode`, and `kAsioSupportsInputMonitor`
-  are opted into only if a callback returns `true` for them
+- `Driver::add_message_callback` now takes `Fn(AsioMessageSelectors, c_long) -> bool`
+- `asio_message` delegates `kAsioSelectorSupported` for unknown selectors to registered
+  callbacks, so each host decides which capabilities it opts into
 
 ### Fixed
 - Fixed TOCTOU race condition when creating streams concurrently
