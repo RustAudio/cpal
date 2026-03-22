@@ -76,7 +76,7 @@ struct DriverInner {
 ///
 /// Mapped to the finite state machine in the ASIO SDK docs.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum DriverState {
+pub(crate) enum DriverState {
     Initialized,
     Prepared,
     Running,
@@ -86,14 +86,8 @@ pub enum DriverState {
 /// channels available.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Channels {
-    pub ins: c_long,
-    pub outs: c_long,
-}
-
-/// Sample rate of the ASIO driver.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct SampleRate {
-    pub rate: u32,
+    pub ins: i32,
+    pub outs: i32,
 }
 
 /// Information provided to the BufferCallback.
@@ -173,9 +167,9 @@ pub enum AsioSampleType {
 #[repr(C, packed(4))]
 pub struct AsioBufferInfo {
     /// 0 for output 1 for input
-    pub is_input: c_long,
+    pub is_input: i32,
     /// Which channel. Starts at 0
-    pub channel_num: c_long,
+    pub channel_num: i32,
     /// Pointer to each half of the double buffer.
     pub buffers: [*mut c_void; 2],
 }
@@ -263,7 +257,7 @@ pub enum AsioDriverEvent {
     /// the return value is ignored.
     Message {
         selector: AsioMessageSelectors,
-        value: c_long,
+        value: i32,
     },
 
     /// The ASIO driver reported a sample rate change.
@@ -278,7 +272,7 @@ pub enum AsioDriverEvent {
 #[repr(C, packed(4))]
 pub struct AsioTime {
     /// Must be `0`.
-    pub reserved: [c_long; 4],
+    pub reserved: [i32; 4],
     /// Required.
     pub time_info: AsioTimeInfo,
     /// Optional, evaluated if (time_code.flags & ktcValid).
@@ -300,7 +294,7 @@ pub struct AsioTimeInfo {
     /// Current rate, unsigned.
     pub sample_rate: AsioSampleRate,
     /// See `AsioTimeInfoFlags`.
-    pub flags: c_long,
+    pub flags: i32,
     /// Must be `0`.
     pub reserved: [c_char; 12],
 }
@@ -316,7 +310,7 @@ pub struct AsioTimeCode {
     /// Time in samples unsigned.
     pub time_code_samples: ai::ASIOSamples,
     /// See `ASIOTimeCodeFlags`.
-    pub flags: c_long,
+    pub flags: i32,
     /// Set to `0`.
     pub future: [c_char; 64],
 }
@@ -488,12 +482,11 @@ impl Driver {
         unsafe {
             asio_result!(ai::ASIOGetChannels(&mut ins, &mut outs))?;
         }
-        let channel = Channels { ins, outs };
-        Ok(channel)
+        Ok(Channels { ins, outs })
     }
 
     /// Get the input and output hardware latency in frames.
-    pub fn latencies(&self) -> Result<(c_long, c_long), AsioError> {
+    pub fn latencies(&self) -> Result<(i32, i32), AsioError> {
         let mut input_latency: c_long = 0;
         let mut output_latency: c_long = 0;
         unsafe {
@@ -506,11 +499,9 @@ impl Driver {
     }
 
     /// Get the min and max supported buffersize of the driver.
-    pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> {
+    pub fn buffersize_range(&self) -> Result<(i32, i32), AsioError> {
         let buffer_sizes = asio_get_buffer_sizes()?;
-        let min = buffer_sizes.min;
-        let max = buffer_sizes.max;
-        Ok((min, max))
+        Ok((buffer_sizes.min, buffer_sizes.max))
     }
 
     /// Get current sample rate of the driver.
@@ -991,15 +982,11 @@ unsafe impl Send for AsioStream {}
 fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo> {
     let is_input = if is_input { 1 } else { 0 };
     (0..n_channels)
-        .map(|ch| {
-            let channel_num = ch as c_long;
+        .map(|ch| AsioBufferInfo {
+            is_input,
+            channel_num: ch as i32,
             // To be filled by ASIOCreateBuffers.
-            let buffers = [std::ptr::null_mut(); 2];
-            AsioBufferInfo {
-                is_input,
-                channel_num,
-                buffers,
-            }
+            buffers: [std::ptr::null_mut(); 2],
         })
         .collect()
 }
