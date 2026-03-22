@@ -763,8 +763,17 @@ impl Device {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
         let driver_for_latency = driver.clone();
 
-        driver.add_message_callback(move |msg| {
+        driver.add_message_callback(move |msg, value| {
             match msg {
+                sys::AsioMessageSelectors::kAsioSelectorSupported => {
+                    // Signal which selectors this stream opts into.
+                    if matches!(
+                        sys::AsioMessageSelectors::from_i64(value as i64),
+                        Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
+                    ) {
+                        return true;
+                    }
+                }
                 sys::AsioMessageSelectors::kAsioResetRequest => {
                     if let Ok(mut cb) = error_callback_shared.lock() {
                         cb(StreamError::StreamInvalidated);
@@ -785,9 +794,9 @@ impl Device {
                     // The buffer callback will resize its buffer on the next
                     // invocation when it detects the new asio_stream.buffer_size.
                 }
-                _ => return false,
+                _ => (),
             }
-            true
+            false
         })
     }
 }

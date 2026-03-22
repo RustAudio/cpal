@@ -62,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix timestamp overflows on 32-bit platforms.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
+- **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
+- **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
