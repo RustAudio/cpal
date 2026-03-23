@@ -1,10 +1,4 @@
-//! Feeds back the input stream directly into the output stream using a duplex stream.
-//!
-//! Unlike the `feedback.rs` example which uses separate input/output streams with a ring buffer,
-//! duplex streams provide hardware-synchronized input/output without additional buffering.
-//!
-//! Note: Currently only supported on macOS (CoreAudio). Windows (WASAPI) and Linux (ALSA)
-//! implementations are planned.
+// Duplex feedback example: feeds the input stream directly into the output.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -41,7 +35,6 @@ mod imp {
         let opt = Opt::parse();
         let host = cpal::default_host();
 
-        // Find the device by device ID or use default
         let device = match opt.device {
             Some(device_id_str) => {
                 let device_id = device_id_str.parse().expect("failed to parse device id");
@@ -55,7 +48,6 @@ mod imp {
 
         println!("Using device: \"{}\"", device.description()?.name());
 
-        // Create duplex stream configuration.
         let config = DuplexStreamConfig {
             input_channels: opt.input_channels,
             output_channels: opt.output_channels,
