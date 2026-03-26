@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
+- **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable` instead of looping.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
@@ -38,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **Linux/BSD**: Default host now is, in order from first to last available: PipeWire, PulseAudio, ALSA.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
+- **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 

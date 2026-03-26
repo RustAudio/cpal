@@ -3,7 +3,7 @@ name = "wasm-beep"
 description = "cpal beep example for WebAssembly"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.85"
 
 [lib]
 crate-type = ["cdylib"]
