@@ -1,4 +1,4 @@
-pub mod asio_import;
+pub(crate) mod asio_import;
 #[macro_use]
 pub mod errors;
 
@@ -82,19 +82,33 @@ pub(crate) enum DriverState {
     Running,
 }
 
-/// Amount of input and output
-/// channels available.
+/// Amount of input and output channels available.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Channels {
     pub ins: i32,
     pub outs: i32,
 }
 
+/// Hardware latency in frames for the input and output streams.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Latencies {
+    pub input: i32,
+    pub output: i32,
+}
+
+/// Minimum and maximum supported buffer sizes in frames.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct BufferSizeRange {
+    pub min: i32,
+    pub max: i32,
+}
+
 /// Information provided to the BufferCallback.
 #[derive(Debug)]
 pub struct CallbackInfo {
     pub buffer_index: i32,
-    pub system_time: ai::ASIOTimeStamp,
+    /// System time at the start of this buffer period, in nanoseconds.
+    pub system_time: u64,
     pub callback_flag: u32,
 }
 
@@ -242,8 +256,7 @@ pub enum AsioMessageSelectors {
     kAsioSupportsOutputGain,    // unused and undefined
     kAsioSupportsOutputMeter,   // unused and undefined
     kAsioOverload,              // driver detected an overload
-
-    kAsioNumMessageSelectors
+    kAsioNumMessageSelectors,   // sentinel value equal to the number of defined selectors
 }
 
 /// Events dispatched to registered driver event callbacks.
@@ -272,7 +285,7 @@ pub enum AsioDriverEvent {
 #[repr(C, packed(4))]
 pub struct AsioTime {
     /// Must be `0`.
-    pub reserved: [i32; 4],
+    reserved: [i32; 4],
     /// Required.
     pub time_info: AsioTimeInfo,
     /// Optional, evaluated if (time_code.flags & ktcValid).
@@ -296,7 +309,7 @@ pub struct AsioTimeInfo {
     /// See `AsioTimeInfoFlags`.
     pub flags: i32,
     /// Must be `0`.
-    pub reserved: [c_char; 12],
+    reserved: [c_char; 12],
 }
 
 /// A rust-compatible version of the `ASIOTimeCode` type that does not use a binary blob for its
@@ -312,7 +325,7 @@ pub struct AsioTimeCode {
     /// See `ASIOTimeCodeFlags`.
     pub flags: i32,
     /// Set to `0`.
-    pub future: [c_char; 64],
+    future: [c_char; 64],
 }
 
 /// A rust-compatible version of the `ASIOSampleRate` type that does not use a binary blob for its
@@ -486,7 +499,7 @@ impl Driver {
     }
 
     /// Get the input and output hardware latency in frames.
-    pub fn latencies(&self) -> Result<(i32, i32), AsioError> {
+    pub fn latencies(&self) -> Result<Latencies, AsioError> {
         let mut input_latency: c_long = 0;
         let mut output_latency: c_long = 0;
         unsafe {
@@ -495,17 +508,23 @@ impl Driver {
                 &mut output_latency
             ))?;
         }
-        Ok((input_latency, output_latency))
+        Ok(Latencies {
+            input: input_latency,
+            output: output_latency,
+        })
     }
 
     /// Get the min and max supported buffersize of the driver.
-    pub fn buffersize_range(&self) -> Result<(i32, i32), AsioError> {
+    pub fn buffersize_range(&self) -> Result<BufferSizeRange, AsioError> {
         let buffer_sizes = asio_get_buffer_sizes()?;
-        Ok((buffer_sizes.min, buffer_sizes.max))
+        Ok(BufferSizeRange {
+            min: buffer_sizes.min,
+            max: buffer_sizes.max,
+        })
     }
 
     /// Get current sample rate of the driver.
-    pub fn sample_rate(&self) -> Result<c_double, AsioError> {
+    pub fn sample_rate(&self) -> Result<f64, AsioError> {
         let mut rate: c_double = 0.0;
         unsafe {
             asio_result!(ai::get_sample_rate(&mut rate))?;
@@ -514,7 +533,7 @@ impl Driver {
     }
 
     /// Can the driver accept the given sample rate.
-    pub fn can_sample_rate(&self, sample_rate: c_double) -> Result<bool, AsioError> {
+    pub fn can_sample_rate(&self, sample_rate: f64) -> Result<bool, AsioError> {
         unsafe {
             match asio_result!(ai::can_sample_rate(sample_rate)) {
                 Ok(()) => Ok(true),
@@ -525,7 +544,7 @@ impl Driver {
     }
 
     /// Set the sample rate for the driver.
-    pub fn set_sample_rate(&self, sample_rate: c_double) -> Result<(), AsioError> {
+    pub fn set_sample_rate(&self, sample_rate: f64) -> Result<(), AsioError> {
         unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
 
         // Check whether the driver applied the rate immediately.
@@ -1039,6 +1058,12 @@ fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
+/// Convert an `ASIOTimeStamp` (two 32-bit halves, big-endian) to a `u64` nanosecond value.
+#[inline]
+fn asio_timestamp_to_nanos(ts: ai::ASIOTimeStamp) -> u64 {
+    (ts.hi as u64) << 32 | ts.lo as u64
+}
+
 /// Indicates the stream sample rate has changed.
 extern "C" fn sample_rate_did_change(s_rate: c_double) {
     let old_bits = CURRENT_SAMPLE_RATE.load(Ordering::Acquire);
@@ -1162,7 +1187,7 @@ extern "C" fn buffer_switch_time_info(
 
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
-        system_time: asio_time.time_info.system_time,
+        system_time: asio_timestamp_to_nanos(asio_time.time_info.system_time),
         callback_flag,
     };
     for &mut (_, ref mut bc) in bcs.iter_mut() {

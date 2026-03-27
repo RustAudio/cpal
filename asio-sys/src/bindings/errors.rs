@@ -18,7 +18,7 @@ pub enum AsioError {
     BadMode,
     HardwareStuck,
     NoRate,
-    ASE_NoMemory,
+    NoMemory,
     InvalidBufferSize,
     UnknownError,
 }
@@ -76,7 +76,7 @@ impl fmt::Display for AsioError {
                 f,
                 "sample clock or rate cannot be determined or is not present"
             ),
-            AsioError::ASE_NoMemory => write!(f, "not enough memory for completing the request"),
+            AsioError::NoMemory => write!(f, "not enough memory for completing the request"),
             AsioError::InvalidBufferSize => write!(f, "buffersize out of range for device"),
             AsioError::UnknownError => write!(f, "Error not in SDK"),
         }
@@ -106,7 +106,7 @@ macro_rules! asio_result {
             r if r == AsioErrorWrapper::ASE_InvalidMode as i32 => Err(AsioError::BadMode),
             r if r == AsioErrorWrapper::ASE_SPNotAdvancing as i32 => Err(AsioError::HardwareStuck),
             r if r == AsioErrorWrapper::ASE_NoClock as i32 => Err(AsioError::NoRate),
-            r if r == AsioErrorWrapper::ASE_NoMemory as i32 => Err(AsioError::ASE_NoMemory),
+            r if r == AsioErrorWrapper::ASE_NoMemory as i32 => Err(AsioError::NoMemory),
             _ => Err(AsioError::UnknownError),
         }
     }};

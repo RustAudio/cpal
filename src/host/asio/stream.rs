@@ -95,7 +95,7 @@ impl Device {
         let hardware_input_latency = Arc::new(AtomicUsize::new(
             driver
                 .latencies()
-                .map(|(input, _)| input.max(0) as usize)
+                .map(|latencies| latencies.input.max(0) as usize)
                 .unwrap_or(0),
         ));
 
@@ -375,7 +375,7 @@ impl Device {
         let hardware_output_latency = Arc::new(AtomicUsize::new(
             driver
                 .latencies()
-                .map(|(_, output)| output.max(0) as usize)
+                .map(|latencies| latencies.output.max(0) as usize)
                 .unwrap_or(0),
         ));
 
@@ -793,7 +793,11 @@ impl Device {
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
                         if let Ok(latencies) = driver_for_latency.latencies() {
-                            let latency = if is_input { latencies.0 } else { latencies.1 };
+                            let latency = if is_input {
+                                latencies.input
+                            } else {
+                                latencies.output
+                            };
                             hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
                         }
                         false
@@ -826,15 +830,6 @@ impl Drop for Stream {
     }
 }
 
-/// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
-fn system_time_to_stream_instant(
-    system_time: sys::bindings::asio_import::ASIOTimeStamp,
-) -> crate::StreamInstant {
-    let nanos = (system_time.hi as u64) << 32 | system_time.lo as u64;
-    crate::StreamInstant::from_nanos_i128(nanos as i128)
-        .expect("`system_time` out of range of `StreamInstant` representation")
-}
-
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 #[inline]
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
@@ -864,9 +859,9 @@ fn check_config(
     // does NOT validate the lower bound. Passing a buffer size below min would be accepted but
     // behavior is unspecified.
     if let BufferSize::Fixed(requested_size) = buffer_size {
-        let (min, max) = driver.buffersize_range().map_err(build_stream_err)?;
+        let range = driver.buffersize_range().map_err(build_stream_err)?;
         let requested_size_i32 = requested_size as i32;
-        if !(min..=max).contains(&requested_size_i32) {
+        if !(range.min..=range.max).contains(&requested_size_i32) {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
     }
@@ -1120,7 +1115,8 @@ unsafe fn apply_output_callback_to_data<A, D>(
         interleaved.len(),
         sample_format,
     );
-    let callback = system_time_to_stream_instant(asio_info.system_time);
+    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation");
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let playback = callback
         .add(delay)
@@ -1147,7 +1143,8 @@ unsafe fn apply_input_callback_to_data<A, D>(
         interleaved.len(),
         format,
     );
-    let callback = system_time_to_stream_instant(asio_info.system_time);
+    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation");
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let capture = callback
         .sub(delay)
