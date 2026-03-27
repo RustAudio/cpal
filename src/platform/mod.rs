@@ -547,6 +547,17 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn device_by_id(&self, id: &crate::DeviceId) -> Option<Self::Device> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        HostInner::$HostVariant(ref h) => {
+                            h.device_by_id(id).map(DeviceInner::$HostVariant).map(Device::from)
+                        }
+                    )*
+                }
+            }
+
             fn default_input_device(&self) -> Option<Self::Device> {
                 match self.0 {
                     $(
