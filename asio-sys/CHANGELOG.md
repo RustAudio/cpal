@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CallbackInfo::system_time` is now `u64` nanoseconds.
 - `AsioError::ASE_NoMemory` renamed to `AsioError::NoMemory`.
 - `AsioTime::reserved`, `AsioTimeInfo::reserved`, `AsioTimeCode::future` fields made private.
+- `asio_import` module is now `pub(crate)`; raw bindgen types are no longer public API
 - `asio_message` delegates `kAsioSelectorSupported` for unknown selectors to registered
   callbacks, so each host decides which capabilities it opts into
 
