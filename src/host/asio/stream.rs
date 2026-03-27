@@ -30,12 +30,12 @@ crate::assert_stream_sync!(Stream);
 
 impl Stream {
     pub fn play(&self) -> Result<(), PlayStreamError> {
-        self.playing.store(true, Ordering::SeqCst);
+        self.playing.store(true, Ordering::Release);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), PauseStreamError> {
-        self.playing.store(false, Ordering::SeqCst);
+        self.playing.store(false, Ordering::Release);
         Ok(())
     }
 
@@ -116,7 +116,7 @@ impl Device {
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
-            if !playing.load(Ordering::SeqCst) {
+            if !playing.load(Ordering::Acquire) {
                 return;
             }
 
@@ -394,7 +394,7 @@ impl Device {
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if !playing.load(Ordering::SeqCst) {
+            if !playing.load(Ordering::Acquire) {
                 return;
             }
 
