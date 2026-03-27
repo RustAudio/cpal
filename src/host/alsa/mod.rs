@@ -120,6 +120,13 @@ impl HostTrait for Host {
         self.enumerate_devices()
     }
 
+    fn device_by_id(&self, id: &crate::DeviceId) -> Option<Self::Device> {
+        let canonical_id = crate::DeviceId(id.0, canonical_pcm_id(&id.1));
+        self.devices()
+            .ok()?
+            .find(|d| d.id().ok().as_ref() == Some(&canonical_id))
+    }
+
     fn default_input_device(&self) -> Option<Self::Device> {
         Some(Device::default())
     }
@@ -1478,6 +1485,21 @@ fn set_sw_params_from_format(
     }
 
     Ok(period_samples)
+}
+
+fn canonical_pcm_id(pcm_id: &str) -> String {
+    if let Some((prefix, rest)) = pcm_id.split_once(':') {
+        let (card_str, device_str) = match rest.split_once(',') {
+            Some((c, d)) => (c.trim(), d.trim()),
+            None => (rest.trim(), "0"),
+        };
+        if !card_str.contains('=') {
+            if let Ok(device) = device_str.parse::<u32>() {
+                return format!("{prefix}:CARD={card_str},DEV={device}");
+            }
+        }
+    }
+    pcm_id.to_owned()
 }
 
 impl From<alsa::Error> for BackendSpecificError {
