@@ -317,7 +317,6 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        // Immediately start the device?
         driver.start().map_err(build_stream_err)?;
 
         Ok(Stream {
@@ -646,7 +645,6 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        // Immediately start the device?
         driver.start().map_err(build_stream_err)?;
 
         Ok(Stream {
@@ -698,10 +696,7 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|ref e| {
-                        println!("Error preparing stream: {}", e);
-                        BuildStreamError::DeviceNotAvailable
-                    })
+                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
             }
         }
     }
@@ -744,10 +739,7 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|ref e| {
-                        println!("Error preparing stream: {}", e);
-                        BuildStreamError::DeviceNotAvailable
-                    })
+                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
             }
         }
     }
