@@ -190,8 +190,7 @@ impl Iterator for Devices {
                         // stream is active. Treat 0 as "not yet known" rather than skipping.
                         let sample_rate = driver.sample_rate().unwrap_or(0.0);
 
-                        let Ok((buffer_size_min, buffer_size_max)) = driver.buffersize_range()
-                        else {
+                        let Ok(buffer_size_range) = driver.buffersize_range() else {
                             continue;
                         };
 
@@ -222,8 +221,8 @@ impl Iterator for Devices {
                             channels_in: channels.ins as ChannelCount,
                             channels_out: channels.outs as ChannelCount,
                             sample_rate: sample_rate as SampleRate,
-                            buffer_size_min: buffer_size_min as FrameCount,
-                            buffer_size_max: buffer_size_max as FrameCount,
+                            buffer_size_min: buffer_size_range.min as FrameCount,
+                            buffer_size_max: buffer_size_range.max as FrameCount,
                             input_sample_format,
                             output_sample_format,
                             supported_sample_rates,
