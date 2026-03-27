@@ -183,6 +183,10 @@ pub use device_description::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
 };
 pub use error::*;
+#[cfg(target_os = "macos")]
+pub use host::coreaudio::macos::permissions::{
+    open_system_audio_settings, request_system_audio_permission,
+};
 pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
