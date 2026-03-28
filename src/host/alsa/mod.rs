@@ -1176,12 +1176,9 @@ fn stream_timestamp_fallback(
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 #[inline]
+#[allow(clippy::unnecessary_cast)]
 fn timespec_to_nanos(ts: libc::timespec) -> i64 {
-    let nanos = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
-    #[cfg(target_pointer_width = "64")]
-    return nanos;
-    #[cfg(not(target_pointer_width = "64"))]
-    return nanos.into();
+    ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
 }
 
 // Adapted from `timediff` here:
