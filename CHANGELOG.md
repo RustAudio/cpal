@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix spurious timestamp errors during stream startup.
 - **ALSA**: Fix spurious timeout errors during polling.
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
+- **ALSA**: Fix timestamp overflows on 32-bit platforms.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
