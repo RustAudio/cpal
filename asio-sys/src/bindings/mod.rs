@@ -341,6 +341,7 @@ struct BufferSizes {
     grans: c_long,
 }
 
+/// Identifies a buffer callback registered via [`Driver::add_callback`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BufferCallbackId(usize);
 
@@ -357,6 +358,7 @@ static CALLBACK_FLAG: AtomicU32 = AtomicU32::new(0);
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
 static CURRENT_SAMPLE_RATE: AtomicU64 = AtomicU64::new(0);
 
+/// Identifies a driver event callback registered via [`Driver::add_event_callback`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DriverEventCallbackId(usize);
 
