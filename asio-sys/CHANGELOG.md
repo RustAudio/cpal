@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `Driver::add_message_callback` and `Driver::remove_message_callback` replaced by
   `Driver::add_event_callback` and `Driver::remove_event_callback`
-- `MessageCallback` renamed to `DriverEventCallbackId` taking `Fn(AsioDriverEvent) -> bool`, where 
+- `MessageCallback` renamed to `DriverEventCallback`, and `MessageCallbackId` renamed to
+  `DriverEventCallbackId`. `DriverEventCallback` wraps `Fn(AsioDriverEvent) -> bool` where
   `AsioDriverEvent` is a new enum covering both `asioMessage` selector events and
   `sampleRateDidChange` notifications
 - `CallbackId` renamed to `BufferCallbackId`
@@ -40,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the driver does not apply the rate change immediately, as required by some drivers
   (e.g. Steinberg)
 - Fixed `asio_message` not advertising `kAsioSelectorSupported` itself as a supported selector
+- Fixed data race where `channels`, `latencies`, `sample_rate`, and related query methods could
+  call ASIO concurrently during `set_sample_rate`'s teardown/reload
 
 ### Removed
 - Removed unused `SampleRate` struct

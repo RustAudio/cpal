@@ -4,7 +4,7 @@ extern crate num_traits;
 use crate::host::com;
 use crate::I24;
 
-use self::num_traits::PrimInt;
+use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
@@ -753,8 +753,9 @@ impl Device {
         E: FnMut(StreamError) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
-        let configured_sample_rate = driver.sample_rate().unwrap_or(self.sample_rate as f64);
+        let configured_sample_rate = driver.sample_rate().ok().filter(|&r| r > 0.0);
         let driver_for_latency = driver.clone();
+        let asio_streams_for_event = self.asio_streams.clone();
 
         driver.add_event_callback(move |event| {
             match event {
@@ -793,16 +794,28 @@ impl Device {
                         false
                     }
                     sys::AsioMessageSelectors::kAsioBufferSizeChange => {
-                        // The buffer callback will resize its buffer on the next
-                        // invocation when it detects the new asio_stream.buffer_size.
-                        false
+                        if value > 0 {
+                            if let Ok(mut streams) = asio_streams_for_event.lock() {
+                                let stream = if is_input {
+                                    streams.input.as_mut()
+                                } else {
+                                    streams.output.as_mut()
+                                };
+                                if let Some(s) = stream {
+                                    s.buffer_size = value;
+                                }
+                            }
+                        }
+                        true
                     }
                     _ => false,
                 },
                 sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
-                    if (new_rate - configured_sample_rate).abs() >= 1.0 {
-                        if let Ok(mut cb) = error_callback_shared.lock() {
-                            cb(StreamError::StreamInvalidated);
+                    if let Some(rate) = configured_sample_rate {
+                        if (new_rate - rate).abs() >= 1.0 {
+                            if let Ok(mut cb) = error_callback_shared.lock() {
+                                cb(StreamError::StreamInvalidated);
+                            }
                         }
                     }
                     false
