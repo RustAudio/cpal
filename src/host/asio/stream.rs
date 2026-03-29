@@ -110,6 +110,7 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
+        let mut last_buffer_index: i32 = -1;
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -118,6 +119,14 @@ impl Device {
             if !playing.load(Ordering::Acquire) {
                 return;
             }
+
+            // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
+            // fire the buffer callback multiple times per buffer cycle with the same buffer
+            // index.
+            if callback_info.buffer_index == last_buffer_index {
+                return;
+            }
+            last_buffer_index = callback_info.buffer_index;
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
             let stream_lock = asio_streams.lock().unwrap();
@@ -388,12 +397,21 @@ impl Device {
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
+        let mut last_buffer_index: i32 = -1;
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
             if !playing.load(Ordering::Acquire) {
                 return;
             }
+
+            // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
+            // fire the buffer callback multiple times per buffer cycle with the same buffer
+            // index.
+            if callback_info.buffer_index == last_buffer_index {
+                return;
+            }
+            last_buffer_index = callback_info.buffer_index;
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
             let mut stream_lock = asio_streams.lock().unwrap();
