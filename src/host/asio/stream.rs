@@ -104,7 +104,6 @@ impl Device {
             error_callback,
             Arc::clone(&hardware_input_latency),
             true,
-            config.sample_rate as f64,
         );
 
         let stream_playing = Arc::new(AtomicBool::new(false));
@@ -383,7 +382,6 @@ impl Device {
             error_callback,
             Arc::clone(&hardware_output_latency),
             false,
-            config.sample_rate as f64,
         );
 
         let stream_playing = Arc::new(AtomicBool::new(false));
@@ -750,12 +748,12 @@ impl Device {
         error_callback: E,
         hardware_latency: Arc<AtomicUsize>,
         is_input: bool,
-        configured_sample_rate: f64,
     ) -> sys::DriverEventCallbackId
     where
         E: FnMut(StreamError) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
+        let configured_sample_rate = driver.sample_rate().unwrap_or(self.sample_rate as f64);
         let driver_for_latency = driver.clone();
 
         driver.add_event_callback(move |event| {
