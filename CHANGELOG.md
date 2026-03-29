@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
 - **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: Fix distortion when buggy drivers fire the buffer callback multiple times per cycle.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
