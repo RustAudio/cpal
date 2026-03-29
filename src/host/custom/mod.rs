@@ -177,6 +177,7 @@ trait DeviceErased: Send + Sync {
 trait StreamErased: Send + Sync {
     fn play(&self) -> Result<(), PlayStreamError>;
     fn pause(&self) -> Result<(), PauseStreamError>;
+    fn now(&self) -> crate::StreamInstant;
 }
 
 fn device_to_erased(d: impl DeviceErased + 'static) -> Device {
@@ -312,6 +313,10 @@ where
     fn pause(&self) -> Result<(), PauseStreamError> {
         <T as StreamTrait>::pause(self)
     }
+
+    fn now(&self) -> crate::StreamInstant {
+        <T as StreamTrait>::now(self)
+    }
 }
 
 // implementations of HostTrait, DeviceTrait, and StreamTrait for custom versions
@@ -434,5 +439,9 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         self.0.pause()
+    }
+
+    fn now(&self) -> crate::StreamInstant {
+        self.0.now()
     }
 }

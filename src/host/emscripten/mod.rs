@@ -278,6 +278,10 @@ impl StreamTrait for Stream {
         });
         Ok(())
     }
+
+    fn now(&self) -> crate::StreamInstant {
+        crate::StreamInstant::from_secs_f64(self.audio_ctxt.current_time())
+    }
 }
 
 fn audio_callback_fn<D>(
@@ -305,9 +309,7 @@ where
             // supported by firefox (2020-04-28).
             // let latency_secs: f64 = audio_ctxt.outputLatency.try_into().unwrap();
             let buffer_duration = frames_to_duration(len, sample_rate as usize);
-            let playback = callback
-                .add(buffer_duration)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let playback = callback + buffer_duration;
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
             let info = OutputCallbackInfo { timestamp };
             data_callback(&mut data, &info);

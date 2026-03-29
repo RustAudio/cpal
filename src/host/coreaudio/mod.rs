@@ -81,9 +81,7 @@ fn host_time_to_stream_instant(
     let res = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     check_os_status(res)?;
     let nanos = m_host_time as u128 * info.numer as u128 / info.denom as u128;
-    crate::StreamInstant::from_nanos_i128(nanos as i128).ok_or(BackendSpecificError {
-        description: "host time out of range of `StreamInstant` representation".to_string(),
-    })
+    Ok(crate::StreamInstant::from_nanos(nanos as u64))
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.

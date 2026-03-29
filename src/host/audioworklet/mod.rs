@@ -243,7 +243,11 @@ impl DeviceTrait for Device {
                         .unwrap_or(0.0);
                 let total_output_latency_secs = {
                     let sum = base_latency_secs + output_latency_secs;
-                    if sum.is_finite() { sum.max(0.0) } else { 0.0 }
+                    if sum.is_finite() {
+                        sum.max(0.0)
+                    } else {
+                        0.0
+                    }
                 };
 
                 options.set_processor_options(Some(&js_sys::Array::of3(
@@ -259,10 +263,8 @@ impl DeviceTrait for Device {
                             let callback = crate::StreamInstant::from_secs_f64(now);
                             let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
                             let playback = callback
-                                .add(buffer_duration + Duration::from_secs_f64(total_output_latency_secs))
-                                .expect(
-                                "`playback` occurs beyond representation supported by `StreamInstant`",
-                            );
+                                + (buffer_duration
+                                    + Duration::from_secs_f64(total_output_latency_secs));
                             let timestamp = crate::OutputStreamTimestamp { callback, playback };
                             let info = OutputCallbackInfo { timestamp };
                             (data_callback)(&mut data, &info);
@@ -318,6 +320,10 @@ impl StreamTrait for Stream {
                 Err(err.into())
             }
         }
+    }
+
+    fn now(&self) -> crate::StreamInstant {
+        crate::StreamInstant::from_secs_f64(self.audio_context.current_time())
     }
 }
 

@@ -263,6 +263,11 @@ impl StreamTrait for Stream {
         stream.pause()
     }
 
+    fn now(&self) -> crate::StreamInstant {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
+    }
+
     fn buffer_size(&self) -> Option<crate::FrameCount> {
         let stream = self.inner.lock().ok()?;
 

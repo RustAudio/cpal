@@ -614,6 +614,17 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn now(&self) -> crate::StreamInstant {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInner::$HostVariant(ref s) => {
+                            s.now()
+                        }
+                    )*
+                }
+            }
         }
 
         impl From<DeviceInner> for Device {

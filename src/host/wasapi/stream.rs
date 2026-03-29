@@ -12,6 +12,7 @@ use std::time::Duration;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
+use windows::Win32::System::Performance;
 use windows::Win32::System::SystemServices;
 use windows::Win32::System::Threading;
 
@@ -213,6 +214,19 @@ impl StreamTrait for Stream {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
         Ok(())
+    }
+
+    fn now(&self) -> crate::StreamInstant {
+        let mut counter: i64 = 0;
+        let mut freq: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceCounter(&mut counter)
+                .expect("QueryPerformanceCounter failed");
+            Performance::QueryPerformanceFrequency(&mut freq)
+                .expect("QueryPerformanceFrequency failed");
+        }
+        let nanos = (counter as u128 * 1_000_000_000 / freq as u128) as u64;
+        crate::StreamInstant::from_nanos(nanos)
     }
 
     fn buffer_size(&self) -> Option<FrameCount> {
@@ -571,9 +585,8 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = qpc_position as i128 * 100;
-    let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
-        .expect("performance counter out of range of `StreamInstant` representation");
+    let qpc_nanos = (qpc_position as u128 * 100) as u64;
+    let instant = crate::StreamInstant::from_nanos(qpc_nanos);
     Ok(instant)
 }
 
@@ -587,9 +600,8 @@ fn input_timestamp(
     buffer_qpc_position: u64,
 ) -> Result<crate::InputStreamTimestamp, StreamError> {
     // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = buffer_qpc_position as i128 * 100;
-    let capture = crate::StreamInstant::from_nanos_i128(qpc_nanos)
-        .expect("performance counter out of range of `StreamInstant` representation");
+    let qpc_nanos = (buffer_qpc_position as u128 * 100) as u64;
+    let capture = crate::StreamInstant::from_nanos(qpc_nanos);
     let callback = stream_instant(stream)?;
     Ok(crate::InputStreamTimestamp { capture, callback })
 }
@@ -609,8 +621,6 @@ fn output_timestamp(
     // `padding` is the number of frames already queued in the endpoint buffer ahead of the
     // frames we are about to write. Those frames must drain before ours are heard.
     let padding = stream.max_frames_in_buffer - frames_available;
-    let playback = callback
-        .add(frames_to_duration(padding, sample_rate) + stream.stream_latency)
-        .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+    let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
     Ok(crate::OutputStreamTimestamp { callback, playback })
 }

@@ -279,6 +279,11 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
+    fn now(&self) -> crate::StreamInstant {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
+    }
+
     fn buffer_size(&self) -> Option<crate::FrameCount> {
         Some(get_device_buffer_frames() as crate::FrameCount)
     }
@@ -501,9 +506,7 @@ where
             }
         });
         let delay = frames_to_duration(latency_frames, sample_rate);
-        let capture = callback
-            .sub(delay)
-            .expect("`capture` occurs before origin of alsa `StreamInstant`");
+        let capture = callback - delay;
         let timestamp = crate::InputStreamTimestamp { callback, capture };
 
         let info = InputCallbackInfo { timestamp };
@@ -552,9 +555,7 @@ where
             }
         });
         let delay = frames_to_duration(latency_frames, sample_rate);
-        let playback = callback
-            .add(delay)
-            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+        let playback = callback + delay;
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
 
         let info = OutputCallbackInfo { timestamp };

@@ -475,23 +475,38 @@ pub struct Data {
 /// 2. The same time source used to generate timestamps for a stream's underlying audio data
 ///    callback.
 ///
-/// `StreamInstant` represents a duration since an unspecified origin point. The origin
-/// is guaranteed to occur at or before the stream starts, and remains consistent for the
-/// lifetime of that stream. Different streams may have different origins.
+/// `StreamInstant` represents a moment on a stream's monotonic clock. Because the underlying clock
+/// is monotonic, `StreamInstant` values are always positive and increasing.
 ///
-/// ## Host `StreamInstant` Sources
+/// Within a single stream, all instants share the same clock, so arithmetic between them is
+/// meaningful. Across different streams, origins are not guaranteed to be shared. On some hosts
+/// each stream starts its own independent clock at zero, so subtracting a timestamp from one
+/// stream and one from another may produce a meaningless result.
 ///
-/// | Host | Source |
-/// | ---- | ------ |
-/// | alsa | `snd_pcm_status_get_htstamp` |
-/// | asio | `timeGetTime` |
-/// | coreaudio | `mach_absolute_time` |
-/// | emscripten | `AudioContext.getOutputTimestamp` |
-/// | pulseaudio | `std::time::Instant` |
-/// | wasapi | `QueryPerformanceCounter` |
+/// ## Time sources by host
+///
+/// | Host | Time source |
+/// | ---- | ----------- |
+/// | AAudio | `AAudioStream_getTimestamp(CLOCK_MONOTONIC)` |
+/// | ALSA | `snd_pcm_status_get_htstamp()` |
+/// | ASIO | `timeGetTime()` |
+/// | AudioWorklet | `AudioContext.currentTime` |
+/// | CoreAudio | `mach_absolute_time()` |
+/// | Emscripten | `AudioContext.currentTime` |
+/// | JACK | `jack_get_time()` |
+/// | PipeWire | `pw_stream_get_time_n()` |
+/// | PulseAudio | `std::time::Instant` |
+/// | WASAPI | `QueryPerformanceCounter()` |
+/// | WebAudio | `AudioContext.currentTime` |
+///
+/// > **Disclaimer:** These system calls might change over time.
+///
+/// > **Note:** Mathematical operations like [`add`][StreamInstant::add] may panic if the result
+/// > cannot be represented as a `StreamInstant`. Use [`checked_add`][StreamInstant::checked_add]
+/// > or [`checked_sub`][StreamInstant::checked_sub] for non-panicking variants.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct StreamInstant {
-    secs: i64,
+    secs: u64,
     nanos: u32,
 }
 
@@ -571,11 +586,10 @@ impl SupportedStreamConfig {
 }
 
 impl StreamInstant {
-    /// The amount of time elapsed from another instant to this one.
-    ///
-    /// Returns `None` if `earlier` is later than self.
-    pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
-        if self < earlier {
+    /// Returns the amount of time elapsed from `earlier` to `self`, or `None` if `earlier` is
+    /// later than `self`.
+    pub fn checked_duration_since(&self, earlier: StreamInstant) -> Option<Duration> {
+        if self < &earlier {
             None
         } else {
             (self.as_nanos() - earlier.as_nanos())
@@ -585,59 +599,145 @@ impl StreamInstant {
         }
     }
 
-    /// Returns the instant in time after the given duration has passed.
-    ///
-    /// Returns `None` if the resulting instant would exceed the bounds of the underlying data
-    /// structure.
-    pub fn add(&self, duration: Duration) -> Option<Self> {
+    /// Returns the amount of time elapsed from `earlier` to `self`, saturating to
+    /// [`Duration::ZERO`] if `earlier` is later than `self`.
+    pub fn saturating_duration_since(&self, earlier: StreamInstant) -> Duration {
+        self.checked_duration_since(earlier).unwrap_or_default()
+    }
+
+    /// Returns the amount of time elapsed from `earlier` to `self`, saturating to
+    /// [`Duration::ZERO`] if `earlier` is later than `self`.
+    pub fn duration_since(&self, earlier: StreamInstant) -> Duration {
+        self.saturating_duration_since(earlier)
+    }
+
+    /// Returns `Some(t)` where `t` is `self + duration`, or `None` if the result cannot be
+    /// represented as a `StreamInstant`.
+    pub fn checked_add(&self, duration: Duration) -> Option<Self> {
         self.as_nanos()
-            .checked_add(duration.as_nanos() as i128)
-            .and_then(Self::from_nanos_i128)
+            .checked_add(duration.as_nanos())
+            .and_then(|n| u64::try_from(n).ok())
+            .map(Self::from_nanos)
     }
 
-    /// Returns the instant in time one `duration` ago.
-    ///
-    /// Returns `None` if the resulting instant would underflow. As a result, it is important to
-    /// consider that on some platforms the [`StreamInstant`] may begin at `0` from the moment the
-    /// source stream is created.
-    pub fn sub(&self, duration: Duration) -> Option<Self> {
+    /// Returns `Some(t)` where `t` is `self - duration`, or `None` if the result cannot be
+    /// represented as a `StreamInstant` (i.e. would be negative).
+    pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
         self.as_nanos()
-            .checked_sub(duration.as_nanos() as i128)
-            .and_then(Self::from_nanos_i128)
+            .checked_sub(duration.as_nanos())
+            .and_then(|n| u64::try_from(n).ok())
+            .map(Self::from_nanos)
     }
 
-    fn as_nanos(&self) -> i128 {
-        (self.secs as i128 * 1_000_000_000) + self.nanos as i128
+    /// Returns the total number of nanoseconds contained by this `StreamInstant`.
+    pub fn as_nanos(&self) -> u128 {
+        self.secs as u128 * 1_000_000_000 + self.nanos as u128
     }
 
-    #[allow(dead_code)]
-    fn from_nanos(nanos: i64) -> Self {
+    /// Creates a new `StreamInstant` from the specified number of nanoseconds.
+    ///
+    /// Note: Using this on the return value of `as_nanos()` might cause unexpected behavior:
+    /// `as_nanos()` returns a `u128`, and can return values that do not fit in `u64`, e.g. 585
+    /// years. Instead, consider using the pattern
+    /// `StreamInstant::new(t.as_secs(), t.subsec_nanos())` if you cannot copy/clone the
+    /// `StreamInstant` directly.
+    pub fn from_nanos(nanos: u64) -> Self {
         let secs = nanos / 1_000_000_000;
-        let subsec_nanos = nanos - secs * 1_000_000_000;
-        Self::new(secs, subsec_nanos as u32)
+        let subsec_nanos = (nanos % 1_000_000_000) as u32;
+        Self::new(secs, subsec_nanos)
     }
 
-    #[allow(dead_code)]
-    fn from_nanos_i128(nanos: i128) -> Option<Self> {
-        let secs = nanos / 1_000_000_000;
-        if secs > i64::MAX as i128 || secs < i64::MIN as i128 {
-            None
-        } else {
-            let subsec_nanos = nanos - secs * 1_000_000_000;
-            debug_assert!(subsec_nanos < u32::MAX as i128);
-            Some(Self::new(secs as i64, subsec_nanos as u32))
+    /// Creates a new `StreamInstant` from the specified number of seconds represented as `f64`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `secs` is negative, not finite, or overflows the range of `StreamInstant`.
+    pub fn from_secs_f64(secs: f64) -> Self {
+        const NANOS_PER_SEC: u128 = 1_000_000_000;
+        const MAX_NANOS: f64 = ((u64::MAX as u128 + 1) * NANOS_PER_SEC) as f64;
+        let nanos = secs * NANOS_PER_SEC as f64;
+        if !nanos.is_finite() || nanos < 0.0 || nanos >= MAX_NANOS {
+            panic!("StreamInstant::from_secs_f64 called with invalid value: {secs}");
+        }
+        let nanos = nanos as u128;
+        Self::new(
+            (nanos / NANOS_PER_SEC) as u64,
+            (nanos % NANOS_PER_SEC) as u32,
+        )
+    }
+
+    /// Creates a new `StreamInstant` from the specified number of whole seconds and additional
+    /// nanoseconds.
+    ///
+    /// If `nanos` is greater than or equal to 1 billion (the number of nanoseconds in a second),
+    /// the excess carries over into `secs`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the carry from `nanos` overflows the seconds counter.
+    pub fn new(secs: u64, nanos: u32) -> Self {
+        let carry = nanos / 1_000_000_000;
+        let subsec_nanos = nanos % 1_000_000_000;
+        let secs = secs
+            .checked_add(carry as u64)
+            .expect("overflow in StreamInstant::new");
+        StreamInstant {
+            secs,
+            nanos: subsec_nanos,
         }
     }
+}
 
-    #[allow(dead_code)]
-    fn from_secs_f64(secs: f64) -> crate::StreamInstant {
-        let s = secs.floor() as i64;
-        let ns = ((secs - s as f64) * 1_000_000_000.0) as u32;
-        Self::new(s, ns)
+impl std::ops::Add<Duration> for StreamInstant {
+    type Output = StreamInstant;
+
+    /// # Panics
+    ///
+    /// Panics if the result overflows the range of `StreamInstant`. Use
+    /// [`checked_add`][StreamInstant::checked_add] for a non-panicking variant.
+    #[inline]
+    fn add(self, rhs: Duration) -> StreamInstant {
+        self.checked_add(rhs)
+            .expect("overflow when adding duration to stream instant")
     }
+}
 
-    pub fn new(secs: i64, nanos: u32) -> Self {
-        StreamInstant { secs, nanos }
+impl std::ops::AddAssign<Duration> for StreamInstant {
+    #[inline]
+    fn add_assign(&mut self, rhs: Duration) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::Sub<Duration> for StreamInstant {
+    type Output = StreamInstant;
+
+    /// # Panics
+    ///
+    /// Panics if the result underflows the range of `StreamInstant`. Use
+    /// [`checked_sub`][StreamInstant::checked_sub] for a non-panicking variant.
+    #[inline]
+    fn sub(self, rhs: Duration) -> StreamInstant {
+        self.checked_sub(rhs)
+            .expect("overflow when subtracting duration from stream instant")
+    }
+}
+
+impl std::ops::SubAssign<Duration> for StreamInstant {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Duration) {
+        *self = *self - rhs;
+    }
+}
+
+impl std::ops::Sub<StreamInstant> for StreamInstant {
+    type Output = Duration;
+
+    /// Returns the duration from `rhs` to `self`, saturating to [`Duration::ZERO`] if `rhs` is
+    /// later than `self`.
+    #[inline]
+    fn sub(self, rhs: StreamInstant) -> Duration {
+        self.saturating_duration_since(rhs)
     }
 }
 
@@ -1008,34 +1108,83 @@ pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
 
 #[test]
 fn test_stream_instant() {
+    let z = StreamInstant::new(0, 0); // origin
     let a = StreamInstant::new(2, 0);
-    let b = StreamInstant::new(-2, 0);
-    let min = StreamInstant::new(i64::MIN, 0);
-    let max = StreamInstant::new(i64::MAX, 0);
+    let max = StreamInstant::from_nanos(u64::MAX); // largest representable instant
+
     assert_eq!(
-        a.sub(Duration::from_secs(1)),
+        a.checked_sub(Duration::from_secs(1)),
         Some(StreamInstant::new(1, 0))
     );
     assert_eq!(
-        a.sub(Duration::from_secs(2)),
+        a.checked_sub(Duration::from_secs(2)),
         Some(StreamInstant::new(0, 0))
     );
+    assert_eq!(a.checked_sub(Duration::from_secs(3)), None); // would go below zero
+    assert_eq!(z.checked_sub(Duration::from_nanos(1)), None); // underflow at origin
+
     assert_eq!(
-        a.sub(Duration::from_secs(3)),
-        Some(StreamInstant::new(-1, 0))
+        a.checked_add(Duration::from_secs(1)),
+        Some(StreamInstant::new(3, 0))
     );
-    assert_eq!(min.sub(Duration::from_secs(1)), None);
+    assert_eq!(max.checked_add(Duration::from_nanos(1)), None); // overflow
+
+    assert_eq!(a.duration_since(z), Duration::from_secs(2));
+    assert_eq!(z.duration_since(a), Duration::ZERO); // saturates
+    assert_eq!(a.checked_duration_since(z), Some(Duration::from_secs(2)));
+    assert_eq!(z.checked_duration_since(a), None);
+    assert_eq!(a.saturating_duration_since(z), Duration::from_secs(2));
+    assert_eq!(z.saturating_duration_since(a), Duration::ZERO);
+
+    assert_eq!(z + Duration::from_secs(2), a);
+    assert_eq!(a - Duration::from_secs(2), z);
+    assert_eq!(a - z, Duration::from_secs(2));
+    assert_eq!(z - a, Duration::ZERO); // saturates via Sub<StreamInstant>
+    let mut c = z;
+    c += Duration::from_secs(2);
+    assert_eq!(c, a);
+    let mut d = a;
+    d -= Duration::from_secs(2);
+    assert_eq!(d, z);
+
+    // nanosecond carry
     assert_eq!(
-        b.add(Duration::from_secs(1)),
-        Some(StreamInstant::new(-1, 0))
+        StreamInstant::new(1, 1_500_000_000),
+        StreamInstant::new(2, 500_000_000)
     );
     assert_eq!(
-        b.add(Duration::from_secs(2)),
-        Some(StreamInstant::new(0, 0))
+        StreamInstant::new(0, 1_000_000_000),
+        StreamInstant::new(1, 0)
     );
+
+    // basic round-trip
     assert_eq!(
-        b.add(Duration::from_secs(3)),
-        Some(StreamInstant::new(1, 0))
+        StreamInstant::from_secs_f64(1.5),
+        StreamInstant::new(1, 500_000_000)
     );
-    assert_eq!(max.add(Duration::from_secs(1)), None);
+    assert_eq!(StreamInstant::from_secs_f64(0.0), z);
+}
+
+#[test]
+#[should_panic]
+fn test_stream_instant_new_overflow() {
+    StreamInstant::new(u64::MAX, 1_000_000_000); // carry overflows u64
+}
+
+#[test]
+#[should_panic]
+fn test_stream_instant_from_secs_f64_negative() {
+    StreamInstant::from_secs_f64(-1.0);
+}
+
+#[test]
+#[should_panic]
+fn test_stream_instant_from_secs_f64_nan() {
+    StreamInstant::from_secs_f64(f64::NAN);
+}
+
+#[test]
+#[should_panic]
+fn test_stream_instant_from_secs_f64_infinite() {
+    StreamInstant::from_secs_f64(f64::INFINITY);
 }

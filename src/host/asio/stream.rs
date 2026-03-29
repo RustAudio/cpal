@@ -1136,12 +1136,9 @@ unsafe fn apply_output_callback_to_data<A, D>(
         interleaved.len(),
         sample_format,
     );
-    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
-        .expect("`system_time` out of range of `StreamInstant` representation");
+    let callback = crate::StreamInstant::from_nanos(asio_info.system_time);
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
-    let playback = callback
-        .add(delay)
-        .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+    let playback = callback + delay;
     let timestamp = crate::OutputStreamTimestamp { callback, playback };
     let info = OutputCallbackInfo { timestamp };
     data_callback(&mut data, &info);
@@ -1164,12 +1161,9 @@ unsafe fn apply_input_callback_to_data<A, D>(
         interleaved.len(),
         format,
     );
-    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
-        .expect("`system_time` out of range of `StreamInstant` representation");
+    let callback = crate::StreamInstant::from_nanos(asio_info.system_time);
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
-    let capture = callback
-        .sub(delay)
-        .expect("`capture` occurs before origin of alsa `StreamInstant`");
+    let capture = callback - delay;
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = InputCallbackInfo { timestamp };
     data_callback(&data, &info);

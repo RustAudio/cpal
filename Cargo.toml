@@ -85,12 +85,14 @@ clap = { version = ">=4.0, <=4.5.57", features = ["derive"] }
 # When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = ">=0.59, <=0.62", features = [
+    "Win32_Media",
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
     "Win32_Media_KernelStreaming",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Threading",
+    "Win32_System_Performance",
     "Win32_Security",
     "Win32_System_SystemServices",
     "Win32_System_Variant",
@@ -183,6 +185,7 @@ ndk = { version = "0.9", default-features = false, features = [
 ] }
 ndk-context = "0.1"
 jni = "0.21"
+libc = "0.2"
 num-derive = "0.4"
 num-traits = "0.2"
 
