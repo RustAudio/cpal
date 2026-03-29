@@ -492,6 +492,7 @@ impl Driver {
 
     /// Returns the number of input and output channels available on the driver.
     pub fn channels(&self) -> Result<Channels, AsioError> {
+        let _guard = self.inner.lock_state();
         let mut ins: c_long = 0;
         let mut outs: c_long = 0;
         unsafe {
@@ -502,6 +503,7 @@ impl Driver {
 
     /// Get the input and output hardware latency in frames.
     pub fn latencies(&self) -> Result<Latencies, AsioError> {
+        let _guard = self.inner.lock_state();
         let mut input_latency: c_long = 0;
         let mut output_latency: c_long = 0;
         unsafe {
@@ -518,6 +520,7 @@ impl Driver {
 
     /// Get the min and max supported buffersize of the driver.
     pub fn buffersize_range(&self) -> Result<BufferSizeRange, AsioError> {
+        let _guard = self.inner.lock_state();
         let buffer_sizes = asio_get_buffer_sizes()?;
         Ok(BufferSizeRange {
             min: buffer_sizes.min,
@@ -527,6 +530,7 @@ impl Driver {
 
     /// Get current sample rate of the driver.
     pub fn sample_rate(&self) -> Result<f64, AsioError> {
+        let _guard = self.inner.lock_state();
         let mut rate: c_double = 0.0;
         unsafe {
             asio_result!(ai::get_sample_rate(&mut rate))?;
@@ -536,6 +540,7 @@ impl Driver {
 
     /// Can the driver accept the given sample rate.
     pub fn can_sample_rate(&self, sample_rate: f64) -> Result<bool, AsioError> {
+        let _guard = self.inner.lock_state();
         unsafe {
             match asio_result!(ai::can_sample_rate(sample_rate)) {
                 Ok(()) => Ok(true),
@@ -547,11 +552,15 @@ impl Driver {
 
     /// Set the sample rate for the driver.
     pub fn set_sample_rate(&self, sample_rate: f64) -> Result<(), AsioError> {
-        unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+        let actual = {
+            let _guard = self.inner.lock_state();
+            unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+            let mut actual: c_double = 0.0;
+            unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+            actual
+        };
 
         // Check whether the driver applied the rate immediately.
-        let mut actual: c_double = 0.0;
-        unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
         if (actual - sample_rate).abs() < 1.0 {
             CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
             return Ok(());
@@ -596,18 +605,18 @@ impl Driver {
                 asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
             }
             *state = DriverState::Initialized;
+
+            // Set the rate again on the freshly initialized driver.
+            unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+
+            let mut actual: c_double = 0.0;
+            unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+            if (actual - sample_rate).abs() >= 1.0 {
+                return Err(AsioError::NoRate);
+            }
+
+            CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
         }
-
-        // Now set the rate again on the freshly initialized driver.
-        unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
-
-        let mut actual: c_double = 0.0;
-        unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
-        if (actual - sample_rate).abs() >= 1.0 {
-            return Err(AsioError::NoRate);
-        }
-
-        CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
         Ok(())
     }
 
@@ -615,6 +624,7 @@ impl Driver {
     ///
     /// This queries a single channel's type assuming all channels have the same sample type.
     pub fn input_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        let _guard = self.inner.lock_state();
         stream_data_type(true)
     }
 
@@ -622,6 +632,7 @@ impl Driver {
     ///
     /// This queries a single channel's type assuming all channels have the same sample type.
     pub fn output_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        let _guard = self.inner.lock_state();
         stream_data_type(false)
     }
 
@@ -1060,7 +1071,7 @@ fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
-/// Convert an `ASIOTimeStamp` (two 32-bit halves, big-endian) to a `u64` nanosecond value.
+/// Convert an `ASIOTimeStamp` (high and low 32-bit halves) to a `u64` nanosecond value.
 #[inline]
 fn asio_timestamp_to_nanos(ts: ai::ASIOTimeStamp) -> u64 {
     (ts.hi as u64) << 32 | ts.lo as u64
