@@ -13,6 +13,7 @@ pub trait AsioDeviceExt {
 }
 
 /// A wrapper providing access to ASIO-specific device functionality.
+#[derive(Clone)]
 pub struct AsioDevice<'a> {
     #[cfg(all(target_os = "windows", feature = "asio"))]
     inner: &'a crate::host::asio::Device,
