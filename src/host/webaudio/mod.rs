@@ -263,6 +263,12 @@ impl DeviceTrait for Device {
         // A cursor keeping track of the current time at which new frames should be scheduled.
         let time = Arc::new(RwLock::new(0f64));
 
+        // baseLatency is fixed for the lifetime of the AudioContext.
+        let base_latency_secs = js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("baseLatency"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
         // Create a set of closures / callbacks which will continuously fetch and schedule sample
         // playback. Starting with two workers, e.g. a front and back buffer so that audio frames
         // can be fetched in the background.
@@ -315,12 +321,13 @@ impl DeviceTrait for Device {
                             .expect("Unable to get a read lock on the time cursor");
                         // Synchronise first buffer as necessary (eg. keep the time value
                         // referenced to the context clock).
-                        if *time_at_start_of_buffer > 0.001 {
+                        if *time_at_start_of_buffer > 0.0 {
                             *time_at_start_of_buffer
                         } else {
-                            // 25ms of time to fetch the first sample data, increase to avoid
-                            // initial underruns.
-                            now + 0.025
+                            // Schedule the first buffer far enough ahead for the browser's
+                            // internal audio pipeline (baseLatency) plus one full buffer of
+                            // data, so playback starts underrun-free at any buffer size.
+                            now + base_latency_secs + buffer_time_step_secs
                         }
                     };
 
@@ -330,8 +337,26 @@ impl DeviceTrait for Device {
                         let data = temporary_buffer.as_mut_ptr() as *mut ();
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
                         let mut data_callback = data_callback_handle.lock().unwrap();
+                        // outputLatency can change at runtime, so read it each callback.
+                        let output_latency_secs = js_sys::Reflect::get(
+                            ctx_handle.as_ref(),
+                            &JsValue::from("outputLatency"),
+                        )
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                        let total_hw_latency_secs = {
+                            let sum = base_latency_secs + output_latency_secs;
+                            if sum.is_finite() {
+                                sum.max(0.0)
+                            } else {
+                                0.0
+                            }
+                        };
                         let callback = crate::StreamInstant::from_secs_f64(now);
-                        let playback = crate::StreamInstant::from_secs_f64(time_at_start_of_buffer);
+                        let playback = crate::StreamInstant::from_secs_f64(
+                            time_at_start_of_buffer + total_hw_latency_secs,
+                        );
                         let timestamp = crate::OutputStreamTimestamp { callback, playback };
                         let info = OutputCallbackInfo { timestamp };
                         (data_callback.deref_mut())(&mut data, &info);

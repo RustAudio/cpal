@@ -549,6 +549,17 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn device_by_id(&self, id: &crate::DeviceId) -> Option<Self::Device> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        HostInner::$HostVariant(ref h) => {
+                            h.device_by_id(id).map(DeviceInner::$HostVariant).map(Device::from)
+                        }
+                    )*
+                }
+            }
+
             fn default_input_device(&self) -> Option<Self::Device> {
                 match self.0 {
                     $(
@@ -726,9 +737,6 @@ mod platform_impl {
         )))
     )]
     pub use crate::host::jack::Host as JackHost;
-    #[cfg(feature = "pulseaudio")]
-    pub use crate::host::pulseaudio::Host as PulseAudioHost;
-
     #[cfg(feature = "pipewire")]
     #[cfg_attr(
         docsrs,
@@ -743,16 +751,42 @@ mod platform_impl {
         )))
     )]
     pub use crate::host::pipewire::Host as PipeWireHost;
+    #[cfg(feature = "pulseaudio")]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ),
+            feature = "pulseaudio"
+        )))
+    )]
+    pub use crate::host::pulseaudio::Host as PulseAudioHost;
     impl_platform_host!(
+        #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
         #[cfg(feature = "jack")] Jack => JackHost,
         Alsa => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
-        #[cfg(feature = "pipewire")] PipeWire => super::PipeWireHost,
     );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
+        #[cfg(feature = "pipewire")]
+        if <PipeWireHost as crate::traits::HostTrait>::is_available() {
+            if let Ok(host) = PipeWireHost::new() {
+                return host.into();
+            }
+        }
+        #[cfg(feature = "pulseaudio")]
+        if <PulseAudioHost as crate::traits::HostTrait>::is_available() {
+            if let Ok(host) = PulseAudioHost::new() {
+                return host.into();
+            }
+        }
         AlsaHost::new()
             .expect("the default host should always be available")
             .into()

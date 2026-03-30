@@ -1,4 +1,4 @@
-pub mod asio_import;
+pub(crate) mod asio_import;
 #[macro_use]
 pub mod errors;
 
@@ -9,9 +9,10 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_void};
 use std::ptr::null_mut;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex, MutexGuard, Weak,
 };
+use std::time::Duration;
 
 // On Windows (where ASIO actually runs), c_long is i32.
 // On non-Windows platforms (for docs.rs and local testing), redefine c_long as i32 to match.
@@ -75,31 +76,39 @@ struct DriverInner {
 ///
 /// Mapped to the finite state machine in the ASIO SDK docs.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum DriverState {
+pub(crate) enum DriverState {
     Initialized,
     Prepared,
     Running,
 }
 
-/// Amount of input and output
-/// channels available.
+/// Amount of input and output channels available.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Channels {
-    pub ins: c_long,
-    pub outs: c_long,
+    pub ins: i32,
+    pub outs: i32,
 }
 
-/// Sample rate of the ASIO driver.
+/// Hardware latency in frames for the input and output streams.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct SampleRate {
-    pub rate: u32,
+pub struct Latencies {
+    pub input: i32,
+    pub output: i32,
+}
+
+/// Minimum and maximum supported buffer sizes in frames.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct BufferSizeRange {
+    pub min: i32,
+    pub max: i32,
 }
 
 /// Information provided to the BufferCallback.
 #[derive(Debug)]
 pub struct CallbackInfo {
     pub buffer_index: i32,
-    pub system_time: ai::ASIOTimeStamp,
+    /// System time at the start of this buffer period, in nanoseconds.
+    pub system_time: u64,
     pub callback_flag: u32,
 }
 
@@ -172,9 +181,9 @@ pub enum AsioSampleType {
 #[repr(C, packed(4))]
 pub struct AsioBufferInfo {
     /// 0 for output 1 for input
-    pub is_input: c_long,
+    pub is_input: i32,
     /// Which channel. Starts at 0
-    pub channel_num: c_long,
+    pub channel_num: i32,
     /// Pointer to each half of the double buffer.
     pub buffers: [*mut c_void; 2],
 }
@@ -208,7 +217,7 @@ static ASIO_CALLBACKS: AsioCallbacks = AsioCallbacks {
 /// This is a direct copy of the asioMessage selectors
 /// inside ASIO SDK.
 #[rustfmt::skip]
-#[derive(Debug, FromPrimitive)]
+#[derive(Clone, Copy, Debug, FromPrimitive)]
 #[repr(C)]
 pub enum AsioMessageSelectors {
     kAsioSelectorSupported = 1, // selector in <value>, returns 1L if supported,
@@ -247,15 +256,36 @@ pub enum AsioMessageSelectors {
     kAsioSupportsOutputGain,    // unused and undefined
     kAsioSupportsOutputMeter,   // unused and undefined
     kAsioOverload,              // driver detected an overload
+    kAsioNumMessageSelectors,   // sentinel value equal to the number of defined selectors
+}
 
-    kAsioNumMessageSelectors
+/// Events dispatched to registered driver event callbacks.
+#[derive(Clone, Copy, Debug)]
+pub enum AsioDriverEvent {
+    /// A message from the ASIO driver's `asioMessage` callback.
+    ///
+    /// `selector` identifies the message type; `value` is the raw payload passed by the driver.
+    /// For [`AsioMessageSelectors::kAsioSelectorSupported`] queries, `value` is the selector being
+    /// queried. Return `true` to advertise support for it, `false` to decline. For other selectors,
+    /// the return value is ignored.
+    Message {
+        selector: AsioMessageSelectors,
+        value: i32,
+    },
+
+    /// The ASIO driver reported a sample rate change.
+    ///
+    /// Only dispatched when the reported rate differs from the last known rate, so spurious
+    /// `sampleRateDidChange` calls (e.g. on AES/EBU sync status changes where the rate has not
+    /// actually changed) are suppressed.
+    SampleRateChanged(f64),
 }
 
 /// A rust-usable version of the `ASIOTime` type that does not contain a binary blob for fields.
 #[repr(C, packed(4))]
 pub struct AsioTime {
     /// Must be `0`.
-    pub reserved: [c_long; 4],
+    reserved: [i32; 4],
     /// Required.
     pub time_info: AsioTimeInfo,
     /// Optional, evaluated if (time_code.flags & ktcValid).
@@ -277,9 +307,9 @@ pub struct AsioTimeInfo {
     /// Current rate, unsigned.
     pub sample_rate: AsioSampleRate,
     /// See `AsioTimeInfoFlags`.
-    pub flags: c_long,
+    pub flags: i32,
     /// Must be `0`.
-    pub reserved: [c_char; 12],
+    reserved: [c_char; 12],
 }
 
 /// A rust-compatible version of the `ASIOTimeCode` type that does not use a binary blob for its
@@ -293,9 +323,9 @@ pub struct AsioTimeCode {
     /// Time in samples unsigned.
     pub time_code_samples: ai::ASIOSamples,
     /// See `ASIOTimeCodeFlags`.
-    pub flags: c_long,
+    pub flags: i32,
     /// Set to `0`.
-    pub future: [c_char; 64],
+    future: [c_char; 64],
 }
 
 /// A rust-compatible version of the `ASIOSampleRate` type that does not use a binary blob for its
@@ -311,28 +341,32 @@ struct BufferSizes {
     grans: c_long,
 }
 
+/// Identifies a buffer callback registered via [`Driver::add_callback`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CallbackId(usize);
+pub struct BufferCallbackId(usize);
 
 /// A global way to access all the callbacks.
 ///
 /// This is required because of how ASIO calls the `buffer_switch` function with no data
 /// parameters.
-static BUFFER_CALLBACK: Mutex<Vec<(CallbackId, BufferCallback)>> = Mutex::new(Vec::new());
+static BUFFER_CALLBACK: Mutex<Vec<(BufferCallbackId, BufferCallback)>> = Mutex::new(Vec::new());
 
 /// Used to identify when to clear buffers.
 static CALLBACK_FLAG: AtomicU32 = AtomicU32::new(0);
 
 /// Indicates that ASIOOutputReady should be called
 static CALL_OUTPUT_READY: AtomicBool = AtomicBool::new(false);
+static CURRENT_SAMPLE_RATE: AtomicU64 = AtomicU64::new(0);
 
+/// Identifies a driver event callback registered via [`Driver::add_event_callback`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MessageCallbackId(usize);
+pub struct DriverEventCallbackId(usize);
 
-struct MessageCallback(Arc<dyn Fn(AsioMessageSelectors) + Send + Sync>);
+struct DriverEventCallback(Arc<dyn Fn(AsioDriverEvent) -> bool + Send + Sync>);
 
-/// A global registry for ASIO message callbacks.
-static MESSAGE_CALLBACKS: Mutex<Vec<(MessageCallbackId, MessageCallback)>> = Mutex::new(Vec::new());
+/// A global registry for ASIO driver event callbacks.
+static DRIVER_EVENT_CALLBACKS: Mutex<Vec<(DriverEventCallbackId, DriverEventCallback)>> =
+    Mutex::new(Vec::new());
 
 impl Asio {
     /// Initialise the ASIO API.
@@ -391,8 +425,16 @@ impl Asio {
     /// an error. That said, if this method is called with the name of a driver that has already
     /// been loaded, that driver will be returned successfully.
     pub fn load_driver(&self, driver_name: &str) -> Result<Driver, LoadDriverError> {
+        // Hold the lock for the entire operation to prevent a TOCTOU race where two threads
+        // both pass the "no driver loaded" check and then both call load_asio_driver.
+        let mut loaded = self
+            .loaded_driver
+            .lock()
+            .expect("failed to acquire loaded driver lock");
+
         // Check whether or not a driver is already loaded.
-        if let Some(driver) = self.loaded_driver() {
+        if let Some(inner) = loaded.upgrade() {
+            let driver = Driver { inner };
             if driver.name() == driver_name {
                 return Ok(driver);
             } else {
@@ -402,17 +444,21 @@ impl Asio {
 
         // Make owned CString to send to load driver
         let driver_name_cstring =
-            CString::new(driver_name).expect("failed to create `CString` from driver name");
+            CString::new(driver_name).map_err(|_| LoadDriverError::LoadDriverFailed)?;
         let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
-            // TODO: Check that a driver of the same name does not already exist?
             match ai::load_asio_driver(driver_name_cstring.as_ptr() as *mut i8) {
                 false => Err(LoadDriverError::LoadDriverFailed),
                 true => {
                     // Initialize ASIO.
                     asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
                     let _driver_info = driver_info.assume_init();
+                    let mut rate: c_double = 0.0;
+                    let _ = asio_result!(ai::get_sample_rate(&mut rate));
+                    if rate > 0.0 {
+                        CURRENT_SAMPLE_RATE.store(rate.to_bits(), Ordering::Release);
+                    }
                     let state = Mutex::new(DriverState::Initialized);
                     let name = driver_name.to_string();
                     let destroyed = false;
@@ -421,10 +467,7 @@ impl Asio {
                         state,
                         destroyed,
                     });
-                    *self
-                        .loaded_driver
-                        .lock()
-                        .expect("failed to acquire loaded driver lock") = Arc::downgrade(&inner);
+                    *loaded = Arc::downgrade(&inner);
                     let driver = Driver { inner };
                     Ok(driver)
                 }
@@ -449,25 +492,45 @@ impl Driver {
 
     /// Returns the number of input and output channels available on the driver.
     pub fn channels(&self) -> Result<Channels, AsioError> {
+        let _guard = self.inner.lock_state();
         let mut ins: c_long = 0;
         let mut outs: c_long = 0;
         unsafe {
             asio_result!(ai::ASIOGetChannels(&mut ins, &mut outs))?;
         }
-        let channel = Channels { ins, outs };
-        Ok(channel)
+        Ok(Channels { ins, outs })
+    }
+
+    /// Get the input and output hardware latency in frames.
+    pub fn latencies(&self) -> Result<Latencies, AsioError> {
+        let _guard = self.inner.lock_state();
+        let mut input_latency: c_long = 0;
+        let mut output_latency: c_long = 0;
+        unsafe {
+            asio_result!(ai::ASIOGetLatencies(
+                &mut input_latency,
+                &mut output_latency
+            ))?;
+        }
+        Ok(Latencies {
+            input: input_latency,
+            output: output_latency,
+        })
     }
 
     /// Get the min and max supported buffersize of the driver.
-    pub fn buffersize_range(&self) -> Result<(c_long, c_long), AsioError> {
+    pub fn buffersize_range(&self) -> Result<BufferSizeRange, AsioError> {
+        let _guard = self.inner.lock_state();
         let buffer_sizes = asio_get_buffer_sizes()?;
-        let min = buffer_sizes.min;
-        let max = buffer_sizes.max;
-        Ok((min, max))
+        Ok(BufferSizeRange {
+            min: buffer_sizes.min,
+            max: buffer_sizes.max,
+        })
     }
 
     /// Get current sample rate of the driver.
-    pub fn sample_rate(&self) -> Result<c_double, AsioError> {
+    pub fn sample_rate(&self) -> Result<f64, AsioError> {
+        let _guard = self.inner.lock_state();
         let mut rate: c_double = 0.0;
         unsafe {
             asio_result!(ai::get_sample_rate(&mut rate))?;
@@ -476,7 +539,8 @@ impl Driver {
     }
 
     /// Can the driver accept the given sample rate.
-    pub fn can_sample_rate(&self, sample_rate: c_double) -> Result<bool, AsioError> {
+    pub fn can_sample_rate(&self, sample_rate: f64) -> Result<bool, AsioError> {
+        let _guard = self.inner.lock_state();
         unsafe {
             match asio_result!(ai::can_sample_rate(sample_rate)) {
                 Ok(()) => Ok(true),
@@ -487,9 +551,71 @@ impl Driver {
     }
 
     /// Set the sample rate for the driver.
-    pub fn set_sample_rate(&self, sample_rate: c_double) -> Result<(), AsioError> {
-        unsafe {
-            asio_result!(ai::set_sample_rate(sample_rate))?;
+    pub fn set_sample_rate(&self, sample_rate: f64) -> Result<(), AsioError> {
+        let actual = {
+            let _guard = self.inner.lock_state();
+            unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+            let mut actual: c_double = 0.0;
+            unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+            actual
+        };
+
+        // Check whether the driver applied the rate immediately.
+        if (actual - sample_rate).abs() < 1.0 {
+            CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
+            return Ok(());
+        }
+
+        // Some ASIO drivers (e.g. Steinberg) do not apply a rate change until after a
+        // complete buffer-creation cycle (CreateBuffers -> Start -> Stop -> DisposeBuffers),
+        // followed by a full driver teardown and reload.
+        let mut dummy_infos = prepare_buffer_infos(false, 1);
+        let buffer_size = self.create_buffers(&mut dummy_infos, None)?;
+
+        // Start briefly so the driver reconfigures its hardware clock.
+        self.start()?;
+
+        // Wait for one full buffer to be processed: this guarantees the driver has
+        // applied the rate change to the hardware clock before we stop it.
+        let buffer_duration = Duration::from_secs_f64(buffer_size as f64 / sample_rate);
+        std::thread::sleep(buffer_duration);
+
+        self.stop()?;
+        self.dispose_buffers()?;
+
+        // Full teardown so the driver is reset to a clean state. Some drivers
+        // (e.g. Steinberg) return errors from ASIOGetChannels after DisposeBuffers
+        // unless the driver is fully exited and reloaded.
+        {
+            let mut state = self.inner.lock_state();
+            unsafe {
+                let _ = asio_result!(ai::ASIOExit());
+                ai::remove_current_driver();
+            }
+            std::thread::sleep(buffer_duration);
+
+            // Safety: the name was validated as null-free when the driver was first loaded.
+            let name_cstring = CString::new(self.inner.name.as_str())
+                .expect("driver name already stored must not contain null bytes");
+            unsafe {
+                if !ai::load_asio_driver(name_cstring.as_ptr() as *mut i8) {
+                    return Err(AsioError::NoDrivers);
+                }
+                let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
+                asio_result!(ai::ASIOInit(driver_info.as_mut_ptr()))?;
+            }
+            *state = DriverState::Initialized;
+
+            // Set the rate again on the freshly initialized driver.
+            unsafe { asio_result!(ai::set_sample_rate(sample_rate))? };
+
+            let mut actual: c_double = 0.0;
+            unsafe { asio_result!(ai::get_sample_rate(&mut actual))? };
+            if (actual - sample_rate).abs() >= 1.0 {
+                return Err(AsioError::NoRate);
+            }
+
+            CURRENT_SAMPLE_RATE.store(actual.to_bits(), Ordering::Release);
         }
         Ok(())
     }
@@ -498,6 +624,7 @@ impl Driver {
     ///
     /// This queries a single channel's type assuming all channels have the same sample type.
     pub fn input_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        let _guard = self.inner.lock_state();
         stream_data_type(true)
     }
 
@@ -505,6 +632,7 @@ impl Driver {
     ///
     /// This queries a single channel's type assuming all channels have the same sample type.
     pub fn output_data_type(&self) -> Result<AsioSampleType, AsioError> {
+        let _guard = self.inner.lock_state();
         stream_data_type(false)
     }
 
@@ -723,22 +851,22 @@ impl Driver {
     /// The given function receives the index of the buffer currently ready for processing.
     ///
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
-    pub fn add_callback<F>(&self, callback: F) -> CallbackId
+    pub fn add_callback<F>(&self, callback: F) -> BufferCallbackId
     where
         F: 'static + FnMut(&CallbackInfo) + Send,
     {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
         let id = bc
             .last()
-            .map(|&(id, _)| CallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
-            .unwrap_or(CallbackId(0));
+            .map(|&(id, _)| BufferCallbackId(id.0.checked_add(1).expect("stream ID overflowed")))
+            .unwrap_or(BufferCallbackId(0));
         let cb = BufferCallback(Box::new(callback));
         bc.push((id, cb));
         id
     }
 
     /// Remove the callback with the given ID.
-    pub fn remove_callback(&self, rem_id: CallbackId) {
+    pub fn remove_callback(&self, rem_id: BufferCallbackId) {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
         bc.retain(|&(id, _)| id != rem_id);
     }
@@ -763,30 +891,38 @@ impl Driver {
         }
     }
 
-    /// Adds a callback to the list of message listeners.
+    /// Register a callback to receive ASIO driver events.
+    ///
+    /// The callback receives an [`AsioDriverEvent`] and returns a `bool`. The return value is
+    /// meaningful only for [`AsioDriverEvent::Message`] with selector
+    /// [`AsioMessageSelectors::kAsioSelectorSupported`]: return `true` to advertise support for
+    /// the queried selector, `false` to decline. For all other events the return value is ignored.
     ///
     /// Returns an ID uniquely associated with the given callback so that it may be removed later.
-    pub fn add_message_callback<F>(&self, callback: F) -> MessageCallbackId
+    pub fn add_event_callback<F>(&self, callback: F) -> DriverEventCallbackId
     where
-        F: Fn(AsioMessageSelectors) + Send + Sync + 'static,
+        F: Fn(AsioDriverEvent) -> bool + Send + Sync + 'static,
     {
-        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
-        let id = mcb
+        let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
+        let id = dcb
             .last()
             .map(|&(id, _)| {
-                MessageCallbackId(id.0.checked_add(1).expect("MessageCallbackId overflowed"))
+                DriverEventCallbackId(
+                    id.0.checked_add(1)
+                        .expect("DriverEventCallbackId overflowed"),
+                )
             })
-            .unwrap_or(MessageCallbackId(0));
+            .unwrap_or(DriverEventCallbackId(0));
 
-        let cb = MessageCallback(Arc::new(callback));
-        mcb.push((id, cb));
+        let cb = DriverEventCallback(Arc::new(callback));
+        dcb.push((id, cb));
         id
     }
 
-    /// Remove the callback with the given ID.
-    pub fn remove_message_callback(&self, rem_id: MessageCallbackId) {
-        let mut mcb = MESSAGE_CALLBACKS.lock().unwrap();
-        mcb.retain(|&(id, _)| id != rem_id);
+    /// Remove the event callback with the given ID.
+    pub fn remove_event_callback(&self, rem_id: DriverEventCallbackId) {
+        let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
+        dcb.retain(|&(id, _)| id != rem_id);
     }
 
     /// Opens the ASIO driver's control panel window.
@@ -884,15 +1020,11 @@ unsafe impl Send for AsioStream {}
 fn prepare_buffer_infos(is_input: bool, n_channels: usize) -> Vec<AsioBufferInfo> {
     let is_input = if is_input { 1 } else { 0 };
     (0..n_channels)
-        .map(|ch| {
-            let channel_num = ch as c_long;
+        .map(|ch| AsioBufferInfo {
+            is_input,
+            channel_num: ch as i32,
             // To be filled by ASIOCreateBuffers.
-            let buffers = [std::ptr::null_mut(); 2];
-            AsioBufferInfo {
-                is_input,
-                channel_num,
-                buffers,
-            }
+            buffers: [std::ptr::null_mut(); 2],
         })
         .collect()
 }
@@ -944,18 +1076,35 @@ fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
     unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
 }
 
-/// ASIO uses null terminated c strings for channel names.
-///
-/// This converts to utf8.
-fn _channel_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
-    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
+/// Convert an `ASIOTimeStamp` (high and low 32-bit halves) to a `u64` nanosecond value.
+#[inline]
+fn asio_timestamp_to_nanos(ts: ai::ASIOTimeStamp) -> u64 {
+    (ts.hi as u64) << 32 | ts.lo as u64
 }
 
 /// Indicates the stream sample rate has changed.
-///
-/// TODO: Provide some way of allowing CPAL to handle this.
 extern "C" fn sample_rate_did_change(s_rate: c_double) {
-    eprintln!("unhandled sample rate change to {}", s_rate);
+    let old_bits = CURRENT_SAMPLE_RATE.load(Ordering::Acquire);
+    if s_rate.to_bits() != old_bits {
+        CURRENT_SAMPLE_RATE.store(s_rate.to_bits(), Ordering::Release);
+        dispatch_event(AsioDriverEvent::SampleRateChanged(s_rate));
+    }
+}
+
+const ASIO_VERSION: c_long = 2;
+
+/// Dispatch `event` to all registered driver event callbacks.
+///
+/// Returns `true` if any callback returns `true`. All callbacks are always called so that
+/// notification side-effects (e.g. stream invalidation) reach every registered listener.
+fn dispatch_event(event: AsioDriverEvent) -> bool {
+    let callbacks: Vec<_> = {
+        let lock = DRIVER_EVENT_CALLBACKS.lock().unwrap();
+        lock.iter().map(|(_, cb)| cb.0.clone()).collect()
+    };
+    callbacks
+        .iter()
+        .fold(false, |handled, cb| cb(event) || handled)
 }
 
 /// Message callback for ASIO to notify of certain events.
@@ -967,78 +1116,73 @@ extern "C" fn asio_message(
 ) -> c_long {
     match AsioMessageSelectors::from_i64(selector as i64) {
         Some(AsioMessageSelectors::kAsioSelectorSupported) => {
-            // Indicate what message selectors are supported.
+            // For selectors that asio-sys itself always handles, advertise support
+            // unconditionally. For all others, delegate to registered callbacks so
+            // each host can opt-in.
             match AsioMessageSelectors::from_i64(value as i64) {
+                Some(AsioMessageSelectors::kAsioSelectorSupported)
                 | Some(AsioMessageSelectors::kAsioResetRequest)
                 | Some(AsioMessageSelectors::kAsioEngineVersion)
                 | Some(AsioMessageSelectors::kAsioResyncRequest)
                 | Some(AsioMessageSelectors::kAsioLatenciesChanged)
-                // Following added in ASIO 2.0.
-                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo)
-                | Some(AsioMessageSelectors::kAsioSupportsTimeCode)
-                | Some(AsioMessageSelectors::kAsioSupportsInputMonitor) => 1,
-                _ => 0,
+                | Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => true as c_long,
+                _ => dispatch_event(AsioDriverEvent::Message {
+                    selector: AsioMessageSelectors::kAsioSelectorSupported,
+                    value,
+                }) as c_long,
             }
         }
 
         Some(AsioMessageSelectors::kAsioResetRequest) => {
-            // Defer the task and perform the reset of the driver during the next "safe" situation
-            // You cannot reset the driver right now, as this code is called from the driver. Reset
-            // the driver is done by completely destruct it. I.e. ASIOStop(), ASIODisposeBuffers(),
-            // Destruction. Afterwards you initialize the driver again.
-
-            // Get the list of active message callbacks.
-            let callbacks: Vec<_> = {
-                let lock = MESSAGE_CALLBACKS.lock().unwrap();
-                lock.iter().map(|(_, cb)| cb.0.clone()).collect()
-            };
-            // Release lock and call them.
-            for cb in callbacks {
-                cb(AsioMessageSelectors::kAsioResetRequest);
-            }
-
-            1
+            // The driver requests a full teardown and reinitialisation. Cannot be performed
+            // here as this callback is invoked from within the driver; notify the host to
+            // defer the reset to a safe point.
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioResetRequest,
+                value,
+            });
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioResyncRequest) => {
-            // This informs the application, that the driver encountered some non fatal data loss.
-            // It is used for synchronization purposes of different media. Added mainly to work
-            // around the Win16Mutex problems in Windows 95/98 with the Windows Multimedia system,
-            // which could loose data because the Mutex was hold too long by another thread.
-            // However a driver can issue it in other situations, too.
-            // TODO: Handle this.
-            1
+            // The driver encountered non-fatal data loss (e.g. a timestamp discontinuity).
+            // Notify the host so it can handle the gap appropriately.
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioResyncRequest,
+                value,
+            });
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioLatenciesChanged) => {
-            // This will inform the host application that the drivers were latencies changed.
-            // Beware, it this does not mean that the buffer sizes have changed! You might need to
-            // update internal delay data.
-            // TODO: Handle this.
-            1
+            // The driver latencies have changed; have them re-queried.
+            dispatch_event(AsioDriverEvent::Message {
+                selector: AsioMessageSelectors::kAsioLatenciesChanged,
+                value,
+            });
+            true as c_long
         }
 
         Some(AsioMessageSelectors::kAsioEngineVersion) => {
-            // Return the supported ASIO version of the host application If a host applications
-            // does not implement this selector, ASIO 1.0 is assumed by the driver
-            2
+            // Return the supported ASIO version of the host application. If a host application
+            // does not implement this selector, ASIO 1.0 is assumed by the driver.
+            ASIO_VERSION
         }
 
         Some(AsioMessageSelectors::kAsioSupportsTimeInfo) => {
             // Informs the driver whether the asioCallbacks.bufferSwitchTimeInfo() callback is
             // supported. For compatibility with ASIO 1.0 drivers the host application should
             // always support the "old" bufferSwitch method, too, which we do.
-            1
+            true as c_long
         }
 
-        Some(AsioMessageSelectors::kAsioSupportsTimeCode) => {
-            // Informs the driver whether the application is interested in time code info. If an
-            // application does not need to know about time code, the driver has less work to do.
-            // TODO: Provide an option for this?
-            1
-        }
+        // For all other selectors, delegate to registered callbacks.
+        Some(other) => dispatch_event(AsioDriverEvent::Message {
+            selector: other,
+            value,
+        }) as c_long,
 
-        _ => 0, // Unknown/unhandled message type.
+        None => false as c_long, // Unrecognised selector.
     }
 }
 
@@ -1061,7 +1205,7 @@ extern "C" fn buffer_switch_time_info(
 
     let callback_info = CallbackInfo {
         buffer_index: double_buffer_index,
-        system_time: asio_time.time_info.system_time,
+        system_time: asio_timestamp_to_nanos(asio_time.time_info.system_time),
         callback_flag,
     };
     for &mut (_, ref mut bc) in bcs.iter_mut() {

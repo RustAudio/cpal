@@ -4,13 +4,13 @@ extern crate num_traits;
 use crate::host::com;
 use crate::I24;
 
-use self::num_traits::PrimInt;
+use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,8 +20,8 @@ pub struct Stream {
     driver: Arc<sys::Driver>,
     #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
-    callback_id: sys::CallbackId,
-    message_callback_id: sys::MessageCallbackId,
+    callback_id: sys::BufferCallbackId,
+    driver_event_callback_id: sys::DriverEventCallbackId,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -30,12 +30,12 @@ crate::assert_stream_sync!(Stream);
 
 impl Stream {
     pub fn play(&self) -> Result<(), PlayStreamError> {
-        self.playing.store(true, Ordering::SeqCst);
+        self.playing.store(true, Ordering::Release);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), PauseStreamError> {
-        self.playing.store(false, Ordering::SeqCst);
+        self.playing.store(false, Ordering::Release);
         Ok(())
     }
 
@@ -81,9 +81,6 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        // Register the message callback with the driver
-        let message_callback_id = self.add_message_callback(&driver, error_callback);
-
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_input_stream(&driver, config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
@@ -92,17 +89,44 @@ impl Device {
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
 
+        // Query hardware input latency (order matters: needs buffers created above).
+        // Wrapped in Arc<AtomicUsize> so the message callback can update it on
+        // kAsioLatenciesChanged without touching the buffer callback.
+        let hardware_input_latency = Arc::new(AtomicUsize::new(
+            driver
+                .latencies()
+                .map(|latencies| latencies.input.max(0) as usize)
+                .unwrap_or(0),
+        ));
+
+        let driver_event_callback_id = self.add_event_callback(
+            &driver,
+            error_callback,
+            Arc::clone(&hardware_input_latency),
+            true,
+        );
+
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
+        let mut current_buffer_size = buffer_size as i32;
+        let mut last_buffer_index: i32 = -1;
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing return early.
-            if !playing.load(Ordering::SeqCst) {
+            if !playing.load(Ordering::Acquire) {
                 return;
             }
+
+            // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
+            // fire the buffer callback multiple times per buffer cycle with the same buffer
+            // index.
+            if callback_info.buffer_index == last_buffer_index {
+                return;
+            }
+            last_buffer_index = callback_info.buffer_index;
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
             let stream_lock = asio_streams.lock().unwrap();
@@ -111,8 +135,23 @@ impl Device {
                 None => return,
             };
 
+            // Resize the buffer only when the driver issues a buffer size change request.
+            // In normal operation this branch is never taken.
+            if asio_stream.buffer_size != current_buffer_size {
+                current_buffer_size = asio_stream.buffer_size;
+                interleaved.resize(
+                    current_buffer_size as usize
+                        * num_channels as usize
+                        * sample_format.sample_size(),
+                    0,
+                );
+            }
+
+            let hardware_input_latency = hardware_input_latency.load(Ordering::Relaxed);
+
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
+            #[allow(clippy::too_many_arguments)]
             unsafe fn process_input_callback<A, D, F>(
                 data_callback: &mut D,
                 interleaved: &mut [u8],
@@ -121,6 +160,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 format: SampleFormat,
                 from_endianness: F,
+                hardware_latency_frames: usize,
             ) where
                 A: Copy,
                 D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -143,10 +183,10 @@ impl Device {
                 apply_input_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
+                    hardware_latency_frames,
                 );
             }
 
@@ -160,6 +200,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I16,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -171,6 +212,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I16,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -183,6 +225,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F32,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
@@ -194,6 +237,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F32,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -206,6 +250,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I32,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -217,6 +262,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::I32,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -229,6 +275,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F64,
                         from_le,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
@@ -240,6 +287,7 @@ impl Device {
                         config.sample_rate,
                         SampleFormat::F64,
                         from_be,
+                        hardware_input_latency,
                     );
                 }
 
@@ -251,6 +299,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         true,
+                        hardware_input_latency,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
@@ -261,6 +310,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         false,
+                        hardware_input_latency,
                     );
                 }
 
@@ -275,7 +325,6 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        // Immediately start the device?
         driver.start().map_err(build_stream_err)?;
 
         Ok(Stream {
@@ -283,7 +332,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
-            message_callback_id,
+            driver_event_callback_id,
         })
     }
 
@@ -318,27 +367,51 @@ impl Device {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
 
-        // Register the message callback with the driver
-        let message_callback_id = self.add_message_callback(&driver, error_callback);
-
         let num_channels = config.channels;
         let buffer_size = self.get_or_create_output_stream(&driver, config, sample_format)?;
         let cpal_num_samples = buffer_size * num_channels as usize;
 
-        // Create buffers depending on data type.
+        // Create the buffer depending on data type.
         let len_bytes = cpal_num_samples * sample_format.sample_size();
         let mut interleaved = vec![0u8; len_bytes];
         let current_callback_flag = self.current_callback_flag.clone();
 
+        // Query hardware output latency (order matters: needs buffers created above).
+        // Wrapped in Arc<AtomicUsize> so the message callback can update it on
+        // kAsioLatenciesChanged without touching the buffer callback.
+        let hardware_output_latency = Arc::new(AtomicUsize::new(
+            driver
+                .latencies()
+                .map(|latencies| latencies.output.max(0) as usize)
+                .unwrap_or(0),
+        ));
+
+        let driver_event_callback_id = self.add_event_callback(
+            &driver,
+            error_callback,
+            Arc::clone(&hardware_output_latency),
+            false,
+        );
+
         let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
+        let mut current_buffer_size = buffer_size as i32;
+        let mut last_buffer_index: i32 = -1;
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if !playing.load(Ordering::SeqCst) {
+            if !playing.load(Ordering::Acquire) {
                 return;
             }
+
+            // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
+            // fire the buffer callback multiple times per buffer cycle with the same buffer
+            // index.
+            if callback_info.buffer_index == last_buffer_index {
+                return;
+            }
+            last_buffer_index = callback_info.buffer_index;
 
             // There is 0% chance of lock contention the host only locks when recreating streams.
             let mut stream_lock = asio_streams.lock().unwrap();
@@ -346,6 +419,20 @@ impl Device {
                 Some(ref mut asio_stream) => asio_stream,
                 None => return,
             };
+
+            // Resize the buffer only when the driver issues a buffer size change request.
+            // In normal operation this branch is never taken.
+            if asio_stream.buffer_size != current_buffer_size {
+                current_buffer_size = asio_stream.buffer_size;
+                interleaved.resize(
+                    current_buffer_size as usize
+                        * num_channels as usize
+                        * sample_format.sample_size(),
+                    0,
+                );
+            }
+
+            let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed);
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -372,6 +459,7 @@ impl Device {
                 sample_rate: crate::SampleRate,
                 format: SampleFormat,
                 mix_samples: F,
+                hardware_latency_frames: usize,
             ) where
                 A: Copy,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -381,10 +469,10 @@ impl Device {
                 apply_output_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_stream,
                     asio_info,
                     sample_rate,
                     format,
+                    hardware_latency_frames,
                 );
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
                 let buffer_index = asio_info.buffer_index as usize;
@@ -415,6 +503,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
@@ -429,6 +518,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
@@ -445,6 +535,7 @@ impl Device {
                                 .to_bits()
                                 .to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -462,6 +553,7 @@ impl Device {
                                 .to_bits()
                                 .to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -477,6 +569,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
                 (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
@@ -491,6 +584,7 @@ impl Device {
                         |old_sample, new_sample| {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -508,6 +602,7 @@ impl Device {
                                 .to_bits()
                                 .to_le()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -525,6 +620,7 @@ impl Device {
                                 .to_bits()
                                 .to_be()
                         },
+                        hardware_output_latency,
                     );
                 }
 
@@ -537,6 +633,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
+                        hardware_output_latency,
                     );
                 }
 
@@ -549,6 +646,7 @@ impl Device {
                         asio_stream,
                         callback_info,
                         config.sample_rate,
+                        hardware_output_latency,
                     );
                 }
 
@@ -563,7 +661,6 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        // Immediately start the device?
         driver.start().map_err(build_stream_err)?;
 
         Ok(Stream {
@@ -571,7 +668,7 @@ impl Device {
             driver,
             asio_streams,
             callback_id,
-            message_callback_id,
+            driver_event_callback_id,
         })
     }
 
@@ -615,10 +712,7 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|ref e| {
-                        println!("Error preparing stream: {}", e);
-                        BuildStreamError::DeviceNotAvailable
-                    })
+                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
             }
         }
     }
@@ -661,29 +755,88 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|ref e| {
-                        println!("Error preparing stream: {}", e);
-                        BuildStreamError::DeviceNotAvailable
-                    })
+                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
             }
         }
     }
 
-    fn add_message_callback<E>(
+    fn add_event_callback<E>(
         &self,
         driver: &sys::Driver,
         error_callback: E,
-    ) -> sys::MessageCallbackId
+        hardware_latency: Arc<AtomicUsize>,
+        is_input: bool,
+    ) -> sys::DriverEventCallbackId
     where
         E: FnMut(StreamError) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
+        let configured_sample_rate = driver.sample_rate().ok().filter(|&r| r > 0.0);
+        let driver_for_latency = driver.clone();
+        let asio_streams_for_event = self.asio_streams.clone();
 
-        driver.add_message_callback(move |msg| {
-            // Check specifically for ResetRequest
-            if let sys::AsioMessageSelectors::kAsioResetRequest = msg {
-                if let Ok(mut cb) = error_callback_shared.lock() {
-                    cb(StreamError::StreamInvalidated);
+        driver.add_event_callback(move |event| {
+            match event {
+                sys::AsioDriverEvent::Message {
+                    selector: msg,
+                    value,
+                } => match msg {
+                    sys::AsioMessageSelectors::kAsioSelectorSupported => {
+                        // Signal which selectors this stream opts into.
+                        matches!(
+                            sys::AsioMessageSelectors::from_i64(value as i64),
+                            Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
+                        )
+                    }
+                    sys::AsioMessageSelectors::kAsioResetRequest => {
+                        if let Ok(mut cb) = error_callback_shared.lock() {
+                            cb(StreamError::StreamInvalidated);
+                        }
+                        false
+                    }
+                    sys::AsioMessageSelectors::kAsioResyncRequest => {
+                        if let Ok(mut cb) = error_callback_shared.lock() {
+                            cb(StreamError::BufferUnderrun);
+                        }
+                        false
+                    }
+                    sys::AsioMessageSelectors::kAsioLatenciesChanged => {
+                        if let Ok(latencies) = driver_for_latency.latencies() {
+                            let latency = if is_input {
+                                latencies.input
+                            } else {
+                                latencies.output
+                            };
+                            hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
+                        }
+                        false
+                    }
+                    sys::AsioMessageSelectors::kAsioBufferSizeChange => {
+                        if value > 0 {
+                            if let Ok(mut streams) = asio_streams_for_event.lock() {
+                                let stream = if is_input {
+                                    streams.input.as_mut()
+                                } else {
+                                    streams.output.as_mut()
+                                };
+                                if let Some(s) = stream {
+                                    s.buffer_size = value;
+                                }
+                            }
+                        }
+                        true
+                    }
+                    _ => false,
+                },
+                sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
+                    if let Some(rate) = configured_sample_rate {
+                        if (new_rate - rate).abs() >= 1.0 {
+                            if let Ok(mut cb) = error_callback_shared.lock() {
+                                cb(StreamError::StreamInvalidated);
+                            }
+                        }
+                    }
+                    false
                 }
             }
         })
@@ -694,17 +847,8 @@ impl Drop for Stream {
     fn drop(&mut self) {
         self.driver.remove_callback(self.callback_id);
         self.driver
-            .remove_message_callback(self.message_callback_id);
+            .remove_event_callback(self.driver_event_callback_id);
     }
-}
-
-/// Asio retrieves system time via `timeGetTime` which returns the time in milliseconds.
-fn system_time_to_stream_instant(
-    system_time: sys::bindings::asio_import::ASIOTimeStamp,
-) -> crate::StreamInstant {
-    let nanos = (system_time.hi as u64) << 32 | system_time.lo as u64;
-    crate::StreamInstant::from_nanos_i128(nanos as i128)
-        .expect("`system_time` out of range of `StreamInstant` representation")
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
@@ -736,9 +880,9 @@ fn check_config(
     // does NOT validate the lower bound. Passing a buffer size below min would be accepted but
     // behavior is unspecified.
     if let BufferSize::Fixed(requested_size) = buffer_size {
-        let (min, max) = driver.buffersize_range().map_err(build_stream_err)?;
+        let range = driver.buffersize_range().map_err(build_stream_err)?;
         let requested_size_i32 = requested_size as i32;
-        if !(min..=max).contains(&requested_size_i32) {
+        if !(range.min..=range.max).contains(&requested_size_i32) {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
     }
@@ -853,6 +997,7 @@ fn i24_bytes_to_i32(i24_bytes: &[u8; 3], little_endian: bool) -> i32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn process_output_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
@@ -861,6 +1006,7 @@ unsafe fn process_output_callback_i24<D>(
     asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
+    hardware_latency_frames: usize,
 ) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
@@ -869,10 +1015,10 @@ unsafe fn process_output_callback_i24<D>(
     apply_output_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
+        hardware_latency_frames,
     );
 
     // Size of samples in the ASIO buffer (has to be 3 in this case)
@@ -930,6 +1076,7 @@ unsafe fn process_input_callback_i24<D>(
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     little_endian: bool,
+    hardware_latency_frames: usize,
 ) where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
@@ -965,10 +1112,10 @@ unsafe fn process_input_callback_i24<D>(
     apply_input_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_stream,
         asio_info,
         sample_rate,
         format,
+        hardware_latency_frames,
     );
 }
 
@@ -976,10 +1123,10 @@ unsafe fn process_input_callback_i24<D>(
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     sample_format: SampleFormat,
+    hardware_latency_frames: usize,
 ) where
     A: Copy,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -989,8 +1136,9 @@ unsafe fn apply_output_callback_to_data<A, D>(
         interleaved.len(),
         sample_format,
     );
-    let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
+    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation");
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let playback = callback
         .add(delay)
         .expect("`playback` occurs beyond representation supported by `StreamInstant`");
@@ -1003,10 +1151,10 @@ unsafe fn apply_output_callback_to_data<A, D>(
 unsafe fn apply_input_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_stream: &sys::AsioStream,
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     format: SampleFormat,
+    hardware_latency_frames: usize,
 ) where
     A: Copy,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -1016,8 +1164,9 @@ unsafe fn apply_input_callback_to_data<A, D>(
         interleaved.len(),
         format,
     );
-    let callback = system_time_to_stream_instant(asio_info.system_time);
-    let delay = frames_to_duration(asio_stream.buffer_size as usize, sample_rate);
+    let callback = crate::StreamInstant::from_nanos_i128(asio_info.system_time as i128)
+        .expect("`system_time` out of range of `StreamInstant` representation");
+    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
     let capture = callback
         .sub(delay)
         .expect("`capture` occurs before origin of alsa `StreamInstant`");

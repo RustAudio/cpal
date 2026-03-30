@@ -228,6 +228,7 @@ fn create_bindings(cpal_asio_dir: &PathBuf) {
         .allowlist_function("ASIOGetChannels")
         .allowlist_function("ASIOGetChannelInfo")
         .allowlist_function("ASIOGetBufferSize")
+        .allowlist_function("ASIOGetLatencies")
         .allowlist_function("ASIOGetSamplePosition")
         .allowlist_function("ASIOOutputReady")
         .allowlist_function("get_sample_rate")

@@ -3,9 +3,7 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
-use crate::host::pipewire::utils::{
-    audio, clock, group, DEVICE_ICON_NAME, METADATA_NAME, PORT_GROUP,
-};
+use crate::host::pipewire::utils::{audio, clock, DEVICE_ICON_NAME, METADATA_NAME};
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
 
@@ -631,20 +629,12 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                     return;
                                 }
                             };
-                            let Some(group) = props.get(PORT_GROUP) else {
-                                return;
-                            };
-                            let direction = match (group, role) {
-                                (group::PLAY_BACK, Role::Sink) => DeviceDirection::Duplex,
-                                (group::PLAY_BACK, Role::Source) => DeviceDirection::Output,
-                                (group::CAPTURE, _) => DeviceDirection::Input,
-                                (_, Role::Sink) => DeviceDirection::Output,
-                                (_, Role::Source) => DeviceDirection::Input,
-                                (_, Role::Duplex) => DeviceDirection::Duplex,
-                                // Bluetooth and other non-ALSA devices use generic port group
-                                // names like "stream.0" — derive direction from media.class
-                                (_, Role::StreamOutput) => DeviceDirection::Output,
-                                (_, Role::StreamInput) => DeviceDirection::Input,
+                            let direction = match role {
+                                Role::Sink => DeviceDirection::Duplex,
+                                Role::Source => DeviceDirection::Input,
+                                Role::Duplex => DeviceDirection::Duplex,
+                                Role::StreamOutput => DeviceDirection::Output,
+                                Role::StreamInput => DeviceDirection::Input,
                             };
                             let Some(object_serial) = props
                                 .get(*pw::keys::OBJECT_SERIAL)

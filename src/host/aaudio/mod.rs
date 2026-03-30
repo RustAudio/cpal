@@ -112,6 +112,9 @@ const SAMPLE_RATES: [i32; 15] = [
     176_400, 192_000,
 ];
 
+/// The same default for blocking operations as Oboe uses
+const DEFAULT_TIMEOUT_NANOS: i64 = 2_000_000_000;
+
 pub struct Host;
 #[derive(Clone)]
 pub struct Device(Option<AudioDeviceInfo>);
@@ -683,21 +686,32 @@ impl DeviceTrait for Device {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.inner
-            .lock()
-            .unwrap()
-            .request_start()
+        let stream = self.inner.lock().unwrap();
+
+        stream.request_start().map_err(PlayStreamError::from)?;
+        stream
+            .wait_for_state_change(
+                ndk::audio::AudioStreamState::Starting,
+                DEFAULT_TIMEOUT_NANOS,
+            )
+            .map(|_| ())
             .map_err(PlayStreamError::from)
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
         match self.direction {
-            DeviceDirection::Output => self
-                .inner
-                .lock()
-                .unwrap()
-                .request_pause()
-                .map_err(PauseStreamError::from),
+            DeviceDirection::Output => {
+                let stream = self.inner.lock().unwrap();
+
+                stream.request_pause().map_err(PauseStreamError::from)?;
+                stream
+                    .wait_for_state_change(
+                        ndk::audio::AudioStreamState::Pausing,
+                        DEFAULT_TIMEOUT_NANOS,
+                    )
+                    .map(|_| ())
+                    .map_err(PauseStreamError::from)
+            }
             _ => Err(BackendSpecificError {
                 description: "Pause only supported on output streams.".to_owned(),
             }

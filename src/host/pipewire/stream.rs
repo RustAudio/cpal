@@ -173,8 +173,6 @@ struct PwTime {
     /// For output: how far ahead of the driver our next sample will be played.
     /// For input:  how long ago the data in the buffer was captured.
     delay_ns: i64,
-    /// Quantum size in samples (frames) for this graph cycle.
-    quantum: u64,
 }
 
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
@@ -196,7 +194,6 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
     Some(PwTime {
         now_ns: t.now,
         delay_ns,
-        quantum: t.size,
     })
 }
 
@@ -211,18 +208,12 @@ where
         frames: usize,
         data: &Data,
     ) -> Result<(), BackendSpecificError> {
+        self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, capture) = match pw_stream_time(stream) {
-            Some(PwTime {
-                now_ns,
-                delay_ns,
-                quantum,
-            }) => {
-                self.last_quantum.store(quantum, Ordering::Relaxed);
-                (
-                    StreamInstant::from_nanos(now_ns),
-                    StreamInstant::from_nanos(now_ns - delay_ns),
-                )
-            }
+            Some(PwTime { now_ns, delay_ns }) => (
+                StreamInstant::from_nanos(now_ns),
+                StreamInstant::from_nanos(now_ns - delay_ns),
+            ),
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb
@@ -252,18 +243,12 @@ where
         frames: usize,
         data: &mut Data,
     ) -> Result<(), BackendSpecificError> {
+        self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, playback) = match pw_stream_time(stream) {
-            Some(PwTime {
-                now_ns,
-                delay_ns,
-                quantum,
-            }) => {
-                self.last_quantum.store(quantum, Ordering::Relaxed);
-                (
-                    StreamInstant::from_nanos(now_ns),
-                    StreamInstant::from_nanos(now_ns + delay_ns),
-                )
-            }
+            Some(PwTime { now_ns, delay_ns }) => (
+                StreamInstant::from_nanos(now_ns),
+                StreamInstant::from_nanos(now_ns + delay_ns),
+            ),
             None => {
                 let cb = stream_timestamp_fallback(self.created_instance)?;
                 let pl = cb

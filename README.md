@@ -9,14 +9,14 @@ Low-level library for audio input and output in pure Rust.
 
 The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
 
-- **AAudio (Android):** Rust **1.82**
+- **AAudio (Android):** Rust **1.85**
 - **ALSA (Linux/BSD):** Rust **1.82**
 - **CoreAudio (macOS/iOS):** Rust **1.80**
 - **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
-- **PipeWire (Linux/BSD):** Rust **1.82**
+- **PipeWire (Linux/BSD):** Rust **1.85**
 - **PulseAudio (Linux/BSD):** Rust **1.88**
 - **WASAPI/ASIO (Windows):** Rust **1.82**
-- **WASM (`wasm32-unknown`):** Rust **1.82**
+- **WASM (`wasm32-unknown`):** Rust **1.85**
 - **WASM (`wasm32-wasip1`):** Rust **1.78**
 - **WASM (`audioworklet`):** Rust **nightly** (requires `-Zbuild-std` for atomics support)
 

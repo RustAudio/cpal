@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
+- `device_by_id` is now dispatched to each backend's implementation, allowing to override it.
+- **ALSA**: `device_by_id` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 
@@ -26,25 +28,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
+- **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable` instead of looping.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
+- **ALSA**: Loop partial reads and writes to completion.
+- **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+- **ASIO**: Timestamps now include driver-reported hardware latency.
+- **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: Stream error callback now receives `StreamError::BufferUnderrun` on `kAsioResyncRequest`.
+- **ASIO**: Stream error callback now receives `StreamError::StreamInvalidated` when the driver reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
+- **CoreAudio**: Timestamps now include device latency and safety offset.
+- **JACK**: Timestamps now use the precise hardware deadline.
+- **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio, ALSA.
+- **WASAPI**: Timestamps now include hardware pipeline latency.
+- **WebAudio**: Bump MSRV to 1.85.
+- **WebAudio**: Timestamps now include base and output latency.
+- **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 
 ### Fixed
 
 - Reintroduce `audio_thread_priority` feature.
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
+- **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
+- **AAudio**: Fix invalid capture and playback timestamps.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
 - **ALSA**: Fix spurious timeout errors during polling.
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
+- **ALSA**: Fix timestamp overflows on 32-bit platforms.
 - **ASIO**: Fix enumeration returning only the first device when using `collect`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
+- **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
+- **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: Fix distortion when buggy drivers fire the buffer callback multiple times per cycle.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
+- **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 
 ## [0.17.3] - 2026-02-18
 

@@ -24,14 +24,14 @@ on:
 
 env:
   # MSRV varies by backend due to platform-specific dependencies
-  MSRV_AAUDIO: "1.82"
+  MSRV_AAUDIO: "1.85"
   MSRV_ALSA: "1.82"
   MSRV_COREAUDIO: "1.80"
   MSRV_JACK: "1.82"
-  MSRV_PIPEWIRE: "1.82"
+  MSRV_PIPEWIRE: "1.85"
   MSRV_PULSEAUDIO: "1.88"
   MSRV_WASIP1: "1.78"
-  MSRV_WASM: "1.82"
+  MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.82"
 
   PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
@@ -159,6 +159,32 @@ jobs:
 
       - name: Check examples (all features)
         run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
+
+  pipewire-bookworm:
+    name: pipewire-bookworm
+    runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps:bookworm
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install audio packages
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libpipewire-0.3-dev
+
+      - name: Install Rust (${{ env.MSRV_PIPEWIRE }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV_PIPEWIRE }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: pipewire-bookworm
+
+      - name: Check PipeWire on Debian Bookworm
+        run: cargo check --features pipewire --workspace --verbose
 
   # Windows (x86_64 and i686)
   windows:
@@ -543,6 +569,7 @@ jobs:
     needs:
       - linux
       - linux-armv7
+      - pipewire-bookworm
       - windows
       - macos
       - android
