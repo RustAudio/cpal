@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(target_os = "emscripten")]
 use wasm_bindgen::prelude::*;
 
 /// A monotonic time instance associated with a stream, retrieved from either:
