@@ -265,23 +265,41 @@ struct TriggerReceiver(libc::c_int);
 impl TriggerSender {
     fn wakeup(&self) {
         let buf = 1u64;
-        let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
-        assert_eq!(ret, 8);
+        loop {
+            let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
+            if ret == 8 {
+                return;
+            }
+            // write() can be interrupted by a signal before writing any bytes; retry.
+            assert_eq!(ret, -1, "wakeup: unexpected return value {ret}");
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                panic!("wakeup: {}", std::io::Error::last_os_error());
+            }
+        }
     }
 }
 
 impl TriggerReceiver {
     fn clear_pipe(&self) {
         let mut out = 0u64;
-        let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
-        assert_eq!(ret, 8);
+        loop {
+            let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
+            if ret == 8 {
+                return;
+            }
+            // read() can be interrupted by a signal before reading any bytes; retry.
+            assert_eq!(ret, -1, "clear_pipe: unexpected return value {ret}");
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                panic!("clear_pipe: {}", std::io::Error::last_os_error());
+            }
+        }
     }
 }
 
-fn trigger() -> (TriggerSender, TriggerReceiver) {
+fn trigger() -> (TriggerSender, Arc<TriggerReceiver>) {
     let mut fds = [0, 0];
     match unsafe { libc::pipe(fds.as_mut_ptr()) } {
-        0 => (TriggerSender(fds[1]), TriggerReceiver(fds[0])),
+        0 => (TriggerSender(fds[1]), Arc::new(TriggerReceiver(fds[0]))),
         _ => panic!("Could not create pipe"),
     }
 }
@@ -728,6 +746,10 @@ pub struct Stream {
 
     /// Used to signal to stop processing.
     trigger: TriggerSender,
+
+    /// Keeps the read end of the self-pipe alive for the lifetime of the Stream, so that
+    /// `trigger.wakeup()` never writes to a closed pipe, even if the worker exited early.
+    _rx: Arc<TriggerReceiver>,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -788,7 +810,7 @@ impl StreamWorkerContext {
 }
 
 fn input_stream_worker(
-    rx: TriggerReceiver,
+    rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
@@ -798,44 +820,45 @@ fn input_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
-        let flow =
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err.into());
-                PollDescriptorsFlow::Continue
-            });
-
-        match flow {
-            PollDescriptorsFlow::Continue => {
-                continue;
-            }
-            PollDescriptorsFlow::XRun => {
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                }
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
+        if stream.dropping.load(Ordering::Acquire) {
+            return;
+        }
+        let result = match poll_for_period(&rx, stream, &mut ctxt) {
+            Ok(Poll::Pending) => continue,
+            Ok(Poll::Ready {
                 status,
                 delay_frames,
-            } => {
-                if let Err(err) = process_input(
-                    stream,
-                    &mut ctxt.transfer_buffer,
-                    status,
-                    delay_frames,
-                    data_callback,
-                ) {
-                    error_callback(err.into());
+            }) => process_input(
+                stream,
+                &mut ctxt.transfer_buffer,
+                status,
+                delay_frames,
+                data_callback,
+            ),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result {
+            match err {
+                StreamError::BufferUnderrun => {
+                    error_callback(StreamError::BufferUnderrun);
+                    if let Err(err) = stream.channel.prepare() {
+                        error_callback(err.into());
+                    } else if let Err(err) = stream.channel.start() {
+                        error_callback(err.into());
+                    }
                 }
+                StreamError::DeviceNotAvailable => {
+                    error_callback(StreamError::DeviceNotAvailable);
+                    return;
+                }
+                err => error_callback(err),
             }
         }
     }
 }
 
 fn output_stream_worker(
-    rx: TriggerReceiver,
+    rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(StreamError) + Send + 'static),
@@ -846,36 +869,39 @@ fn output_stream_worker(
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
     loop {
-        let flow =
-            poll_descriptors_and_prepare_buffer(&rx, stream, &mut ctxt).unwrap_or_else(|err| {
-                error_callback(err.into());
-                PollDescriptorsFlow::Continue
-            });
-
-        match flow {
-            PollDescriptorsFlow::Continue => continue,
-            PollDescriptorsFlow::XRun => {
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(err) = stream.channel.prepare() {
-                    error_callback(err.into());
-                }
-                continue;
-            }
-            PollDescriptorsFlow::Return => return,
-            PollDescriptorsFlow::Ready {
+        if stream.dropping.load(Ordering::Acquire) {
+            return;
+        }
+        let result = match poll_for_period(&rx, stream, &mut ctxt) {
+            Ok(Poll::Pending) => continue,
+            Ok(Poll::Ready {
                 status,
                 delay_frames,
-            } => {
-                if let Err(err) = process_output(
-                    stream,
-                    &mut ctxt.transfer_buffer,
-                    status,
-                    delay_frames,
-                    data_callback,
-                    error_callback,
-                ) {
-                    error_callback(err.into());
+            }) => process_output(
+                stream,
+                &mut ctxt.transfer_buffer,
+                status,
+                delay_frames,
+                data_callback,
+            ),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result {
+            match err {
+                StreamError::BufferUnderrun => {
+                    error_callback(StreamError::BufferUnderrun);
+                    if let Err(err) = stream.channel.prepare() {
+                        error_callback(err.into());
+                    }
+                    // No need to call start() for output streams after prepare();
+                    // ALSA automatically restarts them when the buffer is refilled
+                    // and the stream is triggered again.
                 }
+                StreamError::DeviceNotAvailable => {
+                    error_callback(StreamError::DeviceNotAvailable);
+                    return;
+                }
+                err => error_callback(err),
             }
         }
     }
@@ -900,28 +926,60 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
 #[cfg(not(feature = "audio_thread_priority"))]
 fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
 
-enum PollDescriptorsFlow {
-    Continue,
-    Return,
+/// Attempt hardware resume from a suspend event (`ESTRPIPE`).
+fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
+    match channel.resume() {
+        // device resumed successfully and will continue running on its own
+        Ok(()) => Ok(Poll::Pending),
+        // device is still resuming; poll again until it is ready.
+        Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
+        // hardware does not support soft resume
+        Err(e) if e.errno() == libc::ENOSYS => Err(StreamError::BufferUnderrun),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Validate the result of a `writei` or `readi` call and map ALSA errors to [`StreamError`].
+#[inline]
+fn check_io_result(
+    result: Result<usize, alsa::Error>,
+    period_frames: usize,
+    channel: &alsa::PCM,
+    direction: alsa::Direction,
+) -> Result<(), StreamError> {
+    match result {
+        Ok(n) if n != period_frames => Err(BackendSpecificError {
+            description: format!(
+                "partial {}: expected {period_frames} frames, transferred {n}",
+                match direction {
+                    alsa::Direction::Capture => "read",
+                    alsa::Direction::Playback => "write",
+                }
+            ),
+        }
+        .into()),
+        Ok(_) => Ok(()),
+        Err(err) if err.errno() == libc::EPIPE => Err(StreamError::BufferUnderrun),
+        Err(err) if err.errno() == libc::ESTRPIPE => try_resume(channel).map(|_| ()),
+        Err(err) if err.errno() == libc::ENODEV => Err(StreamError::DeviceNotAvailable),
+        Err(err) => Err(err.into()),
+    }
+}
+
+enum Poll {
+    Pending,
     Ready {
         status: alsa::pcm::Status,
         delay_frames: usize,
     },
-    XRun,
 }
 
 // This block is shared between both input and output stream worker functions.
-fn poll_descriptors_and_prepare_buffer(
+fn poll_for_period(
     rx: &TriggerReceiver,
     stream: &StreamInner,
     ctxt: &mut StreamWorkerContext,
-) -> Result<PollDescriptorsFlow, BackendSpecificError> {
-    if stream.dropping.load(Ordering::Acquire) {
-        // The stream has been requested to be destroyed.
-        rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
-    }
-
+) -> Result<Poll, StreamError> {
     let StreamWorkerContext {
         ref mut descriptors,
         ref poll_timeout,
@@ -930,35 +988,38 @@ fn poll_descriptors_and_prepare_buffer(
 
     let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
-        let description = String::from("`alsa::poll()` spuriously returned");
-        return Err(BackendSpecificError { description });
+        // poll() returned 0: either a timeout or a spurious wakeup. Nothing to do.
+        return Ok(Poll::Pending);
     }
 
     if descriptors[0].revents != 0 {
-        // The stream has been requested to be destroyed.
+        // Self-pipe fired: the stream is being dropped. Clear the pipe and let the
+        // worker loop detect the dropping flag on the next iteration.
         rx.clear_pipe();
-        return Ok(PollDescriptorsFlow::Return);
+        return Ok(Poll::Pending);
     }
 
     let revents = stream.channel.revents(&descriptors[1..])?;
-    if revents.contains(alsa::poll::Flags::ERR) {
-        let description = String::from("`alsa::poll()` returned POLLERR");
-        return Err(BackendSpecificError { description });
+    // No events: spurious wakeup, poll again.
+    if revents.is_empty() {
+        return Ok(Poll::Pending);
     }
-
-    // Check if data is ready for processing (either input or output)
-    if !revents.contains(alsa::poll::Flags::IN) && !revents.contains(alsa::poll::Flags::OUT) {
-        // Nothing to process, poll again
-        return Ok(PollDescriptorsFlow::Continue);
+    // POLLHUP/POLLNVAL: the device has been disconnected.
+    if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
+        return Err(StreamError::DeviceNotAvailable);
     }
+    // POLLERR signals an xrun or suspend; avail() below returns EPIPE/ESTRPIPE accordingly.
+    // POLLIN/POLLOUT: data is ready, fall through to process it.
 
     let status = stream.channel.status()?;
     let avail_frames = match stream.channel.avail() {
-        Err(err) if err.errno() == libc::EPIPE => return Ok(PollDescriptorsFlow::XRun),
+        // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
+        Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
+        // Suspend: try hardware resume first; fall back to prepare() if unsupported.
+        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.channel),
         res => res,
     }? as usize;
     let delay_frames = match status.get_delay() {
-        // Buffer underrun detected, but notification happens in XRun handler
         d if d < 0 => 0,
         d => d as usize,
     };
@@ -969,10 +1030,10 @@ fn poll_descriptors_and_prepare_buffer(
     // Verify we have room for at least one full period before processing.
     // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
     if available_samples < stream.period_samples {
-        return Ok(PollDescriptorsFlow::Continue);
+        return Ok(Poll::Pending);
     }
 
-    Ok(PollDescriptorsFlow::Ready {
+    Ok(Poll::Ready {
         status,
         delay_frames,
     })
@@ -985,8 +1046,14 @@ fn process_input(
     status: alsa::pcm::Status,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
-) -> Result<(), BackendSpecificError> {
-    stream.channel.io_bytes().readi(buffer)?;
+) -> Result<(), StreamError> {
+    let result = stream.channel.io_bytes().readi(buffer);
+    check_io_result(
+        result,
+        stream.period_frames,
+        &stream.channel,
+        alsa::Direction::Capture,
+    )?;
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
     let callback = if stream.use_hw_timestamps {
@@ -1010,16 +1077,13 @@ fn process_input(
 }
 
 // Request data from the user's function and write it via ALSA.
-//
-// Returns `true`
 fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
-    error_callback: &mut dyn FnMut(StreamError),
-) -> Result<(), BackendSpecificError> {
+) -> Result<(), StreamError> {
     // Buffer is always pre-filled with equilibrium, user overwrites what they want
     buffer.copy_from_slice(&stream.silence_template);
     {
@@ -1044,37 +1108,13 @@ fn process_output(
         data_callback(&mut data, &info);
     }
 
-    loop {
-        match stream.channel.io_bytes().writei(buffer) {
-            Err(err) if err.errno() == libc::EPIPE => {
-                // ALSA underrun or overrun.
-                // See https://github.com/alsa-project/alsa-lib/blob/b154d9145f0e17b9650e4584ddfdf14580b4e0d7/src/pcm/pcm.c#L8767-L8770
-                // Even if these recover successfully, they still may cause audible glitches.
-
-                error_callback(StreamError::BufferUnderrun);
-                if let Err(recover_err) = stream.channel.try_recover(err, true) {
-                    error_callback(recover_err.into());
-                }
-            }
-            Err(err) => {
-                error_callback(err.into());
-                continue;
-            }
-            Ok(result) if result != stream.period_frames => {
-                let description = format!(
-                    "unexpected number of frames written: expected {}, \
-                        result {result} (this should never happen)",
-                    stream.period_frames
-                );
-                error_callback(BackendSpecificError { description }.into());
-                continue;
-            }
-            _ => {
-                break;
-            }
-        }
-    }
-    Ok(())
+    let result = stream.channel.io_bytes().writei(buffer);
+    check_io_result(
+        result,
+        stream.period_frames,
+        &stream.channel,
+        alsa::Direction::Playback,
+    )
 }
 
 // Use hardware timestamps from ALSA.
@@ -1085,6 +1125,16 @@ fn stream_timestamp_hardware(
     status: &alsa::pcm::Status,
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
     let trigger_ts = status.get_trigger_htstamp();
+    // trigger_htstamp records when the PCM stream started.
+    // On the first few callbacks, it might not have been set yet,
+    // which would yield a huge positive nanos nd cause non-monotonicity
+    // once it is set. Bail out and let the caller use the fallback.
+    // See https://github.com/RustAudio/cpal/issues/710
+    if trigger_ts.tv_sec == 0 && trigger_ts.tv_nsec == 0 {
+        return Err(BackendSpecificError {
+            description: "trigger_htstamp not yet set".to_string(),
+        });
+    }
     let ts = status.get_htstamp();
     let nanos = timespec_diff_nanos(ts, trigger_ts);
     if nanos < 0 {
@@ -1150,13 +1200,13 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
+        let rx_thread = rx.clone();
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
                 input_stream_worker(
-                    rx,
+                    rx_thread,
                     &stream,
                     &mut data_callback,
                     &mut error_callback,
@@ -1168,6 +1218,7 @@ impl Stream {
             thread: Some(thread),
             inner,
             trigger: tx,
+            _rx: rx,
         }
     }
 
@@ -1182,13 +1233,13 @@ impl Stream {
         E: FnMut(StreamError) + Send + 'static,
     {
         let (tx, rx) = trigger();
-        // Clone the handle for passing into worker thread.
+        let rx_thread = rx.clone();
         let stream = inner.clone();
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
                 output_stream_worker(
-                    rx,
+                    rx_thread,
                     &stream,
                     &mut data_callback,
                     &mut error_callback,
@@ -1200,6 +1251,7 @@ impl Stream {
             thread: Some(thread),
             inner,
             trigger: tx,
+            _rx: rx,
         }
     }
 }
@@ -1222,6 +1274,9 @@ impl StreamTrait for Stream {
     fn pause(&self) -> Result<(), PauseStreamError> {
         self.inner.channel.pause(true).ok();
         Ok(())
+    }
+    fn buffer_size(&self) -> Option<FrameCount> {
+        Some(self.inner.period_frames as FrameCount)
     }
 }
 

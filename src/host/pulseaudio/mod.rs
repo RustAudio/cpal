@@ -9,8 +9,8 @@ use crate::{
     traits::{DeviceTrait, HostTrait},
     BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
     DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
+    DevicesError, FrameCount, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo,
+    SampleFormat, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -152,6 +152,48 @@ pub enum Device {
     },
 }
 
+fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
+    let mut ranges = vec![];
+    for format in PULSE_FORMATS {
+        for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
+            let bytes_per_frame = channel_count as usize * format.sample_size();
+            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as FrameCount;
+            ranges.push(SupportedStreamConfigRange {
+                channels: channel_count as _,
+                min_sample_rate: 1,
+                max_sample_rate: protocol::sample_spec::MAX_RATE,
+                buffer_size: SupportedBufferSize::Range {
+                    min: 0,
+                    max: max_frames,
+                },
+                sample_format: *format,
+            });
+        }
+    }
+    ranges
+}
+
+fn default_config_from_spec(
+    sample_spec: &protocol::SampleSpec,
+    channel_map: &protocol::ChannelMap,
+) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    let sample_format: SampleFormat = sample_spec
+        .format
+        .try_into()
+        .map_err(|_| DefaultStreamConfigError::StreamTypeNotSupported)?;
+    let bytes_per_frame = channel_map.num_channels() as usize * sample_format.sample_size();
+    let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as u32;
+    Ok(SupportedStreamConfig {
+        channels: channel_map.num_channels() as _,
+        sample_rate: sample_spec.sample_rate,
+        buffer_size: SupportedBufferSize::Range {
+            min: 0,
+            max: max_frames,
+        },
+        sample_format,
+    })
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
     type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
@@ -172,24 +214,7 @@ impl DeviceTrait for Device {
         let Device::Source { .. } = self else {
             return Ok(vec![].into_iter());
         };
-
-        let mut ranges = vec![];
-        for format in PULSE_FORMATS {
-            for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
-                ranges.push(SupportedStreamConfigRange {
-                    channels: channel_count as _,
-                    min_sample_rate: 1,
-                    max_sample_rate: protocol::sample_spec::MAX_RATE,
-                    buffer_size: SupportedBufferSize::Range {
-                        min: 0,
-                        max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
-                    },
-                    sample_format: *format,
-                })
-            }
-        }
-
-        Ok(ranges.into_iter())
+        Ok(supported_config_ranges().into_iter())
     }
 
     fn supported_output_configs(
@@ -198,64 +223,21 @@ impl DeviceTrait for Device {
         let Device::Sink { .. } = self else {
             return Ok(vec![].into_iter());
         };
-
-        let mut ranges = vec![];
-        for format in PULSE_FORMATS {
-            for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
-                ranges.push(SupportedStreamConfigRange {
-                    channels: channel_count as _,
-                    min_sample_rate: 1,
-                    max_sample_rate: protocol::sample_spec::MAX_RATE,
-                    buffer_size: SupportedBufferSize::Range {
-                        min: 0,
-                        max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
-                    },
-                    sample_format: *format,
-                })
-            }
-        }
-
-        Ok(ranges.into_iter())
+        Ok(supported_config_ranges().into_iter())
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let Device::Source { info, .. } = self else {
             return Err(DefaultStreamConfigError::StreamTypeNotSupported);
         };
-
-        Ok(SupportedStreamConfig {
-            channels: info.channel_map.num_channels() as _,
-            sample_rate: info.sample_spec.sample_rate,
-            buffer_size: SupportedBufferSize::Range {
-                min: 0,
-                max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
-            },
-            sample_format: info
-                .sample_spec
-                .format
-                .try_into()
-                .unwrap_or(SampleFormat::F32),
-        })
+        default_config_from_spec(&info.sample_spec, &info.channel_map)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
         let Device::Sink { info, .. } = self else {
             return Err(DefaultStreamConfigError::StreamTypeNotSupported);
         };
-
-        Ok(SupportedStreamConfig {
-            channels: info.channel_map.num_channels() as _,
-            sample_rate: info.sample_spec.sample_rate,
-            buffer_size: SupportedBufferSize::Range {
-                min: 0,
-                max: protocol::MAX_MEMBLOCKQ_LENGTH as _,
-            },
-            sample_format: info
-                .sample_spec
-                .format
-                .try_into()
-                .unwrap_or(SampleFormat::F32),
-        })
+        default_config_from_spec(&info.sample_spec, &info.channel_map)
     }
 
     fn build_input_stream_raw<D, E>(

@@ -1,8 +1,8 @@
 use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
-    BackendSpecificError, BufferSize, Data, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, StreamError,
+    BackendSpecificError, BufferSize, Data, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamError,
 };
 use std::mem;
 use std::ptr;
@@ -29,6 +29,9 @@ pub struct Stream {
     // This event is signalled after a new entry is added to `commands`, so that the `run()`
     // method can be notified.
     pending_scheduled_event: Foundation::HANDLE,
+
+    // Callback size in frames.
+    period_frames: FrameCount,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -90,7 +93,9 @@ pub struct StreamInner {
     // True if the stream is currently playing. False if paused.
     pub playing: bool,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
-    pub max_frames_in_buffer: u32,
+    pub max_frames_in_buffer: FrameCount,
+    // Callback size in frames.
+    pub period_frames: FrameCount,
     // Number of bytes that each frame occupies.
     pub bytes_per_frame: u16,
     // The configuration with which the stream was created.
@@ -115,6 +120,8 @@ impl Stream {
         .expect("cpal: could not create input stream event");
         let (tx, rx) = channel();
 
+        let period_frames = stream_inner.period_frames;
+
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
             stream: stream_inner,
@@ -130,6 +137,7 @@ impl Stream {
             thread: Some(thread),
             commands: tx,
             pending_scheduled_event,
+            period_frames,
         }
     }
 
@@ -148,6 +156,8 @@ impl Stream {
         .expect("cpal: could not create output stream event");
         let (tx, rx) = channel();
 
+        let period_frames = stream_inner.period_frames;
+
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
             stream: stream_inner,
@@ -163,6 +173,7 @@ impl Stream {
             thread: Some(thread),
             commands: tx,
             pending_scheduled_event,
+            period_frames,
         }
     }
 
@@ -199,6 +210,10 @@ impl StreamTrait for Stream {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
         Ok(())
+    }
+
+    fn buffer_size(&self) -> Option<FrameCount> {
+        Some(self.period_frames)
     }
 }
 
@@ -274,7 +289,7 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Backe
 }
 
 // Get the number of available frames that are available for writing/reading.
-fn get_available_frames(stream: &StreamInner) -> Result<u32, StreamError> {
+fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, StreamError> {
     unsafe {
         let padding = stream
             .audio_client
@@ -349,7 +364,7 @@ fn run_output(
 }
 
 #[cfg(feature = "audio_thread_priority")]
-fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: crate::SampleRate) {
+fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRate) {
     use audio_thread_priority::promote_current_thread_to_real_time;
 
     let buffer_size = if let BufferSize::Fixed(buffer_size) = buffer_size {
@@ -365,7 +380,7 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: crate::Sa
 }
 
 #[cfg(not(feature = "audio_thread_priority"))]
-fn boost_current_thread_priority(_: BufferSize, _: crate::SampleRate) {
+fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {
     unsafe {
         let thread_handle = Threading::GetCurrentThread();
 
@@ -533,7 +548,7 @@ fn process_output(
 }
 
 /// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: u32, rate: crate::SampleRate) -> std::time::Duration {
+fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> std::time::Duration {
     let secsf = frames as f64 / rate as f64;
     let secs = secsf as u64;
     let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
@@ -588,8 +603,8 @@ fn input_timestamp(
 /// after this, but not sure how to determine this.
 fn output_timestamp(
     stream: &StreamInner,
-    frames_available: u32,
-    sample_rate: crate::SampleRate,
+    frames_available: FrameCount,
+    sample_rate: SampleRate,
 ) -> Result<crate::OutputStreamTimestamp, StreamError> {
     let callback = stream_instant(stream)?;
     let buffer_duration = frames_to_duration(frames_available, sample_rate);

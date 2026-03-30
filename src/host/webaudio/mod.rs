@@ -470,6 +470,10 @@ impl StreamTrait for Stream {
             }
         }
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        Some(self.buffer_size_frames as crate::FrameCount)
+    }
 }
 
 impl Drop for Stream {

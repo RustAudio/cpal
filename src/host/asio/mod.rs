@@ -155,4 +155,8 @@ impl StreamTrait for Stream {
     fn pause(&self) -> Result<(), PauseStreamError> {
         Stream::pause(self)
     }
+
+    fn buffer_size(&self) -> Option<crate::FrameCount> {
+        Stream::buffer_size(self)
+    }
 }
