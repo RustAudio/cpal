@@ -81,7 +81,11 @@ fn host_time_to_stream_instant(
     let res = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     check_os_status(res)?;
     let nanos = m_host_time as u128 * info.numer as u128 / info.denom as u128;
-    Ok(crate::StreamInstant::from_nanos(nanos as u64))
+    let secs = u64::try_from(nanos / 1_000_000_000).map_err(|_| BackendSpecificError {
+        description: "mach absolute time overflow".to_string(),
+    })?;
+    let subsec_nanos = (nanos % 1_000_000_000) as u32;
+    Ok(crate::StreamInstant::new(secs, subsec_nanos))
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.

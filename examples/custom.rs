@@ -201,7 +201,7 @@ impl StreamTrait for MyStream {
 
     fn now(&self) -> cpal::StreamInstant {
         let elapsed = self.start.elapsed();
-        cpal::StreamInstant::from_nanos(elapsed.as_nanos() as u64)
+        cpal::StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 }
 

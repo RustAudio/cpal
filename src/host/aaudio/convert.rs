@@ -13,7 +13,8 @@ pub fn now_stream_instant() -> StreamInstant {
         tv_sec: 0,
         tv_nsec: 0,
     };
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    let res = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    assert_eq!(res, 0, "clock_gettime(CLOCK_MONOTONIC) failed");
     StreamInstant::from_nanos(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
 }
 

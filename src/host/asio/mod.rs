@@ -161,7 +161,7 @@ impl StreamTrait for Stream {
         // derived from `timeGetTime()`, so calling it here gives a value on the
         // same clock as the `system_time` field delivered to every callback.
         let ms = unsafe { windows::Win32::Media::timeGetTime() };
-        crate::StreamInstant::from_nanos(ms as i64 * 1_000_000)
+        crate::StreamInstant::from_nanos(ms as u64 * 1_000_000)
     }
 
     fn buffer_size(&self) -> Option<crate::FrameCount> {

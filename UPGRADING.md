@@ -13,7 +13,6 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Change `instant.sub(d)` to `instant.checked_sub(d)` (or use `instant - d`).
 - [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
-- [ ] Remove any uses of `StreamInstant::as_nanos()` — see migration note below.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
 
 ## 1. Error enums are now `#[non_exhaustive]`

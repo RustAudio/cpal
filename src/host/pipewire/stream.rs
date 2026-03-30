@@ -6,8 +6,6 @@ use std::{
     thread::JoinHandle,
 };
 
-use libc;
-
 use crate::{
     host::fill_with_equilibrium, traits::StreamTrait, BackendSpecificError, InputCallbackInfo,
     OutputCallbackInfo, SampleFormat, StreamConfig, StreamError, StreamInstant,

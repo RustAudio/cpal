@@ -404,7 +404,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
 }
 
 fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
-    crate::StreamInstant::from_nanos((micros as u128 * 1_000) as u64)
+    crate::StreamInstant::new(micros / 1_000_000, ((micros % 1_000_000) * 1_000) as u32)
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.

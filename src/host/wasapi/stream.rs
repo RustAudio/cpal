@@ -34,6 +34,9 @@ pub struct Stream {
 
     // Callback size in frames.
     period_frames: FrameCount,
+
+    // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
+    qpc_frequency: u64,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -125,6 +128,11 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let mut qpc_frequency: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceFrequency(&mut qpc_frequency)
+                .expect("QueryPerformanceFrequency failed");
+        }
 
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
@@ -142,6 +150,7 @@ impl Stream {
             commands: tx,
             pending_scheduled_event,
             period_frames,
+            qpc_frequency: qpc_frequency as u64,
         }
     }
 
@@ -161,6 +170,11 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let mut qpc_frequency: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceFrequency(&mut qpc_frequency)
+                .expect("QueryPerformanceFrequency failed");
+        }
 
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
@@ -178,6 +192,7 @@ impl Stream {
             commands: tx,
             pending_scheduled_event,
             period_frames,
+            qpc_frequency: qpc_frequency as u64,
         }
     }
 
@@ -218,15 +233,14 @@ impl StreamTrait for Stream {
 
     fn now(&self) -> crate::StreamInstant {
         let mut counter: i64 = 0;
-        let mut freq: i64 = 0;
         unsafe {
             Performance::QueryPerformanceCounter(&mut counter)
                 .expect("QueryPerformanceCounter failed");
-            Performance::QueryPerformanceFrequency(&mut freq)
-                .expect("QueryPerformanceFrequency failed");
         }
-        let nanos = (counter as u128 * 1_000_000_000 / freq as u128) as u64;
-        crate::StreamInstant::from_nanos(nanos)
+        let nanos = counter as u128 * 1_000_000_000 / self.qpc_frequency as u128;
+        let secs = (nanos / 1_000_000_000) as u64;
+        let subsec_nanos = (nanos % 1_000_000_000) as u32;
+        crate::StreamInstant::new(secs, subsec_nanos)
     }
 
     fn buffer_size(&self) -> Option<FrameCount> {
