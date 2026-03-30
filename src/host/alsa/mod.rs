@@ -1158,7 +1158,10 @@ fn stream_timestamp_fallback(
 ) -> Result<crate::StreamInstant, BackendSpecificError> {
     let now = std::time::Instant::now();
     let duration = now.duration_since(creation);
-    Ok(crate::StreamInstant::new(duration.as_secs(), duration.subsec_nanos()))
+    Ok(crate::StreamInstant::new(
+        duration.as_secs(),
+        duration.subsec_nanos(),
+    ))
 }
 
 // Adapted from `timestamp2ns` here:

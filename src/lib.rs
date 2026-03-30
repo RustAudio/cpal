@@ -192,9 +192,9 @@ pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U2
 pub mod device_description;
 mod error;
 mod host;
-mod timestamp;
 pub mod platform;
 mod samples_formats;
+mod timestamp;
 pub mod traits;
 
 /// Iterator of devices wrapped in a filter to only include certain device types
@@ -512,7 +512,6 @@ impl SupportedStreamConfig {
         }
     }
 }
-
 
 // Note: Data does not implement `is_empty()` because it always contains a valid audio buffer
 // by design. The buffer may contain silence, but it is never structurally empty.
@@ -856,4 +855,3 @@ pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
     176400, 192000, 352800, 384000, 705600, 768000, 1411200, 1536000,
 ];
-
