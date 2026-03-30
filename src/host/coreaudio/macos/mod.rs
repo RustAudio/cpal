@@ -109,8 +109,6 @@ impl DisconnectManager {
         let (disconnect_tx, disconnect_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
-        // Buffer size listener uses a separate channel so the handler
-        // can fire StreamInvalidated instead of DeviceNotAvailable.
         let (buffer_size_tx, buffer_size_rx) = mpsc::channel();
 
         let disconnect_tx_clone = disconnect_tx.clone();
@@ -197,7 +195,6 @@ impl DisconnectManager {
             }
         });
 
-        // Handle buffer size change events
         if listen_buffer_size {
             let stream_weak_clone = stream_weak.clone();
             let error_callback_clone = error_callback.clone();
@@ -290,18 +287,18 @@ impl StreamInner {
 
 impl Drop for StreamInner {
     fn drop(&mut self) {
-        // SAFETY: audio_unit is not accessed after this point, and no references
-        // to self outlive this function. Dropping first ensures callbacks have
-        // stopped before reclaiming the duplex callback pointer below.
+        // SAFETY: This is the sole owning instance of audio_unit (wrapped in
+        // ManuallyDrop so we control drop order). Dropping it stops the audio
+        // unit, which guarantees CoreAudio will not invoke the render callback
+        // after this point. That makes it safe to reclaim the duplex callback
+        // pointer below. audio_unit is not accessed after this point.
         unsafe {
             ManuallyDrop::drop(&mut self.audio_unit);
         }
 
         if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
             if !ptr.is_null() {
-                // SAFETY: `ptr` was created via `Box::into_raw` in
-                // `build_duplex_stream` and has not been reclaimed elsewhere.
-                // The audio unit was dropped above, so no callbacks are active.
+                // SAFETY: ptr created via Box::into_raw, not reclaimed elsewhere.
                 unsafe {
                     let _ = Box::from_raw(ptr);
                 }

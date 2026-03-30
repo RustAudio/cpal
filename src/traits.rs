@@ -300,8 +300,6 @@ pub trait DeviceTrait {
         E: FnMut(StreamError) + Send + 'static;
 
     /// Create a duplex stream with synchronized input and output sharing the same hardware clock.
-    ///
-    /// Check [`supports_duplex`](Self::supports_duplex) before calling. See the example below for usage.
     fn build_duplex_stream<T, D, E>(
         &self,
         config: &DuplexStreamConfig,
