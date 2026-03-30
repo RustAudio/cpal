@@ -87,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: `Debug` implementations for `Host`, `Device`, `Stream`, and internal types.
 - **ALSA**: Example demonstrating ALSA error suppression during enumeration.
 - **ALSA**: Support for native DSD playback.
+- **ASIO**: Extension trait for ASIO devices, which allows opening the control panel.
 - **WASAPI**: Enable as-necessary resampling in the WASAPI server process.
 
 ### Changed
