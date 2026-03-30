@@ -49,6 +49,15 @@ fn main() {
         return;
     }
 
+    // ASIO is Windows-only. Skip build on non-Windows platforms.
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !target.contains("windows") && !target.contains("msvc") {
+        println!("cargo:warning=ASIO is Windows-only. Skipping build on this platform.");
+        let out_dir = PathBuf::from(env::var("OUT_DIR").expect("bad path"));
+        create_stub_bindings(&out_dir);
+        return;
+    }
+
     println!("cargo:rerun-if-env-changed={}", CPAL_ASIO_DIR);
 
     // ASIO SDK directory
