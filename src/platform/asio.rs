@@ -3,20 +3,25 @@
 #[allow(unused_imports)]
 use crate::BackendSpecificError;
 use crate::Device;
+#[allow(unused_imports)]
+use std::marker::PhantomData;
 
-/// Extension trait to get ASIO device.
+/// Extension trait to get the ASIO device.
 pub trait AsioDeviceExt {
+    /// Returns the [AsioDevice] interface if this is an ASIO device.
     fn as_asio(&self) -> Option<AsioDevice<'_>>;
 }
 
-/// Struct containing for ASIO-specific device functionality.
-#[cfg(all(target_os = "windows", feature = "asio"))]
-pub struct AsioDevice<'a>(&'a crate::host::asio::Device);
+/// A wrapper providing access to ASIO-specific device functionality.
+pub struct AsioDevice<'a> {
+    #[cfg(all(target_os = "windows", feature = "asio"))]
+    inner: &'a crate::host::asio::Device,
 
-#[cfg(not(all(target_os = "windows", feature = "asio")))]
-pub struct AsioDevice<'a>(std::marker::PhantomData<&'a ()>);
+    // Dummy marker for lifetime 'a.
+    #[cfg(not(all(target_os = "windows", feature = "asio")))]
+    _marker: PhantomData<&'a ()>,
+}
 
-#[cfg(all(target_os = "windows", feature = "asio"))]
 impl AsioDevice<'_> {
     /// Opens the ASIO driver's control panel window.
     ///
@@ -25,31 +30,33 @@ impl AsioDevice<'_> {
     ///
     /// # Blocking Behavior
     ///
-    /// **WARNING**: This call may block until the user closes the control panel.
+    /// This call may block until the user closes the control panel.
     /// Consider spawning a thread to avoid blocking the main thread.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if this device is not an ASIO device.
     pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
-        use crate::host::asio::GLOBAL_ASIO;
+        #[cfg(all(target_os = "windows", feature = "asio"))]
+        {
+            use crate::host::asio::GLOBAL_ASIO;
 
-        let description = self.0.description().map_err(|e| BackendSpecificError {
-            description: format!("{e:?}"),
-        })?;
-        let driver_name = description.name();
+            let description = self.inner.description().map_err(|e| BackendSpecificError {
+                description: format!("{e:?}"),
+            })?;
+            let driver_name = description.name();
 
-        GLOBAL_ASIO
-            .get()
-            .expect("GLOBAL_ASIO is always set when an ASIO Device exists")
-            .load_driver(driver_name)
-            .map_err(|e| BackendSpecificError {
-                description: format!("{e:?}"),
-            })?
-            .open_control_panel()
-            .map_err(|e| BackendSpecificError {
-                description: format!("{e:?}"),
-            })
+            GLOBAL_ASIO
+                .get()
+                .expect("GLOBAL_ASIO is always set when an ASIO device exists")
+                .load_driver(driver_name)
+                .map_err(|e| BackendSpecificError {
+                    description: format!("{e:?}"),
+                })?
+                .open_control_panel()
+                .map_err(|e| BackendSpecificError {
+                    description: format!("{e:?}"),
+                })
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "asio")))]
+        unreachable!("AsioDevice cannot be constructed on non-ASIO platforms")
     }
 }
 
@@ -57,7 +64,7 @@ impl AsioDeviceExt for Device {
     fn as_asio(&self) -> Option<AsioDevice<'_>> {
         match self.as_inner() {
             #[cfg(all(target_os = "windows", feature = "asio"))]
-            crate::platform::DeviceInner::Asio(d) => Some(AsioDevice(d)),
+            crate::platform::DeviceInner::Asio(d) => Some(AsioDevice { inner: d }),
             _ => None,
         }
     }
