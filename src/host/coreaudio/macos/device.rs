@@ -1,9 +1,11 @@
 use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
+use crate::duplex::DuplexCallbackInfo;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
+use crate::StreamInstant;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
     DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, InputCallbackInfo,
@@ -34,6 +36,7 @@ use objc2_core_audio_types::{
 };
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::Type;
+use std::mem::ManuallyDrop;
 
 pub use super::enumerate::{
     default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
@@ -49,9 +52,13 @@ use super::invoke_error_callback;
 use super::property_listener::AudioObjectPropertyListener;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 
+pub(super) const AUDIO_UNIT_IO_ENABLED: u32 = 1;
+/// Value for `kAudioOutputUnitProperty_EnableIO` to disable I/O on an AudioUnit element.
+const AUDIO_UNIT_IO_DISABLED: u32 = 0;
+
 /// Attempt to set the device sample rate to the provided rate.
 /// Return an error if the requested sample rate is not supported by the device.
-fn set_sample_rate(
+pub(super) fn set_sample_rate(
     audio_device_id: AudioObjectID,
     target_sample_rate: SampleRate,
 ) -> Result<(), BuildStreamError> {
@@ -214,21 +221,19 @@ fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, cor
 
     if input {
         // Enable input processing.
-        let enable_input = 1u32;
         audio_unit.set_property(
             kAudioOutputUnitProperty_EnableIO,
             Scope::Input,
             Element::Input,
-            Some(&enable_input),
+            Some(&AUDIO_UNIT_IO_ENABLED),
         )?;
 
         // Disable output processing.
-        let disable_output = 0u32;
         audio_unit.set_property(
             kAudioOutputUnitProperty_EnableIO,
             Scope::Output,
             Element::Output,
-            Some(&disable_output),
+            Some(&AUDIO_UNIT_IO_DISABLED),
         )?;
     }
 
@@ -257,6 +262,48 @@ fn get_io_buffer_frame_size_range(
     Ok(SupportedBufferSize::Range {
         min: buffer_size_range.mMinimum as u32,
         max: buffer_size_range.mMaximum as u32,
+    })
+}
+
+pub(super) fn estimate_capture_instant<E>(
+    callback_instant: StreamInstant,
+    delay: Duration,
+    error_callback: &Mutex<E>,
+) -> StreamInstant
+where
+    E: FnMut(StreamError) + Send,
+{
+    callback_instant.sub(delay).unwrap_or_else(|| {
+        invoke_error_callback(
+            error_callback,
+            StreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Timestamp underflow calculating capture time".into(),
+                },
+            },
+        );
+        callback_instant
+    })
+}
+
+pub(super) fn estimate_playback_instant<E>(
+    callback_instant: StreamInstant,
+    delay: Duration,
+    error_callback: &Mutex<E>,
+) -> StreamInstant
+where
+    E: FnMut(StreamError) + Send,
+{
+    callback_instant.add(delay).unwrap_or_else(|| {
+        invoke_error_callback(
+            error_callback,
+            StreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: "Timestamp overflow calculating playback time".into(),
+                },
+            },
+        );
+        callback_instant
     })
 }
 
@@ -334,6 +381,28 @@ impl DeviceTrait for Device {
             data_callback,
             error_callback,
             timeout,
+        )
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: &crate::duplex::DuplexStreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::Stream, BuildStreamError>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(StreamError) + Send + 'static,
+    {
+        Device::build_duplex_stream_raw(
+            self,
+            config,
+            sample_format,
+            data_callback,
+            error_callback,
+            _timeout,
         )
     }
 }
@@ -796,9 +865,7 @@ impl Device {
             let latency_frames =
                 device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
             let delay = frames_to_duration(latency_frames, sample_rate);
-            let capture = callback
-                .sub(delay)
-                .expect("`capture` occurs before origin of alsa `StreamInstant`");
+            let capture = estimate_capture_instant(callback, delay, &error_callback);
             let timestamp = crate::InputStreamTimestamp { callback, capture };
 
             let info = InputCallbackInfo { timestamp };
@@ -819,11 +886,13 @@ impl Device {
         let stream = Stream::new(
             StreamInner {
                 playing: true,
-                audio_unit,
+                audio_unit: ManuallyDrop::new(audio_unit),
                 device_id: self.audio_device_id,
                 _loopback_device: loopback_aggregate,
+                duplex_callback_ptr: None,
             },
             error_callback_for_stream,
+            false,
         )?;
 
         stream
@@ -896,9 +965,7 @@ impl Device {
             let latency_frames =
                 device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
             let delay = frames_to_duration(latency_frames, sample_rate);
-            let playback = callback
-                .add(delay)
-                .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+            let playback = estimate_playback_instant(callback, delay, &error_callback);
             let timestamp = crate::OutputStreamTimestamp { callback, playback };
 
             let info = OutputCallbackInfo { timestamp };
@@ -919,11 +986,13 @@ impl Device {
         let stream = Stream::new(
             StreamInner {
                 playing: true,
-                audio_unit,
+                audio_unit: ManuallyDrop::new(audio_unit),
                 device_id: self.audio_device_id,
                 _loopback_device: None,
+                duplex_callback_ptr: None,
             },
             error_callback_for_stream,
+            false,
         )?;
 
         stream
@@ -1018,7 +1087,7 @@ fn setup_callback_vars(
 ///
 /// Buffer frame size is a device-level property that always uses Scope::Global + Element::Output,
 /// regardless of whether the audio unit is configured for input or output streams.
-pub(crate) fn get_device_buffer_frame_size(
+pub(super) fn get_device_buffer_frame_size(
     audio_unit: &AudioUnit,
 ) -> Result<usize, coreaudio::Error> {
     // Device-level property: always use Scope::Global + Element::Output

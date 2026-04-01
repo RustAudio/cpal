@@ -7,17 +7,19 @@ use crate::traits::{HostTrait, StreamTrait};
 use crate::{BackendSpecificError, DevicesError, PauseStreamError, PlayStreamError};
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::AudioDeviceID;
+use std::mem::ManuallyDrop;
 use std::sync::{mpsc, Arc, Mutex, Weak};
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, AudioObjectPropertyAddress,
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyDeviceIsAlive,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioObjectPropertyAddress,
 };
 use property_listener::AudioObjectPropertyListener;
 
 mod device;
+mod duplex;
 pub mod enumerate;
 mod loopback;
 mod property_listener;
@@ -61,7 +63,7 @@ type ErrorCallback = Box<dyn FnMut(crate::StreamError) + Send + 'static>;
 /// Invoke error callback, recovering from poisoned mutex if needed.
 /// Returns true if callback was invoked, false if skipped due to WouldBlock.
 #[inline]
-fn invoke_error_callback<E>(error_callback: &Arc<Mutex<E>>, err: crate::StreamError) -> bool
+fn invoke_error_callback<E>(error_callback: &Mutex<E>, err: crate::StreamError) -> bool
 where
     E: FnMut(crate::StreamError) + Send,
 {
@@ -101,34 +103,63 @@ impl DisconnectManager {
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
+        listen_buffer_size: bool,
     ) -> Result<Self, crate::BuildStreamError> {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let (disconnect_tx, disconnect_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
-        // Spawn dedicated thread to own the AudioObjectPropertyListener
+        let (buffer_size_tx, buffer_size_rx) = mpsc::channel();
+
         let disconnect_tx_clone = disconnect_tx.clone();
+        let buffer_size_tx_clone = buffer_size_tx.clone();
         std::thread::spawn(move || {
-            let property_address = AudioObjectPropertyAddress {
+            let disconnect_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyDeviceIsAlive,
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain,
             };
-
-            // Create the listener on this dedicated thread
             let disconnect_fn = move || {
                 let _ = disconnect_tx_clone.send(());
             };
-            match AudioObjectPropertyListener::new(device_id, property_address, disconnect_fn) {
-                Ok(_listener) => {
-                    let _ = ready_tx.send(Ok(()));
-                    // Drop the listener on this thread after receiving a shutdown signal
-                    let _ = shutdown_rx.recv();
-                }
+            let _disconnect_listener = match AudioObjectPropertyListener::new(
+                device_id,
+                disconnect_address,
+                disconnect_fn,
+            ) {
+                Ok(listener) => listener,
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
+                    return;
                 }
-            }
+            };
+
+            let _buffer_size_listener = if listen_buffer_size {
+                let buffer_size_address = AudioObjectPropertyAddress {
+                    mSelector: kAudioDevicePropertyBufferFrameSize,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain,
+                };
+                let buffer_size_fn = move || {
+                    let _ = buffer_size_tx_clone.send(());
+                };
+                match AudioObjectPropertyListener::new(
+                    device_id,
+                    buffer_size_address,
+                    buffer_size_fn,
+                ) {
+                    Ok(listener) => Some(listener),
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+
+            let _ = ready_tx.send(Ok(()));
+            let _ = shutdown_rx.recv();
         });
 
         // Wait for listener creation to complete or fail
@@ -164,15 +195,50 @@ impl DisconnectManager {
             }
         });
 
+        if listen_buffer_size {
+            let stream_weak_clone = stream_weak.clone();
+            let error_callback_clone = error_callback.clone();
+            std::thread::spawn(move || {
+                while buffer_size_rx.recv().is_ok() {
+                    if let Some(stream_arc) = stream_weak_clone.upgrade() {
+                        if let Ok(mut stream_inner) = stream_arc.try_lock() {
+                            let _ = stream_inner.pause();
+                        }
+
+                        invoke_error_callback(
+                            &error_callback_clone,
+                            crate::StreamError::StreamInvalidated,
+                        );
+                    } else {
+                        break;
+                    }
+                }
+            });
+        }
+
         Ok(DisconnectManager {
             _shutdown_tx: shutdown_tx,
         })
     }
 }
 
+/// Owned pointer to the duplex callback wrapper that is safe to send across threads.
+///
+/// SAFETY: The pointer is created via `Box::into_raw` on the build thread and shared with
+/// CoreAudio via `inputProcRefCon`. CoreAudio dereferences it on every render callback on
+/// its single-threaded audio thread for the lifetime of the stream. On drop, the audio unit
+/// is stopped before reclaiming the `Box`, preventing use-after-free. `Send` is sound because
+/// there is no concurrent mutable access—the build/drop thread never accesses the pointer
+/// while the audio unit is running, and only reclaims it after stopping the audio unit.
+struct DuplexCallbackPtr(*mut duplex::DuplexProcWrapper);
+
+// SAFETY: See above — the pointer is shared with CoreAudio's audio thread but never
+// accessed concurrently. The audio unit is stopped before reclaiming in drop.
+unsafe impl Send for DuplexCallbackPtr {}
+
 struct StreamInner {
     playing: bool,
-    audio_unit: AudioUnit,
+    audio_unit: ManuallyDrop<AudioUnit>,
     // Track the device with which the audio unit was spawned.
     //
     // We must do this so that we can avoid changing the device sample rate if there is already
@@ -182,13 +248,22 @@ struct StreamInner {
     /// Manage the lifetime of the aggregate device used
     /// for loopback recording
     _loopback_device: Option<LoopbackDevice>,
+    /// Pointer to the duplex callback wrapper, manually managed for duplex streams.
+    ///
+    /// coreaudio-rs doesn't support duplex streams (enabling both input and output
+    /// simultaneously), so we cannot use its `set_render_callback` API which would
+    /// manage the callback lifetime automatically. Instead, we manually manage this
+    /// callback pointer (created via `Box::into_raw`) and clean it up in Drop.
+    ///
+    /// This is None for regular input/output streams.
+    duplex_callback_ptr: Option<DuplexCallbackPtr>,
 }
 
 impl StreamInner {
     fn play(&mut self) -> Result<(), PlayStreamError> {
         if !self.playing {
             if let Err(e) = self.audio_unit.start() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -200,7 +275,7 @@ impl StreamInner {
     fn pause(&mut self) -> Result<(), PauseStreamError> {
         if self.playing {
             if let Err(e) = self.audio_unit.stop() {
-                let description = format!("{e}");
+                let description = e.to_string();
                 let err = BackendSpecificError { description };
                 return Err(err.into());
             }
@@ -210,10 +285,30 @@ impl StreamInner {
     }
 }
 
+impl Drop for StreamInner {
+    fn drop(&mut self) {
+        // SAFETY: This is the sole owning instance of audio_unit (wrapped in
+        // ManuallyDrop so we control drop order). Dropping it stops the audio
+        // unit, which guarantees CoreAudio will not invoke the render callback
+        // after this point. That makes it safe to reclaim the duplex callback
+        // pointer below. audio_unit is not accessed after this point.
+        unsafe {
+            ManuallyDrop::drop(&mut self.audio_unit);
+        }
+
+        if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr {
+            if !ptr.is_null() {
+                // SAFETY: ptr created via Box::into_raw, not reclaimed elsewhere.
+                unsafe {
+                    let _ = Box::from_raw(ptr);
+                }
+            }
+        }
+    }
+}
+
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
-    // Manages the device disconnection listener separately to allow Stream to be Send.
-    // The DisconnectManager contains the non-Send AudioObjectPropertyListener.
     _disconnect_manager: DisconnectManager,
 }
 
@@ -221,13 +316,15 @@ impl Stream {
     fn new(
         inner: StreamInner,
         error_callback: ErrorCallback,
+        listen_buffer_size: bool,
     ) -> Result<Self, crate::BuildStreamError> {
         let device_id = inner.device_id;
         let inner_arc = Arc::new(Mutex::new(inner));
         let weak_inner = Arc::downgrade(&inner_arc);
 
         let error_callback = Arc::new(Mutex::new(error_callback));
-        let disconnect_manager = DisconnectManager::new(device_id, weak_inner, error_callback)?;
+        let disconnect_manager =
+            DisconnectManager::new(device_id, weak_inner, error_callback, listen_buffer_size)?;
 
         Ok(Self {
             inner: inner_arc,

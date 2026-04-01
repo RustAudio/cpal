@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: `device_by_id` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
+- `DeviceTrait::build_duplex_stream` and `build_duplex_stream_raw` for synchronized input/output.
+- `duplex` module with `DuplexStreamConfig` and `DuplexCallbackInfo` types.
+- **CoreAudio**: Duplex stream support with hardware-synchronized input/output.
+- Example `duplex_feedback` demonstrating duplex stream usage.
 
 ### Changed
 
@@ -91,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **POTENTIALLY BREAKING**: `DeviceTrait` now includes `build_duplex_stream()` and `build_duplex_stream_raw()` methods. The default implementation returns `StreamConfigNotSupported`, so external implementations are compatible without changes.
 - Bump overall MSRV to 1.78.
 - **ALSA**: Update `alsa` dependency to 0.11.
 - **ALSA**: Bump MSRV to 1.82.

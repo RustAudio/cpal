@@ -30,6 +30,7 @@ This library currently supports the following:
 - Enumerate known supported input and output stream formats for a device.
 - Get the current default input and output stream formats for a device.
 - Build and run input and output PCM streams on a chosen device with a given stream format.
+- Build and run duplex (simultaneous input/output) streams with hardware clock synchronization.
 
 Currently, supported platforms include:
 
@@ -174,7 +175,7 @@ If you are unable to build the library:
 
 ## Examples
 
-CPAL comes with several examples in `examples/`.
+CPAL comes with several examples in `examples/`, including `duplex_feedback` for hardware-synchronized duplex streams.
 
 Run an example with:
 ```bash
