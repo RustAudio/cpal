@@ -500,8 +500,8 @@ impl StreamTrait for Stream {
         StreamInstant::from_secs_f64(self.ctx.current_time())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(self.buffer_size_frames as crate::FrameCount)
+    fn buffer_size(&self) -> crate::FrameCount {
+        self.buffer_size_frames as crate::FrameCount
     }
 }
 

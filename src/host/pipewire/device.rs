@@ -296,7 +296,11 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
-        let last_quantum = Arc::new(AtomicU64::new(0));
+        let initial_quantum = match config.buffer_size {
+            crate::BufferSize::Fixed(n) => n as u64,
+            crate::BufferSize::Default => self.quantum as u64,
+        };
+        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
@@ -372,7 +376,11 @@ impl DeviceTrait for Device {
         let (pw_init_tx, pw_init_rx) = std::sync::mpsc::channel::<bool>();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
-        let last_quantum = Arc::new(AtomicU64::new(0));
+        let initial_quantum = match config.buffer_size {
+            crate::BufferSize::Fixed(n) => n as u64,
+            crate::BufferSize::Default => self.quantum as u64,
+        };
+        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())

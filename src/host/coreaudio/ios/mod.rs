@@ -285,8 +285,8 @@ impl StreamTrait for Stream {
         host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(get_device_buffer_frames() as crate::FrameCount)
+    fn buffer_size(&self) -> crate::FrameCount {
+        get_device_buffer_frames() as crate::FrameCount
     }
 }
 

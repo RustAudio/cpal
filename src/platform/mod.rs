@@ -604,7 +604,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn buffer_size(&self) -> Option<crate::FrameCount> {
+            fn buffer_size(&self) -> crate::FrameCount {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
