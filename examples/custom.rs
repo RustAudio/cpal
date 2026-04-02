@@ -33,6 +33,9 @@ struct StreamControls {
     pause: AtomicBool,
 }
 
+const CHANNEL_COUNT: cpal::ChannelCount = 2;
+const BUFFER_SIZE: cpal::FrameCount = 4096;
+
 impl HostTrait for MyHost {
     type Device = MyDevice;
     type Devices = std::iter::Once<MyDevice>;
@@ -81,10 +84,13 @@ impl DeviceTrait for MyDevice {
         &self,
     ) -> Result<Self::SupportedOutputConfigs, cpal::SupportedStreamConfigsError> {
         Ok(std::iter::once(cpal::SupportedStreamConfigRange::new(
-            2,
+            CHANNEL_COUNT,
             44100,
             44100,
-            cpal::SupportedBufferSize::Unknown,
+            cpal::SupportedBufferSize::Range {
+                min: BUFFER_SIZE,
+                max: BUFFER_SIZE,
+            },
             cpal::SampleFormat::F32,
         )))
     }
@@ -99,9 +105,12 @@ impl DeviceTrait for MyDevice {
         &self,
     ) -> Result<cpal::SupportedStreamConfig, cpal::DefaultStreamConfigError> {
         Ok(cpal::SupportedStreamConfig::new(
-            2,
+            CHANNEL_COUNT,
             44100,
-            cpal::SupportedBufferSize::Unknown,
+            cpal::SupportedBufferSize::Range {
+                min: BUFFER_SIZE,
+                max: BUFFER_SIZE,
+            },
             cpal::SampleFormat::I16,
         ))
     }
@@ -145,7 +154,7 @@ impl DeviceTrait for MyDevice {
         let start = Instant::now();
         let thread_controls = controls.clone();
         let handle = std::thread::spawn(move || {
-            let mut buffer = [0.0_f32; 4096];
+            let mut buffer = [0.0_f32; BUFFER_SIZE as usize * CHANNEL_COUNT as usize];
             while !thread_controls.exit.load(Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_secs_f32(
                     buffer.len() as f32 / 44100.0,
@@ -202,6 +211,10 @@ impl StreamTrait for MyStream {
     fn now(&self) -> cpal::StreamInstant {
         let elapsed = self.start.elapsed();
         cpal::StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
+    }
+
+    fn buffer_size(&self) -> cpal::FrameCount {
+        BUFFER_SIZE
     }
 }
 
