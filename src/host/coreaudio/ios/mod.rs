@@ -279,8 +279,8 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(get_device_buffer_frames() as crate::FrameCount)
+    fn buffer_size(&self) -> crate::FrameCount {
+        get_device_buffer_frames() as crate::FrameCount
     }
 }
 

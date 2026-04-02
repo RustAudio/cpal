@@ -68,11 +68,8 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        match self.last_quantum.load(Ordering::Relaxed) {
-            0 => None,
-            n => Some(n as _),
-        }
+    fn buffer_size(&self) -> crate::FrameCount {
+        self.last_quantum.load(Ordering::Relaxed) as _
     }
 }
 

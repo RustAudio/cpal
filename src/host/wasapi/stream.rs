@@ -215,8 +215,8 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<FrameCount> {
-        Some(self.period_frames)
+    fn buffer_size(&self) -> FrameCount {
+        self.period_frames
     }
 }
 

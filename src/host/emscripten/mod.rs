@@ -36,8 +36,8 @@ pub struct Device;
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct Stream {
-    // A reference to an `AudioContext` object.
     audio_ctxt: AudioContext,
+    buffer_size_frames: u32,
 }
 
 // WASM runs in a single-threaded environment, so Send and Sync are safe by design.
@@ -226,7 +226,10 @@ impl DeviceTrait for Device {
 
         // Create the stream.
         let audio_ctxt = AudioContext::new().expect("webaudio is not present on this system");
-        let stream = Stream { audio_ctxt };
+        let stream = Stream {
+            audio_ctxt,
+            buffer_size_frames: buffer_size_frames as u32,
+        };
 
         // Use `set_timeout` to invoke a Rust callback repeatedly.
         //
@@ -249,6 +252,10 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
+    fn buffer_size(&self) -> crate::FrameCount {
+        self.buffer_size_frames
+    }
+
     fn play(&self) -> Result<(), PlayStreamError> {
         let future = JsFuture::from(
             self.audio_ctxt

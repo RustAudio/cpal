@@ -39,13 +39,14 @@ impl Stream {
         Ok(())
     }
 
-    pub fn buffer_size(&self) -> Option<crate::FrameCount> {
-        let streams = self.asio_streams.lock().ok()?;
+    pub fn buffer_size(&self) -> crate::FrameCount {
+        let streams = self.asio_streams.lock().unwrap();
         streams
             .output
             .as_ref()
             .or(streams.input.as_ref())
             .map(|s| s.buffer_size as crate::FrameCount)
+            .unwrap_or(0)
     }
 }
 
