@@ -1064,7 +1064,9 @@ fn process_input(
         stream_timestamp_fallback(stream.creation_instant)
     }?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
-    let capture = callback - delay_duration;
+    let capture = callback
+        .checked_sub(delay_duration)
+        .unwrap_or(crate::StreamInstant::new(0, 0));
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = crate::InputCallbackInfo { timestamp };
     data_callback(&data, &info);
