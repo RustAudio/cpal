@@ -2,7 +2,7 @@ use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
     BackendSpecificError, BufferSize, Data, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamError,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamError, StreamInstant,
 };
 use std::mem;
 use std::ptr;
@@ -233,7 +233,7 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         let mut counter: i64 = 0;
         unsafe {
             Performance::QueryPerformanceCounter(&mut counter)
@@ -242,7 +242,7 @@ impl StreamTrait for Stream {
         let nanos = counter as u128 * 1_000_000_000 / self.qpc_frequency as u128;
         let secs = (nanos / 1_000_000_000) as u64;
         let subsec_nanos = (nanos % 1_000_000_000) as u32;
-        crate::StreamInstant::new(secs, subsec_nanos)
+        StreamInstant::new(secs, subsec_nanos)
     }
 
     fn buffer_size(&self) -> Option<FrameCount> {
@@ -591,7 +591,7 @@ fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
 /// Use the stream's `IAudioClock` to produce the current stream instant.
 ///
 /// Uses the QPC position produced via the `GetPosition` method.
-fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamError> {
+fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, StreamError> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
@@ -602,7 +602,7 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
     };
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = qpc_position as u128 * 100;
-    let instant = crate::StreamInstant::new(
+    let instant = StreamInstant::new(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
@@ -620,7 +620,7 @@ fn input_timestamp(
 ) -> Result<crate::InputStreamTimestamp, StreamError> {
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = buffer_qpc_position as u128 * 100;
-    let capture = crate::StreamInstant::new(
+    let capture = StreamInstant::new(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );

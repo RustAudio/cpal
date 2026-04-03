@@ -14,7 +14,7 @@ use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
     DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SampleFormat, SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 use std::ops::DerefMut;
@@ -353,8 +353,8 @@ impl DeviceTrait for Device {
                                 0.0
                             }
                         };
-                        let callback = crate::StreamInstant::from_secs_f64(now);
-                        let playback = crate::StreamInstant::from_secs_f64(
+                        let callback = StreamInstant::from_secs_f64(now);
+                        let playback = StreamInstant::from_secs_f64(
                             time_at_start_of_buffer + total_hw_latency_secs,
                         );
                         let timestamp = crate::OutputStreamTimestamp { callback, playback };
@@ -496,8 +496,8 @@ impl StreamTrait for Stream {
         }
     }
 
-    fn now(&self) -> crate::StreamInstant {
-        crate::StreamInstant::from_secs_f64(self.ctx.current_time())
+    fn now(&self) -> StreamInstant {
+        StreamInstant::from_secs_f64(self.ctx.current_time())
     }
 
     fn buffer_size(&self) -> Option<crate::FrameCount> {

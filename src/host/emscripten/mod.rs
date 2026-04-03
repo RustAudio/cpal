@@ -15,8 +15,8 @@ use crate::{
     BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
     DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
     InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -279,8 +279,8 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn now(&self) -> crate::StreamInstant {
-        crate::StreamInstant::from_secs_f64(self.audio_ctxt.current_time())
+    fn now(&self) -> StreamInstant {
+        StreamInstant::from_secs_f64(self.audio_ctxt.current_time())
     }
 }
 
@@ -303,7 +303,7 @@ where
             let data = temporary_buffer.as_mut_ptr() as *mut ();
             let mut data = unsafe { Data::from_parts(data, len, sample_format) };
             let now_secs: f64 = audio_ctxt.current_time();
-            let callback = crate::StreamInstant::from_secs_f64(now_secs);
+            let callback = StreamInstant::from_secs_f64(now_secs);
             // TODO: Use proper latency instead. Currently, unsupported on most browsers though, so
             // we estimate based on buffer size instead. Probably should use this, but it's only
             // supported by firefox (2020-04-28).

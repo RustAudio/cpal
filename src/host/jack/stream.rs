@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleRate, StreamError,
+    PlayStreamError, SampleRate, StreamError, StreamInstant,
 };
 
 use super::JACK_SAMPLE_FORMAT;
@@ -221,7 +221,7 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         micros_to_stream_instant(self.async_client.as_client().time())
     }
 
@@ -403,8 +403,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
     }
 }
 
-fn micros_to_stream_instant(micros: u64) -> crate::StreamInstant {
-    crate::StreamInstant::from_micros(micros)
+fn micros_to_stream_instant(micros: u64) -> StreamInstant {
+    StreamInstant::from_micros(micros)
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.

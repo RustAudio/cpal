@@ -14,7 +14,7 @@ use crate::{
     BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
     DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
     DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
+    SampleFormat, SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
@@ -260,7 +260,7 @@ impl DeviceTrait for Device {
                                 Data::from_parts(data, interleaved_data.len(), sample_format)
                             };
 
-                            let callback = crate::StreamInstant::from_secs_f64(now);
+                            let callback = StreamInstant::from_secs_f64(now);
                             let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
                             let playback = callback
                                 + (buffer_duration
@@ -322,8 +322,8 @@ impl StreamTrait for Stream {
         }
     }
 
-    fn now(&self) -> crate::StreamInstant {
-        crate::StreamInstant::from_secs_f64(self.audio_context.current_time())
+    fn now(&self) -> StreamInstant {
+        StreamInstant::from_secs_f64(self.audio_context.current_time())
     }
 }
 
