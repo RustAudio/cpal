@@ -796,7 +796,9 @@ impl Device {
             let latency_frames =
                 device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
             let delay = frames_to_duration(latency_frames, sample_rate);
-            let capture = callback - delay;
+            let capture = callback
+                .checked_sub(delay)
+                .unwrap_or(crate::StreamInstant::ZERO);
             let timestamp = crate::InputStreamTimestamp { callback, capture };
 
             let info = InputCallbackInfo { timestamp };

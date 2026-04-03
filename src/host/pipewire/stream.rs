@@ -220,7 +220,9 @@ where
                 let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
                     description: "clock_gettime failed".to_owned(),
                 })?;
-                let pl = cb - frames_to_duration(frames, self.format.rate());
+                let pl = cb
+                    .checked_sub(frames_to_duration(frames, self.format.rate()))
+                    .unwrap_or(crate::StreamInstant::ZERO);
                 (cb, pl)
             }
         };
