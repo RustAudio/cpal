@@ -4,7 +4,6 @@ use std::{
         Arc,
     },
     thread::JoinHandle,
-    time::Instant,
 };
 
 use crate::{
@@ -66,6 +65,10 @@ impl StreamTrait for Stream {
                 },
             })?;
         Ok(())
+    }
+
+    fn now(&self) -> crate::StreamInstant {
+        monotonic_stream_instant().expect("clock_gettime failed")
     }
 
     fn buffer_size(&self) -> Option<crate::FrameCount> {
@@ -142,7 +145,6 @@ pub struct UserData<D, E> {
     error_callback: E,
     sample_format: SampleFormat,
     format: pw::spa::param::audio::AudioInfoRaw,
-    created_instance: Instant,
     last_quantum: Arc<AtomicU64>,
 }
 impl<D, E> UserData<D, E>
@@ -186,7 +188,7 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
             std::mem::size_of::<pw::sys::pw_time>(),
         )
     };
-    if rc != 0 || t.now == 0 || t.rate.denom == 0 {
+    if rc != 0 || t.now <= 0 || t.rate.denom == 0 {
         return None;
     }
     debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
@@ -211,19 +213,17 @@ where
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, capture) = match pw_stream_time(stream) {
             Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns),
-                StreamInstant::from_nanos(now_ns - delay_ns),
+                StreamInstant::from_nanos(now_ns as u64),
+                StreamInstant::from_nanos((now_ns - delay_ns.max(0)) as u64),
             ),
             None => {
-                let cb = stream_timestamp_fallback(self.created_instance)?;
-                let pl = cb
-                    .sub(frames_to_duration(frames, self.format.rate()))
-                    .ok_or_else(|| BackendSpecificError {
-                        description:
-                            "`capture` occurs beyond representation supported by `StreamInstant`"
-                                .to_string(),
-                    })?;
-                (cb, pl)
+                let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
+                    description: "clock_gettime failed".to_owned(),
+                })?;
+                let capture = cb
+                    .checked_sub(frames_to_duration(frames, self.format.rate()))
+                    .unwrap_or(crate::StreamInstant::ZERO);
+                (cb, capture)
             }
         };
         let timestamp = crate::InputStreamTimestamp { callback, capture };
@@ -246,18 +246,14 @@ where
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, playback) = match pw_stream_time(stream) {
             Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns),
-                StreamInstant::from_nanos(now_ns + delay_ns),
+                StreamInstant::from_nanos(now_ns as u64),
+                StreamInstant::from_nanos((now_ns + delay_ns.max(0)) as u64),
             ),
             None => {
-                let cb = stream_timestamp_fallback(self.created_instance)?;
-                let pl = cb
-                    .add(frames_to_duration(frames, self.format.rate()))
-                    .ok_or_else(|| BackendSpecificError {
-                        description:
-                            "`playback` occurs beyond representation supported by `StreamInstant`"
-                                .to_string(),
-                    })?;
+                let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
+                    description: "clock_gettime failed".to_owned(),
+                })?;
+                let pl = cb + frames_to_duration(frames, self.format.rate());
                 (cb, pl)
             }
         };
@@ -274,18 +270,22 @@ pub struct StreamData<D, E> {
     pub context: ContextRc,
 }
 
-// Use elapsed duration since stream creation as fallback when hardware timestamps are unavailable.
-//
-// This ensures positive values that are compatible with our `StreamInstant` representation.
-#[inline]
-fn stream_timestamp_fallback(
-    creation: std::time::Instant,
-) -> Result<StreamInstant, BackendSpecificError> {
-    let now = std::time::Instant::now();
-    let duration = now.duration_since(creation);
-    StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(BackendSpecificError {
-        description: "stream duration has exceeded `StreamInstant` representation".to_string(),
-    })
+/// Read `clock_gettime` and return it as a [`StreamInstant`].
+///
+/// This is the same clock used by `pw_stream_get_time_n` (`pw_time.now`), so values
+/// returned here are directly comparable with the `callback`/`capture`/`playback`
+/// instants delivered to the data callback.
+fn monotonic_stream_instant() -> Option<StreamInstant> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    if rc == 0 {
+        Some(StreamInstant::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+    } else {
+        None
+    }
 }
 
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
@@ -319,7 +319,6 @@ where
         error_callback,
         sample_format,
         format: Default::default(),
-        created_instance: Instant::now(),
         last_quantum,
     };
     let channels = config.channels as _;
@@ -471,7 +470,6 @@ where
         error_callback,
         sample_format,
         format: Default::default(),
-        created_instance: Instant::now(),
         last_quantum,
     };
 

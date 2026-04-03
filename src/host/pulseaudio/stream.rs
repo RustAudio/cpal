@@ -18,17 +18,17 @@ use crate::{
 const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub enum Stream {
-    Playback(pulseaudio::PlaybackStream),
-    Record(pulseaudio::RecordStream),
+    Playback(pulseaudio::PlaybackStream, Instant),
+    Record(pulseaudio::RecordStream, Instant),
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Stream::Playback(stream) => {
+            Stream::Playback(stream, _) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
             }
-            Stream::Record(stream) => {
+            Stream::Record(stream, _) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
                 block_on(stream.started()).map_err(Into::<BackendSpecificError>::into)?;
             }
@@ -39,21 +39,29 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), crate::PauseStreamError> {
         let res = match self {
-            Stream::Playback(stream) => block_on(stream.cork()),
-            Stream::Record(stream) => block_on(stream.cork()),
+            Stream::Playback(stream, _) => block_on(stream.cork()),
+            Stream::Record(stream, _) => block_on(stream.cork()),
         };
 
         res.map_err(Into::<BackendSpecificError>::into)?;
         Ok(())
     }
 
+    fn now(&self) -> crate::StreamInstant {
+        let start = match self {
+            Stream::Playback(_, start) | Stream::Record(_, start) => *start,
+        };
+        let elapsed = start.elapsed();
+        StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
+    }
+
     fn buffer_size(&self) -> Option<FrameCount> {
         let (spec, bytes) = match self {
-            Stream::Playback(s) => (
+            Stream::Playback(s, _) => (
                 s.sample_spec(),
                 s.buffer_attr().minimum_request_length as usize,
             ),
-            Stream::Record(s) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
+            Stream::Record(s, _) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
         if bytes > 0 {
@@ -75,8 +83,7 @@ impl Stream {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
-        // Use a monotonic clock relative to stream creation for StreamInstants.
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
         // Microseconds since stream creation at the time of the last latency poll, used
@@ -122,14 +129,8 @@ impl Stream {
             let playback_time = elapsed + Duration::from_micros(latency);
 
             let timestamp = OutputStreamTimestamp {
-                callback: StreamInstant {
-                    secs: elapsed.as_secs() as i64,
-                    nanos: elapsed.subsec_nanos(),
-                },
-                playback: StreamInstant {
-                    secs: playback_time.as_secs() as i64,
-                    nanos: playback_time.subsec_nanos(),
-                },
+                callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
+                playback: StreamInstant::new(playback_time.as_secs(), playback_time.subsec_nanos()),
             };
 
             // Preemptively fill the buffer with silence in case the user
@@ -202,7 +203,7 @@ impl Stream {
             std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
-        Ok(Self::Playback(stream))
+        Ok(Self::Playback(stream, start))
     }
 
     pub fn new_record<D, E>(
@@ -234,14 +235,8 @@ impl Stream {
                 .unwrap_or_default();
 
             let timestamp = InputStreamTimestamp {
-                callback: StreamInstant {
-                    secs: elapsed.as_secs() as i64,
-                    nanos: elapsed.subsec_nanos(),
-                },
-                capture: StreamInstant {
-                    secs: capture_time.as_secs() as i64,
-                    nanos: capture_time.subsec_nanos(),
-                },
+                callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
+                capture: StreamInstant::new(capture_time.as_secs(), capture_time.subsec_nanos()),
             };
 
             let bps = sample_spec.format.bytes_per_sample();
@@ -286,7 +281,7 @@ impl Stream {
             std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
-        Ok(Self::Record(stream))
+        Ok(Self::Record(stream, start))
     }
 }
 

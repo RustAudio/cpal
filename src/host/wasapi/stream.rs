@@ -2,7 +2,7 @@ use super::windows_err_to_cpal_err;
 use crate::traits::StreamTrait;
 use crate::{
     BackendSpecificError, BufferSize, Data, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamError,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamError, StreamInstant,
 };
 use std::mem;
 use std::ptr;
@@ -12,6 +12,7 @@ use std::time::Duration;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio;
+use windows::Win32::System::Performance;
 use windows::Win32::System::SystemServices;
 use windows::Win32::System::Threading;
 
@@ -33,6 +34,9 @@ pub struct Stream {
 
     // Callback size in frames.
     period_frames: FrameCount,
+
+    // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
+    qpc_frequency: u64,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -124,6 +128,12 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let mut qpc_frequency: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceFrequency(&mut qpc_frequency)
+                .expect("QueryPerformanceFrequency failed");
+            debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
+        }
 
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
@@ -141,6 +151,7 @@ impl Stream {
             commands: tx,
             pending_scheduled_event,
             period_frames,
+            qpc_frequency: qpc_frequency as u64,
         }
     }
 
@@ -160,6 +171,12 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let mut qpc_frequency: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceFrequency(&mut qpc_frequency)
+                .expect("QueryPerformanceFrequency failed");
+            debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
+        }
 
         let run_context = RunContext {
             handles: vec![pending_scheduled_event, stream_inner.event],
@@ -177,6 +194,7 @@ impl Stream {
             commands: tx,
             pending_scheduled_event,
             period_frames,
+            qpc_frequency: qpc_frequency as u64,
         }
     }
 
@@ -213,6 +231,23 @@ impl StreamTrait for Stream {
         self.push_command(Command::PauseStream)
             .map_err(|_| crate::error::PauseStreamError::DeviceNotAvailable)?;
         Ok(())
+    }
+
+    fn now(&self) -> StreamInstant {
+        let mut counter: i64 = 0;
+        unsafe {
+            Performance::QueryPerformanceCounter(&mut counter)
+                .expect("QueryPerformanceCounter failed");
+        }
+        // Convert to 100-nanosecond units first, matching the precision of WASAPI QPCPosition
+        // values delivered to callbacks. This keeps `now()` on the same 100 ns grid as
+        // callback/capture/playback instants, avoiding false sub-100 ns deltas.
+        let units_100ns = counter as u128 * 10_000_000 / self.qpc_frequency as u128;
+        let nanos = units_100ns * 100;
+        StreamInstant::new(
+            (nanos / 1_000_000_000) as u64,
+            (nanos % 1_000_000_000) as u32,
+        )
     }
 
     fn buffer_size(&self) -> Option<FrameCount> {
@@ -561,7 +596,7 @@ fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
 /// Use the stream's `IAudioClock` to produce the current stream instant.
 ///
 /// Uses the QPC position produced via the `GetPosition` method.
-fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamError> {
+fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, StreamError> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
@@ -570,10 +605,12 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
             .GetPosition(&mut position, Some(&mut qpc_position))
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
-    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = qpc_position as i128 * 100;
-    let instant = crate::StreamInstant::from_nanos_i128(qpc_nanos)
-        .expect("performance counter out of range of `StreamInstant` representation");
+    // The `qpc_position` is in 100-nanosecond units.
+    let nanos = qpc_position as u128 * 100;
+    let instant = StreamInstant::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    );
     Ok(instant)
 }
 
@@ -586,10 +623,12 @@ fn input_timestamp(
     stream: &StreamInner,
     buffer_qpc_position: u64,
 ) -> Result<crate::InputStreamTimestamp, StreamError> {
-    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = buffer_qpc_position as i128 * 100;
-    let capture = crate::StreamInstant::from_nanos_i128(qpc_nanos)
-        .expect("performance counter out of range of `StreamInstant` representation");
+    // The `qpc_position` is in 100-nanosecond units.
+    let nanos = buffer_qpc_position as u128 * 100;
+    let capture = StreamInstant::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    );
     let callback = stream_instant(stream)?;
     Ok(crate::InputStreamTimestamp { capture, callback })
 }
@@ -609,8 +648,6 @@ fn output_timestamp(
     // `padding` is the number of frames already queued in the endpoint buffer ahead of the
     // frames we are about to write. Those frames must drain before ours are heard.
     let padding = stream.max_frames_in_buffer - frames_available;
-    let playback = callback
-        .add(frames_to_duration(padding, sample_rate) + stream.stream_latency)
-        .expect("`playback` occurs beyond representation supported by `StreamInstant`");
+    let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
     Ok(crate::OutputStreamTimestamp { callback, playback })
 }

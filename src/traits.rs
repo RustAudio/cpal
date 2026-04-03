@@ -11,7 +11,8 @@ use crate::{
     BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
     DeviceNameError, DevicesError, InputCallbackInfo, InputDevices, OutputCallbackInfo,
     OutputDevices, PauseStreamError, PlayStreamError, SampleFormat, SizedSample, StreamConfig,
-    StreamError, SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    StreamError, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -321,6 +322,17 @@ pub trait StreamTrait {
     fn buffer_size(&self) -> Option<crate::FrameCount> {
         None
     }
+
+    /// Returns a [`StreamInstant`] representing the current moment on the stream's clock.
+    ///
+    /// The clock is **monotonic**: successive calls to `now()` will never return a value earlier
+    /// than a previous one, and the returned value will never be earlier than any `callback`,
+    /// `capture`, or `playback` instant already delivered to the stream's data callback.
+    ///
+    /// The returned value shares the same time base as the [`StreamInstant`]s delivered to the
+    /// stream's data callback via [`crate::InputStreamTimestamp::callback`] and
+    /// [`crate::OutputStreamTimestamp::callback`], so durations between them are meaningful.
+    fn now(&self) -> StreamInstant;
 }
 
 /// Compile-time assertion that a stream type implements [`Send`].

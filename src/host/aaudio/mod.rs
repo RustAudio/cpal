@@ -6,12 +6,12 @@ use std::cmp;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::vec::IntoIter as VecIntoIter;
 
 extern crate ndk;
 
-use convert::{stream_instant, to_stream_instant};
+use convert::{now_stream_instant, stream_instant};
 use java_interface::{AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -316,13 +316,12 @@ where
     E: FnMut(StreamError) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
-    let created = Instant::now();
     let channel_count = config.channels as i32;
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
-                    callback: to_stream_instant(created.elapsed()),
+                    callback: now_stream_instant(),
                     capture: stream_instant(stream),
                 },
             };
@@ -366,7 +365,6 @@ where
     E: FnMut(StreamError) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
-    let created = Instant::now();
     let channel_count = config.channels as i32;
     let tune_dynamically = config.buffer_size == BufferSize::Default;
 
@@ -378,7 +376,7 @@ where
             // Deliver audio data to user callback
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
-                    callback: to_stream_instant(created.elapsed()),
+                    callback: now_stream_instant(),
                     playback: stream_instant(stream),
                 },
             };
@@ -717,6 +715,10 @@ impl StreamTrait for Stream {
             }
             .into()),
         }
+    }
+
+    fn now(&self) -> crate::StreamInstant {
+        now_stream_instant()
     }
 
     fn buffer_size(&self) -> Option<crate::FrameCount> {

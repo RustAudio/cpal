@@ -8,6 +8,12 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors
 - [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
 - [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
+- [ ] Remove `instant.duration_since(e)` unwraps; it now returns `Duration` (saturating).
+- [ ] Change `instant.add(d)` to `instant.checked_add(d)` (or use `instant + d`).
+- [ ] Change `instant.sub(d)` to `instant.checked_sub(d)` (or use `instant - d`).
+- [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
+- [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
+- [ ] Update `duration_since` call sites to pass by value (drop the `&`).
 
 ## 1. Error enums are now `#[non_exhaustive]`
 
@@ -60,6 +66,73 @@ let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
 **Impact:** Remove the `&` at every `build_*_stream` call site. Because `StreamConfig` is `Copy`, you can reuse the same binding across multiple calls without cloning.
 
 If you implement `DeviceTrait` on your own type (via the `custom` feature), update your `build_input_stream_raw` and `build_output_stream_raw` signatures from `config: &StreamConfig` to `config: StreamConfig`. Any `config.clone()` calls before `move` closures can also be removed.
+
+## 4. `StreamInstant` API overhaul
+
+The `StreamInstant` API has been aligned with `std::time::Instant` and `std::time::Duration`.
+
+### `duration_since` now returns `Duration` (saturating)
+
+**What changed:** `duration_since` now returns `Duration` directly, saturating to `Duration::ZERO`
+when the argument is later than `self`, instead of returning `Option<Duration>`.
+
+```rust
+// Before (v0.17): returned Option<Duration>, argument by reference
+if let Some(d) = callback.duration_since(&start) {
+    println!("elapsed: {d:?}");
+}
+
+// After (v0.18): returns Duration (saturating), argument by value
+let d = callback.duration_since(start);
+println!("elapsed: {d:?}");
+
+// For the previous Option-returning behaviour, use checked_duration_since:
+if let Some(d) = callback.checked_duration_since(start) {
+    println!("elapsed: {d:?}");
+}
+```
+
+**Why:** Mirrors the saturating behavior of `std::time::Instant::saturating_duration_since` in the Rust standard library.
+
+### `add` / `sub` renamed to `checked_add` / `checked_sub`; operator impls added
+
+**What changed:** The `add` and `sub` methods (which returned `Option`) are replaced by
+`checked_add` / `checked_sub` with the same semantics. `+`, `-`, `+=`, and `-=` operator impls
+are also added.
+
+```rust
+// Before (v0.17)
+let future = instant.add(Duration::from_millis(10)).expect("overflow");
+let past   = instant.sub(Duration::from_millis(10)).expect("underflow");
+
+// After (v0.18): explicit checked form (same semantics):
+let future = instant.checked_add(Duration::from_millis(10)).expect("overflow");
+let past   = instant.checked_sub(Duration::from_millis(10)).expect("underflow");
+
+// Or use the operator (panics on overflow, like std::time::Instant):
+let future = instant + Duration::from_millis(10);
+let past   = instant - Duration::from_millis(10);
+
+// Subtract two instants to get a Duration (saturates to zero):
+let elapsed: Duration = later - earlier;
+```
+
+**Why:** Aligns the API with `std::time::Instant`, making `StreamInstant` more idiomatic.
+
+### `new` and `from_nanos` take unsigned integers
+
+**What changed:** The `secs` parameter of `StreamInstant::new` and the `nanos` parameter of
+`StreamInstant::from_nanos` are now `u64` instead of `i64`.
+
+```rust
+// Before (v0.17): negative seconds were accepted
+StreamInstant::new(-1_i64, 0);
+
+// After (v0.18): all stream clocks are non-negative
+StreamInstant::new(0_u64, 0);
+```
+
+**Why:** All audio host clocks are positive and monotonic; they are never negative.
 
 ---
 

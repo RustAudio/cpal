@@ -27,8 +27,8 @@ use crate::{
     DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig,
-    StreamError, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    StreamError, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
 mod enumerate;
@@ -1065,11 +1065,8 @@ fn process_input(
     }?;
     let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
     let capture = callback
-        .sub(delay_duration)
-        .ok_or_else(|| BackendSpecificError {
-            description: "`capture` is earlier than representation supported by `StreamInstant`"
-                .to_string(),
-        })?;
+        .checked_sub(delay_duration)
+        .unwrap_or(StreamInstant::ZERO);
     let timestamp = crate::InputStreamTimestamp { callback, capture };
     let info = crate::InputCallbackInfo { timestamp };
     data_callback(&data, &info);
@@ -1098,12 +1095,7 @@ fn process_output(
             stream_timestamp_fallback(stream.creation_instant)
         }?;
         let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
-        let playback = callback
-            .add(delay_duration)
-            .ok_or_else(|| BackendSpecificError {
-                description: "`playback` occurs beyond representation supported by `StreamInstant`"
-                    .to_string(),
-            })?;
+        let playback = callback + delay_duration;
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
         let info = crate::OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
@@ -1135,7 +1127,7 @@ fn process_output(
 #[inline]
 fn stream_timestamp_hardware(
     status: &alsa::pcm::Status,
-) -> Result<crate::StreamInstant, BackendSpecificError> {
+) -> Result<StreamInstant, BackendSpecificError> {
     let trigger_ts = status.get_trigger_htstamp();
     // trigger_htstamp records when the PCM stream started.
     // On the first few callbacks, it might not have been set yet,
@@ -1156,7 +1148,7 @@ fn stream_timestamp_hardware(
         );
         return Err(BackendSpecificError { description });
     }
-    Ok(crate::StreamInstant::from_nanos(nanos))
+    Ok(StreamInstant::from_nanos(nanos as u64))
 }
 
 // Use elapsed duration since stream creation as fallback when hardware timestamps are unavailable.
@@ -1165,12 +1157,13 @@ fn stream_timestamp_hardware(
 #[inline]
 fn stream_timestamp_fallback(
     creation: std::time::Instant,
-) -> Result<crate::StreamInstant, BackendSpecificError> {
+) -> Result<StreamInstant, BackendSpecificError> {
     let now = std::time::Instant::now();
     let duration = now.duration_since(creation);
-    crate::StreamInstant::from_nanos_i128(duration.as_nanos() as i128).ok_or(BackendSpecificError {
-        description: "stream duration has exceeded `StreamInstant` representation".to_string(),
-    })
+    Ok(StreamInstant::new(
+        duration.as_secs(),
+        duration.subsec_nanos(),
+    ))
 }
 
 // Adapted from `timestamp2ns` here:
@@ -1284,6 +1277,18 @@ impl StreamTrait for Stream {
         self.inner.channel.pause(true).ok();
         Ok(())
     }
+    fn now(&self) -> StreamInstant {
+        if self.inner.use_hw_timestamps {
+            if let Ok(status) = self.inner.channel.status() {
+                if let Ok(instant) = stream_timestamp_hardware(&status) {
+                    return instant;
+                }
+            }
+        }
+        stream_timestamp_fallback(self.inner.creation_instant)
+            .expect("stream duration exceeded `StreamInstant` range")
+    }
+
     fn buffer_size(&self) -> Option<FrameCount> {
         Some(self.inner.period_frames as FrameCount)
     }

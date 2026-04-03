@@ -156,6 +156,10 @@ impl StreamTrait for Stream {
         Stream::pause(self)
     }
 
+    fn now(&self) -> crate::StreamInstant {
+        Stream::now(self)
+    }
+
     fn buffer_size(&self) -> Option<crate::FrameCount> {
         Stream::buffer_size(self)
     }

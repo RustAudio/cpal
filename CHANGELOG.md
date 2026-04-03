@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `device_by_id` is now dispatched to each backend's implementation, allowing to override it.
+- `StreamTrait::now()` to query the current instant on the stream's clock.
+- `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
+  [UPGRADING.md](UPGRADING.md) for migration details.
 - **ALSA**: `device_by_id` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
@@ -47,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
+
+### Removed
+
+- Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
 
 ### Fixed
 
