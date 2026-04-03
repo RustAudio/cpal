@@ -312,7 +312,7 @@ pub trait StreamTrait {
     /// # Implementation notes
     ///
     /// It is not enforced that each callback delivers exactly this many frames. The actual frame
-    /// count is passed to each callback invocation and is the authoritative value.
+    /// count for each callback is given by its buffer.
     ///
     /// `buffer_size()` is primarily intended for sizing pre-allocated buffers, but must not be
     /// trusted as a guaranteed bound. An incorrect implementation of `buffer_size()` should not
