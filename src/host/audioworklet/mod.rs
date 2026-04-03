@@ -45,6 +45,8 @@ const MIN_SAMPLE_RATE: SampleRate = 8_000;
 const MAX_SAMPLE_RATE: SampleRate = 96_000;
 const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
+
+// https://webaudio.github.io/web-audio-api/#render-quantum-size
 const DEFAULT_RENDER_SIZE: u64 = 128;
 
 impl Host {
