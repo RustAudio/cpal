@@ -80,6 +80,9 @@ pub struct OutputCallbackInfo {
 }
 
 impl StreamInstant {
+    /// A `StreamInstant` with `secs` and `nanos` both set to zero.
+    pub const ZERO: Self = Self { secs: 0, nanos: 0 };
+
     /// Returns the amount of time elapsed from `earlier` to `self`, or `None` if `earlier` is
     /// later than `self`.
     pub fn checked_duration_since(&self, earlier: StreamInstant) -> Option<Duration> {
@@ -272,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_stream_instant() {
-        let z = StreamInstant::new(0, 0); // origin
+        let z = StreamInstant::ZERO; // origin
         let a = StreamInstant::new(2, 0);
         let max = StreamInstant::new(u64::MAX, 999_999_999); // largest representable instant
 
@@ -282,7 +285,7 @@ mod tests {
         );
         assert_eq!(
             a.checked_sub(Duration::from_secs(2)),
-            Some(StreamInstant::new(0, 0))
+            Some(StreamInstant::ZERO)
         );
         assert_eq!(a.checked_sub(Duration::from_secs(3)), None); // would go below zero
         assert_eq!(z.checked_sub(Duration::from_nanos(1)), None); // underflow at origin
