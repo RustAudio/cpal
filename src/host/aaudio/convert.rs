@@ -15,7 +15,7 @@ pub fn now_stream_instant() -> StreamInstant {
     };
     let res = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     assert_eq!(res, 0, "clock_gettime(CLOCK_MONOTONIC) failed");
-    StreamInstant::from_nanos(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
+    StreamInstant::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }
 
 /// Returns the [`StreamInstant`] of the most recent audio frame transferred by `stream`.
