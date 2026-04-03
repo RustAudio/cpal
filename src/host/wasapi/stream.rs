@@ -132,6 +132,7 @@ impl Stream {
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
                 .expect("QueryPerformanceFrequency failed");
+            debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
         let run_context = RunContext {
@@ -174,6 +175,7 @@ impl Stream {
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
                 .expect("QueryPerformanceFrequency failed");
+            debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
         let run_context = RunContext {
@@ -598,9 +600,12 @@ fn stream_instant(stream: &StreamInner) -> Result<crate::StreamInstant, StreamEr
             .GetPosition(&mut position, Some(&mut qpc_position))
             .map_err(windows_err_to_cpal_err::<StreamError>)?;
     };
-    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = (qpc_position as u128 * 100) as u64;
-    let instant = crate::StreamInstant::from_nanos(qpc_nanos);
+    // The `qpc_position` is in 100-nanosecond units.
+    let nanos = qpc_position as u128 * 100;
+    let instant = crate::StreamInstant::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    );
     Ok(instant)
 }
 
@@ -613,9 +618,12 @@ fn input_timestamp(
     stream: &StreamInner,
     buffer_qpc_position: u64,
 ) -> Result<crate::InputStreamTimestamp, StreamError> {
-    // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-    let qpc_nanos = (buffer_qpc_position as u128 * 100) as u64;
-    let capture = crate::StreamInstant::from_nanos(qpc_nanos);
+    // The `qpc_position` is in 100-nanosecond units.
+    let nanos = buffer_qpc_position as u128 * 100;
+    let capture = crate::StreamInstant::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    );
     let callback = stream_instant(stream)?;
     Ok(crate::InputStreamTimestamp { capture, callback })
 }
