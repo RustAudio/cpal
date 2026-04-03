@@ -188,7 +188,7 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
             std::mem::size_of::<pw::sys::pw_time>(),
         )
     };
-    if rc != 0 || t.now == 0 || t.rate.denom == 0 {
+    if rc != 0 || t.now <= 0 || t.rate.denom == 0 {
         return None;
     }
     debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
@@ -220,10 +220,10 @@ where
                 let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
                     description: "clock_gettime failed".to_owned(),
                 })?;
-                let pl = cb
+                let capture = cb
                     .checked_sub(frames_to_duration(frames, self.format.rate()))
                     .unwrap_or(crate::StreamInstant::ZERO);
-                (cb, pl)
+                (cb, capture)
             }
         };
         let timestamp = crate::InputStreamTimestamp { callback, capture };
