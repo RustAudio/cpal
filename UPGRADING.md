@@ -92,7 +92,7 @@ if let Some(d) = callback.checked_duration_since(start) {
 }
 ```
 
-**Why:** Mirrors the behavior of `std::time::Instant::duration_since` as of Rust standard library.
+**Why:** Mirrors the saturating behavior of `std::time::Instant::saturating_duration_since` in the Rust standard library.
 
 ### `add` / `sub` renamed to `checked_add` / `checked_sub`; operator impls added
 
