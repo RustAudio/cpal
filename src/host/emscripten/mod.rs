@@ -12,8 +12,8 @@ use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError,
+    BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
     InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
     SampleRate, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -37,7 +37,7 @@ pub struct Device;
 #[derive(Clone)]
 pub struct Stream {
     audio_ctxt: AudioContext,
-    buffer_size_frames: u32,
+    buffer_size_frames: FrameCount,
 }
 
 // WASM runs in a single-threaded environment, so Send and Sync are safe by design.
@@ -50,14 +50,14 @@ crate::assert_stream_sync!(Stream);
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
-const MIN_CHANNELS: u16 = 1;
-const MAX_CHANNELS: u16 = 32;
+const MIN_CHANNELS: ChannelCount = 1;
+const MAX_CHANNELS: ChannelCount = 32;
 const MIN_SAMPLE_RATE: SampleRate = 8_000;
 const MAX_SAMPLE_RATE: SampleRate = 96_000;
 const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
-const MIN_BUFFER_SIZE: u32 = 1;
-const MAX_BUFFER_SIZE: u32 = u32::MAX;
-const DEFAULT_BUFFER_SIZE: usize = 2048;
+const MIN_BUFFER_SIZE: FrameCount = 1;
+const MAX_BUFFER_SIZE: FrameCount = FrameCount::MAX;
+const DEFAULT_BUFFER_SIZE: FrameCount = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
@@ -219,7 +219,7 @@ impl DeviceTrait for Device {
                 if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
                     return Err(BuildStreamError::StreamConfigNotSupported);
                 }
-                v as usize
+                v
             }
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
@@ -228,7 +228,7 @@ impl DeviceTrait for Device {
         let audio_ctxt = AudioContext::new().expect("webaudio is not present on this system");
         let stream = Stream {
             audio_ctxt,
-            buffer_size_frames: buffer_size_frames as u32,
+            buffer_size_frames,
         };
 
         // Use `set_timeout` to invoke a Rust callback repeatedly.
@@ -244,7 +244,7 @@ impl DeviceTrait for Device {
             data_callback,
             config,
             sample_format,
-            buffer_size_frames as u32,
+            buffer_size_frames,
         );
 
         Ok(stream)
@@ -289,7 +289,7 @@ impl StreamTrait for Stream {
 
 fn audio_callback_fn<D>(
     mut data_callback: AssertUnwindSafe<D>,
-) -> impl FnOnce(Stream, StreamConfig, SampleFormat, u32)
+) -> impl FnOnce(Stream, StreamConfig, SampleFormat, FrameCount)
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
@@ -373,7 +373,7 @@ fn set_timeout<D>(
     data_callback: AssertUnwindSafe<D>,
     config: StreamConfig,
     sample_format: SampleFormat,
-    buffer_size_frames: u32,
+    buffer_size_frames: FrameCount,
 ) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
