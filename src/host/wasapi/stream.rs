@@ -239,10 +239,15 @@ impl StreamTrait for Stream {
             Performance::QueryPerformanceCounter(&mut counter)
                 .expect("QueryPerformanceCounter failed");
         }
-        let nanos = counter as u128 * 1_000_000_000 / self.qpc_frequency as u128;
-        let secs = (nanos / 1_000_000_000) as u64;
-        let subsec_nanos = (nanos % 1_000_000_000) as u32;
-        StreamInstant::new(secs, subsec_nanos)
+        // Convert to 100-nanosecond units first, matching the precision of WASAPI QPCPosition
+        // values delivered to callbacks. This keeps `now()` on the same 100 ns grid as
+        // callback/capture/playback instants, avoiding false sub-100 ns deltas.
+        let units_100ns = counter as u128 * 10_000_000 / self.qpc_frequency as u128;
+        let nanos = units_100ns * 100;
+        StreamInstant::new(
+            (nanos / 1_000_000_000) as u64,
+            (nanos % 1_000_000_000) as u32,
+        )
     }
 
     fn buffer_size(&self) -> Option<FrameCount> {
