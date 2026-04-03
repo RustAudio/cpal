@@ -1148,6 +1148,7 @@ unsafe fn process_output_callback_i24<D>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn process_input_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
