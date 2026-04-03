@@ -9,10 +9,43 @@ use super::Device;
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
     OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
+    StreamInstant,
 };
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
+/// monotonic 64-bit value, shared between `now()` and audio callbacks.
+pub(super) struct TimeBase {
+    pub last_ms: AtomicU32,
+    pub epoch_ms: AtomicU64,
+}
+
+impl TimeBase {
+    pub fn new() -> Self {
+        Self {
+            last_ms: AtomicU32::new(0),
+            epoch_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Convert a `timeGetTime()` millisecond value to a monotonic `StreamInstant`,
+    /// extending the 32-bit counter across its ~49.7-day wrap.
+    fn to_stream_instant(&self, ms: u32) -> StreamInstant {
+        // `Relaxed` is sufficient: callbacks run on a single ASIO thread. The only
+        // cross-thread caller is `now()`, which may race at wrap time (~1µs every 49.7 days).
+        let prev = self.last_ms.swap(ms, Ordering::Relaxed);
+        let epoch = if ms < prev {
+            self.epoch_ms
+                .fetch_add(u32::MAX as u64 + 1, Ordering::Relaxed)
+                + (u32::MAX as u64 + 1)
+        } else {
+            self.epoch_ms.load(Ordering::Relaxed)
+        };
+        StreamInstant::from_millis(epoch + ms as u64)
+    }
+}
 
 pub struct Stream {
     playing: Arc<AtomicBool>,
@@ -22,6 +55,7 @@ pub struct Stream {
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::BufferCallbackId,
     driver_event_callback_id: sys::DriverEventCallbackId,
+    time_base: Arc<TimeBase>,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -29,6 +63,14 @@ crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
 impl Stream {
+    pub fn now(&self) -> StreamInstant {
+        // `ASIOTimeInfo::systemTime` is specified by the ASIO SDK as nanoseconds
+        // derived from `timeGetTime()`, so calling it here gives a value on the
+        // same clock as the `system_time` field delivered to every callback.
+        let ms = unsafe { windows::Win32::Media::timeGetTime() };
+        self.time_base.to_stream_instant(ms)
+    }
+
     pub fn play(&self) -> Result<(), PlayStreamError> {
         self.playing.store(true, Ordering::Release);
         Ok(())
@@ -92,10 +134,10 @@ impl Device {
         // Query hardware input latency (order matters: needs buffers created above).
         // Wrapped in Arc<AtomicUsize> so the message callback can update it on
         // kAsioLatenciesChanged without touching the buffer callback.
-        let hardware_input_latency = Arc::new(AtomicUsize::new(
+        let hardware_input_latency = Arc::new(AtomicU32::new(
             driver
                 .latencies()
-                .map(|latencies| latencies.input.max(0) as usize)
+                .map(|latencies| latencies.input.max(0) as u32)
                 .unwrap_or(0),
         ));
 
@@ -111,6 +153,9 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
+
+        let time_base = Arc::new(TimeBase::new());
+        let time_base_cb = Arc::clone(&time_base);
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
@@ -147,7 +192,10 @@ impl Device {
                 );
             }
 
-            let hardware_input_latency = hardware_input_latency.load(Ordering::Relaxed);
+            let hardware_input_latency = hardware_input_latency.load(Ordering::Relaxed) as usize;
+
+            let callback_instant =
+                time_base_cb.to_stream_instant((callback_info.system_time / 1_000_000) as u32);
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
@@ -161,6 +209,7 @@ impl Device {
                 format: SampleFormat,
                 from_endianness: F,
                 hardware_latency_frames: usize,
+                callback_instant: StreamInstant,
             ) where
                 A: Copy,
                 D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -183,7 +232,7 @@ impl Device {
                 apply_input_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_info,
+                    callback_instant,
                     sample_rate,
                     format,
                     hardware_latency_frames,
@@ -201,6 +250,7 @@ impl Device {
                         SampleFormat::I16,
                         from_le,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -213,6 +263,7 @@ impl Device {
                         SampleFormat::I16,
                         from_be,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
 
@@ -226,6 +277,7 @@ impl Device {
                         SampleFormat::F32,
                         from_le,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
@@ -238,6 +290,7 @@ impl Device {
                         SampleFormat::F32,
                         from_be,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
 
@@ -251,6 +304,7 @@ impl Device {
                         SampleFormat::I32,
                         from_le,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -263,6 +317,7 @@ impl Device {
                         SampleFormat::I32,
                         from_be,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
 
@@ -276,6 +331,7 @@ impl Device {
                         SampleFormat::F64,
                         from_le,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
@@ -288,6 +344,7 @@ impl Device {
                         SampleFormat::F64,
                         from_be,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
 
@@ -300,6 +357,7 @@ impl Device {
                         config.sample_rate,
                         true,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
@@ -311,6 +369,7 @@ impl Device {
                         config.sample_rate,
                         false,
                         hardware_input_latency,
+                        callback_instant,
                     );
                 }
 
@@ -333,6 +392,7 @@ impl Device {
             asio_streams,
             callback_id,
             driver_event_callback_id,
+            time_base: Arc::clone(&time_base),
         })
     }
 
@@ -379,10 +439,10 @@ impl Device {
         // Query hardware output latency (order matters: needs buffers created above).
         // Wrapped in Arc<AtomicUsize> so the message callback can update it on
         // kAsioLatenciesChanged without touching the buffer callback.
-        let hardware_output_latency = Arc::new(AtomicUsize::new(
+        let hardware_output_latency = Arc::new(AtomicU32::new(
             driver
                 .latencies()
-                .map(|latencies| latencies.output.max(0) as usize)
+                .map(|latencies| latencies.output.max(0) as u32)
                 .unwrap_or(0),
         ));
 
@@ -398,6 +458,9 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
+
+        let time_base = Arc::new(TimeBase::new());
+        let time_base_cb = Arc::clone(&time_base);
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
@@ -432,7 +495,10 @@ impl Device {
                 );
             }
 
-            let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed);
+            let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed) as usize;
+
+            let callback_instant =
+                time_base_cb.to_stream_instant((callback_info.system_time / 1_000_000) as u32);
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -460,6 +526,7 @@ impl Device {
                 format: SampleFormat,
                 mix_samples: F,
                 hardware_latency_frames: usize,
+                callback_instant: StreamInstant,
             ) where
                 A: Copy,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -469,7 +536,7 @@ impl Device {
                 apply_output_callback_to_data::<A, _>(
                     data_callback,
                     interleaved,
-                    asio_info,
+                    callback_instant,
                     sample_rate,
                     format,
                     hardware_latency_frames,
@@ -504,6 +571,7 @@ impl Device {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
@@ -519,6 +587,7 @@ impl Device {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
@@ -536,6 +605,7 @@ impl Device {
                                 .to_le()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -554,6 +624,7 @@ impl Device {
                                 .to_be()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -570,6 +641,7 @@ impl Device {
                             from_le(old_sample).saturating_add(new_sample).to_le()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
                 (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
@@ -585,6 +657,7 @@ impl Device {
                             from_be(old_sample).saturating_add(new_sample).to_be()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -603,6 +676,7 @@ impl Device {
                                 .to_le()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -621,6 +695,7 @@ impl Device {
                                 .to_be()
                         },
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -634,6 +709,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -647,6 +723,7 @@ impl Device {
                         callback_info,
                         config.sample_rate,
                         hardware_output_latency,
+                        callback_instant,
                     );
                 }
 
@@ -669,6 +746,7 @@ impl Device {
             asio_streams,
             callback_id,
             driver_event_callback_id,
+            time_base: Arc::clone(&time_base),
         })
     }
 
@@ -764,7 +842,7 @@ impl Device {
         &self,
         driver: &sys::Driver,
         error_callback: E,
-        hardware_latency: Arc<AtomicUsize>,
+        hardware_latency: Arc<AtomicU32>,
         is_input: bool,
     ) -> sys::DriverEventCallbackId
     where
@@ -807,7 +885,7 @@ impl Device {
                             } else {
                                 latencies.output
                             };
-                            hardware_latency.store(latency.max(0) as usize, Ordering::Relaxed);
+                            hardware_latency.store(latency.max(0) as u32, Ordering::Relaxed);
                         }
                         false
                     }
@@ -1007,6 +1085,7 @@ unsafe fn process_output_callback_i24<D>(
     asio_info: &sys::CallbackInfo,
     sample_rate: crate::SampleRate,
     hardware_latency_frames: usize,
+    callback_instant: StreamInstant,
 ) where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
@@ -1015,7 +1094,7 @@ unsafe fn process_output_callback_i24<D>(
     apply_output_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_info,
+        callback_instant,
         sample_rate,
         format,
         hardware_latency_frames,
@@ -1077,6 +1156,7 @@ unsafe fn process_input_callback_i24<D>(
     sample_rate: crate::SampleRate,
     little_endian: bool,
     hardware_latency_frames: usize,
+    callback_instant: StreamInstant,
 ) where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
@@ -1112,7 +1192,7 @@ unsafe fn process_input_callback_i24<D>(
     apply_input_callback_to_data::<I24, _>(
         data_callback,
         interleaved,
-        asio_info,
+        callback_instant,
         sample_rate,
         format,
         hardware_latency_frames,
@@ -1123,7 +1203,7 @@ unsafe fn process_input_callback_i24<D>(
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_info: &sys::CallbackInfo,
+    callback_instant: StreamInstant,
     sample_rate: crate::SampleRate,
     sample_format: SampleFormat,
     hardware_latency_frames: usize,
@@ -1136,10 +1216,12 @@ unsafe fn apply_output_callback_to_data<A, D>(
         interleaved.len(),
         sample_format,
     );
-    let callback = crate::StreamInstant::from_nanos(asio_info.system_time);
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
-    let playback = callback + delay;
-    let timestamp = crate::OutputStreamTimestamp { callback, playback };
+    let playback = callback_instant + delay;
+    let timestamp = crate::OutputStreamTimestamp {
+        callback: callback_instant,
+        playback,
+    };
     let info = OutputCallbackInfo { timestamp };
     data_callback(&mut data, &info);
 }
@@ -1148,7 +1230,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
 unsafe fn apply_input_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
-    asio_info: &sys::CallbackInfo,
+    callback_instant: StreamInstant,
     sample_rate: crate::SampleRate,
     format: SampleFormat,
     hardware_latency_frames: usize,
@@ -1161,10 +1243,14 @@ unsafe fn apply_input_callback_to_data<A, D>(
         interleaved.len(),
         format,
     );
-    let callback = crate::StreamInstant::from_nanos(asio_info.system_time);
     let delay = frames_to_duration(hardware_latency_frames, sample_rate);
-    let capture = callback - delay;
-    let timestamp = crate::InputStreamTimestamp { callback, capture };
+    let capture = callback_instant
+        .checked_sub(delay)
+        .unwrap_or(StreamInstant::ZERO);
+    let timestamp = crate::InputStreamTimestamp {
+        callback: callback_instant,
+        capture,
+    };
     let info = InputCallbackInfo { timestamp };
     data_callback(&data, &info);
 }
