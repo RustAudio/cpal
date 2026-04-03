@@ -140,6 +140,16 @@ impl StreamInstant {
         Self::new(secs, subsec_nanos)
     }
 
+    /// Creates a new `StreamInstant` from the specified number of milliseconds.
+    pub fn from_millis(millis: u64) -> Self {
+        Self::new(millis / 1_000, (millis % 1_000 * 1_000_000) as u32)
+    }
+
+    /// Creates a new `StreamInstant` from the specified number of microseconds.
+    pub fn from_micros(micros: u64) -> Self {
+        Self::new(micros / 1_000_000, (micros % 1_000_000 * 1_000) as u32)
+    }
+
     /// Creates a new `StreamInstant` from the specified number of seconds represented as `f64`.
     ///
     /// # Panics
