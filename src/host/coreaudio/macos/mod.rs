@@ -263,12 +263,11 @@ impl StreamTrait for Stream {
         stream.pause()
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        let stream = self.inner.lock().ok()?;
-
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        let stream = self.inner.lock().unwrap();
         device::get_device_buffer_frame_size(&stream.audio_unit)
-            .ok()
             .map(|size| size as crate::FrameCount)
+            .map_err(|_| crate::StreamError::DeviceNotAvailable)
     }
 }
 

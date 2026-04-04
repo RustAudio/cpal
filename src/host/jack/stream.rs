@@ -221,8 +221,8 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(self.async_client.as_client().buffer_size() as crate::FrameCount)
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.async_client.as_client().buffer_size() as crate::FrameCount)
     }
 }
 

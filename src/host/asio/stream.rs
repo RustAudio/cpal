@@ -39,13 +39,14 @@ impl Stream {
         Ok(())
     }
 
-    pub fn buffer_size(&self) -> Option<crate::FrameCount> {
-        let streams = self.asio_streams.lock().ok()?;
-        streams
+    pub fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        let streams = self.asio_streams.lock().unwrap();
+        Ok(streams
             .output
             .as_ref()
             .or(streams.input.as_ref())
-            .map(|s| s.buffer_size as crate::FrameCount)
+            .expect("ASIO stream has neither input nor output")
+            .buffer_size as crate::FrameCount)
     }
 }
 

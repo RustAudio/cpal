@@ -5,6 +5,10 @@
 
 mod dependent_module;
 use js_sys::wasm_bindgen;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 use crate::dependent_module;
 use wasm_bindgen::prelude::*;
@@ -30,6 +34,7 @@ pub struct Host;
 
 pub struct Stream {
     audio_context: web_sys::AudioContext,
+    buffer_size_frames: Arc<AtomicU64>,
 }
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
@@ -40,6 +45,9 @@ const MIN_SAMPLE_RATE: SampleRate = 8_000;
 const MAX_SAMPLE_RATE: SampleRate = 96_000;
 const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
+
+// https://webaudio.github.io/web-audio-api/#render-quantum-size
+const DEFAULT_RENDER_SIZE: u64 = 128;
 
 impl Host {
     pub fn new() -> Result<Self, crate::HostUnavailable> {
@@ -195,6 +203,13 @@ impl DeviceTrait for Device {
 
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
+        if let crate::BufferSize::Fixed(n) = config.buffer_size {
+            let _ = js_sys::Reflect::set(
+                stream_opts.as_ref(),
+                &JsValue::from_str("renderSizeHint"),
+                &JsValue::from_f64(n as f64),
+            );
+        }
 
         let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
             |err| -> BuildStreamError {
@@ -213,6 +228,12 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
+        let initial_quantum = match config.buffer_size {
+            crate::BufferSize::Fixed(n) => n as u64,
+            crate::BufferSize::Default => DEFAULT_RENDER_SIZE,
+        };
+        let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
+        let buffer_size_frames_cb = buffer_size_frames.clone();
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let result: Result<(), JsValue> = async move {
@@ -251,6 +272,7 @@ impl DeviceTrait for Device {
                     &wasm_bindgen::memory(),
                     &WasmAudioProcessor::new(Box::new(
                         move |interleaved_data, frame_size, sample_rate, now| {
+                            buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
                             let data = interleaved_data.as_mut_ptr() as *mut ();
                             let mut data = unsafe {
                                 Data::from_parts(data, interleaved_data.len(), sample_format)
@@ -293,11 +315,18 @@ impl DeviceTrait for Device {
             }
         });
 
-        Ok(Stream { audio_context })
+        Ok(Stream {
+            audio_context,
+            buffer_size_frames,
+        })
     }
 }
 
 impl StreamTrait for Stream {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.buffer_size_frames.load(Ordering::Relaxed) as crate::FrameCount)
+    }
+
     fn play(&self) -> Result<(), PlayStreamError> {
         match self.audio_context.resume() {
             Ok(_) => Ok(()),

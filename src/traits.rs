@@ -303,24 +303,23 @@ pub trait StreamTrait {
     /// fail in these cases.
     fn pause(&self) -> Result<(), PauseStreamError>;
 
-    /// Query the stream's buffer size in frames per callback invocation.
+    /// Returns the backend's best available estimate of the number of frames per callback.
     ///
-    /// Returns the platform's best estimate of the number of frames per callback.
+    /// The value is available immediately after stream creation: for fixed buffer sizes this is
+    /// the negotiated hardware size; for default buffer sizes this is the backend's configured
+    /// default. The value is updated when it changes during the lifetime of the stream.
     ///
-    /// - [`crate::BufferSize::Fixed`]: the actual callback size after hardware negotiation, which may
-    ///   differ from the requested value due to hardware constraints.
-    /// - [`crate::BufferSize::Default`]: the system-configured callback size (e.g. ALSA period,
-    ///   JACK buffer size, AAudio burst size). This reflects the typical callback size, not a
-    ///   guaranteed upper bound.
+    /// Returns `Err` if the backend cannot retrieve the buffer size.
     ///
-    /// Returns `None` if the platform cannot report a meaningful estimate — for example, before
-    /// the first callback has fired, or on platforms that do not expose this information.
+    /// # Implementation notes
     ///
-    /// Applications should use this value to size pre-allocated buffers or estimate latency, but
-    /// must always use the actual frame count passed to each individual callback invocation.
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        None
-    }
+    /// It is not enforced that each callback delivers exactly this many frames. The actual frame
+    /// count for each callback is given by its buffer.
+    ///
+    /// `buffer_size()` is primarily intended for sizing pre-allocated buffers, but must not be
+    /// trusted as a guaranteed bound. An incorrect implementation of `buffer_size()` should not
+    /// lead to memory safety violations.
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError>;
 }
 
 /// Compile-time assertion that a stream type implements [`Send`].
