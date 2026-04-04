@@ -323,8 +323,8 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn buffer_size(&self) -> crate::FrameCount {
-        self.buffer_size_frames.load(Ordering::Relaxed) as crate::FrameCount
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.buffer_size_frames.load(Ordering::Relaxed) as crate::FrameCount)
     }
 
     fn play(&self) -> Result<(), PlayStreamError> {

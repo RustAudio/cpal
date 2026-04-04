@@ -496,8 +496,8 @@ impl StreamTrait for Stream {
         }
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
-        self.buffer_size_frames as crate::FrameCount
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.buffer_size_frames as crate::FrameCount)
     }
 }
 

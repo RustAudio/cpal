@@ -177,7 +177,7 @@ trait DeviceErased: Send + Sync {
 trait StreamErased: Send + Sync {
     fn play(&self) -> Result<(), PlayStreamError>;
     fn pause(&self) -> Result<(), PauseStreamError>;
-    fn buffer_size(&self) -> crate::FrameCount;
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError>;
 }
 
 fn device_to_erased(d: impl DeviceErased + 'static) -> Device {
@@ -314,7 +314,7 @@ where
         <T as StreamTrait>::pause(self)
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
         <T as StreamTrait>::buffer_size(self)
     }
 }
@@ -441,7 +441,7 @@ impl StreamTrait for Stream {
         self.0.pause()
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
         self.0.buffer_size()
     }
 }

@@ -1284,8 +1284,8 @@ impl StreamTrait for Stream {
         self.inner.channel.pause(true).ok();
         Ok(())
     }
-    fn buffer_size(&self) -> FrameCount {
-        self.inner.period_frames as FrameCount
+    fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
+        Ok(self.inner.period_frames as FrameCount)
     }
 }
 

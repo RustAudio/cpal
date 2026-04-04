@@ -252,8 +252,8 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn buffer_size(&self) -> crate::FrameCount {
-        self.buffer_size_frames
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.buffer_size_frames)
     }
 
     fn play(&self) -> Result<(), PlayStreamError> {

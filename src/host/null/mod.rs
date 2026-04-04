@@ -144,7 +144,7 @@ impl StreamTrait for Stream {
         unimplemented!()
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
         unimplemented!()
     }
 }
