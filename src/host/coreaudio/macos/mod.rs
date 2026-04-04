@@ -268,12 +268,12 @@ impl StreamTrait for Stream {
         host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
         let stream = self.inner.lock().unwrap();
 
         device::get_device_buffer_frame_size(&stream.audio_unit)
             .map(|size| size as crate::FrameCount)
-            .unwrap_or(0)
+            .map_err(|_| crate::StreamError::DeviceNotAvailable)
     }
 }
 

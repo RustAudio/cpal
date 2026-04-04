@@ -225,8 +225,8 @@ impl StreamTrait for Stream {
         micros_to_stream_instant(self.async_client.as_client().time())
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
-        self.async_client.as_client().buffer_size() as crate::FrameCount
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+        Ok(self.async_client.as_client().buffer_size() as crate::FrameCount)
     }
 }
 

@@ -1289,8 +1289,8 @@ impl StreamTrait for Stream {
             .expect("stream duration exceeded `StreamInstant` range")
     }
 
-    fn buffer_size(&self) -> FrameCount {
-        self.inner.period_frames as FrameCount
+    fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
+        Ok(self.inner.period_frames as FrameCount)
     }
 }
 

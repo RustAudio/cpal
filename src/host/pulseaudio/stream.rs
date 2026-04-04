@@ -55,7 +55,7 @@ impl StreamTrait for Stream {
         StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
-    fn buffer_size(&self) -> FrameCount {
+    fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
         let (spec, bytes) = match self {
             Stream::Playback(s, _) => (
                 s.sample_spec(),
@@ -64,7 +64,7 @@ impl StreamTrait for Stream {
             Stream::Record(s, _) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
-        (bytes / frame_size) as _
+        Ok((bytes / frame_size) as _)
     }
 }
 

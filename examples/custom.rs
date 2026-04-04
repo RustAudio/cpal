@@ -213,8 +213,8 @@ impl StreamTrait for MyStream {
         cpal::StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
-    fn buffer_size(&self) -> cpal::FrameCount {
-        BUFFER_SIZE
+    fn buffer_size(&self) -> Result<cpal::FrameCount, cpal::StreamError> {
+        Ok(BUFFER_SIZE)
     }
 }
 

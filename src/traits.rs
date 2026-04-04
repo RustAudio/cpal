@@ -310,6 +310,8 @@ pub trait StreamTrait {
     /// the negotiated hardware size; for default buffer sizes this is the backend's configured
     /// default. The value is updated when it changes during the lifetime of the stream.
     ///
+    /// Returns `Err` if the backend cannot retrieve the buffer size.
+    ///
     /// # Implementation notes
     ///
     /// It is not enforced that each callback delivers exactly this many frames. The actual frame
@@ -318,10 +320,7 @@ pub trait StreamTrait {
     /// `buffer_size()` is primarily intended for sizing pre-allocated buffers, but must not be
     /// trusted as a guaranteed bound. An incorrect implementation of `buffer_size()` should not
     /// lead to memory safety violations.
-    ///
-    /// Implementations should return `0` when the buffer size is not currently available, for
-    /// example when the device has been disconnected.
-    fn buffer_size(&self) -> crate::FrameCount;
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError>;
 
     /// Returns a [`StreamInstant`] representing the current moment on the stream's clock.
     ///

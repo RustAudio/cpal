@@ -721,7 +721,7 @@ impl StreamTrait for Stream {
         now_stream_instant()
     }
 
-    fn buffer_size(&self) -> crate::FrameCount {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
         let stream = self.inner.lock().unwrap();
 
         // frames_per_data_callback is only set for BufferSize::Fixed; for Default AAudio
@@ -730,6 +730,6 @@ impl StreamTrait for Stream {
             Some(size) if size > 0 => size,
             _ => stream.frames_per_burst(),
         };
-        frames as crate::FrameCount
+        Ok(frames as crate::FrameCount)
     }
 }
