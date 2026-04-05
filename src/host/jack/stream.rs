@@ -75,7 +75,6 @@ impl Stream {
             Some(Box::new(data_callback)),
             None,
             playing.clone(),
-            Arc::clone(&error_callback_ptr),
         );
 
         let notification_handler = JackNotificationHandler::new(error_callback_ptr);
@@ -84,7 +83,7 @@ impl Stream {
             .activate_async(notification_handler, input_process_handler)
             .unwrap();
 
-        Stream {
+        Self {
             playing,
             async_client,
             input_port_names: port_names,
@@ -140,7 +139,6 @@ impl Stream {
             None,
             Some(Box::new(data_callback)),
             playing.clone(),
-            Arc::clone(&error_callback_ptr),
         );
 
         let notification_handler = JackNotificationHandler::new(error_callback_ptr);
@@ -149,7 +147,7 @@ impl Stream {
             .activate_async(notification_handler, output_process_handler)
             .unwrap();
 
-        Stream {
+        Self {
             playing,
             async_client,
             input_port_names: vec![],
@@ -247,8 +245,6 @@ struct LocalProcessHandler {
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
     playing: Arc<AtomicBool>,
-    /// This should not be called on `process`, only on `buffer_size` because it can block.
-    error_callback_ptr: ErrorCallbackPtr,
 }
 
 impl LocalProcessHandler {
@@ -261,13 +257,11 @@ impl LocalProcessHandler {
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
         playing: Arc<AtomicBool>,
-        error_callback_ptr: ErrorCallbackPtr,
     ) -> Self {
-        // These may be reallocated in the `buffer_size` callback.
         let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
         let temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
 
-        LocalProcessHandler {
+        Self {
             out_ports,
             in_ports,
             sample_rate,
@@ -277,7 +271,6 @@ impl LocalProcessHandler {
             temp_input_buffer,
             temp_output_buffer,
             playing,
-            error_callback_ptr,
         }
     }
 }

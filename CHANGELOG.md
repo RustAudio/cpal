@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
-- **CoreAudio**: Poisoned stream mutex in `play()`, `pause()` now propagates the panic.
+- **CoreAudio**: Poisoned stream mutex in stream functions now propagate panics.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized without error.
 - **JACK**: Server shutdown now fires `StreamError::DeviceNotAvailable`.
