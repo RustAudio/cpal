@@ -868,15 +868,19 @@ impl Device {
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
-                        if let Ok(mut cb) = error_callback_shared.lock() {
-                            cb(StreamError::StreamInvalidated);
-                        }
+                        error_callback_shared
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())(
+                            StreamError::StreamInvalidated
+                        );
                         false
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
-                        if let Ok(mut cb) = error_callback_shared.lock() {
-                            cb(StreamError::BufferUnderrun);
-                        }
+                        error_callback_shared
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())(
+                            StreamError::BufferUnderrun
+                        );
                         false
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
@@ -892,15 +896,16 @@ impl Device {
                     }
                     sys::AsioMessageSelectors::kAsioBufferSizeChange => {
                         if value > 0 {
-                            if let Ok(mut streams) = asio_streams_for_event.lock() {
-                                let stream = if is_input {
-                                    streams.input.as_mut()
-                                } else {
-                                    streams.output.as_mut()
-                                };
-                                if let Some(s) = stream {
-                                    s.buffer_size = value;
-                                }
+                            let mut streams = asio_streams_for_event
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            let stream = if is_input {
+                                streams.input.as_mut()
+                            } else {
+                                streams.output.as_mut()
+                            };
+                            if let Some(s) = stream {
+                                s.buffer_size = value;
                             }
                         }
                         true
@@ -910,9 +915,11 @@ impl Device {
                 sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
                     if let Some(rate) = configured_sample_rate {
                         if (new_rate - rate).abs() >= 1.0 {
-                            if let Ok(mut cb) = error_callback_shared.lock() {
-                                cb(StreamError::StreamInvalidated);
-                            }
+                            error_callback_shared
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())(
+                                StreamError::StreamInvalidated
+                            );
                         }
                     }
                     false

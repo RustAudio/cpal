@@ -212,12 +212,12 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        self.playing.store(true, Ordering::SeqCst);
+        self.playing.store(true, Ordering::Relaxed);
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        self.playing.store(false, Ordering::SeqCst);
+        self.playing.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -295,7 +295,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
         client: &jack::Client,
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
-        if !self.playing.load(Ordering::SeqCst) {
+        if !self.playing.load(Ordering::Relaxed) {
             return jack::Control::Continue;
         }
 
@@ -385,18 +385,12 @@ impl jack::ProcessHandler for LocalProcessHandler {
     fn buffer_size(&mut self, _: &jack::Client, size: jack::Frames) -> jack::Control {
         // The `buffer_size` callback is actually called on the process thread, but
         // it does not need to be suitable for real-time use. Thus we can simply allocate
-        // new buffers here. It is also fine to call the error callback.
-        // Details: https://github.com/RustAudio/rust-jack/issues/137
+        // new buffers here. Details: https://github.com/RustAudio/rust-jack/issues/137
         let new_size = size as usize;
         if new_size != self.buffer_size {
             self.buffer_size = new_size;
             self.temp_input_buffer = vec![0.0; self.in_ports.len() * new_size];
             self.temp_output_buffer = vec![0.0; self.out_ports.len() * new_size];
-            let description = format!("buffer size changed to: {}", new_size);
-            if let Ok(mut mutex_guard) = self.error_callback_ptr.lock() {
-                let err = &mut *mutex_guard;
-                err(BackendSpecificError { description }.into());
-            }
         }
 
         jack::Control::Continue
@@ -429,43 +423,39 @@ impl JackNotificationHandler {
             init_sample_rate_flag: Arc::new(AtomicBool::new(false)),
         }
     }
-
-    fn send_error(&mut self, description: String) {
-        // This thread isn't the audio thread, it's fine to block
-        if let Ok(mut mutex_guard) = self.error_callback_ptr.lock() {
-            let err = &mut *mutex_guard;
-            err(BackendSpecificError { description }.into());
-        }
-    }
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
-    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
-        self.send_error(format!("JACK was shut down for reason: {}", reason));
+    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, _reason: &str) {
+        self.error_callback_ptr
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())(StreamError::DeviceNotAvailable);
     }
 
     fn sample_rate(&mut self, _: &jack::Client, _srate: jack::Frames) -> jack::Control {
-        match self.init_sample_rate_flag.load(Ordering::SeqCst) {
+        match self.init_sample_rate_flag.load(Ordering::Relaxed) {
             false => {
                 // One of these notifications is sent every time a client is started.
-                self.init_sample_rate_flag.store(true, Ordering::SeqCst);
+                self.init_sample_rate_flag.store(true, Ordering::Relaxed);
                 jack::Control::Continue
             }
             true => {
                 // The JACK server has changed the sample rate, invalidating this stream.
                 // The stream configuration must be rebuilt with the new sample rate.
-                if let Ok(mut cb) = self.error_callback_ptr.lock() {
-                    cb(StreamError::StreamInvalidated);
-                }
+                self.error_callback_ptr
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())(
+                    StreamError::StreamInvalidated
+                );
                 jack::Control::Quit
             }
         }
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if let Ok(mut cb) = self.error_callback_ptr.lock() {
-            cb(StreamError::BufferUnderrun);
-        }
+        self.error_callback_ptr
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())(StreamError::BufferUnderrun);
         jack::Control::Continue
     }
 }

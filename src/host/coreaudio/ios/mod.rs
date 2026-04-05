@@ -239,14 +239,7 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self
-            .inner
-            .lock()
-            .map_err(|_| PlayStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?;
+        let mut stream = self.inner.lock().expect("stream lock poisoned");
 
         if !stream.playing {
             if let Err(e) = stream.audio_unit.start() {
@@ -260,14 +253,7 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self
-            .inner
-            .lock()
-            .map_err(|_| PauseStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?;
+        let mut stream = self.inner.lock().expect("stream lock poisoned");
 
         if stream.playing {
             if let Err(e) = stream.audio_unit.stop() {

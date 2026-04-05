@@ -829,11 +829,7 @@ impl Device {
         stream
             .inner
             .lock()
-            .map_err(|_| BuildStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?
+            .expect("stream lock poisoned")
             .audio_unit
             .start()?;
 
@@ -927,11 +923,7 @@ impl Device {
         stream
             .inner
             .lock()
-            .map_err(|_| BuildStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?
+            .expect("stream lock poisoned")
             .audio_unit
             .start()?;
 
