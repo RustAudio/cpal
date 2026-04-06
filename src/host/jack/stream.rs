@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    BackendSpecificError, Data, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleRate, StreamError, StreamInstant,
+    BackendSpecificError, BuildStreamError, Data, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleRate, StreamError, StreamInstant,
 };
 
 use super::JACK_SAMPLE_FORMAT;
@@ -26,45 +26,33 @@ crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
 impl Stream {
-    // TODO: Return error messages
     pub fn new_input<D, E>(
         client: jack::Client,
         channels: ChannelCount,
         data_callback: D,
-        mut error_callback: E,
-    ) -> Stream
+        error_callback: E,
+    ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
-        // Create ports
         for i in 0..channels {
-            let port_try = client.register_port(&format!("in_{}", i), jack::AudioIn::default());
-            match port_try {
-                Ok(port) => {
-                    // Get the port name in order to later connect it automatically
-                    if let Ok(port_name) = port.name() {
-                        port_names.push(port_name);
-                    }
-                    // Store the port into a Vec to move to the ProcessHandler
-                    ports.push(port);
-                }
-                Err(e) => {
-                    // If port creation failed, send the error back via the error_callback
-                    error_callback(
-                        BackendSpecificError {
-                            description: e.to_string(),
-                        }
-                        .into(),
-                    );
-                }
+            let port = client
+                .register_port(&format!("in_{}", i), jack::AudioIn::default())
+                .map_err(|e| BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: format!("Failed to register input port {}: {}", i, e),
+                    },
+                })?;
+            if let Ok(port_name) = port.name() {
+                port_names.push(port_name);
             }
+            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
-
         let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
 
         let input_process_handler = LocalProcessHandler::new(
@@ -81,54 +69,47 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
-            .unwrap();
+            .map_err(|e| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: format!("Failed to activate JACK client: {:?}", e),
+                },
+            })?;
 
-        Self {
+        Ok(Self {
             playing,
             async_client,
             input_port_names: port_names,
             output_port_names: vec![],
-        }
+        })
     }
 
     pub fn new_output<D, E>(
         client: jack::Client,
         channels: ChannelCount,
         data_callback: D,
-        mut error_callback: E,
-    ) -> Stream
+        error_callback: E,
+    ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(StreamError) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
-        // Create ports
         for i in 0..channels {
-            let port_try = client.register_port(&format!("out_{}", i), jack::AudioOut::default());
-            match port_try {
-                Ok(port) => {
-                    // Get the port name in order to later connect it automatically
-                    if let Ok(port_name) = port.name() {
-                        port_names.push(port_name);
-                    }
-                    // Store the port into a Vec to move to the ProcessHandler
-                    ports.push(port);
-                }
-                Err(e) => {
-                    // If port creation failed, send the error back via the error_callback
-                    error_callback(
-                        BackendSpecificError {
-                            description: e.to_string(),
-                        }
-                        .into(),
-                    );
-                }
+            let port = client
+                .register_port(&format!("out_{}", i), jack::AudioOut::default())
+                .map_err(|e| BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: format!("Failed to register output port {}: {}", i, e),
+                    },
+                })?;
+            if let Ok(port_name) = port.name() {
+                port_names.push(port_name);
             }
+            ports.push(port);
         }
 
         let playing = Arc::new(AtomicBool::new(true));
-
         let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
 
         let output_process_handler = LocalProcessHandler::new(
@@ -145,14 +126,18 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
-            .unwrap();
+            .map_err(|e| BuildStreamError::BackendSpecific {
+                err: BackendSpecificError {
+                    description: format!("Failed to activate JACK client: {:?}", e),
+                },
+            })?;
 
-        Self {
+        Ok(Self {
             playing,
             async_client,
             input_port_names: vec![],
             output_port_names: port_names,
-        }
+        })
     }
 
     /// Connect to the standard system outputs in jack, system:playback_1 and system:playback_2
@@ -446,9 +431,9 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        self.error_callback_ptr
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())(StreamError::BufferUnderrun);
+        if let Ok(mut cb) = self.error_callback_ptr.try_lock() {
+            cb(StreamError::BufferUnderrun);
+        }
         jack::Control::Continue
     }
 }

@@ -33,28 +33,27 @@ impl Device {
         connect_ports_automatically: bool,
         start_server_automatically: bool,
         direction: DeviceDirection,
-    ) -> Result<Self, String> {
-        // ClientOptions are bit flags that you can set with the constants provided
+    ) -> Result<Self, BackendSpecificError> {
         let client_options = super::get_client_options(start_server_automatically);
 
-        // Create a dummy client to find out the sample rate of the server to be able to provide it as a possible config.
-        // This client will be dropped, and a new one will be created when making the stream.
-        // This is a hack due to the fact that the Client must be moved to create the AsyncClient.
-        match super::get_client(&name, client_options) {
-            Ok(client) => Ok(Device {
-                // The name given to the client by JACK, could potentially be different from the name supplied e.g.if there is a name collision
-                name: client.name().to_string(),
-                sample_rate: client.sample_rate(),
-                buffer_size: SupportedBufferSize::Range {
-                    min: client.buffer_size(),
-                    max: client.buffer_size(),
-                },
-                direction,
-                start_server_automatically,
-                connect_ports_automatically,
-            }),
-            Err(e) => Err(e),
-        }
+        // Create a dummy client to find out the sample rate of the server to be able to provide it
+        // as a possible config. This client will be dropped, and a new one will be created when
+        // making the stream. This is a hack due to the fact that the Client must be moved to
+        // create the AsyncClient.
+        let client = super::get_client(&name, client_options)?;
+        Ok(Self {
+            // The name given to the client by JACK, could potentially be different from the name
+            // supplied e.g. if there is a name collision
+            name: client.name().to_string(),
+            sample_rate: client.sample_rate(),
+            buffer_size: SupportedBufferSize::Range {
+                min: client.buffer_size(),
+                max: client.buffer_size(),
+            },
+            direction,
+            start_server_automatically,
+            connect_ports_automatically,
+        })
     }
 
     fn id(&self) -> Result<DeviceId, DeviceIdError> {
@@ -65,7 +64,7 @@ impl Device {
         name: &str,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendSpecificError> {
         let output_client_name = format!("{}_out", name);
         Device::new_device(
             output_client_name,
@@ -79,7 +78,7 @@ impl Device {
         name: &str,
         connect_ports_automatically: bool,
         start_server_automatically: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendSpecificError> {
         let input_client_name = format!("{}_in", name);
         Device::new_device(
             input_client_name,
@@ -205,23 +204,19 @@ impl DeviceTrait for Device {
             // Trying to create an input stream from an output device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
-        if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
+        if sample_format != JACK_SAMPLE_FORMAT {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
         self.validate_buffer_size(conf)?;
 
-        // The settings should be fine, create a Client
+        // Create a fresh client to get the current server state.
         let client_options = super::get_client_options(self.start_server_automatically);
-        let client;
-        match super::get_client(&self.name, client_options) {
-            Ok(c) => client = c,
-            Err(e) => {
-                return Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError { description: e },
-                })
-            }
-        };
-        let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback);
+        let client = super::get_client(&self.name, client_options)
+            .map_err(|err| BuildStreamError::BackendSpecific { err })?;
+        if conf.sample_rate != client.sample_rate() {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+        let mut stream = Stream::new_input(client, conf.channels, data_callback, error_callback)?;
 
         if self.connect_ports_automatically {
             stream.connect_to_system_inputs();
@@ -246,23 +241,19 @@ impl DeviceTrait for Device {
             // Trying to create an output stream from an input device
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
-        if conf.sample_rate != self.sample_rate || sample_format != JACK_SAMPLE_FORMAT {
+        if sample_format != JACK_SAMPLE_FORMAT {
             return Err(BuildStreamError::StreamConfigNotSupported);
         }
         self.validate_buffer_size(conf)?;
 
-        // The settings should be fine, create a Client
+        // Create a fresh client to get the current server state.
         let client_options = super::get_client_options(self.start_server_automatically);
-        let client;
-        match super::get_client(&self.name, client_options) {
-            Ok(c) => client = c,
-            Err(e) => {
-                return Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError { description: e },
-                })
-            }
-        };
-        let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback);
+        let client = super::get_client(&self.name, client_options)
+            .map_err(|err| BuildStreamError::BackendSpecific { err })?;
+        if conf.sample_rate != client.sample_rate() {
+            return Err(BuildStreamError::StreamConfigNotSupported);
+        }
+        let mut stream = Stream::new_output(client, conf.channels, data_callback, error_callback)?;
 
         if self.connect_ports_automatically {
             stream.connect_to_system_outputs();
