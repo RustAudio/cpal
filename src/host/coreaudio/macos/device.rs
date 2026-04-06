@@ -112,7 +112,7 @@ fn set_sample_rate(
     coreaudio::Error::from_os_status(status)?;
 
     // If the requested sample rate is different to the device sample rate, update the device.
-    if sample_rate as u32 != target_sample_rate {
+    if (sample_rate - target_sample_rate as f64).abs() >= 1.0 {
         // Get available sample rate ranges.
         property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
         let mut data_size = 0u32;
@@ -180,7 +180,7 @@ fn set_sample_rate(
         loop {
             match receiver.recv_timeout(timeout) {
                 Ok(reported_rate) => {
-                    if reported_rate == target_sample_rate as f64 {
+                    if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
                         break;
                     }
                 }
