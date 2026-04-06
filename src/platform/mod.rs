@@ -36,7 +36,7 @@ pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream
 /// SupportedOutputConfigs and all their necessary trait implementations.
 ///
 macro_rules! impl_platform_host {
-    ($($(#[cfg($feat: meta)])? $HostVariant:ident => $Host:ty),* $(,)?) => {
+    ($($(#[cfg($feat: meta)])? $HostVariant:ident $($HostName:literal)? => $Host:ty),* $(,)?) => {
         /// All hosts supported by CPAL on this platform.
         pub const ALL_HOSTS: &'static [HostId] = &[
             $(
@@ -186,11 +186,16 @@ macro_rules! impl_platform_host {
         }
 
         impl HostId {
+        /// Returns the human-readable host name.
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
                         $(#[cfg($feat)])?
-                        HostId::$HostVariant => stringify!($HostVariant),
+                        HostId::$HostVariant => {
+                            let _host_name = stringify!($HostVariant);
+                            $(let _host_name = $HostName;)?
+                            _host_name
+                        }
                     )*
                 }
             }
@@ -198,7 +203,7 @@ macro_rules! impl_platform_host {
 
         impl std::fmt::Display for HostId {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.name().to_lowercase())
+                write!(f, "{}", self.name().to_ascii_lowercase())
             }
         }
 
@@ -208,7 +213,7 @@ macro_rules! impl_platform_host {
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 $(
                     $(#[cfg($feat)])?
-                    if stringify!($HostVariant).eq_ignore_ascii_case(s) {
+                    if HostId::$HostVariant.name().eq_ignore_ascii_case(s) {
                         return Ok(HostId::$HostVariant);
                     }
                 )*
@@ -777,8 +782,8 @@ mod platform_impl {
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
-        #[cfg(feature = "jack")] Jack => JackHost,
-        Alsa => AlsaHost,
+        #[cfg(feature = "jack")] Jack "JACK" => JackHost,
+        Alsa "ALSA" => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
@@ -812,7 +817,7 @@ mod platform_impl {
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
-        #[cfg(all(feature = "jack", target_os = "macos"))] Jack => JackHost,
+        #[cfg(all(feature = "jack", target_os = "macos"))] Jack "JACK" => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
@@ -886,9 +891,9 @@ mod platform_impl {
     pub use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
-        #[cfg(feature = "asio")] Asio => AsioHost,
-        Wasapi => WasapiHost,
-        #[cfg(feature = "jack")] Jack => JackHost,
+        #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
+        Wasapi "WASAPI" => WasapiHost,
+        #[cfg(feature = "jack")] Jack "JACK" => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
