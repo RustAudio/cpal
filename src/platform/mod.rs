@@ -191,11 +191,7 @@ macro_rules! impl_platform_host {
                 match self {
                     $(
                         $(#[cfg($feat)])?
-                        HostId::$HostVariant => {
-                            let _host_name = stringify!($HostVariant);
-                            $(let _host_name = $HostName;)?
-                            _host_name
-                        }
+                        HostId::$HostVariant => __cpal_select_host_name!($HostVariant, $($HostName)?),
                     )*
                 }
             }
@@ -717,6 +713,15 @@ macro_rules! impl_platform_host {
                 default_host()
             }
         }
+    };
+}
+
+macro_rules! __cpal_select_host_name {
+    ($variant:ident, $name:literal) => {
+        $name
+    };
+    ($variant:ident,) => {
+        stringify!($variant)
     };
 }
 
