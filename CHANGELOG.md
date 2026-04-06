@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently returning an empty list.
 - **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
-- **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable` 
+- **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable`
   instead of looping.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
@@ -44,13 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
 - **ASIO**: Stream error callback now receives `StreamError::BufferUnderrun` on
   `kAsioResyncRequest`.
-- **ASIO**: Stream error callback now receives `StreamError::StreamInvalidated` when the driver 
+- **ASIO**: Stream error callback now receives `StreamError::StreamInvalidated` when the driver
   reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **CoreAudio**: Poisoned stream mutex in stream functions now propagate panics.
 - **JACK**: Timestamps now use the precise hardware deadline.
-- **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized 
+- **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
   without error.
 - **JACK**: Server shutdown now fires `StreamError::DeviceNotAvailable`.
 - **JACK**: Default client name now includes the process PID.
@@ -83,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
 - **ASIO**: Fix distortion when buggy drivers fire the buffer callback multiple times per cycle.
 - **ASIO**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
-- **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the 
+- **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the
   update.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.

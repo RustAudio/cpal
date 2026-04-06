@@ -431,8 +431,10 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if let Ok(mut cb) = self.error_callback_ptr.try_lock() {
-            cb(StreamError::BufferUnderrun);
+        match self.error_callback_ptr.try_lock() {
+            Ok(mut cb) => cb(StreamError::BufferUnderrun),
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner()(StreamError::BufferUnderrun),
+            Err(std::sync::TryLockError::WouldBlock) => {}
         }
         jack::Control::Continue
     }
