@@ -8,8 +8,8 @@ extern crate libc;
 use std::{
     cmp,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -137,7 +137,7 @@ impl HostTrait for Host {
 }
 
 /// Global count of active ALSA context instances.
-static ALSA_CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static ALSA_CONTEXT_COUNT: Mutex<usize> = Mutex::new(0);
 
 /// ALSA backend context shared between `Host`, `Device`, and `Stream` via `Arc`.
 #[derive(Debug)]
@@ -145,18 +145,20 @@ pub(super) struct AlsaContext;
 
 impl AlsaContext {
     fn new() -> Result<Self, alsa::Error> {
-        // Initialize global ALSA config cache on first context creation.
-        if ALSA_CONTEXT_COUNT.fetch_add(1, Ordering::SeqCst) == 0 {
+        let mut count = ALSA_CONTEXT_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+        if *count == 0 {
             alsa::config::update()?;
         }
+        *count += 1;
         Ok(Self)
     }
 }
 
 impl Drop for AlsaContext {
     fn drop(&mut self) {
-        // Free the global ALSA config cache when the last context is dropped.
-        if ALSA_CONTEXT_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        let mut count = ALSA_CONTEXT_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+        *count = count.saturating_sub(1);
+        if *count == 0 {
             let _ = alsa::config::update_free_global();
         }
     }
@@ -947,8 +949,23 @@ fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
 /// Attempt hardware resume from a suspend event (`ESTRPIPE`).
 fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
     match channel.resume() {
-        // device resumed successfully and will continue running on its own
-        Ok(()) => Ok(Poll::Pending),
+        Ok(()) => {
+            if channel
+                .info()
+                .map(|i| i.get_stream() == alsa::Direction::Capture)
+                .unwrap_or(false)
+            {
+                /// A successful `resume()` may leave the device `PREPARED` rather than `RUNNING`.
+                /// `start()` to ensure the capture actually resumes.
+                if let Err(e) = channel.start() {
+                    // `EBUSY` is ignored because it means the device is already running.
+                    if e.errno() != libc::EBUSY {
+                        return Err(e.into());
+                    }
+                }
+            }
+            Ok(Poll::Pending)
+        }
         // device is still resuming; poll again until it is ready.
         Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
         // hardware does not support soft resume
@@ -1046,10 +1063,14 @@ fn process_input(
             .readi(&mut buffer[frames_read * stream.frame_size..])
         {
             Ok(n) => frames_read += n,
-            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
-                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
-                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
-                return Err(StreamError::BufferUnderrun);
+            // EAGAIN = no data ready: skip this cycle.
+            Err(err) if err.errno() == libc::EAGAIN => return Ok(()),
+            // EPIPE = xrun: full underrun recovery (prepare + start) required.
+            Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
+            // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
+            // recovery if the hardware doesn't support it.
+            Err(err) if err.errno() == libc::ESTRPIPE => {
+                return try_resume(&stream.channel).map(|_| ());
             }
             Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
             Err(err) => return Err(err.into()),
@@ -1109,10 +1130,14 @@ fn process_output(
             .writei(&buffer[frames_written * stream.frame_size..])
         {
             Ok(n) => frames_written += n,
-            Err(err) if err.errno() == libc::EPIPE || err.errno() == libc::ESTRPIPE => {
-                // EPIPE = xrun, ESTRPIPE = hardware suspend. Both require prepare()+restart;
-                // attempting resume mid-loop with a partial transfer in the ring buffer is unsafe.
-                return Err(StreamError::BufferUnderrun);
+            // EAGAIN = no data ready: skip this cycle.
+            Err(err) if err.errno() == libc::EAGAIN => return Ok(()),
+            // EPIPE = xrun: full underrun recovery (prepare) required.
+            Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
+            // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
+            // recovery if the hardware doesn't support it.
+            Err(err) if err.errno() == libc::ESTRPIPE => {
+                return try_resume(&stream.channel).map(|_| ());
             }
             Err(err) if err.errno() == libc::ENODEV => return Err(StreamError::DeviceNotAvailable),
             Err(err) => return Err(err.into()),
