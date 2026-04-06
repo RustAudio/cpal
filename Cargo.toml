@@ -136,16 +136,29 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
     "CoreAudioBaseTypes",
 ] }
 objc2-core-foundation = { version = "0.3" }
-objc2-foundation = { version = "0.3" }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSString",
+    "NSValue",
+] }
 objc2 = { version = "0.6" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 jack = { version = "0.13", optional = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "block2",
+    "NSDictionary",
+    "NSNotification",
+    "NSOperation",
+] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = [
     "std",
     "AVAudioSession",
+    "AVAudioSessionTypes",
 ] }
 
 [target.'cfg(target_os = "emscripten")'.dependencies]

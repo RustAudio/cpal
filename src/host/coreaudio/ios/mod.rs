@@ -1,13 +1,15 @@
 //! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
+use std::ptr::NonNull;
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use coreaudio::audio_unit::render_callback::data;
 use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
-use objc2_core_audio_types::AudioBuffer;
-
 use objc2_avf_audio::AVAudioSession;
+use objc2_core_audio_types::AudioBuffer;
 
 use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -25,10 +27,10 @@ use self::enumerate::{
     default_input_device, default_output_device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
-use std::ptr::NonNull;
-use std::time::Duration;
 
 pub mod enumerate;
+mod session_event_manager;
+use session_event_manager::{ErrorCallbackMutex, SessionEventManager};
 
 // These days the default of iOS is now F32 and no longer I16
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
@@ -169,6 +171,9 @@ impl DeviceTrait for Device {
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
 
+        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let session_manager = SessionEventManager::new(error_callback.clone());
+
         // Set up input callback
         setup_input_callback(
             &mut audio_unit,
@@ -176,15 +181,22 @@ impl DeviceTrait for Device {
             config.sample_rate,
             device_buffer_frames,
             data_callback,
-            error_callback,
+            move |e| {
+                if let Ok(mut cb) = error_callback.lock() {
+                    cb(e);
+                }
+            },
         )?;
 
         audio_unit.start()?;
 
-        Ok(Stream::new(StreamInner {
-            playing: true,
-            audio_unit,
-        }))
+        Ok(Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+            },
+            session_manager,
+        ))
     }
 
     /// Create an output stream.
@@ -206,6 +218,9 @@ impl DeviceTrait for Device {
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
 
+        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let session_manager = SessionEventManager::new(error_callback.clone());
+
         // Set up output callback
         setup_output_callback(
             &mut audio_unit,
@@ -213,26 +228,35 @@ impl DeviceTrait for Device {
             config.sample_rate,
             device_buffer_frames,
             data_callback,
-            error_callback,
+            move |e| {
+                if let Ok(mut cb) = error_callback.lock() {
+                    cb(e);
+                }
+            },
         )?;
 
         audio_unit.start()?;
 
-        Ok(Stream::new(StreamInner {
-            playing: true,
-            audio_unit,
-        }))
+        Ok(Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+            },
+            session_manager,
+        ))
     }
 }
 
 pub struct Stream {
     inner: Mutex<StreamInner>,
+    _session_manager: SessionEventManager,
 }
 
 impl Stream {
-    fn new(inner: StreamInner) -> Self {
+    fn new(inner: StreamInner, session_manager: SessionEventManager) -> Self {
         Self {
             inner: Mutex::new(inner),
+            _session_manager: session_manager,
         }
     }
 }
