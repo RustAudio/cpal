@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **CoreAudio**: Poisoned stream mutex in stream functions now propagate panics.
+- **CoreAudio**: Physical stream format is now set directly on the hardware device.
+- **CoreAudio**: Mid-stream sample rate changes are now reported as `StreamError::DeviceNotAvailable`.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
   without error.
