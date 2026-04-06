@@ -955,8 +955,8 @@ fn try_resume(channel: &alsa::PCM) -> Result<Poll, StreamError> {
                 .map(|i| i.get_stream() == alsa::Direction::Capture)
                 .unwrap_or(false)
             {
-                /// A successful `resume()` may leave the device `PREPARED` rather than `RUNNING`.
-                /// `start()` to ensure the capture actually resumes.
+                // A successful `resume()` may leave the device `PREPARED` rather than `RUNNING`.
+                // `start()` to ensure the capture actually resumes.
                 if let Err(e) = channel.start() {
                     // `EBUSY` is ignored because it means the device is already running.
                     if e.errno() != libc::EBUSY {
@@ -1063,8 +1063,15 @@ fn process_input(
             .readi(&mut buffer[frames_read * stream.frame_size..])
         {
             Ok(n) => frames_read += n,
-            // EAGAIN = no data ready: skip this cycle.
-            Err(err) if err.errno() == libc::EAGAIN => return Ok(()),
+            // EAGAIN = no frames available: skip this cycle if no progress was made,
+            // otherwise treat as an underrun (partial period cannot be delivered safely).
+            Err(err) if err.errno() == libc::EAGAIN => {
+                if frames_read == 0 {
+                    return Ok(());
+                } else {
+                    return Err(StreamError::BufferUnderrun);
+                }
+            }
             // EPIPE = xrun: full underrun recovery (prepare + start) required.
             Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
@@ -1130,8 +1137,16 @@ fn process_output(
             .writei(&buffer[frames_written * stream.frame_size..])
         {
             Ok(n) => frames_written += n,
-            // EAGAIN = no data ready: skip this cycle.
-            Err(err) if err.errno() == libc::EAGAIN => return Ok(()),
+            // EAGAIN = device cannot currently accept more frames: skip this cycle if no
+            // progress was made, otherwise treat as an underrun (partial period cannot be
+            // completed safely).
+            Err(err) if err.errno() == libc::EAGAIN => {
+                if frames_written == 0 {
+                    return Ok(());
+                } else {
+                    return Err(StreamError::BufferUnderrun);
+                }
+            }
             // EPIPE = xrun: full underrun recovery (prepare) required.
             Err(err) if err.errno() == libc::EPIPE => return Err(StreamError::BufferUnderrun),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
