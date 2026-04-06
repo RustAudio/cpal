@@ -2,8 +2,8 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::host::pipewire::stream::{StreamCommand, StreamData, SUPPORTED_FORMATS};
-use crate::host::pipewire::utils::{audio, clock, DEVICE_ICON_NAME, METADATA_NAME};
+use crate::host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS};
+use crate::host::pipewire::utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME};
 use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
 use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
 
@@ -99,7 +99,7 @@ impl Device {
             direction: DeviceDirection::Output,
             channels: 2,
             class: Class::DefaultOutput,
-            role: Role::Source,
+            role: Role::Sink,
             ..Default::default()
         }
     }
@@ -130,12 +130,17 @@ impl Device {
             },
             _ => unreachable!(),
         };
-        if matches!(self.role, Role::Sink) {
+        if matches!(self.role, Role::Sink) && matches!(direction, DeviceDirection::Input) {
             properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         }
         if matches!(self.class, Class::Node) {
             properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
         }
+
+        // Group input and output nodes so PipeWire schedules them in the same quantum,
+        // preventing phase drift between simultaneous input/output streams.
+        properties.insert("node.group", format!("cpal-{}", std::process::id()));
+
         if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
             properties.insert(*pw::keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
         }
@@ -305,6 +310,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
             .spawn(move || {
+                let _pw = PwInitGuard::new();
                 let properties = device.pw_properties(DeviceDirection::Input, &config);
                 let Ok(StreamData {
                     mainloop,
@@ -385,6 +391,7 @@ impl DeviceTrait for Device {
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())
             .spawn(move || {
+                let _pw = PwInitGuard::new();
                 let properties = device.pw_properties(DeviceDirection::Output, &config);
 
                 let Ok(StreamData {
@@ -470,19 +477,29 @@ impl From<MetadataListener> for Request {
     }
 }
 
+/// Per-node rate and quantum discovered during device enumeration.
+struct NodeOverrides {
+    rate: Option<SampleRate>,
+    quantum: Option<FrameCount>,
+}
+
+/// Parses a PipeWire fraction string like "1/48000" or "256/48000" into its parts.
+fn parse_fraction(s: &str) -> Option<(u32, u32)> {
+    let mut it = s.splitn(2, '/');
+    let num: u32 = it.next()?.parse().ok()?;
+    let den: u32 = it.next()?.parse().ok()?;
+    Some((num, den))
+}
+
 pub fn init_devices() -> Option<Vec<Device>> {
-    pw::init();
+    let _pw = PwInitGuard::new();
     let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
     let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
     let core = context.connect_rc(None).ok()?;
     let registry = core.get_registry_rc().ok()?;
 
-    // To comply with Rust's safety rules, we wrap this variable in an `Rc` and  a `Cell`.
-    let devices: Rc<RefCell<Vec<Device>>> = Rc::new(RefCell::new(vec![
-        Device::sink_default(),
-        Device::input_default(),
-        Device::output_default(),
-    ]));
+    // Discovered hardware nodes collected during enumeration.
+    let discovered: Rc<RefCell<Vec<(Device, NodeOverrides)>>> = Rc::new(RefCell::new(vec![]));
     let requests = Rc::new(RefCell::new(vec![]));
     let settings = Rc::new(RefCell::new(Settings::default()));
     let loop_clone = mainloop.clone();
@@ -517,7 +534,7 @@ pub fn init_devices() -> Option<Vec<Device>> {
     let _listener_reg = registry
         .add_listener_local()
         .global({
-            let devices = devices.clone();
+            let discovered = discovered.clone();
             let registry = registry.clone();
             let requests = requests.clone();
             let settings = settings.clone();
@@ -617,7 +634,7 @@ pub fn init_devices() -> Option<Vec<Device>> {
                         }
                     };
 
-                    let devices = devices.clone();
+                    let discovered = discovered.clone();
                     let listener = node
                         .add_listener_local()
                         .info(move |info| {
@@ -688,6 +705,29 @@ pub fn init_devices() -> Option<Vec<Device>> {
 
                             let driver = props.get(*pw::keys::FACTORY_NAME).map(|s| s.to_owned());
 
+                            // "node.rate" = "1/<sample_rate>" — set by the driver, authoritative
+                            // for the hardware clock rate.
+                            let node_rate: Option<SampleRate> = props
+                                .get(node::RATE)
+                                .and_then(parse_fraction)
+                                .filter(|(_, den)| *den > 0)
+                                .map(|(_, den)| den);
+
+                            // "node.latency" = "<frames>/<rate>" — preferred quantum; the rate
+                            // denominator is a fallback when node.rate is absent.
+                            let (node_quantum, latency_rate): (
+                                Option<FrameCount>,
+                                Option<SampleRate>,
+                            ) = props
+                                .get(node::LATENCY)
+                                .and_then(parse_fraction)
+                                .filter(|(num, den)| *num > 0 && *den > 0)
+                                .unzip();
+
+                            // node.rate is authoritative; node.latency denominator is the
+                            // fallback for devices that advertise latency but not a direct rate.
+                            let rate_override = node_rate.or(latency_rate);
+
                             let device = Device {
                                 node_name,
                                 nick_name,
@@ -702,7 +742,13 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                 driver,
                                 ..Default::default()
                             };
-                            devices.borrow_mut().push(device);
+                            discovered.borrow_mut().push((
+                                device,
+                                NodeOverrides {
+                                    rate: rate_override,
+                                    quantum: node_quantum,
+                                },
+                            ));
                         })
                         .register();
                     let Ok(pending) = core.sync(0) else {
@@ -721,8 +767,14 @@ pub fn init_devices() -> Option<Vec<Device>> {
 
     mainloop.run();
 
-    let mut devices = devices.take();
     let settings = settings.take();
+
+    // Build the three synthetic default devices and apply global clock settings to them.
+    let mut devices = vec![
+        Device::sink_default(),
+        Device::input_default(),
+        Device::output_default(),
+    ];
     for device in devices.iter_mut() {
         device.rate = settings.rate;
         device.allow_rates = settings.allow_rates.clone();
@@ -730,6 +782,23 @@ pub fn init_devices() -> Option<Vec<Device>> {
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
     }
+
+    // Resolve each discovered hardware node: global settings apply unless the node
+    // advertised its own rate or quantum, in which case those take precedence.
+    devices.extend(
+        discovered
+            .take()
+            .into_iter()
+            .map(|(mut device, overrides)| {
+                device.rate = overrides.rate.unwrap_or(settings.rate);
+                device.allow_rates = settings.allow_rates.clone();
+                device.quantum = overrides.quantum.unwrap_or(settings.quantum);
+                device.min_quantum = settings.min_quantum;
+                device.max_quantum = settings.max_quantum;
+                device
+            }),
+    );
+
     Some(devices)
 }
 
@@ -752,7 +821,8 @@ fn parse_allow_rates(list: &str) -> Option<Vec<u32>> {
 
 #[cfg(test)]
 mod test {
-    use super::parse_allow_rates;
+    use super::{parse_allow_rates, parse_fraction};
+
     #[test]
     fn rate_parse() {
         // In documents, the rates are separated by space
@@ -768,5 +838,25 @@ mod test {
         let rate_str = r#"  { 44100, 48000, 88200, 96000 ,176400 ,192000 } "#;
         let rates = parse_allow_rates(rate_str);
         assert_eq!(rates, None);
+    }
+
+    #[test]
+    fn fraction_parse() {
+        // node.rate format: "1/<sample_rate>"
+        assert_eq!(parse_fraction("1/48000"), Some((1, 48000)));
+
+        // node.latency format: "<quantum>/<rate>"
+        assert_eq!(parse_fraction("256/48000"), Some((256, 48000)));
+
+        // zero values are returned as-is; callers apply .filter() to reject them
+        assert_eq!(parse_fraction("0/48000"), Some((0, 48000)));
+        assert_eq!(parse_fraction("256/0"), Some((256, 0)));
+
+        // invalid inputs
+        assert_eq!(parse_fraction(""), None);
+        assert_eq!(parse_fraction("48000"), None);
+        assert_eq!(parse_fraction("abc/def"), None);
+        assert_eq!(parse_fraction("/48000"), None);
+        assert_eq!(parse_fraction("256/"), None);
     }
 }

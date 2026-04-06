@@ -15,6 +15,11 @@ pub mod clock {
     pub const MAX_QUANTUM: &str = "clock.max-quantum";
 }
 
+pub mod node {
+    pub const RATE: &str = "node.rate";
+    pub const LATENCY: &str = "node.latency";
+}
+
 pub mod audio {
     pub const SINK: &str = "Audio/Sink";
     pub const SOURCE: &str = "Audio/Source";

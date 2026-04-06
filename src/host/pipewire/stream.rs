@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread::JoinHandle,
 };
@@ -25,6 +25,37 @@ use pipewire::{
 };
 
 use crate::Data;
+
+/// Counts the number of live [`PwInitGuard`] instances across all threads.
+static PW_INIT_COUNT: Mutex<usize> = Mutex::new(0);
+
+/// RAII guard that keeps the PipeWire library initialised for its lifetime.
+pub(crate) struct PwInitGuard;
+
+impl PwInitGuard {
+    pub(crate) fn new() -> Self {
+        let mut count = PW_INIT_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+        if *count == 0 {
+            pw::init();
+        }
+        *count += 1;
+        Self
+    }
+}
+
+impl Drop for PwInitGuard {
+    fn drop(&mut self) {
+        let mut count = PW_INIT_COUNT.lock().unwrap_or_else(|e| e.into_inner());
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            // Safety: the mutex ensures no other PwInitGuard exists at this
+            // point. Every scope that creates PipeWire objects holds a guard
+            // declared before those objects, so all PipeWire objects have
+            // already been dropped before this decrement reached zero.
+            unsafe { pw::deinit() }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum StreamCommand {
@@ -85,8 +116,9 @@ pub(crate) const SUPPORTED_FORMATS: &[SampleFormat] = &[
     SampleFormat::U24,
     SampleFormat::I32,
     SampleFormat::U32,
-    SampleFormat::I64,
-    SampleFormat::U64,
+    // I64/U64 are excluded: libspa has no mapping for them yet.
+    // SampleFormat::I64,
+    // SampleFormat::U64,
     SampleFormat::F32,
     SampleFormat::F64,
 ];
@@ -306,7 +338,6 @@ where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
-    pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
@@ -346,13 +377,19 @@ where
             if user_data.format.parse(param).is_ok() {
                 let current_channels = user_data.format.channels();
                 let current_rate = user_data.format.rate();
-                if current_channels != channels || rate != current_rate {
+                let expected_fmt =
+                    pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                let current_fmt = user_data.format.format();
+                let mismatch = current_channels != channels
+                    || current_rate != rate
+                    || current_fmt != expected_fmt;
+                if mismatch {
                     (user_data.error_callback)(StreamError::BackendSpecific {
                         err: BackendSpecificError {
-                            description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
+                            description: format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
                         },
                     });
-                    // if the channels and rate do not match, we stop the stream
+                    // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
                         (user_data.error_callback)(StreamError::BackendSpecific {
                             err: BackendSpecificError {
@@ -367,9 +404,12 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
-        .process(|stream, user_data| match stream.dequeue_buffer() {
-            None => (user_data.error_callback)(StreamError::BufferUnderrun),
-            Some(mut buffer) => {
+        .process(|stream, user_data| {
+            let n_channels = user_data.format.channels();
+            if n_channels == 0 {
+                return; // format not yet negotiated by param_changed
+            }
+            if let Some(mut buffer) = stream.dequeue_buffer() {
                 // Read the requested frame count before mutably borrowing datas_mut().
                 let requested = buffer.requested() as usize;
                 let datas = buffer.datas_mut();
@@ -377,7 +417,6 @@ where
                     return;
                 }
                 let buf_data = &mut datas[0];
-                let n_channels = user_data.format.channels();
 
                 let stride = user_data.sample_format.sample_size() * n_channels as usize;
                 // frames = samples / channels or frames = data_len / stride
@@ -391,7 +430,8 @@ where
                 // samples = frames * channels or samples = data_len / sample_size
                 let n_samples = frames * n_channels as usize;
 
-                // Pre-fill only the active region with silence before handing it to the callback.
+                // Pre-fill only the active region with silence before handing it to the
+                // callback.
                 let active = &mut samples[..frames * stride];
                 fill_with_equilibrium(active, user_data.sample_format);
 
@@ -428,13 +468,14 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
-    // TODO: what about RT_PROCESS?
-    /* Now connect this stream. We ask that our process function is
-     * called in a realtime thread. */
+    // Connect the stream; RT_PROCESS schedules the process callback on
+    // PipeWire's real-time driver thread.
     stream.connect(
         pw::spa::utils::Direction::Output,
         None,
-        pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
+        pw::stream::StreamFlags::AUTOCONNECT
+            | pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::RT_PROCESS,
         &mut params,
     )?;
 
@@ -457,7 +498,6 @@ where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
     E: FnMut(StreamError) + Send + 'static,
 {
-    pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
@@ -500,13 +540,19 @@ where
             if user_data.format.parse(param).is_ok() {
                 let current_channels = user_data.format.channels();
                 let current_rate = user_data.format.rate();
-                if current_channels != channels || rate != current_rate {
+                let expected_fmt =
+                    pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                let current_fmt = user_data.format.format();
+                let mismatch = current_channels != channels
+                    || current_rate != rate
+                    || current_fmt != expected_fmt;
+                if mismatch {
                     (user_data.error_callback)(StreamError::BackendSpecific {
                         err: BackendSpecificError {
-                            description: format!("channels or rate is not fit, current channels: {current_channels}, current rate: {current_rate}"),
+                            description: format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
                         },
                     });
-                    // if the channels and rate do not match, we stop the stream
+                    // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
                         (user_data.error_callback)(StreamError::BackendSpecific {
                             err: BackendSpecificError {
@@ -520,15 +566,17 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
-        .process(|stream, user_data| match stream.dequeue_buffer() {
-            None => (user_data.error_callback)(StreamError::BufferUnderrun),
-            Some(mut buffer) => {
+        .process(|stream, user_data| {
+            let n_channels = user_data.format.channels();
+            if n_channels == 0 {
+                return; // format not yet negotiated by param_changed
+            }
+            if let Some(mut buffer) = stream.dequeue_buffer() {
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
                 }
                 let data = &mut datas[0];
-                let n_channels = user_data.format.channels();
                 let n_samples = data.chunk().size() / user_data.sample_format.sample_size() as u32;
                 let frames = n_samples / n_channels;
 
@@ -564,13 +612,14 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
-    // TODO: what about RT_PROCESS?
-    /* Now connect this stream. We ask that our process function is
-     * called in a realtime thread. */
+    // Connect the stream; RT_PROCESS schedules the process callback on
+    // PipeWire's real-time driver thread.
     stream.connect(
         pw::spa::utils::Direction::Input,
         None,
-        pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
+        pw::stream::StreamFlags::AUTOCONNECT
+            | pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::RT_PROCESS,
         &mut params,
     )?;
 
