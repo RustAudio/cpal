@@ -186,7 +186,7 @@ macro_rules! impl_platform_host {
         }
 
         impl HostId {
-        /// Returns the human-readable host name.
+            /// Returns the human-readable host name.
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
