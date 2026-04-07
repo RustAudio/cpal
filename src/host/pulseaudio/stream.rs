@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{self, AtomicU64},
+        atomic::{self, AtomicBool, AtomicU64},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -18,17 +18,26 @@ use crate::{
 const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub enum Stream {
-    Playback(pulseaudio::PlaybackStream, Instant),
-    Record(pulseaudio::RecordStream, Instant),
+    Playback(pulseaudio::PlaybackStream, Instant, Arc<AtomicBool>),
+    Record(pulseaudio::RecordStream, Instant, Arc<AtomicBool>),
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        let cancel = match self {
+            Stream::Playback(_, _, cancel) | Stream::Record(_, _, cancel) => cancel,
+        };
+        cancel.store(true, atomic::Ordering::Relaxed);
+    }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Stream::Playback(stream, _) => {
+            Stream::Playback(stream, _, _) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
             }
-            Stream::Record(stream, _) => {
+            Stream::Record(stream, _, _) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
                 block_on(stream.started()).map_err(Into::<BackendSpecificError>::into)?;
             }
@@ -39,8 +48,8 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), crate::PauseStreamError> {
         let res = match self {
-            Stream::Playback(stream, _) => block_on(stream.cork()),
-            Stream::Record(stream, _) => block_on(stream.cork()),
+            Stream::Playback(stream, _, _) => block_on(stream.cork()),
+            Stream::Record(stream, _, _) => block_on(stream.cork()),
         };
 
         res.map_err(Into::<BackendSpecificError>::into)?;
@@ -49,7 +58,7 @@ impl StreamTrait for Stream {
 
     fn now(&self) -> crate::StreamInstant {
         let start = match self {
-            Stream::Playback(_, start) | Stream::Record(_, start) => *start,
+            Stream::Playback(_, start, _) | Stream::Record(_, start, _) => *start,
         };
         let elapsed = start.elapsed();
         StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
@@ -57,11 +66,11 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
         let (spec, bytes) = match self {
-            Stream::Playback(s, _) => (
+            Stream::Playback(s, _, _) => (
                 s.sample_spec(),
                 s.buffer_attr().minimum_request_length as usize,
             ),
-            Stream::Record(s, _) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
+            Stream::Record(s, _, _) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
         Ok((bytes / frame_size) as _)
@@ -168,12 +177,17 @@ impl Stream {
             }
         });
 
-        // Spawn a thread to monitor the stream's latency in a loop. It will
-        // exit automatically when the stream ends.
+        // Spawn a thread to monitor the stream's latency in a loop.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_clone = cancel.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
         std::thread::spawn(move || loop {
+            if cancel_clone.load(atomic::Ordering::Relaxed) {
+                break;
+            }
+
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
@@ -199,7 +213,7 @@ impl Stream {
             std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
-        Ok(Self::Playback(stream, start))
+        Ok(Self::Playback(stream, start, cancel))
     }
 
     pub fn new_record<D, E>(
@@ -251,11 +265,16 @@ impl Stream {
         let stream = block_on(client.create_record_stream(params, callback))
             .map_err(Into::<BackendSpecificError>::into)?;
 
-        // Spawn a thread to monitor the stream's latency in a loop. It will
-        // exit automatically when the stream ends.
+        // Spawn a thread to monitor the stream's latency in a loop.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_clone = cancel.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         std::thread::spawn(move || loop {
+            if cancel_clone.load(atomic::Ordering::Relaxed) {
+                break;
+            }
+
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
@@ -277,7 +296,7 @@ impl Stream {
             std::thread::sleep(LATENCY_POLL_INTERVAL);
         });
 
-        Ok(Self::Record(stream, start))
+        Ok(Self::Record(stream, start, cancel))
     }
 }
 
