@@ -654,6 +654,12 @@ pub fn init_devices() -> Option<Vec<Device>> {
                                     return;
                                 }
                             };
+                            // Discovered `Audio/Sink` nodes are exposed as
+                            // `Duplex`, so they are treated as input-capable.
+                            // When cpal later opens an input stream on such
+                            // a device, it sets `STREAM_CAPTURE_SINK`, which
+                            // makes that stream capture audio playing to the
+                            // sink.
                             let direction = match role {
                                 Role::Sink => DeviceDirection::Duplex,
                                 Role::Source => DeviceDirection::Input,
