@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{self, AtomicBool, AtomicU64},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -15,34 +15,64 @@ use crate::{
     PlayStreamError, SampleFormat, StreamError, StreamInstant,
 };
 
-const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
+
+// Coordinates the latency polling thread
+struct LatencyHandle {
+    // Cancellation on drop
+    cancel: Arc<AtomicBool>,
+    // Event-driven early wakeup from callbacks and play/pause
+    update: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl LatencyHandle {
+    fn new() -> Self {
+        Self {
+            cancel: Arc::new(AtomicBool::new(false)),
+            update: Arc::new((Mutex::new(false), Condvar::new())),
+        }
+    }
+
+    // Trigger an early poll
+    fn notify(&self) {
+        let (lock, cvar) = &*self.update;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
+    }
+
+    // Signal cancellation and wake the thread immediately
+    fn cancel(&self) {
+        self.cancel.store(true, atomic::Ordering::Relaxed);
+        self.notify();
+    }
+}
 
 pub enum Stream {
-    Playback(pulseaudio::PlaybackStream, Instant, Arc<AtomicBool>),
-    Record(pulseaudio::RecordStream, Instant, Arc<AtomicBool>),
+    Playback(pulseaudio::PlaybackStream, Instant, LatencyHandle),
+    Record(pulseaudio::RecordStream, Instant, LatencyHandle),
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        let cancel = match self {
-            Stream::Playback(_, _, cancel) | Stream::Record(_, _, cancel) => cancel,
-        };
-        cancel.store(true, atomic::Ordering::Relaxed);
+        match self {
+            Stream::Playback(_, _, handle) | Stream::Record(_, _, handle) => handle.cancel(),
+        }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
         match self {
-            Stream::Playback(stream, _, _) => {
+            Stream::Playback(stream, _, handle) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
+                handle.notify();
             }
-            Stream::Record(stream, _, _) => {
+            Stream::Record(stream, _, handle) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
                 block_on(stream.started()).map_err(Into::<BackendSpecificError>::into)?;
+                handle.notify();
             }
-        };
-
+        }
         Ok(())
     }
 
@@ -51,8 +81,10 @@ impl StreamTrait for Stream {
             Stream::Playback(stream, _, _) => block_on(stream.cork()),
             Stream::Record(stream, _, _) => block_on(stream.cork()),
         };
-
         res.map_err(Into::<BackendSpecificError>::into)?;
+        match self {
+            Stream::Playback(_, _, handle) | Stream::Record(_, _, handle) => handle.notify(),
+        }
         Ok(())
     }
 
@@ -113,6 +145,9 @@ impl Stream {
             0u8
         };
 
+        let handle = LatencyHandle::new();
+        let update_callback = handle.update.clone();
+
         // Wrap the write callback to match the pulseaudio signature.
         let callback = move |buf: &mut [u8]| {
             let elapsed = Instant::now().saturating_duration_since(start);
@@ -123,12 +158,12 @@ impl Stream {
             // rate, so the latency decreases linearly between polls.
             let stored_latency = latency_clone.load(atomic::Ordering::Relaxed);
             let poll_usec = poll_clone.load(atomic::Ordering::Relaxed);
-            // Cap to one poll interval: the linear-drain assumption is only valid
-            // for that window, and a stale poll_usec (e.g. after cork/uncork where
-            // timing_info blocks) would otherwise saturate latency to zero.
+            // Cap to LATENCY_MAX_INTERVAL: the linear-drain assumption is only valid for that
+            // window, and a stale poll_usec (e.g. after cork/uncork where timing_info blocks)
+            // would otherwise saturate latency to zero.
             let elapsed_since_poll = elapsed_usec
                 .saturating_sub(poll_usec)
-                .min(LATENCY_POLL_INTERVAL.as_micros() as u64);
+                .min(LATENCY_MAX_INTERVAL.as_micros() as u64);
             let latency = stored_latency.saturating_sub(elapsed_since_poll);
 
             let playback_time = elapsed + Duration::from_micros(latency);
@@ -152,6 +187,11 @@ impl Stream {
             let mut data = unsafe { Data::from_parts(buf.as_mut_ptr().cast(), n_samples, format) };
 
             data_callback(&mut data, &OutputCallbackInfo { timestamp });
+
+            // Notify the latency thread that audio was written, so it updates timing info.
+            let (lock, cvar) = &*update_callback;
+            *lock.lock().unwrap() = true;
+            cvar.notify_one();
 
             // We always consider the full buffer filled, because cpal's
             // user-facing API doesn't allow short writes.
@@ -178,13 +218,13 @@ impl Stream {
         });
 
         // Spawn a thread to monitor the stream's latency in a loop.
-        let cancel = Arc::new(AtomicBool::new(false));
-        let cancel_clone = cancel.clone();
+        let cancel_thread = handle.cancel.clone();
+        let update_thread = handle.update.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
         std::thread::spawn(move || loop {
-            if cancel_clone.load(atomic::Ordering::Relaxed) {
+            if cancel_thread.load(atomic::Ordering::Relaxed) {
                 break;
             }
 
@@ -210,10 +250,16 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(LATENCY_POLL_INTERVAL);
+            // Wait until woken by a write/play/pause/drop event or until LATENCY_MAX_INTERVAL.
+            let (lock, cvar) = &*update_thread;
+            let guard = lock.lock().unwrap();
+            let (mut guard, _) = cvar
+                .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
+                .unwrap();
+            *guard = false;
         });
 
-        Ok(Self::Playback(stream, start, cancel))
+        Ok(Self::Playback(stream, start, handle))
     }
 
     pub fn new_record<D, E>(
@@ -236,6 +282,9 @@ impl Stream {
             .format
             .try_into()
             .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+
+        let handle = LatencyHandle::new();
+        let update_callback = handle.update.clone();
 
         let callback = move |buf: &[u8]| {
             let elapsed = Instant::now().saturating_duration_since(start);
@@ -260,18 +309,23 @@ impl Stream {
             let data = unsafe { Data::from_parts(buf.as_ptr() as *mut _, n_samples, format) };
 
             data_callback(&data, &InputCallbackInfo { timestamp });
+
+            // Notify the latency thread that audio was read, so it updates timing info.
+            let (lock, cvar) = &*update_callback;
+            *lock.lock().unwrap() = true;
+            cvar.notify_one();
         };
 
         let stream = block_on(client.create_record_stream(params, callback))
             .map_err(Into::<BackendSpecificError>::into)?;
 
         // Spawn a thread to monitor the stream's latency in a loop.
-        let cancel = Arc::new(AtomicBool::new(false));
-        let cancel_clone = cancel.clone();
+        let cancel_thread = handle.cancel.clone();
+        let update_thread = handle.update.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         std::thread::spawn(move || loop {
-            if cancel_clone.load(atomic::Ordering::Relaxed) {
+            if cancel_thread.load(atomic::Ordering::Relaxed) {
                 break;
             }
 
@@ -293,10 +347,16 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            std::thread::sleep(LATENCY_POLL_INTERVAL);
+            // Wait until woken by a read/play/pause/drop event or until
+            let (lock, cvar) = &*update_thread;
+            let guard = lock.lock().unwrap();
+            let (mut guard, _) = cvar
+                .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
+                .unwrap();
+            *guard = false;
         });
 
-        Ok(Self::Record(stream, start, cancel))
+        Ok(Self::Record(stream, start, handle))
     }
 }
 
