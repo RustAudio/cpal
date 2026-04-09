@@ -18,7 +18,7 @@ use crate::{
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
 
 // Coordinates the latency polling thread
-pub(crate) struct LatencyHandle {
+struct LatencyHandle {
     // Cancellation on drop
     cancel: Arc<AtomicBool>,
     // Event-driven early wakeup from callbacks and play/pause
@@ -47,27 +47,31 @@ impl LatencyHandle {
     }
 }
 
-pub enum Stream {
+enum StreamInner {
     Playback(pulseaudio::PlaybackStream, Instant, LatencyHandle),
     Record(pulseaudio::RecordStream, Instant, LatencyHandle),
 }
 
+pub struct Stream(StreamInner);
+
 impl Drop for Stream {
     fn drop(&mut self) {
-        match self {
-            Stream::Playback(_, _, handle) | Stream::Record(_, _, handle) => handle.cancel(),
+        match &mut self.0 {
+            StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
+                handle.cancel()
+            }
         }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), PlayStreamError> {
-        match self {
-            Stream::Playback(stream, _, handle) => {
+        match &self.0 {
+            StreamInner::Playback(stream, _, handle) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
                 handle.notify();
             }
-            Stream::Record(stream, _, handle) => {
+            StreamInner::Record(stream, _, handle) => {
                 block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
                 block_on(stream.started()).map_err(Into::<BackendSpecificError>::into)?;
                 handle.notify();
@@ -77,32 +81,36 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), crate::PauseStreamError> {
-        let res = match self {
-            Stream::Playback(stream, _, _) => block_on(stream.cork()),
-            Stream::Record(stream, _, _) => block_on(stream.cork()),
+        let res = match &self.0 {
+            StreamInner::Playback(stream, _, _) => block_on(stream.cork()),
+            StreamInner::Record(stream, _, _) => block_on(stream.cork()),
         };
         res.map_err(Into::<BackendSpecificError>::into)?;
-        match self {
-            Stream::Playback(_, _, handle) | Stream::Record(_, _, handle) => handle.notify(),
+        match &self.0 {
+            StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
+                handle.notify()
+            }
         }
         Ok(())
     }
 
     fn now(&self) -> crate::StreamInstant {
-        let start = match self {
-            Stream::Playback(_, start, _) | Stream::Record(_, start, _) => *start,
+        let start = match &self.0 {
+            StreamInner::Playback(_, start, _) | StreamInner::Record(_, start, _) => *start,
         };
         let elapsed = start.elapsed();
         StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
     fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
-        let (spec, bytes) = match self {
-            Stream::Playback(s, _, _) => (
+        let (spec, bytes) = match &self.0 {
+            StreamInner::Playback(s, _, _) => (
                 s.sample_spec(),
                 s.buffer_attr().minimum_request_length as usize,
             ),
-            Stream::Record(s, _, _) => (s.sample_spec(), s.buffer_attr().fragment_size as usize),
+            StreamInner::Record(s, _, _) => {
+                (s.sample_spec(), s.buffer_attr().fragment_size as usize)
+            }
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
         Ok((bytes / frame_size) as _)
@@ -259,7 +267,7 @@ impl Stream {
             *guard = false;
         });
 
-        Ok(Self::Playback(stream, start, handle))
+        Ok(Self(StreamInner::Playback(stream, start, handle)))
     }
 
     pub fn new_record<D, E>(
@@ -379,7 +387,7 @@ impl Stream {
             *guard = false;
         });
 
-        Ok(Self::Record(stream, start, handle))
+        Ok(Self(StreamInner::Record(stream, start, handle)))
     }
 }
 
