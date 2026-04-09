@@ -14,6 +14,8 @@ use crate::{
     SupportedStreamConfigRange, SupportedStreamConfigsError,
 };
 
+const MIN_SAMPLE_RATE: SampleRate = 8000;
+
 const PULSE_FORMATS: &[SampleFormat] = &[
     SampleFormat::U8,
     SampleFormat::I16,
@@ -160,10 +162,10 @@ fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
             let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as FrameCount;
             ranges.push(SupportedStreamConfigRange {
                 channels: channel_count as _,
-                min_sample_rate: 1,
+                min_sample_rate: MIN_SAMPLE_RATE,
                 max_sample_rate: protocol::sample_spec::MAX_RATE,
                 buffer_size: SupportedBufferSize::Range {
-                    min: 0,
+                    min: 1,
                     max: max_frames,
                 },
                 sample_format: *format,
@@ -187,7 +189,7 @@ fn default_config_from_spec(
         channels: channel_map.num_channels() as _,
         sample_rate: sample_spec.sample_rate,
         buffer_size: SupportedBufferSize::Range {
-            min: 0,
+            min: 1,
             max: max_frames,
         },
         sample_format,
