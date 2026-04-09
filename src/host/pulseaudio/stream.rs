@@ -275,7 +275,11 @@ impl Stream {
         let start = Instant::now();
 
         let current_latency_micros = Arc::new(AtomicU64::new(0));
+        // Microseconds since stream creation at the time of the last latency poll, used
+        // to interpolate the latency between polls.
+        let last_poll_micros = Arc::new(AtomicU64::new(0));
         let latency_clone = current_latency_micros.clone();
+        let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
 
         let format: SampleFormat = sample_spec
@@ -288,7 +292,21 @@ impl Stream {
 
         let callback = move |buf: &[u8]| {
             let elapsed = Instant::now().saturating_duration_since(start);
-            let latency = latency_clone.load(atomic::Ordering::Relaxed);
+            let elapsed_usec = elapsed.as_micros() as u64;
+
+            // Interpolate the latency based on elapsed time since the last poll: as audio records,
+            // the ADC fills the buffer at a constant rate, so the latency increases linearly
+            // between polls.
+            let stored_latency = latency_clone.load(atomic::Ordering::Relaxed);
+            let poll_usec = poll_clone.load(atomic::Ordering::Relaxed);
+            // Cap to LATENCY_MAX_INTERVAL: the linear-fill assumption is only valid for that
+            // window, and a stale poll_usec (e.g. after cork/uncork where timing_info blocks)
+            // would otherwise saturate latency to zero.
+            let elapsed_since_poll = elapsed_usec
+                .saturating_sub(poll_usec)
+                .min(LATENCY_MAX_INTERVAL.as_micros() as u64);
+            let latency = stored_latency.saturating_add(elapsed_since_poll);
+
             let capture_time = elapsed
                 .checked_sub(Duration::from_micros(latency))
                 .unwrap_or_default();
@@ -324,6 +342,7 @@ impl Stream {
         let update_thread = handle.update.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
+        let poll_clone = last_poll_micros.clone();
         std::thread::spawn(move || loop {
             if cancel_thread.load(atomic::Ordering::Relaxed) {
                 break;
@@ -339,6 +358,10 @@ impl Stream {
                 }
             };
 
+            let poll_since_epoch =
+                Instant::now().saturating_duration_since(start).as_micros() as u64;
+            poll_clone.store(poll_since_epoch, atomic::Ordering::Relaxed);
+
             store_latency(
                 &latency_clone,
                 sample_spec,
@@ -347,7 +370,7 @@ impl Stream {
                 timing_info.read_offset,
             );
 
-            // Wait until woken by a read/play/pause/drop event or until
+            // Wait until woken by a read/play/pause/drop event or until LATENCY_MAX_INTERVAL.
             let (lock, cvar) = &*update_thread;
             let guard = lock.lock().unwrap();
             let (mut guard, _) = cvar
