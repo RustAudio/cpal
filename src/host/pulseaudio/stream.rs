@@ -18,7 +18,7 @@ use crate::{
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
 
 // Coordinates the latency polling thread
-struct LatencyHandle {
+pub(crate) struct LatencyHandle {
     // Cancellation on drop
     cancel: Arc<AtomicBool>,
     // Event-driven early wakeup from callbacks and play/pause
@@ -36,7 +36,7 @@ impl LatencyHandle {
     // Trigger an early poll
     fn notify(&self) {
         let (lock, cvar) = &*self.update;
-        *lock.lock().unwrap() = true;
+        *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
         cvar.notify_one();
     }
 
@@ -190,7 +190,7 @@ impl Stream {
 
             // Notify the latency thread that audio was written, so it updates timing info.
             let (lock, cvar) = &*update_callback;
-            *lock.lock().unwrap() = true;
+            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
             cvar.notify_one();
 
             // We always consider the full buffer filled, because cpal's
@@ -301,7 +301,7 @@ impl Stream {
             let poll_usec = poll_clone.load(atomic::Ordering::Relaxed);
             // Cap to LATENCY_MAX_INTERVAL: the linear-fill assumption is only valid for that
             // window, and a stale poll_usec (e.g. after cork/uncork where timing_info blocks)
-            // would otherwise saturate latency to zero.
+            // would otherwise keep inflating the interpolated latency up to the cap.
             let elapsed_since_poll = elapsed_usec
                 .saturating_sub(poll_usec)
                 .min(LATENCY_MAX_INTERVAL.as_micros() as u64);
@@ -330,7 +330,7 @@ impl Stream {
 
             // Notify the latency thread that audio was read, so it updates timing info.
             let (lock, cvar) = &*update_callback;
-            *lock.lock().unwrap() = true;
+            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
             cvar.notify_one();
         };
 

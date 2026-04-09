@@ -355,7 +355,7 @@ impl DeviceTrait for Device {
         let client = client.clone();
         if let Some(dur) = timeout {
             // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
-            // is hung, `create_playback_stream`  would blockforever.
+            // is hung, `create_playback_stream` would block forever.
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
                 tx.send(stream::Stream::new_playback(
