@@ -1,5 +1,6 @@
 use futures::executor::block_on;
 use pulseaudio::protocol;
+use std::time::Duration;
 
 mod stream;
 
@@ -248,7 +249,7 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
-        _timeout: Option<std::time::Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -283,7 +284,31 @@ impl DeviceTrait for Device {
             ..Default::default()
         };
 
-        stream::Stream::new_record(client.clone(), params, data_callback, error_callback)
+        let client = client.clone();
+        if let Some(dur) = timeout {
+            // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
+            // is hung, `create_record_stream` would block forever.
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                tx.send(stream::Stream::new_record(
+                    client,
+                    params,
+                    data_callback,
+                    error_callback,
+                ))
+                .ok();
+            });
+            match rx.recv_timeout(dur) {
+                Ok(result) => result,
+                Err(_) => Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "timed out waiting for PulseAudio server".into(),
+                    },
+                }),
+            }
+        } else {
+            stream::Stream::new_record(client, params, data_callback, error_callback)
+        }
     }
 
     fn build_output_stream_raw<D, E>(
@@ -292,7 +317,7 @@ impl DeviceTrait for Device {
         sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
-        _timeout: Option<std::time::Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Self::Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -327,7 +352,31 @@ impl DeviceTrait for Device {
             ..Default::default()
         };
 
-        stream::Stream::new_playback(client.clone(), params, data_callback, error_callback)
+        let client = client.clone();
+        if let Some(dur) = timeout {
+            // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
+            // is hung, `create_playback_stream`  would blockforever.
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                tx.send(stream::Stream::new_playback(
+                    client,
+                    params,
+                    data_callback,
+                    error_callback,
+                ))
+                .ok();
+            });
+            match rx.recv_timeout(dur) {
+                Ok(result) => result,
+                Err(_) => Err(BuildStreamError::BackendSpecific {
+                    err: BackendSpecificError {
+                        description: "timed out waiting for PulseAudio server".into(),
+                    },
+                }),
+            }
+        } else {
+            stream::Stream::new_playback(client, params, data_callback, error_callback)
+        }
     }
 
     fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
