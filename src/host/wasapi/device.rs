@@ -371,10 +371,10 @@ impl Device {
                 &PKEY_AUDIOENDPOINT_JACKSUBTYPE as *const _ as *const _,
             );
 
-            // Prefer DeviceDesc for name, fall back to FriendlyName
-            let name = device_desc
+            // Prefer FriendlyName for name (e.g., "Speakers (XYZ Audio Adapter)"), fall back to DeviceDesc
+            let name = friendly_name
                 .clone()
-                .or(friendly_name.clone())
+                .or(device_desc.clone())
                 .ok_or_else(|| DeviceNameError::BackendSpecific {
                     err: BackendSpecificError {
                         description: "failed to retrieve device name".to_string(),
@@ -414,13 +414,6 @@ impl Device {
             // Add interface name to driver field if available
             if let Some(iface_name) = interface_name {
                 builder = builder.driver(iface_name);
-            }
-
-            // Add FriendlyName to extended if different from the name we used
-            if let Some(fname) = friendly_name {
-                if device_desc.is_some() && Some(&fname) != device_desc.as_ref() {
-                    builder = builder.add_extended_line(fname);
-                }
             }
 
             Ok(builder.build())
