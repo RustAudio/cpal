@@ -32,7 +32,10 @@ impl TryFrom<protocol::SampleFormat> for SampleFormat {
         match spec {
             protocol::SampleFormat::U8 => Ok(SampleFormat::U8),
             protocol::SampleFormat::S16Le | protocol::SampleFormat::S16Be => Ok(SampleFormat::I16),
-            protocol::SampleFormat::S24Le | protocol::SampleFormat::S24Be => Ok(SampleFormat::I24),
+            protocol::SampleFormat::S24Le
+            | protocol::SampleFormat::S24Be
+            | protocol::SampleFormat::S24In32Le
+            | protocol::SampleFormat::S24In32Be => Ok(SampleFormat::I24),
             protocol::SampleFormat::S32Le | protocol::SampleFormat::S32Be => Ok(SampleFormat::I32),
             protocol::SampleFormat::Float32Le | protocol::SampleFormat::Float32Be => {
                 Ok(SampleFormat::F32)
@@ -50,8 +53,11 @@ impl TryFrom<SampleFormat> for protocol::SampleFormat {
             (SampleFormat::U8, _) => Ok(protocol::SampleFormat::U8),
             (SampleFormat::I16, true) => Ok(protocol::SampleFormat::S16Le),
             (SampleFormat::I16, false) => Ok(protocol::SampleFormat::S16Be),
-            (SampleFormat::I24, true) => Ok(protocol::SampleFormat::S24Le),
-            (SampleFormat::I24, false) => Ok(protocol::SampleFormat::S24Be),
+            // cpal's I24 uses a 4-byte i32 container, matching PulseAudio's
+            // S24_32 format. PA converts from the device's native S24 (3-byte
+            // packed) to S24_32 transparently when the stream format differs.
+            (SampleFormat::I24, true) => Ok(protocol::SampleFormat::S24In32Le),
+            (SampleFormat::I24, false) => Ok(protocol::SampleFormat::S24In32Be),
             (SampleFormat::I32, true) => Ok(protocol::SampleFormat::S32Le),
             (SampleFormat::I32, false) => Ok(protocol::SampleFormat::S32Be),
             (SampleFormat::F32, true) => Ok(protocol::SampleFormat::Float32Le),
