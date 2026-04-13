@@ -13,11 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
-- `device_by_id` is now dispatched to each backend's implementation, allowing to override it.
+- `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing to 
+  override it.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
-- `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
-  [UPGRADING.md](UPGRADING.md) for migration details.
-- **ALSA**: `device_by_id` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
+- **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 
@@ -25,11 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
   SemVer-breaking changes.
-- `DeviceTrait::build_*_stream` now takes `StreamConfig` by value instead of `&StreamConfig`
-- `HostId::name` now returns a more human-friendly name instead of the raw backend identifier.
+- `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`
+- `HostId::name()` now returns a more human-friendly name instead of the raw backend identifier.
+- `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
+  [UPGRADING.md](UPGRADING.md) for migration details.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
-- **AAudio**: `supported_input_configs` and `supported_output_configs` now return an error for
+- **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
 - **AAudio**: Bump MSRV to 1.85.
@@ -86,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix spurious timeout errors during polling.
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
 - **ALSA**: Fix timestamp overflows on 32-bit platforms.
-- **ASIO**: Fix enumeration returning only the first device when using `collect`.
+- **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
 - **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
@@ -99,9 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.
-- **JACK**: `activate_async` failure now returns an error instead of panicking.
+- **JACK**: `activate_async()` failure now returns an error instead of panicking.
 - **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
 - **JACK**: Underrun notification no longer blocks the notification thread.
+- **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
+- **WebAudio**: Report errors through the callback instead of panicking.
 
 ## [0.17.3] - 2026-02-18
 
