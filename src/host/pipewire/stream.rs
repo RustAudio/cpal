@@ -36,6 +36,7 @@ impl PwInitGuard {
     pub(crate) fn new() -> Self {
         let mut count = PW_INIT_COUNT.lock().unwrap_or_else(|e| e.into_inner());
         if *count == 0 {
+            // pw::init() uses a OnceCell, preventing re-init after deinit.
             unsafe { pw::sys::pw_init(std::ptr::null_mut(), std::ptr::null_mut()) }
         }
         *count += 1;
