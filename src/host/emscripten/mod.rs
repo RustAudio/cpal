@@ -2,21 +2,20 @@
 //!
 //! Default backend on Emscripten.
 
-use js_sys::Float32Array;
 use std::panic::AssertUnwindSafe;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::AudioContext;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BufferSize, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError, DevicesError, FrameCount,
-    InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat,
-    SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
+    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError,
+    DeviceNameError, DevicesError, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    PauseStreamError, PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError,
+    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    SupportedStreamConfigsError,
 };
 
 // The emscripten backend currently works by instantiating an `AudioContext` object per `Stream`.
@@ -257,37 +256,40 @@ impl StreamTrait for Stream {
     }
 
     fn play(&self) -> Result<(), PlayStreamError> {
-        let future = JsFuture::from(
-            self.audio_ctxt
-                .resume()
-                .expect("Could not resume the stream"),
-        );
-        spawn_local(async {
-            match future.await {
-                Ok(value) => assert!(value.is_undefined()),
-                Err(value) => panic!("AudioContext.resume() promise was rejected: {:?}", value),
-            }
+        let promise = self
+            .audio_ctxt
+            .resume()
+            .map_err(|err| BackendSpecificError {
+                description: format!("{err:?}"),
+            })?;
+        spawn_local(async move {
+            // Errors here are unrecoverable, so we silently discard the result.
+            let _ = JsFuture::from(promise).await;
         });
         Ok(())
     }
 
     fn pause(&self) -> Result<(), PauseStreamError> {
-        let future = JsFuture::from(
-            self.audio_ctxt
-                .suspend()
-                .expect("Could not suspend the stream"),
-        );
-        spawn_local(async {
-            match future.await {
-                Ok(value) => assert!(value.is_undefined()),
-                Err(value) => panic!("AudioContext.suspend() promise was rejected: {:?}", value),
-            }
+        let promise = self
+            .audio_ctxt
+            .suspend()
+            .map_err(|err| BackendSpecificError {
+                description: format!("{err:?}"),
+            })?;
+        spawn_local(async move {
+            let _ = JsFuture::from(promise).await;
         });
         Ok(())
     }
 
     fn now(&self) -> StreamInstant {
         StreamInstant::from_secs_f64(self.audio_ctxt.current_time())
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        let _ = self.audio_ctxt.close();
     }
 }
 
@@ -322,12 +324,9 @@ where
             data_callback(&mut data, &info);
         }
 
-        let typed_array: Float32Array = temporary_buffer.as_slice().into();
-
-        debug_assert_eq!(temporary_buffer.len() % config.channels as usize, 0);
-
-        let src_buffer = Float32Array::new(typed_array.buffer().as_ref());
         let context = audio_ctxt;
+        let n_channels = config.channels as usize;
+        let n_frames = buffer_size_frames as usize;
         let buffer = context
             .create_buffer(
                 config.channels as u32,
@@ -335,23 +334,23 @@ where
                 sample_rate as f32,
             )
             .expect("Buffer could not be created");
-        for channel in 0..config.channels {
-            let mut buffer_content = buffer
-                .get_channel_data(channel as u32)
-                .expect("Should be impossible");
-            for (i, buffer_content_item) in buffer_content.iter_mut().enumerate() {
-                *buffer_content_item =
-                    src_buffer.get_index(i as u32 * config.channels as u32 + channel as u32);
+
+        // Deinterleave the sample data into each channel of the AudioBuffer.
+        let mut channel_data = vec![0f32; n_frames];
+        for channel in 0..n_channels {
+            for i in 0..n_frames {
+                channel_data[i] = temporary_buffer[i * n_channels + channel];
             }
+            buffer
+                .copy_to_channel(&channel_data, channel as i32)
+                .expect("Unable to write sample data into the audio buffer");
         }
 
         let node = context
             .create_buffer_source()
             .expect("The buffer source node could not be created");
         node.set_buffer(Some(&buffer));
-        context
-            .destination()
-            .connect_with_audio_node(&node)
+        node.connect_with_audio_node(&context.destination())
             .expect("Could not connect the audio node to the destination");
         node.start().expect("Could not start the audio node");
 
@@ -414,7 +413,7 @@ impl Iterator for Devices {
 }
 
 fn default_input_device() -> Option<Device> {
-    unimplemented!();
+    None
 }
 
 fn default_output_device() -> Option<Device> {
