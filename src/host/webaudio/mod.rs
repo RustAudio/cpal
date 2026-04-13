@@ -501,8 +501,8 @@ impl StreamTrait for Stream {
                     return Ok(());
                 }
                 // Begin webaudio playback, initially scheduling the closures to fire on a timeout
-                // event.
-                let mut offset_ms = 10;
+                // event. Minimum value as per spec: https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timers
+                let mut offset_ms = 4;
                 let time_step_secs =
                     buffer_time_step_secs(self.buffer_size_frames, self.config.sample_rate);
                 let time_step_ms = (time_step_secs * 1_000.0) as i32;
