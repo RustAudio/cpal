@@ -372,14 +372,14 @@ impl Device {
             );
 
             // Prefer FriendlyName for name (e.g., "Speakers (XYZ Audio Adapter)"), fall back to DeviceDesc
-            let name = friendly_name
-                .clone()
-                .or(device_desc.clone())
-                .ok_or_else(|| DeviceNameError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: "failed to retrieve device name".to_string(),
-                    },
-                })?;
+            let name =
+                friendly_name
+                    .or(device_desc)
+                    .ok_or_else(|| DeviceNameError::BackendSpecific {
+                        err: BackendSpecificError {
+                            description: "failed to retrieve device name".to_string(),
+                        },
+                    })?;
 
             // Get direction from data flow (eCapture = Input, eRender = Output)
             let direction = self.data_flow().into();
