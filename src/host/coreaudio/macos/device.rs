@@ -90,6 +90,7 @@ fn set_physical_format(
 fn set_sample_rate(
     audio_device_id: AudioObjectID,
     target_sample_rate: SampleRate,
+    timeout: Option<Duration>,
 ) -> Result<(), BuildStreamError> {
     // Get the current sample rate.
     let mut property_address = AudioObjectPropertyAddress {
@@ -173,12 +174,15 @@ fn set_sample_rate(
         };
         coreaudio::Error::from_os_status(status)?;
 
-        // Wait for the rate change to be confirmed. Should take a few ms in practice;
-        // timeout after 1 s as a safety net.
-        let mut timeout = Duration::from_secs(1);
+        // Wait for the reported_rate to change.
+        //
+        // This should not take longer than a few ms. Use the caller's timeout if provided,
+        // otherwise default to 1 second. We loop over potentially several events from the
+        // channel to ensure that we catch the expected change in sample rate.
+        let mut remaining = timeout.unwrap_or(Duration::from_secs(1));
         let start = Instant::now();
         loop {
-            match receiver.recv_timeout(timeout) {
+            match receiver.recv_timeout(remaining) {
                 Ok(reported_rate) => {
                     if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
                         break;
@@ -199,7 +203,7 @@ fn set_sample_rate(
                     .into());
                 }
             }
-            timeout = timeout
+            remaining = remaining
                 .checked_sub(start.elapsed())
                 .unwrap_or(Duration::ZERO);
         }
@@ -742,7 +746,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
-        _timeout: Option<Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -763,7 +767,7 @@ impl Device {
         )
         .is_err()
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate)?;
+            set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
 
         let mut loopback_aggregate: Option<LoopbackDevice> = None;
@@ -857,7 +861,7 @@ impl Device {
         sample_format: SampleFormat,
         mut data_callback: D,
         error_callback: E,
-        _timeout: Option<Duration>,
+        timeout: Option<Duration>,
     ) -> Result<Stream, BuildStreamError>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -874,7 +878,7 @@ impl Device {
         )
         .is_err()
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate)?;
+            set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
 
         let mut audio_unit = audio_unit_from_device(self, false)?;
