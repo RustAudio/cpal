@@ -55,12 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate change on macOS, and on iOS on route changes that require a stream rebuild.
 - **CoreAudio**: Stream error callback now receives `StreamError::DeviceNotAvailable` on iOS
   when media services are lost.
-- **CoreAudio**: User timeouts are now obeyed when building a stream.
+- **CoreAudio**: User timeouts are now respected when building a stream.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
   without error.
 - **JACK**: Server shutdown now fires `StreamError::DeviceNotAvailable`.
 - **JACK**: Default client name now includes the process PID.
+- **JACK**: User timeouts are now respected when building a stream.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
