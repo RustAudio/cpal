@@ -7,10 +7,7 @@
 //! a different byte order.
 
 use std::{fmt::Display, mem};
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 use wasm_bindgen::prelude::*;
 
 pub use dasp_sample::{FromSample, Sample};
@@ -51,13 +48,7 @@ pub use dasp_sample::U24;
 ///
 /// [`is_float`]: SampleFormat::is_float
 /// [`supported_input_configs`]: crate::traits::DeviceTrait::supported_input_configs
-#[cfg_attr(
-    all(
-        target_arch = "wasm32",
-        any(target_os = "emscripten", feature = "wasm-bindgen")
-    ),
-    wasm_bindgen
-)]
+#[cfg_attr(all(target_arch = "wasm32", feature = "wasm-bindgen"), wasm_bindgen)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SampleFormat {

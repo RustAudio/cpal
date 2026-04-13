@@ -1,8 +1,5 @@
 use std::time::Duration;
 
-#[cfg(target_os = "emscripten")]
-use wasm_bindgen::prelude::*;
-
 /// A monotonic time instance associated with a stream, retrieved from either:
 ///
 /// 1. A timestamp provided to the stream's underlying audio data callback or
@@ -26,7 +23,6 @@ use wasm_bindgen::prelude::*;
 /// | ASIO | `timeGetTime()` |
 /// | AudioWorklet | `AudioContext.currentTime` |
 /// | CoreAudio | `mach_absolute_time()` |
-/// | Emscripten | `AudioContext.currentTime` |
 /// | JACK | `jack_get_time()` |
 /// | PipeWire | `pw_stream_get_time_n()` |
 /// | PulseAudio | `std::time::Instant` |
@@ -73,7 +69,6 @@ pub struct InputCallbackInfo {
 }
 
 /// Information relevant to a single call to the user's output stream data callback.
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputCallbackInfo {
     pub(crate) timestamp: OutputStreamTimestamp,

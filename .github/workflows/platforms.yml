@@ -405,34 +405,6 @@ jobs:
         working-directory: examples/ios-feedback
         run: xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator -arch arm64
 
-  # WebAssembly - Emscripten
-  wasm-emscripten:
-    runs-on: ubuntu-latest
-    env:
-      TARGET: wasm32-unknown-emscripten
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Emscripten toolchain
-        uses: mymindstorm/setup-emsdk@v14
-
-      - name: Install Rust MSRV (${{ env.MSRV_WASM }})
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.MSRV_WASM }}
-          targets: ${{ env.TARGET }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: wasm-emscripten
-
-      - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
   # WebAssembly - wasm-bindgen
   wasm-bindgen:
     runs-on: ubuntu-latest
@@ -574,7 +546,6 @@ jobs:
       - macos
       - android
       - ios
-      - wasm-emscripten
       - wasm-bindgen
       - wasm-audioworklet
       - wasm-wasip1

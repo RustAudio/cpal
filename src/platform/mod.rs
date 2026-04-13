@@ -93,14 +93,13 @@ macro_rules! impl_platform_host {
         /// - `"aaudio"` - Android Audio
         /// - `"alsa"` - Advanced Linux Sound Architecture
         /// - `"asio"` - ASIO
+        /// - `"audioworklet"` - Audio Worklet
         /// - `"coreaudio"` - CoreAudio
         /// - `"custom"` - Custom host (requires `custom` feature)
-        /// - `"emscripten"` - Emscripten
         /// - `"jack"` - JACK Audio Connection Kit
         /// - `"null"` - Null host
         /// - `"wasapi"` - Windows Audio Session API
         /// - `"webaudio"` - Web Audio API
-        /// - `"audioworklet"` - Audio Worklet
         ///
         /// # Cross-Platform Example
         ///
@@ -834,23 +833,6 @@ mod platform_impl {
     }
 }
 
-#[cfg(target_os = "emscripten")]
-mod platform_impl {
-    #[cfg_attr(docsrs, doc(cfg(target_os = "emscripten")))]
-    pub use crate::host::emscripten::Host as EmscriptenHost;
-    impl_platform_host!(
-        Emscripten => EmscriptenHost,
-        #[cfg(feature = "custom")] Custom => super::CustomHost
-    );
-
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        EmscriptenHost::new()
-            .expect("the default host should always be available")
-            .into()
-    }
-}
-
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
     #[cfg_attr(
@@ -935,7 +917,6 @@ mod platform_impl {
     target_os = "netbsd",
     target_os = "macos",
     target_os = "ios",
-    target_os = "emscripten",
     target_os = "android",
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
@@ -950,7 +931,6 @@ mod platform_impl {
             target_os = "netbsd",
             target_os = "macos",
             target_os = "ios",
-            target_os = "emscripten",
             target_os = "android",
             all(target_arch = "wasm32", feature = "wasm-bindgen")
         ))))

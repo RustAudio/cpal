@@ -14,6 +14,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
+- [ ] Change `emscripten` host to `webaudio` in Wasm builds.
 
 ## 1. Error enums are now `#[non_exhaustive]`
 
@@ -133,6 +134,20 @@ StreamInstant::new(0_u64, 0);
 ```
 
 **Why:** All audio host clocks are positive and monotonic; they are never negative.
+
+## 5. `emscripten` host removed in favor of `webaudio`
+
+**What changed:** The `emscripten` host was broken and is now removed. Use the `webaudio` host instead for Wasm builds.
+
+```rust
+# Before (v0.17)
+cpal = { version = "0.17", features = ["emscripten"] }
+
+# After (v0.18)
+cpal = { version = "0.18", features = ["webaudio"] }
+```
+
+**Why:** The `webaudio` host uses the modern Web Audio API and is compatible with current Emscripten versions. The old `emscripten` host relied on deprecated APIs that are no longer supported.
 
 ---
 

@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
+- **Emscripten**: Removed broken host; use the WebAudio host instead.
 
 ### Fixed
 
@@ -94,11 +95,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the
   update.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
-- **Emscripten**: Fix build failure introduced by newer `wasm-bindgen` versions.
-- **Emscripten**: Fix playback and recording.
-- **Emscripten**: Fix panics arising from play/pause errors.
-- **Emscripten**: Fix panic when querying the default input device.
-- **Emscripten**: Fix the audio context outliving the stream.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.

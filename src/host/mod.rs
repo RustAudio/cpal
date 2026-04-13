@@ -21,8 +21,6 @@ pub(crate) mod audioworklet;
 pub(crate) mod com;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod coreaudio;
-#[cfg(target_os = "emscripten")]
-pub(crate) mod emscripten;
 #[cfg(all(
     feature = "jack",
     any(
@@ -70,7 +68,6 @@ pub(crate) mod custom;
     target_os = "netbsd",
     target_os = "macos",
     target_os = "ios",
-    target_os = "emscripten",
     target_os = "android",
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]

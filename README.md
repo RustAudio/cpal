@@ -35,7 +35,6 @@ Currently, supported platforms include:
 
 - Android (via AAudio)
 - BSD (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
-- Emscripten
 - iOS (via CoreAudio)
 - Linux (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
 - macOS (via CoreAudio by default, JACK optionally)

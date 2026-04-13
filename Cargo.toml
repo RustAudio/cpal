@@ -161,21 +161,6 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
     "AVAudioSessionTypes",
 ] }
 
-[target.'cfg(target_os = "emscripten")'.dependencies]
-wasm-bindgen = { version = "0.2" }
-wasm-bindgen-futures = "0.4"
-js-sys = { version = "0.3" }
-web-sys = { version = "0.3", features = [
-    "AudioContext",
-    "AudioContextOptions",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "AudioNode",
-    "AudioDestinationNode",
-    "Window",
-    "AudioContextState",
-] }
-
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
@@ -227,7 +212,6 @@ targets = [
     "aarch64-apple-darwin",
     "aarch64-apple-ios",
     "wasm32-unknown-unknown",
-    "wasm32-unknown-emscripten",
     "aarch64-linux-android",
     "x86_64-unknown-freebsd",
     "x86_64-unknown-netbsd",

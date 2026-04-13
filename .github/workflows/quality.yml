@@ -65,12 +65,6 @@ jobs:
             features: ""
             os: ubuntu-latest
 
-          # WASM - Emscripten
-          - target: wasm32-unknown-emscripten
-            name: WASM-emscripten
-            features: ""
-            os: ubuntu-latest
-
           # WASM - wasm-bindgen feature
           - target: wasm32-unknown-unknown
             name: WASM-bindgen
