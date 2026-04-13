@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
+- **WASAPI**: `FriendlyName` is now preferred as device name over `DeviceDesc`.
 - **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
