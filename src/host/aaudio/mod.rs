@@ -292,7 +292,7 @@ fn configure_for_device(
     if let BufferSize::Fixed(size) = config.buffer_size {
         // For fixed sizes, the user explicitly wants control over the callback size.
         builder = builder
-            .frames_per_data_callback(size as i32)
+            .frames_per_data_callback(size.min(i32::MAX as FrameCount) as i32)
             .buffer_capacity_in_frames(size.saturating_mul(2).min(i32::MAX as FrameCount) as i32);
     }
 

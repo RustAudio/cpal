@@ -25,7 +25,8 @@ fn stream_instant_from_anchor(
     app_frame: i64,
     sample_rate: u32,
 ) -> StreamInstant {
-    let offset_nanos = (app_frame - anchor_frame) as i128 * 1_000_000_000 / sample_rate as i128;
+    let offset_nanos =
+        (app_frame as i128 - anchor_frame as i128) * 1_000_000_000 / sample_rate as i128;
     StreamInstant::from_nanos((anchor_nanos as i128 + offset_nanos).max(0) as u64)
 }
 

@@ -96,23 +96,6 @@ pub fn call_method_string_arg_ret_bool<'j>(
     .z()
 }
 
-pub fn call_method_string_arg_ret_string<'j>(
-    env: &mut JNIEnv<'j>,
-    subject: &JObject<'j>,
-    name: &str,
-    arg: impl AsRef<str>,
-) -> JResult<JString<'j>> {
-    Ok(env
-        .call_method(
-            subject,
-            name,
-            "(Ljava/lang/String;)Ljava/lang/String;",
-            &[(&env.new_string(arg)?).into()],
-        )?
-        .l()?
-        .into())
-}
-
 pub fn call_method_string_arg_ret_object<'j>(
     env: &mut JNIEnv<'j>,
     subject: &JObject<'j>,
@@ -155,14 +138,6 @@ pub fn get_system_service<'j>(
     name: &str,
 ) -> JResult<JObject<'j>> {
     call_method_string_arg_ret_object(env, subject, "getSystemService", name)
-}
-
-pub fn get_property<'j>(
-    env: &mut JNIEnv<'j>,
-    subject: &JObject<'j>,
-    name: &str,
-) -> JResult<JString<'j>> {
-    call_method_string_arg_ret_string(env, subject, "getProperty", name)
 }
 
 /// Read an Android system property
