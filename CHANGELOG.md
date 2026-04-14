@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
-- `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing to 
-  override it.
+- `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
+  backends to override it.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.

@@ -385,7 +385,7 @@ impl DeviceTrait for Device {
                             {
                                 let description = format!("{err:?}");
                                 let err = BackendSpecificError { description };
-                                (error_callback_handle.lock().unwrap())(
+                                (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(
                                     StreamError::BackendSpecific { err },
                                 );
                                 return;
@@ -406,7 +406,7 @@ impl DeviceTrait for Device {
                             {
                                 let description = format!("{err:?}");
                                 let err = BackendSpecificError { description };
-                                (error_callback_handle.lock().unwrap())(
+                                (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(
                                     StreamError::BackendSpecific { err },
                                 );
                                 return;
@@ -421,7 +421,7 @@ impl DeviceTrait for Device {
                         Err(err) => {
                             let description = format!("{err:?}");
                             let err = BackendSpecificError { description };
-                            (error_callback_handle.lock().unwrap())(StreamError::BackendSpecific {
+                            (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
                                 err,
                             });
                             return;
@@ -431,7 +431,7 @@ impl DeviceTrait for Device {
                     if let Err(err) = source.connect_with_audio_node(&ctx_handle.destination()) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap())(StreamError::BackendSpecific {
+                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
                             err,
                         });
                         return;
@@ -448,7 +448,7 @@ impl DeviceTrait for Device {
                     ) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap())(StreamError::BackendSpecific {
+                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
                             err,
                         });
                         return;
@@ -456,7 +456,7 @@ impl DeviceTrait for Device {
                     if let Err(err) = source.start_with_when(time_at_start_of_buffer) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap())(StreamError::BackendSpecific {
+                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
                             err,
                         });
                         return;
@@ -505,7 +505,7 @@ impl StreamTrait for Stream {
                 let mut offset_ms = 4;
                 let time_step_secs =
                     buffer_time_step_secs(self.buffer_size_frames, self.config.sample_rate);
-                let time_step_ms = (time_step_secs * 1_000.0) as i32;
+                let time_step_ms = ((time_step_secs * 1_000.0).ceil() as i32).max(1);
                 for on_ended_closure in self.on_ended_closures.iter() {
                     window
                         .set_timeout_with_callback_and_timeout_and_arguments_0(
