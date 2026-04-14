@@ -385,7 +385,9 @@ impl DeviceTrait for Device {
                             {
                                 let description = format!("{err:?}");
                                 let err = BackendSpecificError { description };
-                                (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
                                     StreamError::BackendSpecific { err },
                                 );
                                 return;
@@ -406,7 +408,9 @@ impl DeviceTrait for Device {
                             {
                                 let description = format!("{err:?}");
                                 let err = BackendSpecificError { description };
-                                (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
                                     StreamError::BackendSpecific { err },
                                 );
                                 return;
@@ -421,9 +425,11 @@ impl DeviceTrait for Device {
                         Err(err) => {
                             let description = format!("{err:?}");
                             let err = BackendSpecificError { description };
-                            (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
-                                err,
-                            });
+                            (error_callback_handle
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()))(
+                                StreamError::BackendSpecific { err },
+                            );
                             return;
                         }
                     };
@@ -431,9 +437,11 @@ impl DeviceTrait for Device {
                     if let Err(err) = source.connect_with_audio_node(&ctx_handle.destination()) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
-                            err,
-                        });
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            StreamError::BackendSpecific { err },
+                        );
                         return;
                     }
                     if let Err(err) = source.add_event_listener_with_callback(
@@ -448,17 +456,21 @@ impl DeviceTrait for Device {
                     ) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
-                            err,
-                        });
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            StreamError::BackendSpecific { err },
+                        );
                         return;
                     }
                     if let Err(err) = source.start_with_when(time_at_start_of_buffer) {
                         let description = format!("{err:?}");
                         let err = BackendSpecificError { description };
-                        (error_callback_handle.lock().unwrap_or_else(|e| e.into_inner()))(StreamError::BackendSpecific {
-                            err,
-                        });
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            StreamError::BackendSpecific { err },
+                        );
                         return;
                     }
 
