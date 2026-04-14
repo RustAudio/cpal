@@ -14,7 +14,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
-- [ ] Change `emscripten` host to `webaudio` in Wasm builds.
+- [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
 
 ## 1. Error enums are now `#[non_exhaustive]`
 
@@ -135,19 +135,29 @@ StreamInstant::new(0_u64, 0);
 
 **Why:** All audio host clocks are positive and monotonic; they are never negative.
 
-## 5. `emscripten` host removed in favor of `webaudio`
+## 5. `wasm32-unknown-emscripten` target removed
 
-**What changed:** The `emscripten` host was broken and is now removed. Use the `webaudio` host instead for Wasm builds.
+**What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
 
-```rust
+Migrate to `wasm32-unknown-unknown` and enable the `wasm-bindgen` feature:
+
+```toml
 # Before (v0.17)
 cpal = { version = "0.17", features = ["emscripten"] }
 
 # After (v0.18)
-cpal = { version = "0.18", features = ["webaudio"] }
+cpal = { version = "0.18", features = ["wasm-bindgen"] }
 ```
 
-**Why:** The `webaudio` host uses the modern Web Audio API and is compatible with current Emscripten versions. The old `emscripten` host relied on deprecated APIs that are no longer supported.
+Then select the `webaudio` host at runtime:
+
+```rust
+let host = cpal::host_from_id(cpal::HostId::WebAudio)?;
+```
+
+If you must target `wasm32-unknown-emscripten` specifically, consider using OpenAL or another audio approach that supports that target, as cpal no longer provides audio on Emscripten.
+
+**Why:** The old `emscripten` host relied on deprecated Emscripten audio APIs that are no longer functional.
 
 ---
 
