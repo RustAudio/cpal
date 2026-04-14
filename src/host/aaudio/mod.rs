@@ -11,14 +11,14 @@ use std::vec::IntoIter as VecIntoIter;
 
 extern crate ndk;
 
-use convert::{now_stream_instant, stream_instant};
+use convert::{input_stream_instant, now_stream_instant, output_stream_instant};
 use java_interface::{AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
     BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
-    DeviceNameError, DeviceType, DevicesError, InputCallbackInfo, InputStreamTimestamp,
+    DeviceNameError, DeviceType, DevicesError, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError,
     SampleFormat, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange, SupportedStreamConfigsError,
@@ -199,13 +199,9 @@ impl HostTrait for Host {
 }
 
 fn buffer_size_range() -> SupportedBufferSize {
-    if let Ok(min_buffer_size) = AudioManager::get_frames_per_buffer() {
-        SupportedBufferSize::Range {
-            min: min_buffer_size as u32,
-            max: i32::MAX as u32,
-        }
-    } else {
-        SupportedBufferSize::Unknown
+    SupportedBufferSize::Range {
+        min: 1,
+        max: i32::MAX as FrameCount,
     }
 }
 
@@ -297,7 +293,7 @@ fn configure_for_device(
         // For fixed sizes, the user explicitly wants control over the callback size.
         builder = builder
             .frames_per_data_callback(size as i32)
-            .buffer_capacity_in_frames(2 * size as i32);
+            .buffer_capacity_in_frames(size.saturating_mul(2).min(i32::MAX as FrameCount) as i32);
     }
 
     builder
@@ -317,12 +313,13 @@ where
 {
     let builder = configure_for_device(builder, device, config);
     let channel_count = config.channels as i32;
+    let sample_rate = config.sample_rate;
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
                     callback: now_stream_instant(),
-                    capture: stream_instant(stream),
+                    capture: input_stream_instant(stream, sample_rate),
                 },
             };
             (data_callback)(
@@ -366,6 +363,7 @@ where
 {
     let builder = configure_for_device(builder, device, config);
     let channel_count = config.channels as i32;
+    let sample_rate = config.sample_rate;
     let tune_dynamically = config.buffer_size == BufferSize::Default;
 
     let tuning = Arc::new(BufferTuningState::default());
@@ -377,7 +375,7 @@ where
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
                     callback: now_stream_instant(),
-                    playback: stream_instant(stream),
+                    playback: output_stream_instant(stream, sample_rate),
                 },
             };
             (data_callback)(

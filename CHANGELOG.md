@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently returning an empty list.
 - **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
+- **AAudio**: `SupportedBufferSize` now reports `min: 1`.
 - **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable`
   instead of looping.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
@@ -79,7 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reintroduce `audio_thread_priority` feature.
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
 - **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
-- **AAudio**: Fix invalid capture and playback timestamps.
+- **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
+- **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
+- **AAudio**: Fix signed overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
