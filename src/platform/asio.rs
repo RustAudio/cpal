@@ -1,10 +1,7 @@
 //! Implementations for ASIO-specific device functionality.
 
-#[allow(unused_imports)]
 use crate::BackendSpecificError;
 use crate::Device;
-#[allow(unused_imports)]
-use std::marker::PhantomData;
 
 /// Extension trait to get the ASIO device.
 pub trait AsioDeviceExt {
@@ -20,7 +17,7 @@ pub struct AsioDevice<'a> {
 
     // Dummy marker for lifetime 'a.
     #[cfg(not(all(target_os = "windows", feature = "asio")))]
-    _marker: PhantomData<&'a ()>,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
 impl AsioDevice<'_> {
@@ -36,24 +33,7 @@ impl AsioDevice<'_> {
     pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
         #[cfg(all(target_os = "windows", feature = "asio"))]
         {
-            use crate::host::asio::GLOBAL_ASIO;
-
-            let description = self.inner.description().map_err(|e| BackendSpecificError {
-                description: format!("{e:?}"),
-            })?;
-            let driver_name = description.name();
-
-            GLOBAL_ASIO
-                .get()
-                .expect("GLOBAL_ASIO is always set when an ASIO device exists")
-                .load_driver(driver_name)
-                .map_err(|e| BackendSpecificError {
-                    description: format!("{e:?}"),
-                })?
-                .open_control_panel()
-                .map_err(|e| BackendSpecificError {
-                    description: format!("{e:?}"),
-                })
+            self.inner.open_control_panel()
         }
 
         #[cfg(not(all(target_os = "windows", feature = "asio")))]

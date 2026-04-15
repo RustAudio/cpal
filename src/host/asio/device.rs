@@ -2,6 +2,7 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 use super::sys;
 use crate::host::com;
+use crate::BackendSpecificError;
 use crate::ChannelCount;
 use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
@@ -151,6 +152,27 @@ impl Device {
             }
         }
         configs
+    }
+
+    /// Opens the ASIO driver's control panel window.
+    pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
+        com::com_initialized();
+        let description = self.description().map_err(|e| BackendSpecificError {
+            description: format!("{e:?}"),
+        })?;
+        let driver_name = description.name();
+
+        super::GLOBAL_ASIO
+            .get()
+            .expect("GLOBAL_ASIO is always set when an ASIO device exists")
+            .load_driver(driver_name)
+            .map_err(|e| BackendSpecificError {
+                description: format!("{e:?}"),
+            })?
+            .open_control_panel()
+            .map_err(|e| BackendSpecificError {
+                description: format!("{e:?}"),
+            })
     }
 }
 
