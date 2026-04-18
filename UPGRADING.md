@@ -4,7 +4,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 
 ## Breaking Changes Checklist
 
-- [ ] Replace per-operation error type matches with `e.kind` on `ErrorKind`
+- [ ] Replace per-operation error type matches with `e.kind()` on `ErrorKind`
 - [ ] Replace `HostUnavailable` error type with `ErrorKind::HostUnavailable` on `Error`
 - [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
 - [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
@@ -35,7 +35,7 @@ match device.default_output_config() {
 // After (v0.18): all operations return cpal::Error; match on e.kind
 match device.default_output_config() {
     Ok(config) => config,
-    Err(e) => match e.kind {
+    Err(e) => match e.kind() {
         cpal::ErrorKind::DeviceNotAvailable => panic!("device gone"),
         cpal::ErrorKind::UnsupportedConfig => panic!("unsupported"),
         cpal::ErrorKind::DeviceBusy => {
@@ -62,7 +62,7 @@ The `ErrorKind` variants and their equivalents from v0.17:
 | `PermissionDenied`     | - (new)                                              |
 | `Other`                | `BackendSpecific`                                    |
 
-The `message` field on `Error` carries human-readable context (formerly in `BackendSpecific::err`).
+The `message()` getter on `Error` returns human-readable context (formerly in `BackendSpecific::err`).
 
 **Why:** A single type simplifies error handling across all cpal operations and allows new
 `ErrorKind` variants to be added without changing any return types.

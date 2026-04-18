@@ -617,7 +617,7 @@ impl Device {
         let mut formats: Vec<_> = {
             match self.supported_configs(stream_t) {
                 // EINVAL when querying direction the device does not support (input-only or output-only)
-                Err(err) if err.kind == ErrorKind::InvalidInput => {
+                Err(err) if err.kind() == ErrorKind::InvalidInput => {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         "device does not support the requested direction",
@@ -822,7 +822,7 @@ fn input_stream_worker(
             Err(err) => Err(err),
         };
         if let Err(err) = result {
-            match err.kind {
+            match err.kind() {
                 ErrorKind::Xrun => {
                     error_callback(err);
                     if let Err(err) = stream.channel.prepare() {
@@ -871,7 +871,7 @@ fn output_stream_worker(
             Err(err) => Err(err),
         };
         if let Err(err) = result {
-            match err.kind {
+            match err.kind() {
                 ErrorKind::Xrun => {
                     error_callback(err);
                     if let Err(err) = stream.channel.prepare() {

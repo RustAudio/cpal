@@ -95,12 +95,8 @@ impl Display for ErrorKind {
 /// Error type for all CPAL operations.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Error {
-    /// Semantic error kind for stable matching.
-    pub kind: ErrorKind,
-
-    /// Optional human-readable context.
-    /// Shown by `Display` when present; falls back to the kind's description otherwise.
-    pub message: Option<String>,
+    kind: ErrorKind,
+    message: Option<String>,
 }
 
 impl Error {
@@ -118,6 +114,16 @@ impl Error {
             kind,
             message: Some(message.into()),
         }
+    }
+
+    /// Returns the error kind.
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    /// Returns the human-readable message, if any.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
     }
 }
 
