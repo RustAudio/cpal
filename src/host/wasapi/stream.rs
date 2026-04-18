@@ -532,7 +532,7 @@ fn process_input(
             // Release the buffer.
             let result = capture_client
                 .ReleaseBuffer(frames_available)
-                .map_err(windows_err_to_cpal_err);
+                .map_err(Error::from);
             if let Err(err) = result {
                 error_callback(err);
                 return ControlFlow::Break;

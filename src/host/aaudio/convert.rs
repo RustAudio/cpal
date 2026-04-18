@@ -77,7 +77,7 @@ impl From<ndk::audio::AudioError> for Error {
             Unimplemented => {
                 Error::with_message(ErrorKind::UnsupportedOperation, error.to_string())
             }
-            Base | __Unknown(_) => Error::with_message(ErrorKind::Other, error.to_string()),
+            _ => Error::with_message(ErrorKind::Other, error.to_string()),
         }
     }
 }

@@ -68,7 +68,7 @@ impl From<windows::core::Error> for Error {
             | Audio::AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED
             | Audio::AUDCLNT_E_BUFFER_SIZE_ERROR
             | Audio::AUDCLNT_E_INVALID_DEVICE_PERIOD
-            | Audio::AUDCLNT_E_EXCLUSIVE_MODE_ONLY_FORMAT
+            | Audio::AUDCLNT_E_EXCLUSIVE_MODE_ONLY
             | Audio::AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED => ErrorKind::UnsupportedConfig,
 
             Audio::AUDCLNT_E_WRONG_ENDPOINT_TYPE

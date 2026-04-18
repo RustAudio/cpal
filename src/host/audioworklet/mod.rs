@@ -405,15 +405,6 @@ impl Iterator for Devices {
     }
 }
 
-// Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
-    conf.channels <= MAX_CHANNELS
-        && conf.channels >= MIN_CHANNELS
-        && conf.sample_rate <= MAX_SAMPLE_RATE
-        && conf.sample_rate >= MIN_SAMPLE_RATE
-        && sample_format == SUPPORTED_SAMPLE_FORMAT
-}
-
 // Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
 fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
     let secsf = frames as f64 / rate as f64;
