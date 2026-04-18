@@ -20,6 +20,7 @@ use property_listener::AudioObjectPropertyListener;
 mod device;
 pub mod enumerate;
 mod loopback;
+pub mod permissions;
 mod property_listener;
 pub use device::Device;
 
