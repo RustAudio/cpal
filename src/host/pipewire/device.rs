@@ -359,7 +359,7 @@ impl DeviceTrait for Device {
                 start,
             }),
             Ok(false) => Err(crate::Error::with_message(
-                ErrorKind::UnsupportedConfig,
+                crate::ErrorKind::UnsupportedConfig,
                 "stream configuration rejected by PipeWire",
             )),
             Err(_) => Err(crate::Error::with_message(
@@ -448,7 +448,7 @@ impl DeviceTrait for Device {
                 start,
             }),
             Ok(false) => Err(crate::Error::with_message(
-                ErrorKind::UnsupportedConfig,
+                crate::ErrorKind::UnsupportedConfig,
                 "stream configuration rejected by PipeWire",
             )),
             Err(_) => Err(crate::Error::with_message(
