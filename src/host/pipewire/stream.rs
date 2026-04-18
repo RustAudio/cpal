@@ -327,6 +327,13 @@ fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Dura
     std::time::Duration::new(secs, nanos)
 }
 
+fn remote_props() -> Option<pw::properties::PropertiesBox> {
+    let socket = super::utils::find_socket_path()?;
+    let mut props = pw::properties::PropertiesBox::new();
+    props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
+    Some(props)
+}
+
 pub fn connect_output<D, E>(
     config: StreamConfig,
     properties: pw::properties::PropertiesBox,
@@ -341,7 +348,7 @@ where
 {
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(None)?;
+    let core = context.connect_rc(remote_props())?;
 
     let data = UserData {
         data_callback,
@@ -501,7 +508,7 @@ where
 {
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(None)?;
+    let core = context.connect_rc(remote_props())?;
 
     let data = UserData {
         data_callback,

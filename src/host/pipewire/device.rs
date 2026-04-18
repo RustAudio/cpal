@@ -491,11 +491,18 @@ fn parse_fraction(s: &str) -> Option<(u32, u32)> {
     Some((num, den))
 }
 
+fn remote_props() -> Option<pw::properties::PropertiesBox> {
+    let socket = super::utils::find_socket_path()?;
+    let mut props = pw::properties::PropertiesBox::new();
+    props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
+    Some(props)
+}
+
 pub fn init_devices() -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
     let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
     let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
-    let core = context.connect_rc(None).ok()?;
+    let core = context.connect_rc(remote_props()).ok()?;
     let registry = core.get_registry_rc().ok()?;
 
     // Discovered hardware nodes collected during enumeration.
