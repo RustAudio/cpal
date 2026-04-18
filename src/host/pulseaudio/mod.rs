@@ -73,9 +73,8 @@ impl From<pulseaudio::ClientError> for Error {
             use protocol::PulseError::*;
             match e {
                 AccessDenied | AuthKey => ErrorKind::PermissionDenied,
-                NoEntity | ConnectionRefused | InvalidServer | ModInitFailed => {
-                    ErrorKind::DeviceNotAvailable
-                }
+                ConnectionRefused | InvalidServer | ModInitFailed => ErrorKind::HostUnavailable,
+                NoEntity => ErrorKind::DeviceNotAvailable,
                 Timeout | Busy => ErrorKind::DeviceBusy,
                 NotSupported | Obsolete | NotImplemented | Version | NoExtension => {
                     ErrorKind::UnsupportedOperation
@@ -90,10 +89,9 @@ impl From<pulseaudio::ClientError> for Error {
         }
 
         match err {
-            ServerUnavailable => Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "PulseAudio server unavailable",
-            ),
+            ServerUnavailable => {
+                Error::with_message(ErrorKind::HostUnavailable, "PulseAudio server unavailable")
+            }
             UnexpectedSequenceNumber | Disconnected => Error::with_message(
                 ErrorKind::StreamInvalidated,
                 "PulseAudio client disconnected",

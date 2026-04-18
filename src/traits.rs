@@ -49,11 +49,11 @@ pub trait HostTrait {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the host has become unreachable (e.g. the audio
+    /// - [`ErrorKind::HostUnavailable`] if the host has become unreachable (e.g. the audio
     ///   daemon crashed or was stopped).
     /// - [`ErrorKind::Other`] for unclassifiable backend failures.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
     /// [`ErrorKind::Other`]: crate::ErrorKind::Other
     fn devices(&self) -> Result<Self::Devices, Error>;
 

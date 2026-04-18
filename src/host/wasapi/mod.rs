@@ -56,9 +56,11 @@ impl HostTrait for Host {
 impl From<windows::core::Error> for Error {
     fn from(e: windows::core::Error) -> Self {
         let kind = match e.code() {
-            Audio::AUDCLNT_E_DEVICE_INVALIDATED
-            | Audio::AUDCLNT_E_ENDPOINT_CREATE_FAILED
-            | Audio::AUDCLNT_E_SERVICE_NOT_RUNNING => ErrorKind::DeviceNotAvailable,
+            Audio::AUDCLNT_E_SERVICE_NOT_RUNNING => ErrorKind::HostUnavailable,
+
+            Audio::AUDCLNT_E_DEVICE_INVALIDATED | Audio::AUDCLNT_E_ENDPOINT_CREATE_FAILED => {
+                ErrorKind::DeviceNotAvailable
+            }
 
             Audio::AUDCLNT_E_DEVICE_IN_USE => ErrorKind::DeviceBusy,
 

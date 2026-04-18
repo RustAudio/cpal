@@ -248,7 +248,10 @@ impl DeviceTrait for Device {
     }
     fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
         if !self.supports_input() {
-            return Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig));
+            return Err(crate::Error::with_message(
+                crate::ErrorKind::UnsupportedOperation,
+                "device does not support input",
+            ));
         }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
@@ -263,7 +266,10 @@ impl DeviceTrait for Device {
 
     fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
         if !self.supports_output() {
-            return Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig));
+            return Err(crate::Error::with_message(
+                crate::ErrorKind::UnsupportedOperation,
+                "device does not support output",
+            ));
         }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,

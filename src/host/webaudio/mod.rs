@@ -341,30 +341,43 @@ impl DeviceTrait for Device {
                         let len = temporary_buffer.len();
                         let data = temporary_buffer.as_mut_ptr() as *mut ();
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-                        if let Ok(mut data_callback) = data_callback_handle.lock() {
-                            // outputLatency can change at runtime, so read it each callback.
-                            let output_latency_secs = js_sys::Reflect::get(
-                                ctx_handle.as_ref(),
-                                &JsValue::from("outputLatency"),
-                            )
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0);
-                            let total_hw_latency_secs = {
-                                let sum = base_latency_secs + output_latency_secs;
-                                if sum.is_finite() {
-                                    sum.max(0.0)
-                                } else {
-                                    0.0
-                                }
-                            };
-                            let callback = StreamInstant::from_secs_f64(now);
-                            let playback = StreamInstant::from_secs_f64(
-                                time_at_start_of_buffer + total_hw_latency_secs,
-                            );
-                            let timestamp = crate::OutputStreamTimestamp { callback, playback };
-                            let info = OutputCallbackInfo { timestamp };
-                            (data_callback.deref_mut())(&mut data, &info);
+                        match data_callback_handle.lock() {
+                            Ok(mut data_callback) => {
+                                // outputLatency can change at runtime, so read it each callback.
+                                let output_latency_secs = js_sys::Reflect::get(
+                                    ctx_handle.as_ref(),
+                                    &JsValue::from("outputLatency"),
+                                )
+                                .ok()
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0);
+                                let total_hw_latency_secs = {
+                                    let sum = base_latency_secs + output_latency_secs;
+                                    if sum.is_finite() {
+                                        sum.max(0.0)
+                                    } else {
+                                        0.0
+                                    }
+                                };
+                                let callback = StreamInstant::from_secs_f64(now);
+                                let playback = StreamInstant::from_secs_f64(
+                                    time_at_start_of_buffer + total_hw_latency_secs,
+                                );
+                                let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                                let info = OutputCallbackInfo { timestamp };
+                                (data_callback.deref_mut())(&mut data, &info);
+                            }
+                            Err(_) => {
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        "data callback lock poisoned",
+                                    ),
+                                );
+                                return;
+                            }
                         }
                     }
 
