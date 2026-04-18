@@ -1,5 +1,6 @@
 use crate::traits::HostTrait;
 use device::{init_devices, Class, Device, Devices};
+use std::path::Path;
 use stream::PwInitGuard;
 
 mod device;
@@ -8,10 +9,22 @@ mod utils;
 
 #[inline]
 fn pipewire_available() -> bool {
-    let dir = std::env::var("PIPEWIRE_RUNTIME_DIR")
-        .or_else(|_| std::env::var("XDG_RUNTIME_DIR"))
-        .unwrap_or_default();
-    std::path::Path::new(&dir).join("pipewire-0").exists()
+    fn has_socket(dir: &Path) -> bool {
+        dir.join("pipewire-0").exists()
+    }
+
+    if let Ok(dir) = std::env::var("PIPEWIRE_RUNTIME_DIR") {
+        return has_socket(Path::new(&dir));
+    }
+
+    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+        let path = Path::new(&xdg);
+        // Snap sets XDG_RUNTIME_DIR to a snap-specific subdirectory but keeps
+        // the PipeWire socket in the parent.
+        return has_socket(path) || path.parent().map_or(false, has_socket);
+    }
+
+    false
 }
 
 pub struct Host {
