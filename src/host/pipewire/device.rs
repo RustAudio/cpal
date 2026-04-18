@@ -780,6 +780,12 @@ pub fn init_devices() -> Option<Vec<Device>> {
 
     mainloop.run();
 
+    // If PipeWire connected but discovered no real audio nodes, it cannot route any streams. Treat
+    // this as unavailable so the caller can fall back to PulseAudio or ALSA.
+    if discovered.borrow().is_empty() {
+        return None;
+    }
+
     let settings = settings.take();
 
     // Build the three synthetic default devices and apply global clock settings to them.
