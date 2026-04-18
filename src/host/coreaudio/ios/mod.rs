@@ -510,11 +510,7 @@ where
 
         let latency_frames = device_buffer_frames.unwrap_or_else(|| {
             let channels = buffer.mNumberChannels as usize;
-            if channels > 0 {
-                data.len() / channels
-            } else {
-                0
-            }
+            data.len().checked_div(channels).unwrap_or(0)
         });
         let delay = frames_to_duration(latency_frames, sample_rate);
         let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
@@ -559,11 +555,7 @@ where
 
         let latency_frames = device_buffer_frames.unwrap_or_else(|| {
             let channels = buffer.mNumberChannels as usize;
-            if channels > 0 {
-                data.len() / channels
-            } else {
-                0
-            }
+            data.len().checked_div(channels).unwrap_or(0)
         });
         let delay = frames_to_duration(latency_frames, sample_rate);
         let playback = callback + delay;

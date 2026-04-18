@@ -21,7 +21,7 @@ fn pipewire_available() -> bool {
         let path = Path::new(&xdg);
         // Snap sets XDG_RUNTIME_DIR to a snap-specific subdirectory but keeps
         // the PipeWire socket in the parent.
-        return has_socket(path) || path.parent().map_or(false, has_socket);
+        return has_socket(path) || path.parent().is_some_and(has_socket);
     }
 
     false
