@@ -21,7 +21,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 **What changed:** All per-operation error types (`DevicesError`, `SupportedStreamConfigsError`,
 `DefaultStreamConfigError`, `BuildStreamError`, `StreamError`, `PlayStreamError`,
 `PauseStreamError`) and the `HostUnavailable` struct are replaced by a single `cpal::Error` struct
-with a `kind: ErrorKind` field. `host_from_id` and `HostId::from_str` now return `cpal::Error`.
+with getters for its `kind()` and optional `message()`.
 
 ```rust
 // Before (v0.17): each operation returned its own error type
