@@ -157,15 +157,10 @@ impl Device {
     /// Opens the ASIO driver's control panel window.
     pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
         com::com_initialized();
-        let description = self.description().map_err(|e| BackendSpecificError {
-            description: format!("{e:?}"),
-        })?;
-        let driver_name = description.name();
-
         super::GLOBAL_ASIO
             .get()
             .expect("GLOBAL_ASIO is always set when an ASIO device exists")
-            .load_driver(driver_name)
+            .load_driver(&self.name)
             .map_err(|e| BackendSpecificError {
                 description: format!("{e:?}"),
             })?
