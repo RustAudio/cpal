@@ -164,9 +164,6 @@ extern crate wasm_bindgen;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 extern crate web_sys;
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
-use wasm_bindgen::prelude::*;
-
 pub use device_description::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
 };
@@ -176,6 +173,8 @@ pub use platform::{
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
 pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+use wasm_bindgen::prelude::*;
 
 pub mod device_description;
 mod error;
@@ -691,6 +690,7 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
+
         use SampleFormat::{F32, I16, I24, I32, U16, U24, U32};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));

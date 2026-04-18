@@ -1,7 +1,6 @@
 use std::vec::IntoIter as VecIntoIter;
 
 use super::Device;
-
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // TODO: Support enumerating earpiece vs headset vs speaker etc?

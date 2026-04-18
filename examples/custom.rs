@@ -1,18 +1,16 @@
-use std::time::Instant;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use cpal::OutputCallbackInfo;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, Error, ErrorKind, FrameCount,
-    FromSample, Sample, SampleFormat, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    FromSample, OutputCallbackInfo, Sample, SampleFormat, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 #[allow(dead_code)]

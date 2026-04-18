@@ -3,12 +3,14 @@
 //! Allows user-defined host implementations with the `custom` feature.
 //! See `examples/custom.rs` for usage.
 
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
-};
 use core::time::Duration;
+
+use crate::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    SupportedStreamConfigRange,
+};
 
 /// A host that can be used to write custom [`HostTrait`] implementations.
 ///
@@ -27,8 +29,8 @@ pub struct Host(Box<dyn HostErased>);
 
 impl Host {
     // this only exists for impl_platform_host, which requires it
-    pub(crate) fn new() -> Result<Self, crate::Error> {
-        Err(crate::Error::new(crate::ErrorKind::HostUnavailable))
+    pub(crate) fn new() -> Result<Self, Error> {
+        Err(Error::new(ErrorKind::HostUnavailable))
     }
 
     /// Construct a custom host from an arbitrary [`HostTrait`] implementation.
@@ -176,7 +178,7 @@ trait StreamErased: Send + Sync {
     fn play(&self) -> Result<(), Error>;
     fn pause(&self) -> Result<(), Error>;
     fn now(&self) -> StreamInstant;
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error>;
+    fn buffer_size(&self) -> Result<FrameCount, Error>;
 }
 
 fn device_to_erased(d: impl DeviceErased + 'static) -> Device {
@@ -317,7 +319,7 @@ where
         <T as StreamTrait>::now(self)
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         <T as StreamTrait>::buffer_size(self)
     }
 }
@@ -444,7 +446,7 @@ impl StreamTrait for Stream {
         self.0.now()
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         self.0.buffer_size()
     }
 }

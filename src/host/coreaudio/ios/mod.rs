@@ -1,29 +1,31 @@
 //! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
-use std::ptr::NonNull;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use coreaudio::audio_unit::render_callback::data;
-use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
+use coreaudio::audio_unit::{
+    render_callback::{self, data},
+    AudioUnit, Element, Scope,
+};
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
 use objc2_avf_audio::AVAudioSession;
 use objc2_core_audio_types::AudioBuffer;
 
-use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-
-use crate::{
-    error::ResultExt, BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
-};
-
 use self::enumerate::{
     default_input_device, default_output_device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
+};
+use super::{asbd_from_config, host_time_to_stream_instant};
+use crate::{
+    host::frames_to_duration,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
+    OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 pub mod enumerate;
@@ -39,7 +41,7 @@ pub struct Device;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -295,8 +297,8 @@ impl StreamTrait for Stream {
         host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
-        Ok(get_device_buffer_frames() as crate::FrameCount)
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(get_device_buffer_frames() as FrameCount)
     }
 }
 
@@ -335,8 +337,8 @@ fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::
 ///
 /// Note: iOS may not honor the exact request due to system constraints.
 fn set_audio_session_buffer_size(
-    buffer_size: u32,
-    sample_rate: crate::SampleRate,
+    buffer_size: FrameCount,
+    sample_rate: SampleRate,
 ) -> Result<(), Error> {
     // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
     let audio_session = unsafe { AVAudioSession::sharedInstance() };
@@ -379,11 +381,11 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
     // SAFETY: AVAudioSession methods are safe to call on the singleton instance
     let (sample_rate, max_channels) = unsafe {
         let audio_session = AVAudioSession::sharedInstance();
-        let sample_rate = audio_session.sampleRate() as u32;
+        let sample_rate = audio_session.sampleRate() as SampleRate;
         let max_channels = if is_input {
-            audio_session.inputNumberOfChannels() as u16
+            audio_session.inputNumberOfChannels() as ChannelCount
         } else {
-            audio_session.outputNumberOfChannels() as u16
+            audio_session.outputNumberOfChannels() as ChannelCount
         };
         (sample_rate, max_channels)
     };
@@ -517,9 +519,9 @@ where
             let channels = buffer.mNumberChannels as usize;
             data.len().checked_div(channels).unwrap_or(0)
         });
-        let delay = frames_to_duration(latency_frames, sample_rate);
+        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
         let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
-        let timestamp = crate::InputStreamTimestamp { callback, capture };
+        let timestamp = InputStreamTimestamp { callback, capture };
 
         let info = InputCallbackInfo { timestamp };
         data_callback(&data, &info);
@@ -562,9 +564,9 @@ where
             let channels = buffer.mNumberChannels as usize;
             data.len().checked_div(channels).unwrap_or(0)
         });
-        let delay = frames_to_duration(latency_frames, sample_rate);
+        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
         let playback = callback + delay;
-        let timestamp = crate::OutputStreamTimestamp { callback, playback };
+        let timestamp = OutputStreamTimestamp { callback, playback };
 
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
@@ -591,7 +593,7 @@ mod tests {
 
         let result = device.build_output_stream(
             &config,
-            |_data: &mut [f32], _info: &crate::OutputCallbackInfo| {},
+            |_data: &mut [f32], _info: &OutputCallbackInfo| {},
             |_err| {},
             None,
         );

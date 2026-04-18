@@ -1,19 +1,23 @@
-use crate::traits::StreamTrait;
-use crate::{
-    error::ResultExt, BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamInstant,
+use std::{
+    mem, ptr,
+    sync::mpsc::{channel, Receiver, SendError, Sender},
+    thread::{self, JoinHandle},
+    time::Duration,
 };
-use std::mem;
-use std::ptr;
-use std::sync::mpsc::{channel, Receiver, SendError, Sender};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
-use windows::Win32::Foundation;
-use windows::Win32::Foundation::WAIT_OBJECT_0;
-use windows::Win32::Media::Audio;
-use windows::Win32::System::Performance;
-use windows::Win32::System::SystemServices;
-use windows::Win32::System::Threading;
+
+use windows::Win32::{
+    Foundation::{self, WAIT_OBJECT_0},
+    Media::Audio,
+    System::{Performance, SystemServices, Threading},
+};
+
+use crate::{
+    host::{fill_with_equilibrium, frames_to_duration},
+    traits::StreamTrait,
+    BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant,
+};
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -103,7 +107,7 @@ pub struct StreamInner {
     // Number of bytes that each frame occupies.
     pub bytes_per_frame: u16,
     // The configuration with which the stream was created.
-    pub config: crate::StreamConfig,
+    pub config: StreamConfig,
     // The sample format with which the stream was created.
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
@@ -335,6 +339,7 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Error
 }
 
 // Get the number of available frames that are available for writing/reading.
+#[inline]
 fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
     unsafe {
         let padding = stream
@@ -569,9 +574,14 @@ fn process_output(
 
         debug_assert!(!buffer.is_null());
 
+        let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
+        fill_with_equilibrium(
+            std::slice::from_raw_parts_mut(buffer, byte_count),
+            stream.sample_format,
+        );
+
         let data = buffer as *mut ();
-        let len = frames_available as usize * stream.bytes_per_frame as usize
-            / stream.sample_format.sample_size();
+        let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
         let timestamp = match output_timestamp(stream, frames_available, sample_rate) {
@@ -585,7 +595,7 @@ fn process_output(
         data_callback(&mut data, &info);
 
         if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
-            error_callback(Error::from(err));
+            error_callback(err.into());
             return ControlFlow::Break;
         }
     }
@@ -593,17 +603,10 @@ fn process_output(
     ControlFlow::Continue
 }
 
-/// Convert the given duration in frames at the given sample rate to a `Duration`.
-fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    Duration::new(secs, nanos)
-}
-
 /// Use the stream's `IAudioClock` to produce the current stream instant.
 ///
 /// Uses the QPC position produced via the `GetPosition` method.
+#[inline]
 fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
@@ -627,10 +630,11 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
 /// `buffer_qpc_position` is the `qpc_position` returned via the `GetBuffer` call on the capture
 /// client. It represents the instant at which the first sample of the retrieved buffer was
 /// captured.
+#[inline]
 fn input_timestamp(
     stream: &StreamInner,
     buffer_qpc_position: u64,
-) -> Result<crate::InputStreamTimestamp, Error> {
+) -> Result<InputStreamTimestamp, Error> {
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = buffer_qpc_position as u128 * 100;
     let capture = StreamInstant::new(
@@ -638,7 +642,7 @@ fn input_timestamp(
         (nanos % 1_000_000_000) as u32,
     );
     let callback = stream_instant(stream)?;
-    Ok(crate::InputStreamTimestamp { capture, callback })
+    Ok(InputStreamTimestamp { capture, callback })
 }
 
 /// Produce the output stream timestamp.
@@ -647,15 +651,16 @@ fn input_timestamp(
 /// result of `GetCurrentPadding` from the maximum buffer size.
 ///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
+#[inline]
 fn output_timestamp(
     stream: &StreamInner,
     frames_available: FrameCount,
     sample_rate: SampleRate,
-) -> Result<crate::OutputStreamTimestamp, Error> {
+) -> Result<OutputStreamTimestamp, Error> {
     let callback = stream_instant(stream)?;
     // `padding` is the number of frames already queued in the endpoint buffer ahead of the
     // frames we are about to write. Those frames must drain before ours are heard.
     let padding = stream.max_frames_in_buffer - frames_available;
     let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
-    Ok(crate::OutputStreamTimestamp { callback, playback })
+    Ok(OutputStreamTimestamp { callback, playback })
 }

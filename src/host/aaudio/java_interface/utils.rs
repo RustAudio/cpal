@@ -1,14 +1,12 @@
-use jni::sys::jobject;
-use ndk_context::AndroidContext;
 use std::sync::Arc;
 
-pub use jni::Executor;
-
+use jni::sys::jobject;
 pub use jni::{
     errors::Result as JResult,
     objects::{JIntArray, JObject, JObjectArray, JString},
-    JNIEnv, JavaVM,
+    Executor, JNIEnv, JavaVM,
 };
+use ndk_context::AndroidContext;
 
 pub fn get_context() -> AndroidContext {
     ndk_context::android_context()

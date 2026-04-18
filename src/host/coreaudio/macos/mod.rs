@@ -1,21 +1,21 @@
 #![allow(deprecated)]
-use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
-
-use super::OSStatus;
-use crate::host::coreaudio::macos::loopback::LoopbackDevice;
-use crate::traits::{HostTrait, StreamTrait};
-use crate::{error::ResultExt, Error, ErrorKind};
-use coreaudio::audio_unit::AudioUnit;
-use objc2_core_audio::AudioDeviceID;
 use std::sync::{mpsc, Arc, Mutex, Weak};
 
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
-
+use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::{
     kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioObjectPropertyAddress,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioDeviceID,
+    AudioObjectPropertyAddress,
 };
 use property_listener::AudioObjectPropertyListener;
+
+pub use self::enumerate::{default_input_device, default_output_device, Devices};
+use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
+use crate::{
+    host::coreaudio::macos::loopback::LoopbackDevice,
+    traits::{HostTrait, StreamTrait},
+    Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
+};
 
 mod device;
 pub mod enumerate;
@@ -28,7 +28,7 @@ pub use device::Device;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -253,18 +253,18 @@ impl StreamTrait for Stream {
             .pause()
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
         host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         let stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
         device::get_device_buffer_frame_size(&stream.audio_unit)
-            .map(|size| size as crate::FrameCount)
-            .context("failed to get buffer frame size")
+            .map(|size| size as FrameCount)
+            .map_err(Error::from)
     }
 }
 
@@ -273,7 +273,7 @@ mod test {
     use crate::{
         default_host,
         traits::{DeviceTrait, HostTrait, StreamTrait},
-        Sample,
+        InputCallbackInfo, OutputCallbackInfo, Sample,
     };
 
     #[test]
@@ -320,7 +320,7 @@ mod test {
         let stream = device
             .build_input_stream(
                 config,
-                move |data: &[f32], _: &crate::InputCallbackInfo| {
+                move |data: &[f32], _: &InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
                 },
@@ -353,7 +353,7 @@ mod test {
         let stream = device
             .build_input_stream(
                 config,
-                move |data: &[f32], _: &crate::InputCallbackInfo| {
+                move |data: &[f32], _: &InputCallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
                 },
@@ -365,7 +365,7 @@ mod test {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    fn write_silence<T: Sample>(data: &mut [T], _: &crate::OutputCallbackInfo) {
+    fn write_silence<T: Sample>(data: &mut [T], _: &OutputCallbackInfo) {
         for sample in data.iter_mut() {
             *sample = Sample::EQUILIBRIUM;
         }

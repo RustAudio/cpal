@@ -2,6 +2,10 @@
 //!
 //! Default backend on Windows.
 
+use std::io::Error as IoError;
+
+use windows::Win32::Media::Audio;
+
 #[allow(unused_imports)]
 pub use self::device::{
     default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
@@ -9,10 +13,7 @@ pub use self::device::{
 };
 #[allow(unused_imports)]
 pub use self::stream::Stream;
-use crate::traits::HostTrait;
-use crate::{Error, ErrorKind};
-use std::io::Error as IoError;
-use windows::Win32::Media::Audio;
+use crate::{traits::HostTrait, Error, ErrorKind};
 
 mod device;
 mod stream;
@@ -26,7 +27,7 @@ mod stream;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }

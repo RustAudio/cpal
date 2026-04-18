@@ -1,13 +1,18 @@
 use super::Stream;
-use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
-use crate::host::coreaudio::macos::loopback::LoopbackDevice;
-use crate::host::coreaudio::macos::StreamInner;
-use crate::traits::DeviceTrait;
+use super::{asbd_from_config, check_os_status, host_time_to_stream_instant};
+
 use crate::{
-    error::ResultExt, BufferSize, ChannelCount, Data, DeviceId, Error, ErrorKind,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    host::{
+        coreaudio::macos::{loopback::LoopbackDevice, StreamInner},
+        frames_to_duration,
+    },
+    traits::DeviceTrait,
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, InterfaceType,
+    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
+
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
     find_matching_physical_format, set_device_physical_stream_format, RateListener,
@@ -272,7 +277,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<crate::DeviceDescription, Error> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Device::description(self)
     }
 
@@ -406,11 +411,11 @@ impl Device {
         let direction =
             crate::device_description::direction_from_counts(input_configs, output_configs);
 
-        let mut builder = crate::DeviceDescriptionBuilder::new(name).direction(direction);
+        let mut builder = DeviceDescriptionBuilder::new(name).direction(direction);
 
         // Check if this is an aggregate device
         if self.is_aggregate_device() {
-            builder = builder.interface_type(crate::InterfaceType::Aggregate);
+            builder = builder.interface_type(InterfaceType::Aggregate);
         }
 
         Ok(builder.build())
@@ -787,11 +792,9 @@ impl Device {
             let buffer_frames = len / channels as usize;
             let latency_frames =
                 device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
-            let delay = frames_to_duration(latency_frames, sample_rate);
-            let capture = callback
-                .checked_sub(delay)
-                .unwrap_or(crate::StreamInstant::ZERO);
-            let timestamp = crate::InputStreamTimestamp { callback, capture };
+            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+            let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
+            let timestamp = InputStreamTimestamp { callback, capture };
 
             let info = InputCallbackInfo { timestamp };
             data_callback(&data, &info);
@@ -897,9 +900,9 @@ impl Device {
             // Use device buffer size for latency calculation if available
             let latency_frames =
                 device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
-            let delay = frames_to_duration(latency_frames, sample_rate);
+            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let playback = callback + delay;
-            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+            let timestamp = OutputStreamTimestamp { callback, playback };
 
             let info = OutputCallbackInfo { timestamp };
             data_callback(&mut data, &info);
@@ -995,7 +998,7 @@ fn setup_callback_vars(
     config: StreamConfig,
     sample_format: SampleFormat,
     scope: Scope,
-) -> (usize, crate::SampleRate, Option<usize>, usize) {
+) -> (usize, SampleRate, Option<usize>, usize) {
     let bytes_per_channel = sample_format.sample_size();
     let sample_rate = config.sample_rate;
 

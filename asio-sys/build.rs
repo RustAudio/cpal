@@ -2,9 +2,12 @@ extern crate bindgen;
 extern crate cc;
 extern crate walkdir;
 
-use std::env;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
 use walkdir::WalkDir;
 
 const CPAL_ASIO_DIR: &str = "CPAL_ASIO_DIR";

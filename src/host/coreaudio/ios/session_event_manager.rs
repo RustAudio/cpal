@@ -1,7 +1,9 @@
 //! Monitors AVAudioSession lifecycle events and reports them as stream errors.
 
-use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::{
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+};
 
 use block2::RcBlock;
 use objc2::runtime::AnyObject;

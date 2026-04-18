@@ -1,4 +1,4 @@
-use crate::{Sample, SampleFormat, I24, U24};
+use crate::{FrameCount, Sample, SampleFormat, SampleRate, I24, U24};
 
 #[cfg(target_os = "android")]
 pub(crate) mod aaudio;
@@ -124,4 +124,13 @@ pub(crate) fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleForm
             buffer.fill(DSD_SILENCE_BYTE)
         }
     }
+}
+
+/// Convert a frame count at a given sample rate to a [`std::time::Duration`].
+#[inline]
+pub(crate) fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> std::time::Duration {
+    let secsf = frames as f64 / rate as f64;
+    let secs = secsf as u64;
+    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
+    std::time::Duration::new(secs, nanos)
 }

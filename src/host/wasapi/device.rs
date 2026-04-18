@@ -16,33 +16,34 @@ impl From<Audio::EDataFlow> for DeviceDirection {
         }
     }
 }
-use std::ffi::OsString;
-use std::fmt;
-use std::mem;
-use std::os::windows::ffi::OsStringExt;
-use std::ptr;
-use std::slice;
-use std::sync::OnceLock;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::{
+    ffi::OsString,
+    fmt, mem,
+    os::windows::ffi::OsStringExt,
+    ptr, slice,
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    time::Duration,
+};
 
-use crate::host::com;
-use windows::core::Interface;
-use windows::core::GUID;
-use windows::Win32::Devices::Properties;
-use windows::Win32::Foundation::PROPERTYKEY;
-use windows::Win32::Media::Audio::IAudioRenderClient;
-use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
-use windows::Win32::System::Com;
-use windows::Win32::System::Com::{StructuredStorage, STGM_READ};
-use windows::Win32::System::Threading;
-use windows::Win32::System::Variant::{VT_LPWSTR, VT_UI4};
-use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+use windows::{
+    core::{Interface, GUID},
+    Win32::{
+        Devices::Properties,
+        Foundation::PROPERTYKEY,
+        Media::{Audio, Audio::IAudioRenderClient, KernelStreaming, Multimedia},
+        System::{
+            Com,
+            Com::{StructuredStorage, STGM_READ},
+            Threading,
+            Variant::{VT_LPWSTR, VT_UI4},
+        },
+        UI::Shell::PropertiesSystem::IPropertyStore,
+    },
+};
 
 use super::stream::{AudioClientFlow, Stream, StreamInner};
-use crate::traits::DeviceTrait;
-
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+use crate::{host::com, traits::DeviceTrait};
 
 // PKEY_AudioEndpoint properties not yet in windows-rs
 
@@ -284,7 +285,7 @@ unsafe impl Sync for Device {}
 ///
 /// The JackSubType property contains a KS node type GUID string from Ksmedia.h
 /// that specifies the physical connector type.
-fn jacksubtype_to_interface_type(guid_str: &str) -> Option<crate::InterfaceType> {
+fn jacksubtype_to_interface_type(guid_str: &str) -> Option<InterfaceType> {
     let guid_upper = guid_str.to_uppercase();
     let typ = match guid_upper.as_str() {
         "{D9E55EA0-0C89-4692-84FF-EB3C4B0D172F}" => InterfaceType::Hdmi,
@@ -297,7 +298,7 @@ fn jacksubtype_to_interface_type(guid_str: &str) -> Option<crate::InterfaceType>
 }
 
 /// Maps WASAPI FormFactor values to DeviceType and optionally InterfaceType.
-fn form_factor_to_types(form_factor: u32) -> (crate::DeviceType, Option<crate::InterfaceType>) {
+fn form_factor_to_types(form_factor: u32) -> (DeviceType, Option<InterfaceType>) {
     match form_factor {
         0 => (DeviceType::Unknown, Some(InterfaceType::Network)), // RemoteNetworkDevice
         1 => (DeviceType::Speaker, None),                         // Speakers
@@ -314,7 +315,7 @@ fn form_factor_to_types(form_factor: u32) -> (crate::DeviceType, Option<crate::I
 }
 
 /// Maps WASAPI EnumeratorName to InterfaceType.
-fn enumerator_to_interface_type(enumerator: &str) -> Option<crate::InterfaceType> {
+fn enumerator_to_interface_type(enumerator: &str) -> Option<InterfaceType> {
     let typ = match enumerator.to_uppercase().as_str() {
         "HDAUDIO" => InterfaceType::BuiltIn,
         "USB" => InterfaceType::Usb,
@@ -379,7 +380,7 @@ impl Device {
             // Determine device_type and initial interface_type from FormFactor
             let (device_type, mut interface_type) = form_factor
                 .map(form_factor_to_types)
-                .unwrap_or((crate::DeviceType::Unknown, None));
+                .unwrap_or((DeviceType::Unknown, None));
 
             // Override interface_type from EnumeratorName if available
             if let Some(ref enumerator) = enumerator_name {
@@ -1198,9 +1199,9 @@ fn config_to_waveformatextensible(
 /// Get the default device period in frames for a shared-mode stream.
 fn shared_mode_period_frames(
     audio_client: &Audio::IAudioClient,
-    sample_rate: crate::SampleRate,
-    max_frames_in_buffer: crate::FrameCount,
-) -> crate::FrameCount {
+    sample_rate: SampleRate,
+    max_frames_in_buffer: FrameCount,
+) -> FrameCount {
     let mut default_period = 0i64;
     if unsafe { audio_client.GetDevicePeriod(Some(&mut default_period), None) }.is_ok()
         && default_period > 0

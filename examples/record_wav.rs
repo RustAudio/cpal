@@ -2,12 +2,17 @@
 //!
 //! The input data is recorded to "$CARGO_MANIFEST_DIR/recorded.wav".
 
+use std::{
+    fs::File,
+    io::BufWriter,
+    sync::{Arc, Mutex},
+};
+
 use clap::Parser;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Error, ErrorKind, FromSample, HostId, Sample};
-use std::fs::File;
-use std::io::BufWriter;
-use std::sync::{Arc, Mutex};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Error, ErrorKind, FromSample, HostId, Sample,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "CPAL record_wav example", long_about = None)]

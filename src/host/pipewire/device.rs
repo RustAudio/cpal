@@ -1,13 +1,11 @@
-use std::sync::{atomic::AtomicU64, Arc};
-use std::time::Duration;
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{atomic::AtomicU64, Arc},
+    thread,
+    time::Duration,
+};
 
-use crate::host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS};
-use crate::host::pipewire::utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME};
-use crate::{traits::DeviceTrait, DeviceDirection, SupportedStreamConfigRange};
-use crate::{ChannelCount, FrameCount, InterfaceType, SampleRate};
-
-use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use pipewire::{
     self as pw,
     metadata::{Metadata, MetadataListener},
@@ -16,9 +14,17 @@ use pipewire::{
     spa::utils::result::AsyncSeq,
 };
 
-use std::thread;
-
 use super::stream::Stream;
+use crate::{
+    host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
+    iter::{SupportedInputConfigs, SupportedOutputConfigs},
+    traits::DeviceTrait,
+    utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, InterfaceType,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
+};
 
 pub type Devices = std::vec::IntoIter<Device>;
 
@@ -104,20 +110,20 @@ impl Device {
         }
     }
 
-    fn device_type(&self) -> crate::DeviceType {
+    fn device_type(&self) -> DeviceType {
         match self.icon_name.as_str() {
-            "audio-headphones" => crate::DeviceType::Headphones,
-            "audio-headset" => crate::DeviceType::Headset,
-            "audio-input-microphone" => crate::DeviceType::Microphone,
-            "audio-speakers" => crate::DeviceType::Speaker,
-            _ => crate::DeviceType::Unknown,
+            "audio-headphones" => DeviceType::Headphones,
+            "audio-headset" => DeviceType::Headset,
+            "audio-input-microphone" => DeviceType::Microphone,
+            "audio-speakers" => DeviceType::Speaker,
+            _ => DeviceType::Unknown,
         }
     }
 
     pub(crate) fn pw_properties(
         &self,
         direction: DeviceDirection,
-        config: &crate::StreamConfig,
+        config: &StreamConfig,
     ) -> pw::properties::PropertiesBox {
         let mut properties = match direction {
             DeviceDirection::Output => pw::properties::properties! {
@@ -141,7 +147,7 @@ impl Device {
         // preventing phase drift between simultaneous input/output streams.
         properties.insert("node.group", format!("cpal-{}", std::process::id()));
 
-        if let crate::BufferSize::Fixed(buffer_size) = config.buffer_size {
+        if let BufferSize::Fixed(buffer_size) = config.buffer_size {
             properties.insert(*pw::keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
         }
         properties
@@ -152,15 +158,12 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
 
-    fn id(&self) -> Result<crate::DeviceId, crate::Error> {
-        Ok(crate::DeviceId(
-            crate::HostId::PipeWire,
-            self.node_name.clone(),
-        ))
+    fn id(&self) -> Result<DeviceId, Error> {
+        Ok(DeviceId(HostId::PipeWire, self.node_name.clone()))
     }
 
-    fn description(&self) -> Result<crate::DeviceDescription, crate::Error> {
-        let mut builder = crate::DeviceDescriptionBuilder::new(&self.nick_name)
+    fn description(&self) -> Result<DeviceDescription, Error> {
+        let mut builder = DeviceDescriptionBuilder::new(&self.nick_name)
             .direction(self.direction)
             .device_type(self.device_type())
             .interface_type(self.interface_type);
@@ -190,7 +193,7 @@ impl DeviceTrait for Device {
         )
     }
 
-    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::Error> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         if !self.supports_input() {
             return Ok(vec![].into_iter());
         }
@@ -208,7 +211,7 @@ impl DeviceTrait for Device {
                         channels: self.channels,
                         min_sample_rate: rate,
                         max_sample_rate: rate,
-                        buffer_size: crate::SupportedBufferSize::Range {
+                        buffer_size: SupportedBufferSize::Range {
                             min: self.min_quantum,
                             max: self.max_quantum,
                         },
@@ -218,7 +221,7 @@ impl DeviceTrait for Device {
             .collect::<Vec<_>>()
             .into_iter())
     }
-    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::Error> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         if !self.supports_output() {
             return Ok(vec![].into_iter());
         }
@@ -236,7 +239,7 @@ impl DeviceTrait for Device {
                         channels: self.channels,
                         min_sample_rate: rate,
                         max_sample_rate: rate,
-                        buffer_size: crate::SupportedBufferSize::Range {
+                        buffer_size: SupportedBufferSize::Range {
                             min: self.min_quantum,
                             max: self.max_quantum,
                         },
@@ -246,36 +249,36 @@ impl DeviceTrait for Device {
             .collect::<Vec<_>>()
             .into_iter())
     }
-    fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         if !self.supports_input() {
-            return Err(crate::Error::with_message(
-                crate::ErrorKind::UnsupportedOperation,
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
                 "device does not support input",
             ));
         }
-        Ok(crate::SupportedStreamConfig {
+        Ok(SupportedStreamConfig {
             channels: self.channels,
-            sample_format: crate::SampleFormat::F32,
+            sample_format: SampleFormat::F32,
             sample_rate: self.rate,
-            buffer_size: crate::SupportedBufferSize::Range {
+            buffer_size: SupportedBufferSize::Range {
                 min: self.min_quantum,
                 max: self.max_quantum,
             },
         })
     }
 
-    fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         if !self.supports_output() {
-            return Err(crate::Error::with_message(
-                crate::ErrorKind::UnsupportedOperation,
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
                 "device does not support output",
             ));
         }
-        Ok(crate::SupportedStreamConfig {
+        Ok(SupportedStreamConfig {
             channels: self.channels,
-            sample_format: crate::SampleFormat::F32,
+            sample_format: SampleFormat::F32,
             sample_rate: self.rate,
-            buffer_size: crate::SupportedBufferSize::Range {
+            buffer_size: SupportedBufferSize::Range {
                 min: self.min_quantum,
                 max: self.max_quantum,
             },
@@ -284,15 +287,15 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: crate::StreamConfig,
-        sample_format: crate::SampleFormat,
+        config: StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, crate::Error>
+    ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
-        E: FnMut(crate::Error) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
@@ -300,8 +303,8 @@ impl DeviceTrait for Device {
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            crate::BufferSize::Fixed(n) => n as u64,
-            crate::BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => self.quantum as u64,
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
@@ -346,10 +349,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .map_err(|e| {
-                crate::Error::with_message(
-                    crate::ErrorKind::Other,
-                    format!("failed to create thread: {e}"),
-                )
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
@@ -358,12 +358,12 @@ impl DeviceTrait for Device {
                 last_quantum,
                 start,
             }),
-            Ok(false) => Err(crate::Error::with_message(
-                crate::ErrorKind::UnsupportedConfig,
+            Ok(false) => Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
                 "stream configuration rejected by PipeWire",
             )),
-            Err(_) => Err(crate::Error::with_message(
-                crate::ErrorKind::DeviceNotAvailable,
+            Err(_) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
                 "PipeWire timed out",
             )),
         }
@@ -371,15 +371,15 @@ impl DeviceTrait for Device {
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: crate::StreamConfig,
-        sample_format: crate::SampleFormat,
+        config: StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, crate::Error>
+    ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
-        E: FnMut(crate::Error) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
@@ -387,8 +387,8 @@ impl DeviceTrait for Device {
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            crate::BufferSize::Fixed(n) => n as u64,
-            crate::BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => self.quantum as u64,
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
@@ -435,10 +435,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .map_err(|e| {
-                crate::Error::with_message(
-                    crate::ErrorKind::Other,
-                    format!("failed to create thread: {e}"),
-                )
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
@@ -447,12 +444,12 @@ impl DeviceTrait for Device {
                 last_quantum,
                 start,
             }),
-            Ok(false) => Err(crate::Error::with_message(
-                crate::ErrorKind::UnsupportedConfig,
+            Ok(false) => Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
                 "stream configuration rejected by PipeWire",
             )),
-            Err(_) => Err(crate::Error::with_message(
-                crate::ErrorKind::DeviceNotAvailable,
+            Err(_) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
                 "PipeWire timed out",
             )),
         }
@@ -831,7 +828,7 @@ pub fn init_devices() -> Option<Vec<Device>> {
     Some(devices)
 }
 
-fn parse_allow_rates(list: &str) -> Option<Vec<u32>> {
+fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
     let list: Vec<&str> = list
         .trim()
         .strip_prefix("[")?

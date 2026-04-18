@@ -1,5 +1,9 @@
-use super::{check_os_status, Device};
-use crate::Error;
+use std::{
+    mem,
+    ptr::{null, NonNull},
+    vec::IntoIter as VecIntoIter,
+};
+
 use objc2_core_audio::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
@@ -7,9 +11,9 @@ use objc2_core_audio::{
     AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress,
 };
-use std::mem;
-use std::ptr::{null, NonNull};
-use std::vec::IntoIter as VecIntoIter;
+
+use super::{check_os_status, Device};
+use crate::Error;
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {

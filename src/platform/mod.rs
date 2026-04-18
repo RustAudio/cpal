@@ -6,7 +6,6 @@
 
 #[doc(inline)]
 pub use self::platform_impl::*;
-
 #[cfg(feature = "custom")]
 pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream as CustomStream};
 
@@ -860,12 +859,6 @@ mod platform_impl {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
-    #[cfg_attr(
-        docsrs,
-        doc(cfg(all(target_arch = "wasm32", feature = "wasm-bindgen")))
-    )]
-    pub use crate::host::webaudio::Host as WebAudioHost;
-
     #[cfg(feature = "audioworklet")]
     #[cfg_attr(
         docsrs,
@@ -876,6 +869,11 @@ mod platform_impl {
         )))
     )]
     pub use crate::host::audioworklet::Host as AudioWorkletHost;
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(target_arch = "wasm32", feature = "wasm-bindgen")))
+    )]
+    pub use crate::host::webaudio::Host as WebAudioHost;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,

@@ -7,10 +7,6 @@
 //! a different byte order.
 
 use std::{fmt::Display, mem};
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
-use wasm_bindgen::prelude::*;
-
-pub use dasp_sample::{FromSample, Sample};
 
 /// 24-bit signed integer sample type.
 ///
@@ -20,7 +16,6 @@ pub use dasp_sample::{FromSample, Sample};
 /// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::I24;
-
 /// 24-bit unsigned integer sample type.
 ///
 /// Represents 24-bit audio with range `0..=((1 << 24) - 1)`, with origin at `1 << 23 == 8388608`.
@@ -29,6 +24,9 @@ pub use dasp_sample::I24;
 /// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::U24;
+pub use dasp_sample::{FromSample, Sample};
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+use wasm_bindgen::prelude::*;
 
 // I48 and U48 are not currently supported by cpal but available in dasp_sample:
 // pub use dasp_sample::{I48, U48};

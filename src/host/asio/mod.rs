@@ -5,17 +5,21 @@
 
 extern crate asio_sys as sys;
 
-use crate::host::com;
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, SupportedStreamConfig,
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
 };
 
-pub use self::device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs};
-pub use self::stream::Stream;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+pub use self::{
+    device::{Device, Devices, SupportedInputConfigs, SupportedOutputConfigs},
+    stream::Stream,
+};
+use crate::{
+    host::com,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Data, DeviceDescription, DeviceId, Error, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+};
 
 mod device;
 mod stream;
@@ -33,7 +37,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         com::com_initialized();
         let asio = GLOBAL_ASIO
             .get_or_init(|| Arc::new(sys::Asio::new()))
@@ -150,11 +154,11 @@ impl StreamTrait for Stream {
         Stream::pause(self)
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         Stream::now(self)
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         Stream::buffer_size(self)
     }
 }

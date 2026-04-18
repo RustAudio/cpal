@@ -4,11 +4,11 @@
 
 use std::time::Duration;
 
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, StreamConfig, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 #[derive(Default)]
@@ -33,7 +33,7 @@ pub struct SupportedOutputConfigs;
 
 impl Host {
     #[allow(dead_code)]
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -135,11 +135,11 @@ impl StreamTrait for Stream {
         unimplemented!()
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         unimplemented!()
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         unimplemented!()
     }
 }

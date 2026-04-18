@@ -1,16 +1,16 @@
-use crate::traits::DeviceTrait;
-use crate::{
-    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+use std::{
+    hash::{Hash, Hasher},
+    time::Duration,
 };
-use std::hash::{Hash, Hasher};
-use std::time::Duration;
 
-use super::stream::Stream;
-use super::JACK_SAMPLE_FORMAT;
-
+use super::{stream::Stream, JACK_SAMPLE_FORMAT};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+use crate::{
+    traits::DeviceTrait, BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
+};
 
 const DEFAULT_NUM_CHANNELS: u16 = 2;
 const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
@@ -210,7 +210,7 @@ impl DeviceTrait for Device {
                     ),
                 ));
             }
-            if let crate::BufferSize::Fixed(size) = conf.buffer_size {
+            if let BufferSize::Fixed(size) = conf.buffer_size {
                 if size != client.buffer_size() {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
@@ -289,7 +289,7 @@ impl DeviceTrait for Device {
                     ),
                 ));
             }
-            if let crate::BufferSize::Fixed(size) = conf.buffer_size {
+            if let BufferSize::Fixed(size) = conf.buffer_size {
                 if size != client.buffer_size() {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,

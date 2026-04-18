@@ -8,9 +8,8 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample, I24, U24,
+    FromSample, Sample, SizedSample, I24, U24,
 };
-use cpal::{FromSample, Sample};
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for()?;

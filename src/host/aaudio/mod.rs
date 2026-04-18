@@ -2,33 +2,34 @@
 //!
 //! Default backend on Android.
 
-use std::cmp;
-use std::convert::TryInto;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::vec::IntoIter as VecIntoIter;
+use std::{
+    cmp,
+    convert::TryInto,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        time::Duration,
+        Arc, Mutex,
+    },
+    vec::IntoIter as VecIntoIter,
+};
+
+use crate::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
+};
 
 extern crate ndk;
-
-use convert::{input_stream_instant, now_stream_instant, output_stream_instant};
-use java_interface::{AudioDeviceInfo, AudioManager};
-
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{error::ResultExt, Error, ErrorKind};
-use crate::{
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, FrameCount, InputCallbackInfo, InputStreamTimestamp, InterfaceType,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
-};
-use crate::{Error, ErrorKind};
+use self::ndk::audio::AudioStream;
 
 mod convert;
 mod java_interface;
 
-use self::ndk::audio::AudioStream;
-use java_interface::AudioDeviceType as AndroidDeviceType;
+use convert::{input_stream_instant, now_stream_instant, output_stream_instant};
+use java_interface::{AudioDeviceInfo, AudioDeviceType as AndroidDeviceType, AudioManager};
 
 impl From<AndroidDeviceType> for DeviceType {
     fn from(device_type: AndroidDeviceType) -> Self {
@@ -105,7 +106,7 @@ const CHANNEL_OUT_STEREO: i32 = 12;
 // Android Java API supports up to 8 channels
 // TODO: more channels available in native AAudio
 // Maps channel masks to their corresponding channel counts
-const CHANNEL_CONFIGS: [(i32, u16); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
+const CHANNEL_CONFIGS: [(i32, ChannelCount); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
 
 const SAMPLE_RATES: [i32; 15] = [
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
@@ -164,7 +165,7 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 pub type Devices = std::vec::IntoIter<Device>;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -215,8 +216,8 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
             for sample_rate in &SAMPLE_RATES {
                 output.push(SupportedStreamConfigRange {
                     channels: *channel_count,
-                    min_sample_rate: *sample_rate as u32,
-                    max_sample_rate: *sample_rate as u32,
+                    min_sample_rate: *sample_rate as SampleRate,
+                    max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
                     sample_format: *sample_format,
                 });
@@ -260,9 +261,9 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
             }
             for format in formats {
                 output.push(SupportedStreamConfigRange {
-                    channels: cmp::min(*channel_count as u16, 2u16),
-                    min_sample_rate: *sample_rate as u32,
-                    max_sample_rate: *sample_rate as u32,
+                    channels: cmp::min(*channel_count as ChannelCount, 2),
+                    min_sample_rate: *sample_rate as SampleRate,
+                    max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
                     sample_format: *format,
                 });
@@ -371,6 +372,14 @@ where
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            // Pre-fill with equilibrium so unwritten frames are silent.
+            let n_samples: usize = (num_frames * channel_count).try_into().unwrap();
+            let byte_count = n_samples * sample_format.sample_size();
+            // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
+            unsafe {
+                std::slice::from_raw_parts_mut(data as *mut u8, byte_count).fill(0);
+            }
+
             // Deliver audio data to user callback
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
@@ -379,13 +388,7 @@ where
                 },
             };
             (data_callback)(
-                &mut unsafe {
-                    Data::from_parts(
-                        data as *mut _,
-                        (num_frames * channel_count).try_into().unwrap(),
-                        sample_format,
-                    )
-                },
+                &mut unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
                 &cb_info,
             );
 
@@ -721,11 +724,11 @@ impl StreamTrait for Stream {
         }
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         now_stream_instant()
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         let stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
@@ -736,6 +739,6 @@ impl StreamTrait for Stream {
             Some(size) if size > 0 => size,
             _ => stream.frames_per_burst(),
         };
-        Ok(frames as crate::FrameCount)
+        Ok(frames as FrameCount)
     }
 }

@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use futures::executor::block_on;
 use pulseaudio::protocol;
-use std::time::Duration;
 
 mod stream;
 
@@ -9,9 +10,10 @@ pub use stream::Stream;
 use crate::{
     error::ResultExt,
     traits::{DeviceTrait, HostTrait},
-    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind,
-    FrameCount, HostId, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
-    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
+    Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
 };
 
 const MIN_SAMPLE_RATE: SampleRate = 8000;
@@ -326,7 +328,7 @@ impl DeviceTrait for Device {
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
         let buffer_attr = make_record_buffer_attr(config, format);
-        let adjust_latency = matches!(config.buffer_size, crate::BufferSize::Fixed(_));
+        let adjust_latency = matches!(config.buffer_size, BufferSize::Fixed(_));
 
         let params = protocol::RecordStreamParams {
             sample_spec,
@@ -399,7 +401,7 @@ impl DeviceTrait for Device {
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
         let buffer_attr = make_playback_buffer_attr(config, format);
-        let adjust_latency = matches!(config.buffer_size, crate::BufferSize::Fixed(_));
+        let adjust_latency = matches!(config.buffer_size, BufferSize::Fixed(_));
 
         let params = protocol::PlaybackStreamParams {
             sink_index: Some(info.index),
@@ -557,8 +559,8 @@ fn make_playback_buffer_attr(
     format: protocol::SampleFormat,
 ) -> protocol::stream::BufferAttr {
     match config.buffer_size {
-        crate::BufferSize::Default => Default::default(),
-        crate::BufferSize::Fixed(frame_count) => {
+        BufferSize::Default => Default::default(),
+        BufferSize::Fixed(frame_count) => {
             let len =
                 (frame_count as u64 * config.channels as u64 * format.bytes_per_sample() as u64)
                     .min(u32::MAX as u64) as u32;
@@ -582,8 +584,8 @@ fn make_record_buffer_attr(
     format: protocol::SampleFormat,
 ) -> protocol::stream::BufferAttr {
     match config.buffer_size {
-        crate::BufferSize::Default => Default::default(),
-        crate::BufferSize::Fixed(frame_count) => {
+        BufferSize::Default => Default::default(),
+        BufferSize::Fixed(frame_count) => {
             let len =
                 (frame_count as u64 * config.channels as u64 * format.bytes_per_sample() as u64)
                     .min(u32::MAX as u64) as u32;

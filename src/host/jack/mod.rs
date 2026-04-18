@@ -4,8 +4,7 @@
 
 extern crate jack;
 
-use crate::traits::HostTrait;
-use crate::{Error, ErrorKind, SampleFormat};
+use crate::{traits::HostTrait, Error, ErrorKind, SampleFormat};
 
 mod device;
 mod stream;
@@ -43,7 +42,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         let mut host = Host {
             name: format!("cpal_client_{}", std::process::id()),
             connect_ports_automatically: true,

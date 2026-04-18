@@ -1,6 +1,8 @@
-use std::borrow::Cow;
-use std::error::Error as StdError;
-use std::fmt::{Display, Formatter};
+use std::{
+    borrow::Cow,
+    error::Error as StdError,
+    fmt::{Display, Formatter},
+};
 
 /// A list specifying general categories of CPAL error.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

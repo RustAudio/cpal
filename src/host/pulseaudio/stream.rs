@@ -93,7 +93,7 @@ impl StreamTrait for Stream {
         Ok(())
     }
 
-    fn now(&self) -> crate::StreamInstant {
+    fn now(&self) -> StreamInstant {
         let start = match &self.0 {
             StreamInner::Playback(_, start, _) | StreamInner::Record(_, start, _) => *start,
         };
@@ -136,14 +136,12 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
+        let pa_format = sample_spec.format;
 
-        let format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
+        let format: SampleFormat = pa_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!(
-                    "PulseAudio sample format {:?} is not supported",
-                    sample_spec.format
-                ),
+                format!("PulseAudio sample format {pa_format:?} is not supported"),
             )
         })?;
 
@@ -291,14 +289,12 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
+        let pa_format = sample_spec.format;
 
-        let format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
+        let format: SampleFormat = pa_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!(
-                    "PulseAudio sample format {:?} is not supported",
-                    sample_spec.format
-                ),
+                format!("PulseAudio sample format {pa_format:?} is not supported"),
             )
         })?;
 

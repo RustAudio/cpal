@@ -1,7 +1,11 @@
 //! Manages loopback recording (recording system audio output)
 
-use super::device::Device;
-use crate::{host::coreaudio::check_os_status, Error, ErrorKind};
+use std::{
+    ffi::{c_void, CStr},
+    mem::MaybeUninit,
+    ptr::NonNull,
+};
+
 use objc2::{rc::Retained, AnyThread};
 use objc2_core_audio::{
     kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
@@ -19,11 +23,9 @@ use objc2_core_foundation::{
     CFString, CFStringCreateWithCString,
 };
 use objc2_foundation::{ns_string, NSArray, NSNumber, NSString};
-use std::{
-    ffi::{c_void, CStr},
-    mem::MaybeUninit,
-    ptr::NonNull,
-};
+
+use super::device::Device;
+use crate::{host::coreaudio::check_os_status, Error, ErrorKind};
 type CFStringRef = *mut std::os::raw::c_void;
 
 impl Device {

@@ -3,24 +3,28 @@
 //! Available on WebAssembly with the `audioworklet` feature. Requires atomics support.
 //! See the `audioworklet-beep` example for setup instructions.
 
-mod dependent_module;
-use js_sys::wasm_bindgen;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
-use crate::dependent_module;
+use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, ErrorKind,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    host::frames_to_duration,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-use std::time::Duration;
+mod dependent_module;
+use crate::dependent_module;
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
@@ -106,14 +110,12 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
     fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
-            .direction(crate::DeviceDirection::Output)
+            .direction(DeviceDirection::Output)
             .build())
     }
 
-    #[inline]
     fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::AudioWorklet,
@@ -121,13 +123,11 @@ impl DeviceTrait for Device {
         ))
     }
 
-    #[inline]
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         // TODO
         Ok(Vec::new().into_iter())
     }
 
-    #[inline]
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Unknown;
 
@@ -146,7 +146,6 @@ impl DeviceTrait for Device {
         Ok(configs.into_iter())
     }
 
-    #[inline]
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
@@ -154,7 +153,6 @@ impl DeviceTrait for Device {
         ))
     }
 
-    #[inline]
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
@@ -239,7 +237,7 @@ impl DeviceTrait for Device {
 
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
-        if let crate::BufferSize::Fixed(n) = config.buffer_size {
+        if let BufferSize::Fixed(n) = config.buffer_size {
             let _ = js_sys::Reflect::set(
                 stream_opts.as_ref(),
                 &JsValue::from_str("renderSizeHint"),
@@ -260,8 +258,8 @@ impl DeviceTrait for Device {
         }
 
         let initial_quantum = match config.buffer_size {
-            crate::BufferSize::Fixed(n) => n as u64,
-            crate::BufferSize::Default => DEFAULT_RENDER_SIZE,
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => DEFAULT_RENDER_SIZE,
         };
         let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
         let buffer_size_frames_cb = buffer_size_frames.clone();
@@ -314,11 +312,12 @@ impl DeviceTrait for Device {
                             };
 
                             let callback = StreamInstant::from_secs_f64(now);
-                            let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
+                            let buffer_duration =
+                                frames_to_duration(frame_size as FrameCount, sample_rate);
                             let playback = callback
                                 + (buffer_duration
                                     + Duration::from_secs_f64(total_output_latency_secs));
-                            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                            let timestamp = OutputStreamTimestamp { callback, playback };
                             let info = OutputCallbackInfo { timestamp };
                             (data_callback)(&mut data, &info);
                         },
@@ -354,8 +353,8 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
-        Ok(self.buffer_size_frames.load(Ordering::Relaxed) as crate::FrameCount)
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(self.buffer_size_frames.load(Ordering::Relaxed) as FrameCount)
     }
 
     fn play(&self) -> Result<(), Error> {
@@ -397,7 +396,6 @@ impl Default for Devices {
 
 impl Iterator for Devices {
     type Item = Device;
-    #[inline]
     fn next(&mut self) -> Option<Device> {
         if self.0 {
             self.0 = false;
@@ -406,14 +404,6 @@ impl Iterator for Devices {
             None
         }
     }
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
 }
 
 type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;

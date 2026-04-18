@@ -1,14 +1,14 @@
-use crate::traits::StreamTrait;
-use crate::ChannelCount;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-
-use crate::{
-    error::ResultExt, Data, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleRate,
-    StreamInstant,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 
 use super::JACK_SAMPLE_FORMAT;
+use crate::{
+    host::frames_to_duration, traits::StreamTrait, ChannelCount, Data, Error, ErrorKind,
+    FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
+    ResultExt, Sample, SampleRate, StreamInstant,
+};
 
 type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(Error) + Send + 'static>>;
 
@@ -192,8 +192,8 @@ impl StreamTrait for Stream {
         micros_to_stream_instant(self.async_client.as_client().time())
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
-        Ok(self.async_client.as_client().buffer_size() as crate::FrameCount)
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(self.async_client.as_client().buffer_size() as FrameCount)
     }
 }
 
@@ -278,7 +278,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
         let start_cycle_instant = micros_to_stream_instant(current_start_usecs);
         let start_callback_instant = start_cycle_instant
             + frames_to_duration(
-                process_scope.frames_since_cycle_start() as usize,
+                process_scope.frames_since_cycle_start() as FrameCount,
                 self.sample_rate,
             );
 
@@ -304,19 +304,19 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let callback = start_callback_instant;
             // Input data was made available at the start of the cycle (current_usecs).
             let capture = start_cycle_instant;
-            let timestamp = crate::InputStreamTimestamp { callback, capture };
-            let info = crate::InputCallbackInfo { timestamp };
+            let timestamp = InputStreamTimestamp { callback, capture };
+            let info = InputCallbackInfo { timestamp };
             input_callback(&data, &info);
         }
 
         if let Some(output_callback) = &mut self.output_data_callback {
             let num_out_channels = self.out_ports.len();
 
+            let total = current_frame_count * num_out_channels;
+            self.temp_output_buffer[..total].fill(f32::EQUILIBRIUM);
+
             // Create a slice of exactly current_frame_count frames
-            let mut data = temp_buffer_to_data(
-                &mut self.temp_output_buffer,
-                current_frame_count * num_out_channels,
-            );
+            let mut data = temp_buffer_to_data(&mut self.temp_output_buffer, total);
             // Create timestamp
             let callback = start_callback_instant;
             // Use next_usecs (the hardware deadline for this cycle) when available; it is the
@@ -324,11 +324,12 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let playback = match next_usecs_opt {
                 Some(next_usecs) => micros_to_stream_instant(next_usecs),
                 None => {
-                    start_cycle_instant + frames_to_duration(current_frame_count, self.sample_rate)
+                    start_cycle_instant
+                        + frames_to_duration(current_frame_count as FrameCount, self.sample_rate)
                 }
             };
-            let timestamp = crate::OutputStreamTimestamp { callback, playback };
-            let info = crate::OutputCallbackInfo { timestamp };
+            let timestamp = OutputStreamTimestamp { callback, playback };
+            let info = OutputCallbackInfo { timestamp };
             output_callback(&mut data, &info);
 
             // Deinterlace
@@ -359,16 +360,9 @@ impl jack::ProcessHandler for LocalProcessHandler {
     }
 }
 
+#[inline]
 fn micros_to_stream_instant(micros: u64) -> StreamInstant {
     StreamInstant::from_micros(micros)
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
 }
 
 /// Receives notifications from the JACK server. It is unclear if this may be run concurrent with itself under JACK2 specs

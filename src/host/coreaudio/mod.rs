@@ -7,7 +7,7 @@ use objc2_core_audio_types::{
     kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
 
-use crate::{Error, ErrorKind, SampleFormat, StreamConfig};
+use crate::{Error, ErrorKind, SampleFormat, StreamConfig, StreamInstant};
 
 // iOS and tvOS share the same CoreAudio / AudioUnit surface (RemoteIO,
 // AVAudioSession), so both target the `ios` submodule.
@@ -22,7 +22,6 @@ pub use self::ios::{
     enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,
 };
-
 #[cfg(target_os = "macos")]
 pub use self::macos::{Host, Stream};
 
@@ -67,7 +66,7 @@ fn asbd_from_config(
 }
 
 #[inline]
-fn host_time_to_stream_instant(m_host_time: u64) -> Result<crate::StreamInstant, Error> {
+fn host_time_to_stream_instant(m_host_time: u64) -> Result<StreamInstant, Error> {
     let mut info: mach2::mach_time::mach_timebase_info = Default::default();
     let res = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     check_os_status(res)?;
@@ -75,16 +74,7 @@ fn host_time_to_stream_instant(m_host_time: u64) -> Result<crate::StreamInstant,
     let secs = u64::try_from(nanos / 1_000_000_000)
         .map_err(|_| Error::with_message(ErrorKind::Other, "mach absolute time overflow"))?;
     let subsec_nanos = (nanos % 1_000_000_000) as u32;
-    Ok(crate::StreamInstant::new(secs, subsec_nanos))
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-#[inline]
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
+    Ok(StreamInstant::new(secs, subsec_nanos))
 }
 
 impl From<coreaudio::Error> for Error {

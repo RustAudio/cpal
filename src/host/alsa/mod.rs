@@ -18,15 +18,15 @@ use std::{
 
 use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
-
 use crate::{
-    host::fill_with_equilibrium,
+    host::{fill_with_equilibrium, frames_to_duration},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    SampleRate, StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    COMMON_SAMPLE_RATES,
 };
 
 mod enumerate;
@@ -97,7 +97,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         let inner = AlsaContext::new().map_err(|e| {
             Error::with_message(ErrorKind::HostUnavailable, format!("ALSA unavailable: {e}"))
         })?;
@@ -120,8 +120,8 @@ impl HostTrait for Host {
         self.enumerate_devices()
     }
 
-    fn device_by_id(&self, id: &crate::DeviceId) -> Option<Self::Device> {
-        let canonical_id = crate::DeviceId(id.0, canonical_pcm_id(&id.1));
+    fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
+        let canonical_id = DeviceId(id.0, canonical_pcm_id(&id.1));
         self.devices()
             .ok()?
             .find(|d| d.id().ok().as_ref() == Some(&canonical_id))
@@ -280,8 +280,9 @@ impl TriggerSender {
             }
             // write() can be interrupted by a signal before writing any bytes; retry.
             assert_eq!(ret, -1, "wakeup: unexpected return value {ret}");
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                panic!("wakeup: {}", std::io::Error::last_os_error());
+            let err = std::io::Error::last_os_error();
+            if err.kind() != std::io::ErrorKind::Interrupted {
+                panic!("wakeup: {err}");
             }
         }
     }
@@ -297,8 +298,9 @@ impl TriggerReceiver {
             }
             // read() can be interrupted by a signal before reading any bytes; retry.
             assert_eq!(ret, -1, "clear_pipe: unexpected return value {ret}");
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                panic!("clear_pipe: {}", std::io::Error::last_os_error());
+            let err = std::io::Error::last_os_error();
+            if err.kind() != std::io::ErrorKind::Interrupted {
+                panic!("clear_pipe: {err}");
             }
         }
     }
@@ -416,8 +418,8 @@ impl Device {
         let period_bytes = period_frames * frame_size;
         let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
 
-        // Only fill buffer for unsigned formats that don't have a zero value for silence.
-        if sample_format.is_uint() {
+        // Signed integers and floats have zero-byte equilibrium; fill everything else.
+        if !sample_format.is_int() && !sample_format.is_float() {
             fill_with_equilibrium(&mut silence_template, sample_format);
         }
 
@@ -550,7 +552,7 @@ impl Device {
             vec![(min_rate, max_rate)]
         } else {
             let mut rates = Vec::new();
-            for &sample_rate in crate::COMMON_SAMPLE_RATES.iter() {
+            for &sample_rate in COMMON_SAMPLE_RATES.iter() {
                 if hw_params.test_rate(sample_rate).is_ok() {
                     rates.push((sample_rate, sample_rate));
                 }
@@ -1063,12 +1065,12 @@ fn process_input(
     } else {
         stream_timestamp_fallback(stream.creation_instant)
     }?;
-    let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+    let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.conf.sample_rate);
     let capture = callback
         .checked_sub(delay_duration)
         .unwrap_or(StreamInstant::ZERO);
-    let timestamp = crate::InputStreamTimestamp { callback, capture };
-    let info = crate::InputCallbackInfo { timestamp };
+    let timestamp = InputStreamTimestamp { callback, capture };
+    let info = InputCallbackInfo { timestamp };
     data_callback(&data, &info);
 
     Ok(())
@@ -1094,10 +1096,11 @@ fn process_output(
         } else {
             stream_timestamp_fallback(stream.creation_instant)
         }?;
-        let delay_duration = frames_to_duration(delay_frames, stream.conf.sample_rate);
+        let delay_duration =
+            frames_to_duration(delay_frames as FrameCount, stream.conf.sample_rate);
         let playback = callback + delay_duration;
-        let timestamp = crate::OutputStreamTimestamp { callback, playback };
-        let info = crate::OutputCallbackInfo { timestamp };
+        let timestamp = OutputStreamTimestamp { callback, playback };
+        let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
     }
 
@@ -1191,15 +1194,6 @@ fn timespec_to_nanos(ts: libc::timespec) -> i64 {
 #[inline]
 fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
     timespec_to_nanos(a) - timespec_to_nanos(b)
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-#[inline]
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
 }
 
 impl Stream {

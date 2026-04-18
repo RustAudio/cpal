@@ -1,10 +1,11 @@
 //! Handles COM initialization and cleanup.
 
-use std::io::Error as IoError;
-use std::marker::PhantomData;
+use std::{io::Error as IoError, marker::PhantomData};
 
-use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+use windows::Win32::{
+    Foundation::RPC_E_CHANGED_MODE,
+    System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
+};
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
@@ -50,7 +51,6 @@ impl Drop for ComInitialized {
 }
 
 /// Ensures that COM is initialized in this thread.
-#[inline]
 pub fn com_initialized() {
     COM_INITIALIZED.with(|_| {});
 }

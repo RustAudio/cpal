@@ -1,18 +1,22 @@
 extern crate asio_sys as sys;
 extern crate num_traits;
 
-use crate::host::com;
-use crate::I24;
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
 
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    BufferSize, Data, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
-    StreamConfig, StreamInstant,
+    host::{com, frames_to_duration},
+    BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant, I24,
 };
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.
@@ -82,7 +86,7 @@ impl Stream {
         Ok(())
     }
 
-    pub fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+    pub fn buffer_size(&self) -> Result<FrameCount, Error> {
         let streams = self.asio_streams.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
@@ -91,7 +95,7 @@ impl Stream {
             .as_ref()
             .or(streams.input.as_ref())
             .expect("ASIO stream has neither input nor output")
-            .buffer_size as crate::FrameCount)
+            .buffer_size as FrameCount)
     }
 }
 
@@ -218,7 +222,7 @@ impl Device {
                 interleaved: &mut [u8],
                 asio_stream: &sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
-                sample_rate: crate::SampleRate,
+                sample_rate: SampleRate,
                 format: SampleFormat,
                 from_endianness: F,
                 hardware_latency_frames: usize,
@@ -544,7 +548,7 @@ impl Device {
                 silence_asio_buffer: bool,
                 asio_stream: &mut sys::AsioStream,
                 asio_info: &sys::CallbackInfo,
-                sample_rate: crate::SampleRate,
+                sample_rate: SampleRate,
                 format: SampleFormat,
                 mix_samples: F,
                 hardware_latency_frames: usize,
@@ -579,6 +583,7 @@ impl Device {
                 }
             }
 
+            interleaved.fill(0);
             match (sample_format, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
                     process_output_callback::<i16, _, _>(
@@ -751,8 +756,7 @@ impl Device {
 
                 unsupported_format_pair => unreachable!(
                     "`build_output_stream_raw` should have returned with unsupported \
-                     format {:?}",
-                    unsupported_format_pair
+                     format {unsupported_format_pair:?}"
                 ),
             }
         });
@@ -965,15 +969,6 @@ impl Drop for Stream {
     }
 }
 
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-#[inline]
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
-}
-
 /// Check whether or not the desired config is supported by the stream.
 ///
 /// Checks sample rate, data type, number of channels, and buffer size.
@@ -1046,17 +1041,20 @@ fn check_config(
 /// Cast a byte slice into a mutable slice of desired type.
 ///
 /// Safety: it's up to the caller to ensure that the input slice has valid bit representations.
+#[inline]
 unsafe fn cast_slice_mut<T>(v: &mut [u8]) -> &mut [T] {
     debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
     std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
 }
 
 /// Helper function to convert from little endianness.
+#[inline]
 fn from_le<T: PrimInt>(t: T) -> T {
     T::from_le(t)
 }
 
-/// Helper function to convert from little endianness.
+/// Helper function to convert from big endianness.
+#[inline]
 fn from_be<T: PrimInt>(t: T) -> T {
     T::from_be(t)
 }
@@ -1065,6 +1063,7 @@ fn from_be<T: PrimInt>(t: T) -> T {
 ///
 /// The channel length is automatically inferred from the buffer size or some
 /// value can be passed to enforce a certain length (for odd sized sample formats)
+#[inline]
 unsafe fn asio_channel_slice<T>(
     asio_stream: &sys::AsioStream,
     buffer_index: usize,
@@ -1081,6 +1080,7 @@ unsafe fn asio_channel_slice<T>(
 ///
 /// The channel length is automatically inferred from the buffer size or some
 /// value can be passed to enforce a certain length (for odd sized sample formats)
+#[inline]
 unsafe fn asio_channel_slice_mut<T>(
     asio_stream: &mut sys::AsioStream,
     buffer_index: usize,
@@ -1114,6 +1114,7 @@ fn build_stream_err(e: sys::AsioError) -> Error {
 }
 
 /// Convert i24 bytes to i32
+#[inline]
 fn i24_bytes_to_i32(i24_bytes: &[u8; 3], little_endian: bool) -> i32 {
     let sample = if little_endian {
         i32::from_le_bytes([i24_bytes[0], i24_bytes[1], i24_bytes[2], 0u8])
@@ -1135,7 +1136,7 @@ unsafe fn process_output_callback_i24<D>(
     little_endian: bool,
     asio_stream: &mut sys::AsioStream,
     asio_info: &sys::CallbackInfo,
-    sample_rate: crate::SampleRate,
+    sample_rate: SampleRate,
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
 ) where
@@ -1206,7 +1207,7 @@ unsafe fn process_input_callback_i24<D>(
     interleaved: &mut [u8],
     asio_stream: &sys::AsioStream,
     asio_info: &sys::CallbackInfo,
-    sample_rate: crate::SampleRate,
+    sample_rate: SampleRate,
     little_endian: bool,
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
@@ -1253,11 +1254,12 @@ unsafe fn process_input_callback_i24<D>(
 }
 
 /// Apply the output callback to the interleaved buffer.
+#[inline]
 unsafe fn apply_output_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
     callback_instant: StreamInstant,
-    sample_rate: crate::SampleRate,
+    sample_rate: SampleRate,
     sample_format: SampleFormat,
     hardware_latency_frames: usize,
 ) where
@@ -1269,9 +1271,9 @@ unsafe fn apply_output_callback_to_data<A, D>(
         interleaved.len(),
         sample_format,
     );
-    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
+    let delay = frames_to_duration(hardware_latency_frames as FrameCount, sample_rate);
     let playback = callback_instant + delay;
-    let timestamp = crate::OutputStreamTimestamp {
+    let timestamp = OutputStreamTimestamp {
         callback: callback_instant,
         playback,
     };
@@ -1280,11 +1282,12 @@ unsafe fn apply_output_callback_to_data<A, D>(
 }
 
 /// Apply the input callback to the interleaved buffer.
+#[inline]
 unsafe fn apply_input_callback_to_data<A, D>(
     data_callback: &mut D,
     interleaved: &mut [A],
     callback_instant: StreamInstant,
-    sample_rate: crate::SampleRate,
+    sample_rate: SampleRate,
     format: SampleFormat,
     hardware_latency_frames: usize,
 ) where
@@ -1296,11 +1299,11 @@ unsafe fn apply_input_callback_to_data<A, D>(
         interleaved.len(),
         format,
     );
-    let delay = frames_to_duration(hardware_latency_frames, sample_rate);
+    let delay = frames_to_duration(hardware_latency_frames as FrameCount, sample_rate);
     let capture = callback_instant
         .checked_sub(delay)
         .unwrap_or(StreamInstant::ZERO);
-    let timestamp = crate::InputStreamTimestamp {
+    let timestamp = InputStreamTimestamp {
         callback: callback_instant,
         capture,
     };
