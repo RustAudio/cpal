@@ -32,7 +32,7 @@ match device.default_output_config() {
     Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
 }
 
-// After (v0.18): all operations return cpal::Error; match on e.kind
+// After (v0.18): all operations return cpal::Error; match on e.kind()
 match device.default_output_config() {
     Ok(config) => config,
     Err(e) => match e.kind() {
@@ -62,7 +62,8 @@ The `ErrorKind` variants and their equivalents from v0.17:
 | `PermissionDenied`     | - (new)                                              |
 | `Other`                | `BackendSpecific`                                    |
 
-The `message()` getter on `Error` returns human-readable context (formerly in `BackendSpecific::err`).
+The `message()` getter on `Error` returns human-readable context (formerly in
+`BackendSpecific::err`).
 
 **Why:** A single type simplifies error handling across all cpal operations and allows new
 `ErrorKind` variants to be added without changing any return types.
