@@ -5,7 +5,7 @@
 extern crate jack;
 
 use crate::traits::HostTrait;
-use crate::{BackendSpecificError, DevicesError, SampleFormat};
+use crate::{Error, ErrorKind, SampleFormat};
 
 mod device;
 mod stream;
@@ -43,7 +43,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         let mut host = Host {
             name: format!("cpal_client_{}", std::process::id()),
             connect_ports_automatically: true,
@@ -93,11 +93,8 @@ impl Host {
             self.start_server_automatically,
         );
 
-        match in_device_res {
-            Ok(device) => self.devices_created.push(device),
-            Err(err) => {
-                println!("{}", err.description);
-            }
+        if let Ok(device) = in_device_res {
+            self.devices_created.push(device);
         }
 
         let out_device_res = Device::default_output_device(
@@ -105,11 +102,8 @@ impl Host {
             self.connect_ports_automatically,
             self.start_server_automatically,
         );
-        match out_device_res {
-            Ok(device) => self.devices_created.push(device),
-            Err(err) => {
-                println!("{}", err.description);
-            }
+        if let Ok(device) = out_device_res {
+            self.devices_created.push(device);
         }
     }
 }
@@ -133,7 +127,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(self.devices_created.clone().into_iter())
     }
 
@@ -165,45 +159,78 @@ fn get_client_options(start_server_automatically: bool) -> jack::ClientOptions {
     client_options
 }
 
-fn get_client(
-    name: &str,
-    client_options: jack::ClientOptions,
-) -> Result<jack::Client, BackendSpecificError> {
-    let err = |description: &str| BackendSpecificError {
-        description: description.to_owned(),
-    };
-    match jack::Client::new(name, client_options) {
-        Ok((client, status)) => {
-            if status.intersects(jack::ClientStatus::SERVER_ERROR) {
-                Err(err(
-                    "There was an error communicating with the JACK server!",
-                ))
-            } else if status.intersects(jack::ClientStatus::SERVER_FAILED) {
-                Err(err("Could not connect to the JACK server!"))
-            } else if status.intersects(jack::ClientStatus::VERSION_ERROR) {
-                Err(err(
-                    "Error connecting to JACK server: Client's protocol version does not match!",
-                ))
-            } else if status.intersects(jack::ClientStatus::INIT_FAILURE) {
-                Err(err(
-                    "Error connecting to JACK server: Unable to initialize client!",
-                ))
-            } else if status.intersects(jack::ClientStatus::SHM_FAILURE) {
-                Err(err(
-                    "Error connecting to JACK server: Unable to access shared memory!",
-                ))
-            } else if status.intersects(jack::ClientStatus::NO_SUCH_CLIENT) {
-                Err(err(
-                    "Error connecting to JACK server: Requested client does not exist!",
-                ))
-            } else if status.intersects(jack::ClientStatus::INVALID_OPTION) {
-                Err(err("Error connecting to JACK server: The operation contained an invalid or unsupported option!"))
-            } else {
-                Ok(client)
+impl From<jack::Error> for Error {
+    fn from(err: jack::Error) -> Self {
+        let msg = format!("{err}");
+        match err {
+            jack::Error::ClientError(_)
+            | jack::Error::ClientActivationError
+            | jack::Error::ClientDeactivationError
+            | jack::Error::LibraryError(_)
+            | jack::Error::WeakFunctionNotFound(_)
+            | jack::Error::RingbufferCreateFailed => {
+                Error::with_message(ErrorKind::DeviceNotAvailable, msg)
             }
+
+            jack::Error::ClientIsNoLongerAlive | jack::Error::ClientPanicked => {
+                Error::with_message(ErrorKind::StreamInvalidated, msg)
+            }
+
+            jack::Error::SetBufferSizeError | jack::Error::NotEnoughSpace => {
+                Error::with_message(ErrorKind::UnsupportedConfig, msg)
+            }
+
+            jack::Error::InvalidDeactivation | jack::Error::FreewheelError => {
+                Error::with_message(ErrorKind::UnsupportedOperation, msg)
+            }
+
+            jack::Error::PortNamingError | jack::Error::PortAliasError => {
+                Error::with_message(ErrorKind::InvalidInput, msg)
+            }
+
+            _ => Error::with_message(ErrorKind::Other, msg),
         }
-        Err(e) => Err(BackendSpecificError {
-            description: format!("Failed to open client because of error: {:?}", e),
-        }),
+    }
+}
+
+fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::Client, Error> {
+    let (client, status) = jack::Client::new(name, client_options)?;
+    if status.intersects(jack::ClientStatus::VERSION_ERROR) {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "client protocol version does not match the JACK server",
+        ))
+    } else if status.intersects(jack::ClientStatus::INVALID_OPTION) {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "JACK client operation contained an invalid or unsupported option",
+        ))
+    } else if status.intersects(jack::ClientStatus::SERVER_ERROR) {
+        Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "error communicating with the JACK server",
+        ))
+    } else if status.intersects(jack::ClientStatus::SERVER_FAILED) {
+        Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "could not connect to the JACK server",
+        ))
+    } else if status.intersects(jack::ClientStatus::INIT_FAILURE) {
+        Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "unable to initialize JACK client",
+        ))
+    } else if status.intersects(jack::ClientStatus::SHM_FAILURE) {
+        Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "unable to access JACK shared memory",
+        ))
+    } else if status.intersects(jack::ClientStatus::NO_SUCH_CLIENT) {
+        Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "requested JACK client does not exist",
+        ))
+    } else {
+        Ok(client)
     }
 }

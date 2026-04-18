@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `DeviceBusy` error variant to `SupportedStreamConfigsError`, `DefaultStreamConfigError`, and
-  `BuildStreamError` for retryable device access errors (EBUSY, EAGAIN).
+- `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
+- `ErrorKind::PermissionDenied` for OS-level access denials.
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Public error enums are now marked `#[non_exhaustive]` to allow adding variants without
-  SemVer-breaking changes.
+- Changed per-operation error types (`DevicesError`, `SupportedStreamConfigsError`, etc.) and
+  `HostUnavailable` into a unfied `Error`/`ErrorKind`. See [UPGRADING.md](UPGRADING.md).
 - `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`
 - `HostId::name()` now returns a more human-friendly name instead of the raw backend identifier.
 - `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
@@ -37,8 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **AAudio**: `SupportedBufferSize` now reports `min: 1`.
-- **ALSA**: Device disconnection now stops the stream with `StreamError::DeviceNotAvailable`
-  instead of looping.
+- **ALSA**: Device disconnection now stops the stream with `ErrorKind::DeviceNotAvailable`.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ALSA**: Loop partial reads and writes to completion.
@@ -46,25 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
-- **ASIO**: Stream error callback now receives `StreamError::BufferUnderrun` on
-  `kAsioResyncRequest`.
-- **ASIO**: Stream error callback now receives `StreamError::StreamInvalidated` when the driver
+- **ASIO**: Stream error callback now receives `ErrorKind::Xrun` on `kAsioResyncRequest`.
+- **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` when the driver
   reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **CoreAudio**: Bump MSRV to 1.85.
 - **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
-- **CoreAudio**: Poisoned stream mutex in stream functions now propagate panics.
 - **CoreAudio**: Physical stream format is now set directly on the hardware device.
-- **CoreAudio**: Stream error callback now receives `StreamError::StreamInvalidated` on any sample
+- **CoreAudio**: Stream error callback now receives `ErrorKind::StreamInvalidated` on any sample
   rate change on macOS, and on iOS on route changes that require a stream rebuild.
-- **CoreAudio**: Stream error callback now receives `StreamError::DeviceNotAvailable` on iOS
+- **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on iOS
   when media services are lost.
 - **CoreAudio**: User timeouts are now respected when building a stream.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
   without error.
-- **JACK**: Server shutdown now fires `StreamError::DeviceNotAvailable`.
+- **JACK**: Server shutdown now fires `ErrorKind::DeviceNotAvailable`.
 - **JACK**: Default client name now includes the process PID.
 - **JACK**: User timeouts are now respected when building a stream.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
@@ -88,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
 - **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
 - **AAudio**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
+- **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
@@ -103,13 +101,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
 - **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the
   update.
+- **ASIO**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
+- **CoreAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of 
+  panicking.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
+- **PulseAudio**: Poisoned locks now exit the thread gracefully instead of panicking.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.
 - **JACK**: `activate_async()` failure now returns an error instead of panicking.
 - **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
 - **JACK**: Underrun notification no longer blocks the notification thread.
+- **WASAPI**: Poisoned locks now returns an error instead of panicking.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 

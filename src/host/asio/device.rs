@@ -3,20 +3,17 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::sys;
 use crate::host::com;
 use crate::ChannelCount;
-use crate::DefaultStreamConfigError;
 use crate::DeviceDescription;
 use crate::DeviceDescriptionBuilder;
 use crate::DeviceId;
-use crate::DeviceIdError;
-use crate::DeviceNameError;
-use crate::DevicesError;
+use crate::Error;
+use crate::ErrorKind;
 use crate::FrameCount;
 use crate::SampleFormat;
 use crate::SampleRate;
 use crate::SupportedBufferSize;
 use crate::SupportedStreamConfig;
 use crate::SupportedStreamConfigRange;
-use crate::SupportedStreamConfigsError;
 
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::AtomicU32;
@@ -66,7 +63,7 @@ impl Hash for Device {
 }
 
 impl Device {
-    pub fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    pub fn description(&self) -> Result<DeviceDescription, Error> {
         let direction = crate::device_description::direction_from_counts(
             Some(self.channels_in),
             Some(self.channels_out),
@@ -78,41 +75,33 @@ impl Device {
             .build())
     }
 
-    pub fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    pub fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(crate::platform::HostId::Asio, self.name.clone()))
     }
 
     /// Gets the supported input configs.
     /// TODO currently only supports the default.
     /// Need to find all possible configs.
-    pub fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
-        let default = self
-            .default_input_config()
-            .map_err(|_| SupportedStreamConfigsError::DeviceNotAvailable)?;
+    pub fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
+        let default = self.default_input_config()?;
         Ok(self.configs_for(default).into_iter())
     }
 
     /// Gets the supported output configs.
     /// TODO currently only supports the default.
     /// Need to find all possible configs.
-    pub fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
-        let default = self
-            .default_output_config()
-            .map_err(|_| SupportedStreamConfigsError::DeviceNotAvailable)?;
+    pub fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
+        let default = self.default_output_config()?;
         Ok(self.configs_for(default).into_iter())
     }
 
     /// Returns the default input config
-    pub fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    pub fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(self.channels_in, self.input_sample_format)
     }
 
     /// Returns the default output config
-    pub fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    pub fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(self.channels_out, self.output_sample_format)
     }
 
@@ -120,12 +109,19 @@ impl Device {
         &self,
         channels: ChannelCount,
         sample_format: Option<SampleFormat>,
-    ) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    ) -> Result<SupportedStreamConfig, Error> {
         if channels == 0 {
-            return Err(DefaultStreamConfigError::StreamTypeNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "ASIO device reports no channels for this direction",
+            ));
         }
-        let sample_format =
-            sample_format.ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?;
+        let sample_format = sample_format.ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "no supported sample format for this ASIO device",
+            )
+        })?;
         Ok(SupportedStreamConfig {
             channels,
             sample_rate: self.sample_rate,
@@ -155,7 +151,7 @@ impl Device {
 }
 
 impl Devices {
-    pub fn new(asio: Arc<sys::Asio>) -> Result<Self, DevicesError> {
+    pub fn new(asio: Arc<sys::Asio>) -> Result<Self, Error> {
         // Make sure that COM is initialized.
         com::com_initialized();
         let drivers = asio.driver_names().into_iter();

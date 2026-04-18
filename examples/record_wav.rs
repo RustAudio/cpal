@@ -4,7 +4,7 @@
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, HostUnavailable, Sample};
+use cpal::{Error, ErrorKind, FromSample, HostId, Sample};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
@@ -39,11 +39,11 @@ fn main() -> Result<(), anyhow::Error> {
     // Jack/PulseAudio support must be enabled at compile time, and is
     // only available on some platforms.
     #[allow(unused_mut, unused_assignments)]
-    let mut jack_host_id = Err(HostUnavailable);
+    let mut jack_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
-    let mut pulseaudio_host_id = Err(HostUnavailable);
+    let mut pulseaudio_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
-    let mut pipewire_host_id = Err(HostUnavailable);
+    let mut pipewire_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -53,16 +53,16 @@ fn main() -> Result<(), anyhow::Error> {
     {
         #[cfg(feature = "jack")]
         {
-            jack_host_id = Ok(cpal::HostId::Jack);
+            jack_host_id = Ok(HostId::Jack);
         }
 
         #[cfg(feature = "pulseaudio")]
         {
-            pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
+            pulseaudio_host_id = Ok(HostId::PulseAudio);
         }
         #[cfg(feature = "pipewire")]
         {
-            pipewire_host_id = Ok(cpal::HostId::PipeWire);
+            pipewire_host_id = Ok(HostId::PipeWire);
         }
     }
 

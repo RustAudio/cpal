@@ -15,12 +15,9 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, StreamInstant,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    SupportedStreamConfigsError,
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 use self::enumerate::{
@@ -41,7 +38,7 @@ pub struct Device;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         Ok(Host)
     }
 }
@@ -54,7 +51,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(Devices::new())
     }
 
@@ -68,7 +65,7 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         // Query AVAudioSession to determine actual input/output availability
         // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
         let direction = unsafe {
@@ -84,39 +81,45 @@ impl Device {
             .build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::CoreAudio,
             "default".to_string(),
         ))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
         Ok(get_supported_stream_configs(true))
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         Ok(get_supported_stream_configs(false))
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the primary (exact channel count) config from supported configs
         get_supported_stream_configs(true)
             .next()
             .map(|range| range.with_max_sample_rate())
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported input configuration",
+                )
+            })
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the maximum channel count config from supported configs
         get_supported_stream_configs(false)
             .last()
             .map(|range| range.with_max_sample_rate())
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported output configuration",
+                )
+            })
     }
 }
 
@@ -125,31 +128,27 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Device::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Device::id(self)
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Device::supported_input_configs(self)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         Device::supported_output_configs(self)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_output_config(self)
     }
 
@@ -160,10 +159,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
@@ -207,10 +206,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, false)?;
@@ -262,29 +261,23 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self.inner.lock().expect("stream lock poisoned");
-
+    fn play(&self) -> Result<(), Error> {
+        let mut stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
         if !stream.playing {
-            if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
+            stream.audio_unit.start().map_err(Error::from)?;
             stream.playing = true;
         }
         Ok(())
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self.inner.lock().expect("stream lock poisoned");
-
+    fn pause(&self) -> Result<(), Error> {
+        let mut stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
         if stream.playing {
-            if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
+            stream.audio_unit.stop().map_err(Error::from)?;
             stream.playing = false;
         }
         Ok(())
@@ -295,7 +288,7 @@ impl StreamTrait for Stream {
         host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         Ok(get_device_buffer_frames() as crate::FrameCount)
     }
 }
@@ -337,7 +330,7 @@ fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::
 fn set_audio_session_buffer_size(
     buffer_size: u32,
     sample_rate: crate::SampleRate,
-) -> Result<(), BuildStreamError> {
+) -> Result<(), Error> {
     // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
     let audio_session = unsafe { AVAudioSession::sharedInstance() };
 
@@ -349,7 +342,12 @@ fn set_audio_session_buffer_size(
     unsafe {
         audio_session
             .setPreferredIOBufferDuration_error(buffer_duration)
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("failed to set preferred I/O buffer duration: {e}"),
+                )
+            })?;
     }
 
     Ok(())
@@ -411,7 +409,7 @@ fn setup_stream_audio_unit(
     config: StreamConfig,
     sample_format: SampleFormat,
     is_input: bool,
-) -> Result<AudioUnit, BuildStreamError> {
+) -> Result<AudioUnit, Error> {
     // Configure buffer size via AVAudioSession
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
         set_audio_session_buffer_size(buffer_size, config.sample_rate)?;
@@ -487,10 +485,10 @@ fn setup_input_callback<D, E>(
     device_buffer_frames: Option<usize>,
     mut data_callback: D,
     mut error_callback: E,
-) -> Result<(), BuildStreamError>
+) -> Result<(), Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
     type Args = render_callback::Args<data::Raw>;
@@ -502,7 +500,7 @@ where
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
-                error_callback(err.into());
+                error_callback(err);
                 return Err(());
             }
             Ok(cb) => cb,
@@ -532,10 +530,10 @@ fn setup_output_callback<D, E>(
     device_buffer_frames: Option<usize>,
     mut data_callback: D,
     mut error_callback: E,
-) -> Result<(), BuildStreamError>
+) -> Result<(), Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
     type Args = render_callback::Args<data::Raw>;
@@ -547,7 +545,7 @@ where
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
-                error_callback(err.into());
+                error_callback(err);
                 return Err(());
             }
             Ok(cb) => cb,

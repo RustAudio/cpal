@@ -15,11 +15,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, ErrorKind,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 use std::time::Duration;
@@ -50,11 +48,11 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 const DEFAULT_RENDER_SIZE: u64 = 128;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         if Self::is_available() {
             Ok(Host)
         } else {
-            Err(crate::HostUnavailable)
+            Err(crate::Error::new(crate::ErrorKind::HostUnavailable))
         }
     }
 }
@@ -80,7 +78,7 @@ impl HostTrait for Host {
         }
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Devices::new()
     }
 
@@ -95,7 +93,7 @@ impl HostTrait for Host {
 }
 
 impl Devices {
-    fn new() -> Result<Self, DevicesError> {
+    fn new() -> Result<Self, Error> {
         Ok(Self::default())
     }
 }
@@ -106,14 +104,14 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     #[inline]
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
             .direction(crate::DeviceDirection::Output)
             .build())
     }
 
     #[inline]
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::AudioWorklet,
             "default".to_string(),
@@ -121,17 +119,13 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         // TODO
         Ok(Vec::new().into_iter())
     }
 
     #[inline]
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Unknown;
 
         // In actuality the number of supported channels cannot be fully known until
@@ -150,13 +144,15 @@ impl DeviceTrait for Device {
     }
 
     #[inline]
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO
-        Err(DefaultStreamConfigError::StreamTypeNotSupported)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "AudioWorklet does not support audio input",
+        ))
     }
 
     #[inline]
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
             .supported_output_configs()
@@ -175,13 +171,15 @@ impl DeviceTrait for Device {
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        // TODO
-        Err(BuildStreamError::StreamConfigNotSupported)
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "AudioWorklet does not support audio input",
+        ))
     }
 
     /// Create an output stream.
@@ -204,13 +202,36 @@ impl DeviceTrait for Device {
         mut data_callback: D,
         mut error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        if !valid_config(config, sample_format) {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+        if config.channels < MIN_CHANNELS || config.channels > MAX_CHANNELS {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "{} channels is not supported; AudioWorklet supports {} to {}",
+                    config.channels, MIN_CHANNELS, MAX_CHANNELS
+                ),
+            ));
+        }
+        if config.sample_rate < MIN_SAMPLE_RATE || config.sample_rate > MAX_SAMPLE_RATE {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "{} Hz is not supported; AudioWorklet supports {} to {} Hz",
+                    config.sample_rate, MIN_SAMPLE_RATE, MAX_SAMPLE_RATE
+                ),
+            ));
+        }
+        if sample_format != SUPPORTED_SAMPLE_FORMAT {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} is not supported; AudioWorklet requires {SUPPORTED_SAMPLE_FORMAT}"
+                ),
+            ));
         }
 
         let stream_opts = web_sys::AudioContextOptions::new();
@@ -223,13 +244,8 @@ impl DeviceTrait for Device {
             );
         }
 
-        let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
-            |err| -> BuildStreamError {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                err.into()
-            },
-        )?;
+        let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts)
+            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
 
         let destination = audio_context.destination();
 
@@ -317,15 +333,13 @@ impl DeviceTrait for Device {
             .await;
 
             if let Err(err) = result {
-                let description = if let Some(string_value) = err.as_string() {
-                    string_value
-                } else {
-                    format!("Browser error initializing stream: {err:?}")
-                };
-
-                error_callback(StreamError::BackendSpecific {
-                    err: BackendSpecificError { description },
-                })
+                let message = err
+                    .as_string()
+                    .unwrap_or_else(|| format!("Browser error initializing stream: {err:?}"));
+                error_callback(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    message,
+                ))
             }
         });
 
@@ -337,29 +351,27 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         Ok(self.buffer_size_frames.load(Ordering::Relaxed) as crate::FrameCount)
     }
 
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         match self.audio_context.resume() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         match self.audio_context.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 

@@ -152,14 +152,14 @@ impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
 
-    fn id(&self) -> Result<crate::DeviceId, crate::DeviceIdError> {
+    fn id(&self) -> Result<crate::DeviceId, crate::Error> {
         Ok(crate::DeviceId(
             crate::HostId::PipeWire,
             self.node_name.clone(),
         ))
     }
 
-    fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
+    fn description(&self) -> Result<crate::DeviceDescription, crate::Error> {
         let mut builder = crate::DeviceDescriptionBuilder::new(&self.nick_name)
             .direction(self.direction)
             .device_type(self.device_type())
@@ -190,9 +190,7 @@ impl DeviceTrait for Device {
         )
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::Error> {
         if !self.supports_input() {
             return Ok(vec![].into_iter());
         }
@@ -220,9 +218,7 @@ impl DeviceTrait for Device {
             .collect::<Vec<_>>()
             .into_iter())
     }
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::Error> {
         if !self.supports_output() {
             return Ok(vec![].into_iter());
         }
@@ -250,11 +246,9 @@ impl DeviceTrait for Device {
             .collect::<Vec<_>>()
             .into_iter())
     }
-    fn default_input_config(
-        &self,
-    ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
         if !self.supports_input() {
-            return Err(crate::DefaultStreamConfigError::StreamTypeNotSupported);
+            return Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig));
         }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
@@ -267,11 +261,9 @@ impl DeviceTrait for Device {
         })
     }
 
-    fn default_output_config(
-        &self,
-    ) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
         if !self.supports_output() {
-            return Err(crate::DefaultStreamConfigError::StreamTypeNotSupported);
+            return Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig));
         }
         Ok(crate::SupportedStreamConfig {
             channels: self.channels,
@@ -291,10 +283,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, crate::BuildStreamError>
+    ) -> Result<Self::Stream, crate::Error>
     where
         D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
-        E: FnMut(crate::StreamError) + Send + 'static,
+        E: FnMut(crate::Error) + Send + 'static,
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
@@ -307,6 +299,7 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
             .spawn(move || {
@@ -324,6 +317,7 @@ impl DeviceTrait for Device {
                     data_callback,
                     error_callback,
                     last_quantum_clone,
+                    start,
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -345,23 +339,24 @@ impl DeviceTrait for Device {
                 drop(listener);
                 drop(context);
             })
-            .map_err(|e| crate::BuildStreamError::BackendSpecific {
-                err: crate::BackendSpecificError {
-                    description: format!("failed to create thread: {e}"),
-                },
+            .map_err(|e| {
+                crate::Error::with_message(
+                    crate::ErrorKind::Other,
+                    format!("failed to create thread: {e}"),
+                )
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
                 last_quantum,
+                start,
             }),
-            Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
-            Err(_) => Err(crate::BuildStreamError::BackendSpecific {
-                err: crate::BackendSpecificError {
-                    description: "pipewire timeout".to_owned(),
-                },
-            }),
+            Ok(false) => Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig)),
+            Err(_) => Err(crate::Error::with_message(
+                crate::ErrorKind::DeviceNotAvailable,
+                "pipewire timeout",
+            )),
         }
     }
 
@@ -372,10 +367,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, crate::BuildStreamError>
+    ) -> Result<Self::Stream, crate::Error>
     where
         D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
-        E: FnMut(crate::StreamError) + Send + 'static,
+        E: FnMut(crate::Error) + Send + 'static,
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
@@ -388,6 +383,7 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())
             .spawn(move || {
@@ -406,6 +402,7 @@ impl DeviceTrait for Device {
                     data_callback,
                     error_callback,
                     last_quantum_clone,
+                    start,
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -428,23 +425,24 @@ impl DeviceTrait for Device {
                 drop(listener);
                 drop(context);
             })
-            .map_err(|e| crate::BuildStreamError::BackendSpecific {
-                err: crate::BackendSpecificError {
-                    description: format!("failed to create thread: {e}"),
-                },
+            .map_err(|e| {
+                crate::Error::with_message(
+                    crate::ErrorKind::Other,
+                    format!("failed to create thread: {e}"),
+                )
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
                 controller: pw_play_tx,
                 last_quantum,
+                start,
             }),
-            Ok(false) => Err(crate::BuildStreamError::StreamConfigNotSupported),
-            Err(_) => Err(crate::BuildStreamError::BackendSpecific {
-                err: crate::BackendSpecificError {
-                    description: "pipewire timeout".to_owned(),
-                },
-            }),
+            Ok(false) => Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig)),
+            Err(_) => Err(crate::Error::with_message(
+                crate::ErrorKind::DeviceNotAvailable,
+                "pipewire timeout",
+            )),
         }
     }
 }

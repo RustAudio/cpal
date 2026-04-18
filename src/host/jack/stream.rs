@@ -4,13 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    BackendSpecificError, BuildStreamError, Data, InputCallbackInfo, OutputCallbackInfo,
-    PauseStreamError, PlayStreamError, SampleRate, StreamError, StreamInstant,
+    Data, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleRate, StreamInstant,
 };
 
 use super::JACK_SAMPLE_FORMAT;
 
-type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(StreamError) + Send + 'static>>;
+type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(Error) + Send + 'static>>;
 
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
@@ -31,20 +30,21 @@ impl Stream {
         channels: ChannelCount,
         data_callback: D,
         error_callback: E,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
         for i in 0..channels {
             let port = client
                 .register_port(&format!("in_{}", i), jack::AudioIn::default())
-                .map_err(|e| BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: format!("Failed to register input port {}: {}", i, e),
-                    },
+                .map_err(|e| {
+                    Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        format!("failed to register input port {i}: {e}"),
+                    )
                 })?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
@@ -69,10 +69,11 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
-            .map_err(|e| BuildStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: format!("Failed to activate JACK client: {:?}", e),
-                },
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    format!("failed to activate JACK client: {e:?}"),
+                )
             })?;
 
         Ok(Self {
@@ -88,20 +89,21 @@ impl Stream {
         channels: ChannelCount,
         data_callback: D,
         error_callback: E,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let mut ports = vec![];
         let mut port_names: Vec<String> = vec![];
         for i in 0..channels {
             let port = client
                 .register_port(&format!("out_{}", i), jack::AudioOut::default())
-                .map_err(|e| BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: format!("Failed to register output port {}: {}", i, e),
-                    },
+                .map_err(|e| {
+                    Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        format!("failed to register output port {i}: {e}"),
+                    )
                 })?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
@@ -126,10 +128,11 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
-            .map_err(|e| BuildStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: format!("Failed to activate JACK client: {:?}", e),
-                },
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    format!("failed to activate JACK client: {e:?}"),
+                )
             })?;
 
         Ok(Self {
@@ -194,12 +197,12 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         self.playing.store(true, Ordering::Relaxed);
         Ok(())
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         self.playing.store(false, Ordering::Relaxed);
         Ok(())
     }
@@ -208,7 +211,7 @@ impl StreamTrait for Stream {
         micros_to_stream_instant(self.async_client.as_client().time())
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         Ok(self.async_client.as_client().buffer_size() as crate::FrameCount)
     }
 }
@@ -404,13 +407,16 @@ impl JackNotificationHandler {
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
-    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, _reason: &str) {
+    unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
         self.error_callback_ptr
             .lock()
-            .unwrap_or_else(|e| e.into_inner())(StreamError::DeviceNotAvailable);
+            .unwrap_or_else(|e| e.into_inner())(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            format!("JACK server shut down: {reason}"),
+        ));
     }
 
-    fn sample_rate(&mut self, _: &jack::Client, _srate: jack::Frames) -> jack::Control {
+    fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
         match self.init_sample_rate_flag.load(Ordering::Relaxed) {
             false => {
                 // One of these notifications is sent every time a client is started.
@@ -422,9 +428,10 @@ impl jack::NotificationHandler for JackNotificationHandler {
                 // The stream configuration must be rebuilt with the new sample rate.
                 self.error_callback_ptr
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())(
-                    StreamError::StreamInvalidated
-                );
+                    .unwrap_or_else(|e| e.into_inner())(Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    format!("JACK server changed sample rate to {srate} Hz"),
+                ));
                 jack::Control::Quit
             }
         }
@@ -432,9 +439,9 @@ impl jack::NotificationHandler for JackNotificationHandler {
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
         match self.error_callback_ptr.try_lock() {
-            Ok(mut cb) => cb(StreamError::BufferUnderrun),
+            Ok(mut cb) => cb(Error::with_message(ErrorKind::Xrun, "JACK xrun detected")),
             Err(std::sync::TryLockError::Poisoned(e)) => {
-                e.into_inner()(StreamError::BufferUnderrun)
+                e.into_inner()(Error::with_message(ErrorKind::Xrun, "JACK xrun detected"))
             }
             Err(std::sync::TryLockError::WouldBlock) => {}
         }

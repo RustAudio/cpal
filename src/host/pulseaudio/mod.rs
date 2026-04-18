@@ -8,11 +8,9 @@ pub use stream::Stream;
 
 use crate::{
     traits::{DeviceTrait, HostTrait},
-    BackendSpecificError, BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, FrameCount, HostId, HostUnavailable, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind,
+    FrameCount, HostId, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 const MIN_SAMPLE_RATE: SampleRate = 8000;
@@ -67,10 +65,52 @@ impl TryFrom<SampleFormat> for protocol::SampleFormat {
     }
 }
 
-impl From<pulseaudio::ClientError> for BackendSpecificError {
+impl From<pulseaudio::ClientError> for Error {
     fn from(err: pulseaudio::ClientError) -> Self {
-        BackendSpecificError {
-            description: err.to_string(),
+        use pulseaudio::ClientError::*;
+
+        fn pulse_error_kind(e: protocol::PulseError) -> ErrorKind {
+            use protocol::PulseError::*;
+            match e {
+                AccessDenied | AuthKey => ErrorKind::PermissionDenied,
+                NoEntity | ConnectionRefused | InvalidServer | ModInitFailed => {
+                    ErrorKind::DeviceNotAvailable
+                }
+                Timeout | Busy => ErrorKind::DeviceBusy,
+                NotSupported | Obsolete | NotImplemented | Version | NoExtension => {
+                    ErrorKind::UnsupportedOperation
+                }
+                Invalid | Command | TooLarge | Exist | Forked => ErrorKind::InvalidInput,
+                ConnectionTerminated | Killed | Protocol | BadState | Io => {
+                    ErrorKind::StreamInvalidated
+                }
+                NoData => ErrorKind::Xrun,
+                _ => ErrorKind::Other,
+            }
+        }
+
+        match err {
+            ServerUnavailable => Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "PulseAudio server unavailable",
+            ),
+            UnexpectedSequenceNumber | Disconnected => Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "PulseAudio client disconnected",
+            ),
+            Io(e) => Error::with_message(ErrorKind::StreamInvalidated, format!("I/O error: {e}")),
+            ServerError(e) => Error::with_message(pulse_error_kind(e), format!("{e}")),
+            Protocol(e) => {
+                use protocol::ProtocolError::*;
+                let kind = match &e {
+                    UnsupportedVersion(_) | Unimplemented(..) => ErrorKind::UnsupportedOperation,
+                    Invalid(_) => ErrorKind::InvalidInput,
+                    Timeout => ErrorKind::DeviceBusy,
+                    UnexpectedCommand(_) | Io(_) => ErrorKind::StreamInvalidated,
+                    ServerError(e) => pulse_error_kind(*e),
+                };
+                Error::with_message(kind, format!("{e}"))
+            }
         }
     }
 }
@@ -82,9 +122,13 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, HostUnavailable> {
-        let client =
-            pulseaudio::Client::from_env(c"cpal-pulseaudio").map_err(|_| HostUnavailable)?;
+    pub fn new() -> Result<Self, Error> {
+        let client = pulseaudio::Client::from_env(c"cpal-pulseaudio").map_err(|e| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                format!("PulseAudio unavailable: {e}"),
+            )
+        })?;
 
         Ok(Self { client })
     }
@@ -98,14 +142,10 @@ impl HostTrait for Host {
         pulseaudio::socket_path_from_env().is_some()
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        let sinks = block_on(self.client.list_sinks()).map_err(|err| BackendSpecificError {
-            description: format!("Failed to list sinks: {err}"),
-        })?;
+    fn devices(&self) -> Result<Self::Devices, Error> {
+        let sinks = block_on(self.client.list_sinks()).map_err(Error::from)?;
 
-        let sources = block_on(self.client.list_sources()).map_err(|err| BackendSpecificError {
-            description: format!("Failed to list sources: {err}"),
-        })?;
+        let sources = block_on(self.client.list_sources()).map_err(Error::from)?;
 
         Ok(sinks
             .into_iter()
@@ -185,11 +225,16 @@ fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
 fn default_config_from_spec(
     sample_spec: &protocol::SampleSpec,
     channel_map: &protocol::ChannelMap,
-) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-    let sample_format: SampleFormat = sample_spec
-        .format
-        .try_into()
-        .map_err(|_| DefaultStreamConfigError::StreamTypeNotSupported)?;
+) -> Result<SupportedStreamConfig, Error> {
+    let sample_format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
+        Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "PulseAudio sample format {:?} is not supported",
+                sample_spec.format
+            ),
+        )
+    })?;
     let bytes_per_frame = channel_map.num_channels() as usize * sample_format.sample_size();
     let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as u32;
     Ok(SupportedStreamConfig {
@@ -208,7 +253,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, Error> {
         let name = match self {
             Device::Sink { info, .. } => &info.name,
             Device::Source { info, .. } => &info.name,
@@ -217,34 +262,36 @@ impl DeviceTrait for Device {
         Ok(String::from_utf8_lossy(name.as_bytes()).into_owned())
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         let Device::Source { .. } = self else {
             return Ok(vec![].into_iter());
         };
         Ok(supported_config_ranges().into_iter())
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         let Device::Sink { .. } = self else {
             return Ok(vec![].into_iter());
         };
         Ok(supported_config_ranges().into_iter())
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         let Device::Source { info, .. } = self else {
-            return Err(DefaultStreamConfigError::StreamTypeNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "device does not support input",
+            ));
         };
         default_config_from_spec(&info.sample_spec, &info.channel_map)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         let Device::Sink { info, .. } = self else {
-            return Err(DefaultStreamConfigError::StreamTypeNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "device does not support output",
+            ));
         };
         default_config_from_spec(&info.sample_spec, &info.channel_map)
     }
@@ -256,18 +303,24 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let Device::Source { client, info } = self else {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "device does not support input",
+            ));
         };
 
-        let format: protocol::SampleFormat = sample_format
-            .try_into()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+        let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("sample format {sample_format} is not supported by PulseAudio"),
+            )
+        })?;
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
@@ -306,11 +359,10 @@ impl DeviceTrait for Device {
             });
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
-                Err(_) => Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: "timed out waiting for PulseAudio server".into(),
-                    },
-                }),
+                Err(_) => Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "timed out waiting for PulseAudio server",
+                )),
             }
         } else {
             stream::Stream::new_record(client, params, data_callback, error_callback)
@@ -324,18 +376,24 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let Device::Sink { client, info } = self else {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "device does not support output",
+            ));
         };
 
-        let format: protocol::SampleFormat = sample_format
-            .try_into()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+        let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("sample format {sample_format} is not supported by PulseAudio"),
+            )
+        })?;
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
@@ -374,18 +432,17 @@ impl DeviceTrait for Device {
             });
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
-                Err(_) => Err(BuildStreamError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: "timed out waiting for PulseAudio server".into(),
-                    },
-                }),
+                Err(_) => Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "timed out waiting for PulseAudio server",
+                )),
             }
         } else {
             stream::Stream::new_playback(client, params, data_callback, error_callback)
         }
     }
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         let (name, description, direction) = match self {
             Device::Sink { info, .. } => (&info.name, &info.description, DeviceDirection::Output),
             Device::Source { info, .. } => (&info.name, &info.description, DeviceDirection::Input),
@@ -400,7 +457,7 @@ impl DeviceTrait for Device {
         Ok(builder.build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         let id = match self {
             Device::Sink { info, .. } => info.index,
             Device::Source { info, .. } => info.index,

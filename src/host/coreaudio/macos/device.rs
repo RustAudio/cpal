@@ -1,14 +1,12 @@
-use super::OSStatus;
 use super::Stream;
 use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_stream_instant};
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceId, DeviceIdError, DeviceNameError, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, ChannelCount, Data, DeviceId, Error, ErrorKind, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
@@ -91,7 +89,7 @@ fn set_sample_rate(
     audio_device_id: AudioObjectID,
     target_sample_rate: SampleRate,
     timeout: Option<Duration>,
-) -> Result<(), BuildStreamError> {
+) -> Result<(), Error> {
     // Get the current sample rate.
     let mut property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyNominalSampleRate,
@@ -150,7 +148,10 @@ fn set_sample_rate(
             .iter()
             .any(|r| sample_rate as f64 >= r.mMinimum && sample_rate as f64 <= r.mMaximum)
         {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("sample rate {sample_rate} Hz is not supported by this device"),
+            ));
         }
 
         // Register the listener before setting the property so we don't miss the notification.
@@ -189,18 +190,16 @@ fn set_sample_rate(
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err(BackendSpecificError {
-                        description: "timeout waiting for sample rate update for device"
-                            .to_string(),
-                    }
-                    .into());
+                    return Err(Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        "timeout waiting for sample rate update for device",
+                    ));
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    return Err(BackendSpecificError {
-                        description: "sample rate listener channel disconnected unexpectedly"
-                            .to_string(),
-                    }
-                    .into());
+                    return Err(Error::with_message(
+                        ErrorKind::Other,
+                        "sample rate listener channel disconnected unexpectedly",
+                    ));
                 }
             }
             remaining = remaining
@@ -273,31 +272,27 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<crate::DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<crate::DeviceDescription, Error> {
         Device::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Device::id(self)
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Device::supported_input_configs(self)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         Device::supported_output_configs(self)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_output_config(self)
     }
 
@@ -308,10 +303,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         Device::build_input_stream_raw(
             self,
@@ -330,10 +325,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         Device::build_output_stream_raw(
             self,
@@ -396,14 +391,8 @@ impl Device {
         status == 0 && class_id == kAudioAggregateDeviceClassID
     }
 
-    fn description(&self) -> Result<crate::DeviceDescription, DeviceNameError> {
-        let name = get_device_name(self.audio_device_id).map_err(|err| {
-            DeviceNameError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: err.to_string(),
-                },
-            }
-        })?;
+    fn description(&self) -> Result<crate::DeviceDescription, Error> {
+        let name = get_device_name(self.audio_device_id).map_err(Error::from)?;
 
         let input_configs = self
             .supported_input_configs()
@@ -427,7 +416,7 @@ impl Device {
         Ok(builder.build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyDeviceUID,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -458,11 +447,10 @@ impl Device {
             let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
             Ok(DeviceId(crate::platform::HostId::CoreAudio, uid_string))
         } else {
-            Err(DeviceIdError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "Device UID is null".to_string(),
-                },
-            })
+            Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "device UID is null",
+            ))
         }
     }
 
@@ -471,7 +459,7 @@ impl Device {
     fn supported_configs(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    ) -> Result<SupportedOutputConfigs, Error> {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: scope,
@@ -562,12 +550,15 @@ impl Device {
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
-                kAudioObjectPropertyScopeInput => Ok(true),
-                kAudioObjectPropertyScopeOutput => Ok(false),
-                _ => Err(BackendSpecificError {
-                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
-                }),
-            }?;
+                kAudioObjectPropertyScopeInput => true,
+                kAudioObjectPropertyScopeOutput => false,
+                _ => {
+                    return Err(Error::with_message(
+                        ErrorKind::UnsupportedOperation,
+                        format!("unexpected scope (neither input nor output): {scope:?}"),
+                    ))
+                }
+            };
             let audio_unit = audio_unit_from_device(self, input)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
@@ -607,48 +598,18 @@ impl Device {
         }
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         self.supported_configs(kAudioObjectPropertyScopeInput)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         self.supported_configs(kAudioObjectPropertyScopeOutput)
     }
 
     fn default_config(
         &self,
         scope: AudioObjectPropertyScope,
-    ) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        fn default_config_error_from_os_status(
-            status: OSStatus,
-        ) -> Result<(), DefaultStreamConfigError> {
-            let err = match coreaudio::Error::from_os_status(status) {
-                Err(err) => err,
-                Ok(_) => return Ok(()),
-            };
-            match err {
-                coreaudio::Error::AudioUnit(
-                    coreaudio::error::AudioUnitError::FormatNotSupported,
-                )
-                | coreaudio::Error::AudioCodec(_)
-                | coreaudio::Error::AudioFormat(_) => {
-                    Err(DefaultStreamConfigError::StreamTypeNotSupported)
-                }
-                coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::NoConnection) => {
-                    Err(DefaultStreamConfigError::DeviceNotAvailable)
-                }
-                err => {
-                    let description = format!("{err}");
-                    let err = BackendSpecificError { description };
-                    Err(err.into())
-                }
-            }
-        }
-
+    ) -> Result<SupportedStreamConfig, Error> {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamFormat,
             mScope: scope,
@@ -666,37 +627,49 @@ impl Device {
                 NonNull::from(&mut data_size),
                 NonNull::from(&mut asbd).cast(),
             );
-            default_config_error_from_os_status(status)?;
+            check_os_status(status)?;
 
-            let sample_format = {
-                let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
-                    asbd.mFormatID,
-                    Some(asbd.mFormatFlags),
-                );
-                let flags = match audio_format {
-                    Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
-                    _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
-                };
-                let maybe_sample_format =
-                    coreaudio::audio_unit::SampleFormat::from_flags_and_bits_per_sample(
-                        flags,
-                        asbd.mBitsPerChannel,
+            let sample_format =
+                {
+                    let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
+                        asbd.mFormatID,
+                        Some(asbd.mFormatFlags),
                     );
-                match maybe_sample_format {
-                    Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
-                    Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
-                    _ => return Err(DefaultStreamConfigError::StreamTypeNotSupported),
-                }
-            };
+                    let flags = match audio_format {
+                        Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
+                        _ => {
+                            return Err(Error::with_message(
+                                ErrorKind::UnsupportedConfig,
+                                "device audio format is not linear PCM",
+                            ))
+                        }
+                    };
+                    let maybe_sample_format =
+                        coreaudio::audio_unit::SampleFormat::from_flags_and_bits_per_sample(
+                            flags,
+                            asbd.mBitsPerChannel,
+                        );
+                    match maybe_sample_format {
+                        Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
+                        Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
+                        _ => return Err(Error::with_message(
+                            ErrorKind::UnsupportedConfig,
+                            "device sample format is not supported; only F32 and I16 are supported",
+                        )),
+                    }
+                };
 
             #[allow(non_upper_case_globals)]
             let input = match scope {
-                kAudioObjectPropertyScopeInput => Ok(true),
-                kAudioObjectPropertyScopeOutput => Ok(false),
-                _ => Err(BackendSpecificError {
-                    description: format!("unexpected scope (neither input nor output): {scope:?}"),
-                }),
-            }?;
+                kAudioObjectPropertyScopeInput => true,
+                kAudioObjectPropertyScopeOutput => false,
+                _ => {
+                    return Err(Error::with_message(
+                        ErrorKind::UnsupportedOperation,
+                        format!("unexpected scope (neither input nor output): {scope:?}"),
+                    ))
+                }
+            };
             let audio_unit = audio_unit_from_device(self, input)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
@@ -710,11 +683,11 @@ impl Device {
         }
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(kAudioObjectPropertyScopeInput)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(kAudioObjectPropertyScopeOutput)
     }
 
@@ -747,10 +720,10 @@ impl Device {
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
@@ -806,7 +779,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    invoke_error_callback(&error_callback, err.into());
+                    invoke_error_callback(&error_callback, err);
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -827,10 +800,10 @@ impl Device {
 
         // Create error callback for stream - either dummy or real based on device type
         let error_callback_for_stream: super::ErrorCallback = if is_default_input_device(self) {
-            Box::new(|_: StreamError| {})
+            Box::new(|_: Error| {})
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
-            Box::new(move |err: StreamError| {
+            Box::new(move |err: Error| {
                 invoke_error_callback(&error_callback_clone, err);
             })
         };
@@ -848,7 +821,7 @@ impl Device {
         stream
             .inner
             .lock()
-            .expect("stream lock poisoned")
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
             .audio_unit
             .start()?;
 
@@ -862,10 +835,10 @@ impl Device {
         mut data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
@@ -915,7 +888,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    invoke_error_callback(&error_callback, err.into());
+                    invoke_error_callback(&error_callback, err);
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -935,10 +908,10 @@ impl Device {
 
         // Create error callback for stream - either dummy or real based on device type
         let error_callback_for_stream: super::ErrorCallback = if is_default_output_device(self) {
-            Box::new(|_: StreamError| {})
+            Box::new(|_: Error| {})
         } else {
             let error_callback_clone = error_callback_disconnect.clone();
-            Box::new(move |err: StreamError| {
+            Box::new(move |err: Error| {
                 invoke_error_callback(&error_callback_clone, err);
             })
         };
@@ -956,7 +929,7 @@ impl Device {
         stream
             .inner
             .lock()
-            .expect("stream lock poisoned")
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
             .audio_unit
             .start()?;
 
@@ -975,7 +948,7 @@ fn configure_stream_format_and_buffer(
     sample_format: SampleFormat,
     scope: Scope,
     element: Element,
-) -> Result<(), BuildStreamError> {
+) -> Result<(), Error> {
     // Set the stream format using stream-specific scope/element
     // - Input streams: scope=Output, element=Input (configuring output format of input element)
     // - Output streams: scope=Input, element=Output (configuring input format of output element)

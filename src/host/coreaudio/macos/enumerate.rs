@@ -1,5 +1,5 @@
-use super::{Device, OSStatus};
-use crate::{BackendSpecificError, DevicesError};
+use super::{check_os_status, Device};
+use crate::Error;
 use objc2_core_audio::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
@@ -11,7 +11,7 @@ use std::mem;
 use std::ptr::{null, NonNull};
 use std::vec::IntoIter as VecIntoIter;
 
-unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
+unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -21,7 +21,7 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     macro_rules! try_status_or_return {
         ($status:expr) => {
             if $status != kAudioHardwareNoError as i32 {
-                return Err($status);
+                return Err(check_os_status($status).unwrap_err());
             }
         };
     }
@@ -58,17 +58,8 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
 pub struct Devices(VecIntoIter<AudioDeviceID>);
 
 impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        let devices = unsafe {
-            match audio_devices() {
-                Ok(devices) => devices,
-                Err(os_status) => {
-                    let description = format!("{os_status}");
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-            }
-        };
+    pub fn new() -> Result<Self, Error> {
+        let devices = unsafe { audio_devices() }?;
         Ok(Devices(devices.into_iter()))
     }
 }

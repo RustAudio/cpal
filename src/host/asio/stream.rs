@@ -7,9 +7,8 @@ use crate::I24;
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, InputCallbackInfo,
-    OutputCallbackInfo, PauseStreamError, PlayStreamError, SampleFormat, StreamConfig, StreamError,
-    StreamInstant,
+    BufferSize, Data, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    StreamConfig, StreamInstant,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -73,18 +72,20 @@ impl Stream {
         self.time_base.to_stream_instant(ms as u64 * 1_000_000)
     }
 
-    pub fn play(&self) -> Result<(), PlayStreamError> {
+    pub fn play(&self) -> Result<(), Error> {
         self.playing.store(true, Ordering::Release);
         Ok(())
     }
 
-    pub fn pause(&self) -> Result<(), PauseStreamError> {
+    pub fn pause(&self) -> Result<(), Error> {
         self.playing.store(false, Ordering::Release);
         Ok(())
     }
 
-    pub fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
-        let streams = self.asio_streams.lock().unwrap();
+    pub fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
+        let streams = self.asio_streams.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
         Ok(streams
             .output
             .as_ref()
@@ -102,28 +103,38 @@ impl Device {
         mut data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         com::com_initialized();
-        let description = self
-            .description()
-            .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
+        let description = self.description()?;
         let driver = super::GLOBAL_ASIO
             .get()
-            .ok_or(BuildStreamError::DeviceNotAvailable)?
+            .ok_or_else(|| {
+                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+            })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
 
         let stream_type = driver.input_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
-        let expected_sample_format = super::device::convert_data_type(&stream_type)
-            .ok_or(BuildStreamError::StreamConfigNotSupported)?;
+        let expected_sample_format =
+            super::device::convert_data_type(&stream_type).ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("ASIO input data type {stream_type:?} is not supported"),
+                )
+            })?;
         if sample_format != expected_sample_format {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} does not match ASIO input format {expected_sample_format}"
+                ),
+            ));
         }
 
         let num_channels = config.channels;
@@ -405,28 +416,38 @@ impl Device {
         mut data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         com::com_initialized();
-        let description = self
-            .description()
-            .map_err(|_| BuildStreamError::DeviceNotAvailable)?;
+        let description = self.description()?;
         let driver = super::GLOBAL_ASIO
             .get()
-            .ok_or(BuildStreamError::DeviceNotAvailable)?
+            .ok_or_else(|| {
+                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+            })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
 
         let stream_type = driver.output_data_type().map_err(build_stream_err)?;
 
         // Ensure that the desired sample type is supported.
-        let expected_sample_format = super::device::convert_data_type(&stream_type)
-            .ok_or(BuildStreamError::StreamConfigNotSupported)?;
+        let expected_sample_format =
+            super::device::convert_data_type(&stream_type).ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("ASIO output data type {stream_type:?} is not supported"),
+                )
+            })?;
         if sample_format != expected_sample_format {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} does not match ASIO output format {expected_sample_format}"
+                ),
+            ));
         }
 
         let num_channels = config.channels;
@@ -761,14 +782,13 @@ impl Device {
         driver: &sys::Driver,
         config: StreamConfig,
         sample_format: SampleFormat,
-    ) -> Result<usize, BuildStreamError> {
-        let num_asio_channels = self
-            .default_input_config()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?
-            .channels;
+    ) -> Result<usize, Error> {
+        let num_asio_channels = self.default_input_config()?.channels;
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock().unwrap();
+        let mut streams = self.asio_streams.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
@@ -791,7 +811,7 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
+                    .map_err(build_stream_err)
             }
         }
     }
@@ -804,14 +824,13 @@ impl Device {
         driver: &sys::Driver,
         config: StreamConfig,
         sample_format: SampleFormat,
-    ) -> Result<usize, BuildStreamError> {
-        let num_asio_channels = self
-            .default_output_config()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?
-            .channels;
+    ) -> Result<usize, Error> {
+        let num_asio_channels = self.default_output_config()?.channels;
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock().unwrap();
+        let mut streams = self.asio_streams.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
 
         let buffer_size = match config.buffer_size {
             BufferSize::Fixed(v) => Some(v as i32),
@@ -834,7 +853,7 @@ impl Device {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|_| BuildStreamError::DeviceNotAvailable)
+                    .map_err(build_stream_err)
             }
         }
     }
@@ -847,7 +866,7 @@ impl Device {
         is_input: bool,
     ) -> sys::DriverEventCallbackId
     where
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
         let configured_sample_rate = driver.sample_rate().ok().filter(|&r| r > 0.0);
@@ -870,17 +889,17 @@ impl Device {
                     sys::AsioMessageSelectors::kAsioResetRequest => {
                         error_callback_shared
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            StreamError::StreamInvalidated
-                        );
+                            .unwrap_or_else(|e| e.into_inner())(Error::new(
+                            ErrorKind::StreamInvalidated,
+                        ));
                         false
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
                         error_callback_shared
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            StreamError::BufferUnderrun
-                        );
+                            .unwrap_or_else(|e| e.into_inner())(Error::new(
+                            ErrorKind::Xrun,
+                        ));
                         false
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
@@ -918,7 +937,10 @@ impl Device {
                             error_callback_shared
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())(
-                                StreamError::StreamInvalidated
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("ASIO driver changed sample rate to {new_rate} Hz"),
+                                ),
                             );
                         }
                     }
@@ -954,7 +976,7 @@ fn check_config(
     config: StreamConfig,
     sample_format: SampleFormat,
     num_asio_channels: u16,
-) -> Result<(), BuildStreamError> {
+) -> Result<(), Error> {
     let StreamConfig {
         channels,
         sample_rate,
@@ -969,7 +991,13 @@ fn check_config(
         let range = driver.buffersize_range().map_err(build_stream_err)?;
         let requested_size_i32 = requested_size as i32;
         if !(range.min..=range.max).contains(&requested_size_i32) {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "buffer size {requested_size} is not in the supported range {}..={}",
+                    range.min, range.max
+                ),
+            ));
         }
     }
 
@@ -984,16 +1012,27 @@ fn check_config(
                 .set_sample_rate(sample_rate)
                 .map_err(build_stream_err)?;
         } else {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("sample rate {sample_rate} Hz is not supported by the ASIO driver"),
+            ));
         }
     }
     // unsigned formats are not supported by asio
     match sample_format {
         SampleFormat::I16 | SampleFormat::I24 | SampleFormat::I32 | SampleFormat::F32 => (),
-        _ => return Err(BuildStreamError::StreamConfigNotSupported),
+        _ => {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("sample format {sample_format} is not supported by ASIO"),
+            ))
+        }
     }
     if channels > num_asio_channels {
-        return Err(BuildStreamError::StreamConfigNotSupported);
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!("{channels} channels exceeds the ASIO device maximum of {num_asio_channels}"),
+        ));
     }
     Ok(())
 }
@@ -1047,25 +1086,24 @@ unsafe fn asio_channel_slice_mut<T>(
     std::slice::from_raw_parts_mut(buff_ptr, channel_length)
 }
 
-fn load_driver_err(e: sys::LoadDriverError) -> BuildStreamError {
+fn load_driver_err(e: sys::LoadDriverError) -> Error {
     match e {
         sys::LoadDriverError::LoadDriverFailed | sys::LoadDriverError::DriverAlreadyExists => {
-            BuildStreamError::DeviceNotAvailable
+            Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
         }
         sys::LoadDriverError::InitializationFailed(asio_err) => build_stream_err(asio_err),
     }
 }
 
-fn build_stream_err(e: sys::AsioError) -> BuildStreamError {
+fn build_stream_err(e: sys::AsioError) -> Error {
     match e {
         sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
-            BuildStreamError::DeviceNotAvailable
+            Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
         }
-        sys::AsioError::InvalidInput | sys::AsioError::BadMode => BuildStreamError::InvalidArgument,
-        err => {
-            let description = format!("{}", err);
-            BackendSpecificError { description }.into()
+        sys::AsioError::InvalidInput | sys::AsioError::BadMode => {
+            Error::with_message(ErrorKind::InvalidInput, e.to_string())
         }
+        err => Error::with_message(ErrorKind::Other, err.to_string()),
     }
 }
 

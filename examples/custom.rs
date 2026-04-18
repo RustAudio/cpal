@@ -1,14 +1,19 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
 use std::time::Instant;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
+use cpal::OutputCallbackInfo;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    DeviceDescription, DeviceDescriptionBuilder,
+    ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, Error, ErrorKind, FrameCount,
+    FromSample, Sample, SampleFormat, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
 };
-use cpal::{FromSample, Sample};
 
 #[allow(dead_code)]
 #[derive(Clone)] // Clone, Send+Sync are required
@@ -33,8 +38,8 @@ struct StreamControls {
     pause: AtomicBool,
 }
 
-const CHANNEL_COUNT: cpal::ChannelCount = 2;
-const BUFFER_SIZE: cpal::FrameCount = 4096;
+const CHANNEL_COUNT: ChannelCount = 2;
+const BUFFER_SIZE: FrameCount = 4096;
 
 impl HostTrait for MyHost {
     type Device = MyDevice;
@@ -44,7 +49,7 @@ impl HostTrait for MyHost {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, cpal::DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(std::iter::once(MyDevice))
     }
 
@@ -58,76 +63,68 @@ impl HostTrait for MyHost {
 }
 
 impl DeviceTrait for MyDevice {
-    type SupportedInputConfigs = std::iter::Empty<cpal::SupportedStreamConfigRange>;
-    type SupportedOutputConfigs = std::iter::Once<cpal::SupportedStreamConfigRange>;
+    type SupportedInputConfigs = std::iter::Empty<SupportedStreamConfigRange>;
+    type SupportedOutputConfigs = std::iter::Once<SupportedStreamConfigRange>;
     type Stream = MyStream;
 
-    fn name(&self) -> Result<String, cpal::DeviceNameError> {
+    fn name(&self) -> Result<String, Error> {
         Ok(String::from("custom"))
     }
 
-    fn description(&self) -> Result<DeviceDescription, cpal::DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Custom Device".to_string()).build())
     }
 
-    fn id(&self) -> Result<cpal::DeviceId, cpal::DeviceIdError> {
-        Err(cpal::DeviceIdError::UnsupportedPlatform)
+    fn id(&self) -> Result<cpal::DeviceId, Error> {
+        Err(Error::new(ErrorKind::UnsupportedOperation))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, cpal::SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Ok(std::iter::empty())
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, cpal::SupportedStreamConfigsError> {
-        Ok(std::iter::once(cpal::SupportedStreamConfigRange::new(
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
+        Ok(std::iter::once(SupportedStreamConfigRange::new(
             CHANNEL_COUNT,
             44100,
             44100,
-            cpal::SupportedBufferSize::Range {
+            SupportedBufferSize::Range {
                 min: BUFFER_SIZE,
                 max: BUFFER_SIZE,
             },
-            cpal::SampleFormat::F32,
+            SampleFormat::F32,
         )))
     }
 
-    fn default_input_config(
-        &self,
-    ) -> Result<cpal::SupportedStreamConfig, cpal::DefaultStreamConfigError> {
-        Err(cpal::DefaultStreamConfigError::StreamTypeNotSupported)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Err(Error::new(ErrorKind::UnsupportedConfig))
     }
 
-    fn default_output_config(
-        &self,
-    ) -> Result<cpal::SupportedStreamConfig, cpal::DefaultStreamConfigError> {
-        Ok(cpal::SupportedStreamConfig::new(
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Ok(SupportedStreamConfig::new(
             CHANNEL_COUNT,
             44100,
-            cpal::SupportedBufferSize::Range {
+            SupportedBufferSize::Range {
                 min: BUFFER_SIZE,
                 max: BUFFER_SIZE,
             },
-            cpal::SampleFormat::I16,
+            SampleFormat::I16,
         ))
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        _: cpal::StreamConfig,
-        _: cpal::SampleFormat,
+        _: StreamConfig,
+        _: SampleFormat,
         _: D,
         _: E,
-        _: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, cpal::BuildStreamError>
+        _: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&cpal::Data, &cpal::InputCallbackInfo) + Send + 'static,
-        E: FnMut(cpal::StreamError) + Send + 'static,
+        D: FnMut(&Data, &cpal::InputCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        Err(cpal::BuildStreamError::StreamConfigNotSupported)
+        Err(Error::new(ErrorKind::UnsupportedConfig))
     }
 
     // this is the meat of a custom device impl.
@@ -136,15 +133,15 @@ impl DeviceTrait for MyDevice {
     // a proper impl would also check the stream config and sample format, as well as handle errors
     fn build_output_stream_raw<D, E>(
         &self,
-        _: cpal::StreamConfig,
-        _: cpal::SampleFormat,
+        _: StreamConfig,
+        _: SampleFormat,
         mut data_callback: D,
         _: E,
-        _: Option<std::time::Duration>,
-    ) -> Result<Self::Stream, cpal::BuildStreamError>
+        _: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut cpal::Data, &cpal::OutputCallbackInfo) + Send + 'static,
-        E: FnMut(cpal::StreamError) + Send + 'static,
+        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let controls = Arc::new(StreamControls {
             exit: AtomicBool::new(false),
@@ -182,7 +179,7 @@ impl DeviceTrait for MyDevice {
                     callback: stream_instant,
                     playback: stream_instant,
                 };
-                data_callback(&mut data, &cpal::OutputCallbackInfo::new(timestamp));
+                data_callback(&mut data, &OutputCallbackInfo::new(timestamp));
 
                 let avg = buffer.iter().sum::<f32>() / buffer.len() as f32;
                 println!("avg: {avg}");
@@ -198,12 +195,12 @@ impl DeviceTrait for MyDevice {
 }
 
 impl StreamTrait for MyStream {
-    fn play(&self) -> Result<(), cpal::PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         self.controls.pause.store(false, Ordering::Relaxed);
         Ok(())
     }
 
-    fn pause(&self) -> Result<(), cpal::PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         self.controls.pause.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -213,7 +210,7 @@ impl StreamTrait for MyStream {
         cpal::StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
-    fn buffer_size(&self) -> Result<cpal::FrameCount, cpal::StreamError> {
+    fn buffer_size(&self) -> Result<cpal::FrameCount, Error> {
         Ok(BUFFER_SIZE)
     }
 }
@@ -320,7 +317,7 @@ impl Oscillator {
 
 pub fn make_stream(
     device: &cpal::Device,
-    config: cpal::StreamConfig,
+    config: StreamConfig,
 ) -> Result<cpal::Stream, anyhow::Error> {
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {

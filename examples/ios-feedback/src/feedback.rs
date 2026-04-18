@@ -103,6 +103,6 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn err_fn(err: cpal::StreamError) {
+fn err_fn(err: cpal::Error) {
     eprintln!("an error occurred on stream: {}", err);
 }

@@ -2,10 +2,7 @@
 
 extern crate ndk;
 
-use crate::{
-    BackendSpecificError, BuildStreamError, PauseStreamError, PlayStreamError, StreamError,
-    StreamInstant,
-};
+use crate::{Error, ErrorKind, StreamInstant};
 
 /// Returns a [`StreamInstant`] for the current moment.
 pub fn now_stream_instant() -> StreamInstant {
@@ -58,57 +55,29 @@ pub fn input_stream_instant(stream: &ndk::audio::AudioStream, sample_rate: u32) 
     }
 }
 
-impl From<ndk::audio::AudioError> for StreamError {
+impl From<ndk::audio::AudioError> for Error {
     fn from(error: ndk::audio::AudioError) -> Self {
-        use self::ndk::audio::AudioError::*;
+        use ndk::audio::AudioError::*;
         match error {
-            Disconnected | Unavailable => Self::DeviceNotAvailable,
-            e => (BackendSpecificError {
-                description: e.to_string(),
-            })
-            .into(),
-        }
-    }
-}
-
-impl From<ndk::audio::AudioError> for PlayStreamError {
-    fn from(error: ndk::audio::AudioError) -> Self {
-        use self::ndk::audio::AudioError::*;
-        match error {
-            Disconnected | Unavailable => Self::DeviceNotAvailable,
-            e => (BackendSpecificError {
-                description: e.to_string(),
-            })
-            .into(),
-        }
-    }
-}
-
-impl From<ndk::audio::AudioError> for PauseStreamError {
-    fn from(error: ndk::audio::AudioError) -> Self {
-        use self::ndk::audio::AudioError::*;
-        match error {
-            Disconnected | Unavailable => Self::DeviceNotAvailable,
-            e => (BackendSpecificError {
-                description: e.to_string(),
-            })
-            .into(),
-        }
-    }
-}
-
-impl From<ndk::audio::AudioError> for BuildStreamError {
-    fn from(error: ndk::audio::AudioError) -> Self {
-        use self::ndk::audio::AudioError::*;
-        match error {
-            Disconnected | Unavailable => Self::DeviceNotAvailable,
-            NoFreeHandles => Self::StreamIdOverflow,
-            InvalidFormat | InvalidRate => Self::StreamConfigNotSupported,
-            IllegalArgument => Self::InvalidArgument,
-            e => (BackendSpecificError {
-                description: e.to_string(),
-            })
-            .into(),
+            Disconnected | Unavailable | NoService | InvalidHandle => {
+                Error::with_message(ErrorKind::DeviceNotAvailable, error.to_string())
+            }
+            NoFreeHandles | NoMemory | WouldBlock | Timeout => {
+                Error::with_message(ErrorKind::DeviceBusy, error.to_string())
+            }
+            InvalidFormat | InvalidRate => {
+                Error::with_message(ErrorKind::UnsupportedConfig, error.to_string())
+            }
+            IllegalArgument | Null | OutOfRange => {
+                Error::with_message(ErrorKind::InvalidInput, error.to_string())
+            }
+            Internal | InvalidState => {
+                Error::with_message(ErrorKind::StreamInvalidated, error.to_string())
+            }
+            Unimplemented => {
+                Error::with_message(ErrorKind::UnsupportedOperation, error.to_string())
+            }
+            Base | __Unknown(_) => Error::with_message(ErrorKind::Other, error.to_string()),
         }
     }
 }

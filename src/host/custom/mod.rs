@@ -5,10 +5,8 @@
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BuildStreamError, Data, DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, StreamConfig, StreamError, StreamInstant, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
+    Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
+    StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 use core::time::Duration;
 
@@ -29,8 +27,8 @@ pub struct Host(Box<dyn HostErased>);
 
 impl Host {
     // this only exists for impl_platform_host, which requires it
-    pub(crate) fn new() -> Result<Self, crate::HostUnavailable> {
-        Err(crate::HostUnavailable)
+    pub(crate) fn new() -> Result<Self, crate::Error> {
+        Err(crate::Error::new(crate::ErrorKind::HostUnavailable))
     }
 
     /// Construct a custom host from an arbitrary [`HostTrait`] implementation.
@@ -104,7 +102,7 @@ impl Stream {
 
 type Devices = Box<dyn Iterator<Item = Device>>;
 trait HostErased: Send + Sync {
-    fn devices(&self) -> Result<Devices, DevicesError>;
+    fn devices(&self) -> Result<Devices, Error>;
     fn default_input_device(&self) -> Option<Device>;
     fn default_output_device(&self) -> Option<Device>;
 }
@@ -140,20 +138,20 @@ impl Clone for SupportedConfigs {
     }
 }
 
-type ErrorCallback = Box<dyn FnMut(StreamError) + Send + 'static>;
+type ErrorCallback = Box<dyn FnMut(Error) + Send + 'static>;
 type InputCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
 type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
 
 trait DeviceErased: Send + Sync {
-    fn name(&self) -> Result<String, DeviceNameError>;
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError>;
-    fn id(&self) -> Result<DeviceId, DeviceIdError>;
+    fn name(&self) -> Result<String, Error>;
+    fn description(&self) -> Result<DeviceDescription, Error>;
+    fn id(&self) -> Result<DeviceId, Error>;
     fn supports_input(&self) -> bool;
     fn supports_output(&self) -> bool;
-    fn supported_input_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError>;
-    fn supported_output_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError>;
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError>;
+    fn supported_input_configs(&self) -> Result<SupportedConfigs, Error>;
+    fn supported_output_configs(&self) -> Result<SupportedConfigs, Error>;
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error>;
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error>;
     fn build_input_stream_raw(
         &self,
         config: StreamConfig,
@@ -161,7 +159,7 @@ trait DeviceErased: Send + Sync {
         data_callback: InputCallback,
         error_callback: ErrorCallback,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>;
+    ) -> Result<Stream, Error>;
     fn build_output_stream_raw(
         &self,
         config: StreamConfig,
@@ -169,16 +167,16 @@ trait DeviceErased: Send + Sync {
         data_callback: OutputCallback,
         error_callback: ErrorCallback,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError>;
+    ) -> Result<Stream, Error>;
     // Required because `DeviceInner` is clone
     fn clone(&self) -> Device;
 }
 
 trait StreamErased: Send + Sync {
-    fn play(&self) -> Result<(), PlayStreamError>;
-    fn pause(&self) -> Result<(), PauseStreamError>;
+    fn play(&self) -> Result<(), Error>;
+    fn pause(&self) -> Result<(), Error>;
     fn now(&self) -> StreamInstant;
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError>;
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error>;
 }
 
 fn device_to_erased(d: impl DeviceErased + 'static) -> Device {
@@ -191,7 +189,7 @@ where
     T::Devices: 'static,
     T::Device: DeviceErased + 'static,
 {
-    fn devices(&self) -> Result<Devices, DevicesError> {
+    fn devices(&self) -> Result<Devices, Error> {
         let iter = <T as HostTrait>::devices(self)?;
         let erased = Box::new(iter.map(device_to_erased));
         Ok(erased)
@@ -224,15 +222,15 @@ where
     T::Stream: Send + Sync + 'static,
 {
     #[allow(deprecated)]
-    fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, Error> {
         <T as DeviceTrait>::name(self)
     }
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         <T as DeviceTrait>::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         <T as DeviceTrait>::id(self)
     }
 
@@ -244,19 +242,19 @@ where
         <T as DeviceTrait>::supports_output(self)
     }
 
-    fn supported_input_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedConfigs, Error> {
         <T as DeviceTrait>::supported_input_configs(self).map(supported_configs_to_erased)
     }
 
-    fn supported_output_configs(&self) -> Result<SupportedConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedConfigs, Error> {
         <T as DeviceTrait>::supported_output_configs(self).map(supported_configs_to_erased)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         <T as DeviceTrait>::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         <T as DeviceTrait>::default_output_config(self)
     }
 
@@ -267,7 +265,7 @@ where
         data_callback: InputCallback,
         error_callback: ErrorCallback,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError> {
+    ) -> Result<Stream, Error> {
         <T as DeviceTrait>::build_input_stream_raw(
             self,
             config,
@@ -286,7 +284,7 @@ where
         data_callback: OutputCallback,
         error_callback: ErrorCallback,
         timeout: Option<Duration>,
-    ) -> Result<Stream, BuildStreamError> {
+    ) -> Result<Stream, Error> {
         <T as DeviceTrait>::build_output_stream_raw(
             self,
             config,
@@ -307,11 +305,11 @@ impl<T> StreamErased for T
 where
     T: StreamTrait + Send + Sync,
 {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         <T as StreamTrait>::play(self)
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         <T as StreamTrait>::pause(self)
     }
 
@@ -319,7 +317,7 @@ where
         <T as StreamTrait>::now(self)
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         <T as StreamTrait>::buffer_size(self)
     }
 }
@@ -334,7 +332,7 @@ impl HostTrait for Host {
         false
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         self.0.devices()
     }
 
@@ -354,15 +352,15 @@ impl DeviceTrait for Device {
 
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, Error> {
         self.0.name()
     }
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         self.0.description()
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         self.0.id()
     }
 
@@ -374,23 +372,19 @@ impl DeviceTrait for Device {
         self.0.supports_output()
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         self.0.supported_input_configs()
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         self.0.supported_output_configs()
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.0.default_input_config()
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.0.default_output_config()
     }
 
@@ -401,10 +395,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         self.0.build_input_stream_raw(
             config,
@@ -422,10 +416,10 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         self.0.build_output_stream_raw(
             config,
@@ -438,11 +432,11 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         self.0.play()
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         self.0.pause()
     }
 
@@ -450,7 +444,7 @@ impl StreamTrait for Stream {
         self.0.now()
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         self.0.buffer_size()
     }
 }

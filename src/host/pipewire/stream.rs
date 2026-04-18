@@ -4,11 +4,12 @@ use std::{
         Arc, Mutex,
     },
     thread::JoinHandle,
+    time::Instant,
 };
 
 use crate::{
-    host::fill_with_equilibrium, traits::StreamTrait, BackendSpecificError, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, StreamConfig, StreamError, StreamInstant,
+    host::fill_with_equilibrium, traits::StreamTrait, Error, ErrorKind, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant,
 };
 use pipewire::{
     self as pw,
@@ -68,6 +69,7 @@ pub struct Stream {
     pub(crate) handle: Option<JoinHandle<()>>,
     pub(crate) controller: pw::channel::Sender<StreamCommand>,
     pub(crate) last_quantum: Arc<AtomicU64>,
+    pub(crate) start: Instant,
 }
 
 impl Drop for Stream {
@@ -78,32 +80,34 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), crate::PlayStreamError> {
+    fn play(&self) -> Result<(), crate::Error> {
         self.controller
             .send(StreamCommand::Toggle(true))
-            .map_err(|_| crate::PlayStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "Cannot send message".to_owned(),
-                },
+            .map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
             })?;
         Ok(())
     }
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+    fn pause(&self) -> Result<(), crate::Error> {
         self.controller
             .send(StreamCommand::Toggle(false))
-            .map_err(|_| crate::PauseStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "Cannot send message".to_owned(),
-                },
+            .map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
             })?;
         Ok(())
     }
 
     fn now(&self) -> crate::StreamInstant {
-        monotonic_stream_instant().expect("clock_gettime failed")
+        monotonic_stream_instant().unwrap_or_else(|| stream_instant_from_start(self.start))
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, crate::Error> {
         Ok(self.last_quantum.load(Ordering::Relaxed) as _)
     }
 }
@@ -176,17 +180,16 @@ pub struct UserData<D, E> {
     sample_format: SampleFormat,
     format: pw::spa::param::audio::AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
+    start: Instant,
 }
 impl<D, E> UserData<D, E>
 where
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     fn state_changed(&mut self, new: StreamState) {
         match new {
             pipewire::stream::StreamState::Error(e) => {
-                (self.error_callback)(StreamError::BackendSpecific {
-                    err: BackendSpecificError { description: e },
-                })
+                (self.error_callback)(Error::with_message(ErrorKind::StreamInvalidated, e))
             }
             // TODO: maybe we need to log information when every new state comes?
             pipewire::stream::StreamState::Paused => {}
@@ -232,14 +235,9 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
 impl<D, E> UserData<D, E>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
-    fn publish_data_in(
-        &mut self,
-        stream: &pw::stream::Stream,
-        frames: usize,
-        data: &Data,
-    ) -> Result<(), BackendSpecificError> {
+    fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, capture) = match pw_stream_time(stream) {
             Some(PwTime { now_ns, delay_ns }) => (
@@ -247,9 +245,8 @@ where
                 StreamInstant::from_nanos((now_ns - delay_ns.max(0)) as u64),
             ),
             None => {
-                let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
-                    description: "clock_gettime failed".to_owned(),
-                })?;
+                let cb = monotonic_stream_instant()
+                    .unwrap_or_else(|| stream_instant_from_start(self.start));
                 let capture = cb
                     .checked_sub(frames_to_duration(frames, self.format.rate()))
                     .unwrap_or(crate::StreamInstant::ZERO);
@@ -259,20 +256,14 @@ where
         let timestamp = crate::InputStreamTimestamp { callback, capture };
         let info = InputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
-        Ok(())
     }
 }
 impl<D, E> UserData<D, E>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
-    fn publish_data_out(
-        &mut self,
-        stream: &pw::stream::Stream,
-        frames: usize,
-        data: &mut Data,
-    ) -> Result<(), BackendSpecificError> {
+    fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, playback) = match pw_stream_time(stream) {
             Some(PwTime { now_ns, delay_ns }) => (
@@ -280,9 +271,8 @@ where
                 StreamInstant::from_nanos((now_ns + delay_ns.max(0)) as u64),
             ),
             None => {
-                let cb = monotonic_stream_instant().ok_or_else(|| BackendSpecificError {
-                    description: "clock_gettime failed".to_owned(),
-                })?;
+                let cb = monotonic_stream_instant()
+                    .unwrap_or_else(|| stream_instant_from_start(self.start));
                 let pl = cb + frames_to_duration(frames, self.format.rate());
                 (cb, pl)
             }
@@ -290,7 +280,6 @@ where
         let timestamp = crate::OutputStreamTimestamp { callback, playback };
         let info = OutputCallbackInfo { timestamp };
         (self.data_callback)(data, &info);
-        Ok(())
     }
 }
 pub struct StreamData<D, E> {
@@ -298,6 +287,12 @@ pub struct StreamData<D, E> {
     pub listener: StreamListener<UserData<D, E>>,
     pub stream: StreamRc,
     pub context: ContextRc,
+}
+
+/// Fallback timestamp using elapsed time since stream creation.
+fn stream_instant_from_start(start: Instant) -> StreamInstant {
+    let elapsed = start.elapsed();
+    StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
 }
 
 /// Read `clock_gettime` and return it as a [`StreamInstant`].
@@ -341,10 +336,11 @@ pub fn connect_output<D, E>(
     data_callback: D,
     error_callback: E,
     last_quantum: Arc<AtomicU64>,
+    start: Instant,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
@@ -356,6 +352,7 @@ where
         sample_format,
         format: Default::default(),
         last_quantum,
+        start,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -392,18 +389,16 @@ where
                     || current_rate != rate
                     || current_fmt != expected_fmt;
                 if mismatch {
-                    (user_data.error_callback)(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
-                        },
-                    });
+                    (user_data.error_callback)(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                    ));
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
-                        (user_data.error_callback)(StreamError::BackendSpecific {
-                            err: BackendSpecificError {
-                                description: format!("failed to stop the stream, reason: {e}"),
-                            },
-                        });
+                        (user_data.error_callback)(Error::with_message(
+                            ErrorKind::Other,
+                            format!("failed to stop the stream, reason: {e}"),
+                        ));
                     }
                 }
 
@@ -446,9 +441,7 @@ where
                 let data = active.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
-                if let Err(err) = user_data.publish_data_out(stream, frames, &mut data) {
-                    (user_data.error_callback)(StreamError::BackendSpecific { err });
-                }
+                user_data.publish_data_out(stream, frames, &mut data);
                 let chunk = buf_data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = stride as i32;
@@ -501,10 +494,11 @@ pub fn connect_input<D, E>(
     data_callback: D,
     error_callback: E,
     last_quantum: Arc<AtomicU64>,
+    start: Instant,
 ) -> Result<StreamData<D, E>, pw::Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
@@ -516,6 +510,7 @@ where
         sample_format,
         format: Default::default(),
         last_quantum,
+        start,
     };
 
     let channels = config.channels as _;
@@ -555,18 +550,16 @@ where
                     || current_rate != rate
                     || current_fmt != expected_fmt;
                 if mismatch {
-                    (user_data.error_callback)(StreamError::BackendSpecific {
-                        err: BackendSpecificError {
-                            description: format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
-                        },
-                    });
+                    (user_data.error_callback)(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                    ));
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
-                        (user_data.error_callback)(StreamError::BackendSpecific {
-                            err: BackendSpecificError {
-                                description: format!("failed to stop the stream, reason: {e}"),
-                            },
-                        });
+                        (user_data.error_callback)(Error::with_message(
+                            ErrorKind::Other,
+                            format!("failed to stop the stream, reason: {e}"),
+                        ));
                     }
                 }
             }
@@ -594,9 +587,7 @@ where
                 let data = samples.as_mut_ptr() as *mut ();
                 let data =
                     unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                if let Err(err) = user_data.publish_data_in(stream, frames as usize, &data) {
-                    (user_data.error_callback)(StreamError::BackendSpecific { err });
-                }
+                user_data.publish_data_in(stream, frames as usize, &data);
             }
         })
         .register()?;

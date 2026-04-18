@@ -246,19 +246,30 @@ impl std::fmt::Display for DeviceId {
 }
 
 impl std::str::FromStr for DeviceId {
-    type Err = DeviceIdError;
+    type Err = Error;
 
+    /// Parse a device identifier from its string representation (e.g. `"alsa:hw:0,0"`).
+    ///
+    /// The format is `"<host>:<device>"` where `<host>` is the lowercase host name (see
+    /// [`HostId`]) and `<device>` is the device-specific identifier string.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::InvalidInput`] if the string is not in `"host:device"` format.
+    /// - [`ErrorKind::UnsupportedOperation`] if the host portion names a host not available on this
+    ///   platform.
+    ///
+    /// [`ErrorKind::InvalidInput`]: ErrorKind::InvalidInput
+    /// [`ErrorKind::UnsupportedOperation`]: ErrorKind::UnsupportedOperation
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (host_str, device_str) = s.split_once(':').ok_or(DeviceIdError::BackendSpecific {
-            err: BackendSpecificError {
-                description: format!(
-                    "Failed to parse device ID from: {s}\nCheck if format matches \"host:device_id\""
-                ),
-            },
+        let (host_str, device_str) = s.split_once(':').ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::InvalidInput,
+                format!("failed to parse device ID \"{s}\": expected \"host:device_id\" format"),
+            )
         })?;
 
-        let host_id = crate::platform::HostId::from_str(host_str)
-            .map_err(|_| DeviceIdError::UnsupportedPlatform)?;
+        let host_id = crate::platform::HostId::from_str(host_str)?;
 
         Ok(DeviceId(host_id, device_str.to_string()))
     }

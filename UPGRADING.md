@@ -4,8 +4,8 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 
 ## Breaking Changes Checklist
 
-- [ ] Add wildcard arms to exhaustive `match` expressions on cpal error enums
-- [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors
+- [ ] Replace per-operation error type matches with `e.kind` on `ErrorKind`
+- [ ] Replace `HostUnavailable` error type with `ErrorKind::HostUnavailable` on `Error`
 - [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
 - [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
 - [ ] Remove `instant.duration_since(e)` unwraps; it now returns `Duration` (saturating).
@@ -16,12 +16,15 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
 - [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
 
-## 1. Error enums are now `#[non_exhaustive]`
+## 1. Unified `Error` and `ErrorKind` type
 
-**What changed:** Public error enums in `cpal` are now marked `#[non_exhaustive]`.
+**What changed:** All per-operation error types (`DevicesError`, `SupportedStreamConfigsError`,
+`DefaultStreamConfigError`, `BuildStreamError`, `StreamError`, `PlayStreamError`,
+`PauseStreamError`) and the `HostUnavailable` struct are replaced by a single `cpal::Error` struct
+with a `kind: ErrorKind` field. `host_from_id` and `HostId::from_str` now return `cpal::Error`.
 
 ```rust
-// Before (v0.17)
+// Before (v0.17): each operation returned its own error type
 match device.default_output_config() {
     Ok(config) => config,
     Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
@@ -29,30 +32,42 @@ match device.default_output_config() {
     Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
 }
 
-// After (v0.18)
-loop {
-    match device.default_output_config() {
-        Ok(config) => break config,
-        Err(DefaultStreamConfigError::DeviceBusy) => {
+// After (v0.18): all operations return cpal::Error; match on e.kind
+match device.default_output_config() {
+    Ok(config) => config,
+    Err(e) => match e.kind {
+        cpal::ErrorKind::DeviceNotAvailable => panic!("device gone"),
+        cpal::ErrorKind::UnsupportedConfig => panic!("unsupported"),
+        cpal::ErrorKind::DeviceBusy => {
             std::thread::sleep(std::time::Duration::from_millis(100));
+            // retry
         }
-        Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
-        Err(DefaultStreamConfigError::StreamTypeNotSupported) => panic!("unsupported"),
-        Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
-        Err(_) => panic!("unknown error"),
-    }
+        _ => panic!("{e}"),
+    },
 }
 ```
 
-**Why:** This lets cpal add new variants in future minor releases without a SemVer-breaking change.
+The `ErrorKind` variants and their equivalents from v0.17:
 
-## 2. New `DeviceBusy` variant
+| `ErrorKind`            | Former equivalent                                    |
+|------------------------|------------------------------------------------------|
+| `HostUnavailable`      | `HostUnavailable` (struct)                           |
+| `DeviceNotAvailable`   | `DeviceNotAvailable` in most enums                   |
+| `DeviceBusy`           | - (new; previously mapped to `DeviceNotAvailable`)   |
+| `UnsupportedConfig`    | `StreamConfigNotSupported`, `StreamTypeNotSupported` |
+| `UnsupportedOperation` | - (new)                                              |
+| `InvalidInput`         | - (new)                                              |
+| `StreamInvalidated`    | `StreamError::StreamInvalidated`                     |
+| `Xrun`                 | `StreamError::BufferUnderrun`                        |
+| `PermissionDenied`     | - (new)                                              |
+| `Other`                | `BackendSpecific`                                    |
 
-**What changed:** On ALSA, `EBUSY`/`EAGAIN` errors from device open calls now produce `DeviceBusy` instead of `DeviceNotAvailable`. This may be added to other hosts in the future.
+The `message` field on `Error` carries human-readable context (formerly in `BackendSpecific::err`).
 
-**Why:** Unlike `DeviceNotAvailable` (device is gone), `DeviceBusy` signals a transient condition. Retrying after a short delay may succeed, as shown in the example above.
+**Why:** A single type simplifies error handling across all cpal operations and allows new
+`ErrorKind` variants to be added without changing any return types.
 
-## 3. `StreamConfig` is now passed by value
+## 2. `StreamConfig` is now passed by value
 
 **What changed:** `StreamConfig` now implements `Copy`, and all `DeviceTrait` stream-building methods accept it by value.
 
@@ -68,7 +83,7 @@ let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
 
 If you implement `DeviceTrait` on your own type (via the `custom` feature), update your `build_input_stream_raw` and `build_output_stream_raw` signatures from `config: &StreamConfig` to `config: StreamConfig`. Any `config.clone()` calls before `move` closures can also be removed.
 
-## 4. `StreamInstant` API overhaul
+## 3. `StreamInstant` API overhaul
 
 The `StreamInstant` API has been aligned with `std::time::Instant` and `std::time::Duration`.
 
@@ -135,7 +150,7 @@ StreamInstant::new(0_u64, 0);
 
 **Why:** All audio host clocks are positive and monotonic; they are never negative.
 
-## 5. `wasm32-unknown-emscripten` target removed
+## 4. `wasm32-unknown-emscripten` target removed
 
 **What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
 

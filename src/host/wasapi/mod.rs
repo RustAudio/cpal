@@ -10,8 +10,7 @@ pub use self::device::{
 #[allow(unused_imports)]
 pub use self::stream::Stream;
 use crate::traits::HostTrait;
-use crate::BackendSpecificError;
-use crate::DevicesError;
+use crate::{Error, ErrorKind};
 use std::io::Error as IoError;
 use windows::Win32::Media::Audio;
 
@@ -27,7 +26,7 @@ mod stream;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         Ok(Host)
     }
 }
@@ -41,7 +40,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Devices::new()
     }
 
@@ -54,58 +53,31 @@ impl HostTrait for Host {
     }
 }
 
-impl From<windows::core::Error> for BackendSpecificError {
-    fn from(error: windows::core::Error) -> Self {
-        BackendSpecificError {
-            description: format!("{}", IoError::from(error)),
-        }
-    }
-}
+impl From<windows::core::Error> for Error {
+    fn from(e: windows::core::Error) -> Self {
+        let kind = match e.code() {
+            Audio::AUDCLNT_E_DEVICE_INVALIDATED
+            | Audio::AUDCLNT_E_ENDPOINT_CREATE_FAILED
+            | Audio::AUDCLNT_E_SERVICE_NOT_RUNNING => ErrorKind::DeviceNotAvailable,
 
-trait ErrDeviceNotAvailable: From<BackendSpecificError> {
-    fn device_not_available() -> Self;
-}
+            Audio::AUDCLNT_E_DEVICE_IN_USE => ErrorKind::DeviceBusy,
 
-impl ErrDeviceNotAvailable for crate::BuildStreamError {
-    fn device_not_available() -> Self {
-        Self::DeviceNotAvailable
-    }
-}
+            Audio::AUDCLNT_E_RESOURCES_INVALIDATED => ErrorKind::StreamInvalidated,
 
-impl ErrDeviceNotAvailable for crate::SupportedStreamConfigsError {
-    fn device_not_available() -> Self {
-        Self::DeviceNotAvailable
-    }
-}
+            Audio::AUDCLNT_E_UNSUPPORTED_FORMAT
+            | Audio::AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED
+            | Audio::AUDCLNT_E_BUFFER_SIZE_ERROR
+            | Audio::AUDCLNT_E_INVALID_DEVICE_PERIOD
+            | Audio::AUDCLNT_E_EXCLUSIVE_MODE_ONLY_FORMAT
+            | Audio::AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED => ErrorKind::UnsupportedConfig,
 
-impl ErrDeviceNotAvailable for crate::DefaultStreamConfigError {
-    fn device_not_available() -> Self {
-        Self::DeviceNotAvailable
-    }
-}
+            Audio::AUDCLNT_E_WRONG_ENDPOINT_TYPE
+            | Audio::AUDCLNT_E_ALREADY_INITIALIZED
+            | Audio::AUDCLNT_E_NOT_INITIALIZED
+            | Audio::AUDCLNT_E_NOT_STOPPED => ErrorKind::UnsupportedOperation,
 
-impl ErrDeviceNotAvailable for crate::StreamError {
-    fn device_not_available() -> Self {
-        Self::DeviceNotAvailable
-    }
-}
-
-fn windows_err_to_cpal_err<E: ErrDeviceNotAvailable>(e: windows::core::Error) -> E {
-    windows_err_to_cpal_err_message::<E>(e, "")
-}
-
-fn windows_err_to_cpal_err_message<E: ErrDeviceNotAvailable>(
-    e: windows::core::Error,
-    message: &str,
-) -> E {
-    match e.code() {
-        Audio::AUDCLNT_E_DEVICE_INVALIDATED | Audio::AUDCLNT_E_DEVICE_IN_USE => {
-            E::device_not_available()
-        }
-        _ => {
-            let description = format!("{}{}", message, e);
-            let err = BackendSpecificError { description };
-            err.into()
-        }
+            _ => ErrorKind::Other,
+        };
+        Error::with_message(kind, IoError::from(e).to_string())
     }
 }

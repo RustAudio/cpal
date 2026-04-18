@@ -9,7 +9,7 @@
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    HostUnavailable,
+    Error, ErrorKind, HostId,
 };
 use ringbuf::{
     traits::{Consumer, Producer, Split},
@@ -43,12 +43,12 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    // Jack/PulseAudio support must be enabled at compile time, and is
+    // JACK/PulseAudio support must be enabled at compile time, and is
     // only available on some platforms.
     #[allow(unused_mut, unused_assignments)]
-    let mut jack_host_id = Err(HostUnavailable);
+    let mut jack_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
-    let mut pulseaudio_host_id = Err(HostUnavailable);
+    let mut pulseaudio_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
 
     #[cfg(any(
         target_os = "linux",
@@ -59,12 +59,12 @@ fn main() -> anyhow::Result<()> {
     {
         #[cfg(feature = "jack")]
         {
-            jack_host_id = Ok(cpal::HostId::Jack);
+            jack_host_id = Ok(HostId::Jack);
         }
 
         #[cfg(feature = "pulseaudio")]
         {
-            pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
+            pulseaudio_host_id = Ok(HostId::PulseAudio);
         }
     }
 
@@ -171,6 +171,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn err_fn(err: cpal::StreamError) {
+fn err_fn(err: Error) {
     eprintln!("an error occurred on stream: {err}");
 }

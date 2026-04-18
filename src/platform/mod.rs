@@ -203,8 +203,21 @@ macro_rules! impl_platform_host {
         }
 
         impl std::str::FromStr for HostId {
-            type Err = crate::HostUnavailable;
+            type Err = crate::Error;
 
+            /// Parse a host identifier from its string representation (e.g. `"alsa"`,
+            /// `"coreaudio"`).
+            ///
+            /// The comparison is case-insensitive. Only hosts compiled in for the current platform
+            /// are recognized; a host string that is valid on another platform is still an error
+            /// here.
+            ///
+            /// # Errors
+            ///
+            /// - [`ErrorKind::UnsupportedOperation`] if the string does not name a host available
+            ///   on this platform.
+            ///
+            /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 $(
                     $(#[cfg($feat)])?
@@ -212,7 +225,10 @@ macro_rules! impl_platform_host {
                         return Ok(HostId::$HostVariant);
                     }
                 )*
-                Err(crate::HostUnavailable)
+                Err(crate::Error::with_message(
+                    crate::ErrorKind::UnsupportedOperation,
+                    format!("host \"{s}\" is not supported on this platform"),
+                ))
             }
         }
 
@@ -376,7 +392,7 @@ macro_rules! impl_platform_host {
             type Stream = Stream;
 
             #[allow(deprecated)]
-            fn name(&self) -> Result<String, crate::DeviceNameError> {
+            fn name(&self) -> Result<String, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -385,7 +401,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn description(&self) -> Result<crate::DeviceDescription, crate::DeviceNameError> {
+            fn description(&self) -> Result<crate::DeviceDescription, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -394,7 +410,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn id(&self) -> Result<crate::DeviceId, crate::DeviceIdError> {
+            fn id(&self) -> Result<crate::DeviceId, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -421,7 +437,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::SupportedStreamConfigsError> {
+            fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -434,7 +450,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::SupportedStreamConfigsError> {
+            fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -447,7 +463,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+            fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -456,7 +472,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::DefaultStreamConfigError> {
+            fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -472,10 +488,10 @@ macro_rules! impl_platform_host {
                 data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
-            ) -> Result<Self::Stream, crate::BuildStreamError>
+            ) -> Result<Self::Stream, crate::Error>
             where
                 D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
-                E: FnMut(crate::StreamError) + Send + 'static,
+                E: FnMut(crate::Error) + Send + 'static,
             {
                 match self.0 {
                     $(
@@ -501,10 +517,10 @@ macro_rules! impl_platform_host {
                 data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
-            ) -> Result<Self::Stream, crate::BuildStreamError>
+            ) -> Result<Self::Stream, crate::Error>
             where
                 D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
-                E: FnMut(crate::StreamError) + Send + 'static,
+                E: FnMut(crate::Error) + Send + 'static,
             {
                 match self.0 {
                     $(
@@ -536,7 +552,7 @@ macro_rules! impl_platform_host {
                 false
             }
 
-            fn devices(&self) -> Result<Self::Devices, crate::DevicesError> {
+            fn devices(&self) -> Result<Self::Devices, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -582,7 +598,7 @@ macro_rules! impl_platform_host {
         }
 
         impl crate::traits::StreamTrait for Stream {
-            fn play(&self) -> Result<(), crate::PlayStreamError> {
+            fn play(&self) -> Result<(), crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -593,7 +609,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn pause(&self) -> Result<(), crate::PauseStreamError> {
+            fn pause(&self) -> Result<(), crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -604,7 +620,7 @@ macro_rules! impl_platform_host {
                 }
             }
 
-            fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+            fn buffer_size(&self) -> Result<crate::FrameCount, crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -694,7 +710,16 @@ macro_rules! impl_platform_host {
         }
 
         /// Given a unique host identifier, initialise and produce the host if it is available.
-        pub fn host_from_id(id: HostId) -> Result<Host, crate::HostUnavailable> {
+        ///
+        /// # Errors
+        ///
+        /// - [`ErrorKind::HostUnavailable`] if the host identified by `id` is not currently
+        ///   reachable (e.g. the audio daemon is not running).
+        /// - [`ErrorKind::Other`] for unclassifiable initialization failures.
+        ///
+        /// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
+        /// [`ErrorKind::Other`]: crate::ErrorKind::Other
+        pub fn host_from_id(id: HostId) -> Result<Host, crate::Error> {
             match id {
                 $(
                     $(#[cfg($feat)])?

@@ -11,11 +11,9 @@ use self::wasm_bindgen::JsCast;
 use self::web_sys::{AudioContext, AudioContextOptions};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, StreamInstant, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, ErrorKind,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +60,7 @@ const DEFAULT_BUFFER_SIZE: usize = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         Ok(Host)
     }
 }
@@ -76,7 +74,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Devices::new()
     }
 
@@ -90,35 +88,31 @@ impl HostTrait for Host {
 }
 
 impl Devices {
-    fn new() -> Result<Self, DevicesError> {
+    fn new() -> Result<Self, Error> {
         Ok(Self::default())
     }
 }
 
 impl Device {
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
             .direction(crate::DeviceDirection::Output)
             .build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::WebAudio,
             "default".to_string(),
         ))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
         // TODO
         Ok(Vec::new().into_iter())
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Range {
             min: MIN_BUFFER_SIZE,
             max: MAX_BUFFER_SIZE,
@@ -135,12 +129,14 @@ impl Device {
         Ok(configs.into_iter())
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO
-        Err(DefaultStreamConfigError::StreamTypeNotSupported)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "WebAudio does not support audio input",
+        ))
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
             .supported_output_configs()
@@ -158,31 +154,27 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Device::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Device::id(self)
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Device::supported_input_configs(self)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         Device::supported_output_configs(self)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_output_config(self)
     }
 
@@ -193,13 +185,15 @@ impl DeviceTrait for Device {
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        // TODO
-        Err(BuildStreamError::StreamConfigNotSupported)
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "WebAudio does not support audio input",
+        ))
     }
 
     /// Create an output stream.
@@ -210,13 +204,19 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         if !valid_config(config, sample_format) {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} or channel count {} is not supported by WebAudio",
+                    config.channels
+                ),
+            ));
         }
 
         let n_channels = config.channels as usize;
@@ -224,7 +224,12 @@ impl DeviceTrait for Device {
         let buffer_size_frames = match config.buffer_size {
             BufferSize::Fixed(v) => {
                 if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
-                    return Err(BuildStreamError::StreamConfigNotSupported);
+                    return Err(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!(
+                            "buffer size {v} is out of the supported range {MIN_BUFFER_SIZE}..={MAX_BUFFER_SIZE}"
+                        ),
+                    ));
                 }
                 v as usize
             }
@@ -235,20 +240,15 @@ impl DeviceTrait for Device {
 
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
         let error_callback = Arc::new(Mutex::new(
-            Box::new(error_callback) as Box<dyn FnMut(StreamError) + Send + 'static>
+            Box::new(error_callback) as Box<dyn FnMut(Error) + Send + 'static>
         ));
         let is_started = Arc::new(AtomicBool::new(false));
 
         // Create the WebAudio stream.
         let stream_opts = AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
-        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
-            |err| -> BuildStreamError {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                err.into()
-            },
-        )?;
+        let ctx = AudioContext::new_with_context_options(&stream_opts)
+            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
 
         let destination = ctx.destination();
 
@@ -305,10 +305,8 @@ impl DeviceTrait for Device {
                     buffer_size_frames as u32,
                     config.sample_rate as f32,
                 )
-                .map_err(|err| -> BuildStreamError {
-                    let description = format!("{:?}", err);
-                    let err = BackendSpecificError { description };
-                    err.into()
+                .map_err(|err| {
+                    Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}"))
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
@@ -343,30 +341,31 @@ impl DeviceTrait for Device {
                         let len = temporary_buffer.len();
                         let data = temporary_buffer.as_mut_ptr() as *mut ();
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-                        let mut data_callback = data_callback_handle.lock().unwrap();
-                        // outputLatency can change at runtime, so read it each callback.
-                        let output_latency_secs = js_sys::Reflect::get(
-                            ctx_handle.as_ref(),
-                            &JsValue::from("outputLatency"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let total_hw_latency_secs = {
-                            let sum = base_latency_secs + output_latency_secs;
-                            if sum.is_finite() {
-                                sum.max(0.0)
-                            } else {
-                                0.0
-                            }
-                        };
-                        let callback = StreamInstant::from_secs_f64(now);
-                        let playback = StreamInstant::from_secs_f64(
-                            time_at_start_of_buffer + total_hw_latency_secs,
-                        );
-                        let timestamp = crate::OutputStreamTimestamp { callback, playback };
-                        let info = OutputCallbackInfo { timestamp };
-                        (data_callback.deref_mut())(&mut data, &info);
+                        if let Ok(mut data_callback) = data_callback_handle.lock() {
+                            // outputLatency can change at runtime, so read it each callback.
+                            let output_latency_secs = js_sys::Reflect::get(
+                                ctx_handle.as_ref(),
+                                &JsValue::from("outputLatency"),
+                            )
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                            let total_hw_latency_secs = {
+                                let sum = base_latency_secs + output_latency_secs;
+                                if sum.is_finite() {
+                                    sum.max(0.0)
+                                } else {
+                                    0.0
+                                }
+                            };
+                            let callback = StreamInstant::from_secs_f64(now);
+                            let playback = StreamInstant::from_secs_f64(
+                                time_at_start_of_buffer + total_hw_latency_secs,
+                            );
+                            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                            let info = OutputCallbackInfo { timestamp };
+                            (data_callback.deref_mut())(&mut data, &info);
+                        }
                     }
 
                     // Deinterleave the sample data and copy into the audio context buffer.
@@ -383,12 +382,13 @@ impl DeviceTrait for Device {
                             if let Err(err) = ctx_buffer
                                 .copy_to_channel(&temporary_channel_buffer, channel as i32)
                             {
-                                let description = format!("{err:?}");
-                                let err = BackendSpecificError { description };
                                 (error_callback_handle
                                     .lock()
                                     .unwrap_or_else(|e| e.into_inner()))(
-                                    StreamError::BackendSpecific { err },
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        format!("{err:?}"),
+                                    ),
                                 );
                                 return;
                             }
@@ -406,12 +406,13 @@ impl DeviceTrait for Device {
                                 .unchecked_ref::<ExternalArrayAudioBuffer>()
                                 .copy_to_channel(&temporary_channel_array_view, channel as i32)
                             {
-                                let description = format!("{err:?}");
-                                let err = BackendSpecificError { description };
                                 (error_callback_handle
                                     .lock()
                                     .unwrap_or_else(|e| e.into_inner()))(
-                                    StreamError::BackendSpecific { err },
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        format!("{err:?}"),
+                                    ),
                                 );
                                 return;
                             }
@@ -423,24 +424,24 @@ impl DeviceTrait for Device {
                     let source = match ctx_handle.create_buffer_source() {
                         Ok(s) => s,
                         Err(err) => {
-                            let description = format!("{err:?}");
-                            let err = BackendSpecificError { description };
+                            // create_buffer_source is documented not to throw; defensive only.
                             (error_callback_handle
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner()))(
-                                StreamError::BackendSpecific { err },
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("{err:?}"),
+                                ),
                             );
                             return;
                         }
                     };
                     source.set_buffer(Some(&ctx_buffer));
                     if let Err(err) = source.connect_with_audio_node(&ctx_handle.destination()) {
-                        let description = format!("{err:?}");
-                        let err = BackendSpecificError { description };
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            StreamError::BackendSpecific { err },
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
                         );
                         return;
                     }
@@ -454,22 +455,20 @@ impl DeviceTrait for Device {
                             .as_ref()
                             .unchecked_ref(),
                     ) {
-                        let description = format!("{err:?}");
-                        let err = BackendSpecificError { description };
+                        // addEventListener is documented not to throw; defensive only.
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            StreamError::BackendSpecific { err },
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
                         );
                         return;
                     }
                     if let Err(err) = source.start_with_when(time_at_start_of_buffer) {
-                        let description = format!("{err:?}");
-                        let err = BackendSpecificError { description };
+                        // InvalidStateError (already started) is the expected failure mode.
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            StreamError::BackendSpecific { err },
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
                         );
                         return;
                     }
@@ -500,7 +499,7 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         let window = web_sys::window().unwrap();
         match self.ctx.resume() {
             Ok(_) => {
@@ -535,22 +534,20 @@ impl StreamTrait for Stream {
                 }
                 Ok(())
             }
-            Err(err) => {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         match self.ctx.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
@@ -558,7 +555,7 @@ impl StreamTrait for Stream {
         StreamInstant::from_secs_f64(self.ctx.current_time())
     }
 
-    fn buffer_size(&self) -> Result<crate::FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<crate::FrameCount, Error> {
         Ok(self.buffer_size_frames as crate::FrameCount)
     }
 }

@@ -1,7 +1,7 @@
 //! Manages loopback recording (recording system audio output)
 
 use super::device::Device;
-use crate::{host::coreaudio::check_os_status, BackendSpecificError, BuildStreamError};
+use crate::{host::coreaudio::check_os_status, Error, ErrorKind};
 use objc2::{rc::Retained, AnyThread};
 use objc2_core_audio::{
     kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
@@ -27,7 +27,7 @@ use std::{
 type CFStringRef = *mut std::os::raw::c_void;
 
 impl Device {
-    fn uid(&self) -> Result<Retained<NSString>, BackendSpecificError> {
+    fn uid(&self) -> Result<Retained<NSString>, Error> {
         let mut cfstring: CFStringRef = std::ptr::null_mut();
         let mut size = std::mem::size_of::<CFStringRef>() as u32;
 
@@ -50,9 +50,10 @@ impl Device {
         check_os_status(status)?;
 
         if cfstring.is_null() {
-            return Err(BackendSpecificError {
-                description: "Device uid is null".to_string(),
-            });
+            return Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "device UID is null",
+            ));
         }
 
         let ns_string: Retained<NSString> = unsafe {
@@ -80,7 +81,7 @@ pub struct LoopbackDevice {
 impl LoopbackDevice {
     /// Create a [`LoopbackDevice`] that records the sound
     /// output of `device`.
-    pub fn from_device(device: &Device) -> Result<Self, BuildStreamError> {
+    pub fn from_device(device: &Device) -> Result<Self, Error> {
         // 1 - Create tap
 
         // Empty list of processes as we want to record all processes

@@ -12,11 +12,11 @@ use objc2_avf_audio::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
-use crate::StreamError;
+use crate::{Error, ErrorKind};
 
-pub(super) type ErrorCallbackMutex = Arc<Mutex<Box<dyn FnMut(StreamError) + Send>>>;
+pub(super) type ErrorCallbackMutex = Arc<Mutex<Box<dyn FnMut(Error) + Send>>>;
 
-unsafe fn route_change_error(notification: &NSNotification) -> Option<StreamError> {
+unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     let user_info = notification.userInfo()?;
     let key = AVAudioSessionRouteChangeReasonKey?;
     let dict = unsafe { user_info.cast_unchecked::<NSString, AnyObject>() };
@@ -27,13 +27,15 @@ unsafe fn route_change_error(notification: &NSNotification) -> Option<StreamErro
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable
         | AVAudioSessionRouteChangeReason::CategoryChange
         | AVAudioSessionRouteChangeReason::Override
-        | AVAudioSessionRouteChangeReason::RouteConfigurationChange => {
-            Some(StreamError::StreamInvalidated)
-        }
+        | AVAudioSessionRouteChangeReason::RouteConfigurationChange => Some(Error::with_message(
+            ErrorKind::StreamInvalidated,
+            "audio route changed",
+        )),
 
-        AVAudioSessionRouteChangeReason::NoSuitableRouteForCategory => {
-            Some(StreamError::DeviceNotAvailable)
-        }
+        AVAudioSessionRouteChangeReason::NoSuitableRouteForCategory => Some(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "no suitable audio route for the session category",
+        )),
 
         _ => None,
     }
@@ -76,7 +78,10 @@ impl SessionEventManager {
             let cb = error_callback.clone();
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
                 if let Ok(mut cb) = cb.lock() {
-                    cb(StreamError::DeviceNotAvailable);
+                    cb(Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        "audio media services were lost",
+                    ));
                 }
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereLostNotification } {
@@ -91,7 +96,10 @@ impl SessionEventManager {
             let cb = error_callback.clone();
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
                 if let Ok(mut cb) = cb.lock() {
-                    cb(StreamError::StreamInvalidated);
+                    cb(Error::with_message(
+                        ErrorKind::StreamInvalidated,
+                        "audio media services were reset",
+                    ));
                 }
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereResetNotification } {

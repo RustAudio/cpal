@@ -10,9 +10,8 @@ use futures::executor::block_on;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
-    traits::StreamTrait, BackendSpecificError, BuildStreamError, Data, FrameCount,
-    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    PlayStreamError, SampleFormat, StreamError, StreamInstant,
+    traits::StreamTrait, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
 };
 
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
@@ -65,27 +64,27 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         match &self.0 {
             StreamInner::Playback(stream, _, handle) => {
-                block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
+                block_on(stream.uncork()).map_err(Error::from)?;
                 handle.notify();
             }
             StreamInner::Record(stream, _, handle) => {
-                block_on(stream.uncork()).map_err(Into::<BackendSpecificError>::into)?;
-                block_on(stream.started()).map_err(Into::<BackendSpecificError>::into)?;
+                block_on(stream.uncork()).map_err(Error::from)?;
+                block_on(stream.started()).map_err(Error::from)?;
                 handle.notify();
             }
         }
         Ok(())
     }
 
-    fn pause(&self) -> Result<(), crate::PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         let res = match &self.0 {
             StreamInner::Playback(stream, _, _) => block_on(stream.cork()),
             StreamInner::Record(stream, _, _) => block_on(stream.cork()),
         };
-        res.map_err(Into::<BackendSpecificError>::into)?;
+        res.map_err(Error::from)?;
         match &self.0 {
             StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
                 handle.notify()
@@ -102,7 +101,7 @@ impl StreamTrait for Stream {
         StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
-    fn buffer_size(&self) -> Result<FrameCount, crate::StreamError> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         let (spec, bytes) = match &self.0 {
             StreamInner::Playback(s, _, _) => (
                 s.sample_spec(),
@@ -123,10 +122,10 @@ impl Stream {
         params: protocol::PlaybackStreamParams,
         mut data_callback: D,
         error_callback: E,
-    ) -> Result<Self, BuildStreamError>
+    ) -> Result<Self, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let start = Instant::now();
 
@@ -138,10 +137,15 @@ impl Stream {
         let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
 
-        let format: SampleFormat = sample_spec
-            .format
-            .try_into()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+        let format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "PulseAudio sample format {:?} is not supported",
+                    sample_spec.format
+                ),
+            )
+        })?;
 
         // Silence for unsigned formats is the midpoint, not zero. Among
         // PulseAudio's supported formats, only U8 is unsigned and has a
@@ -207,7 +211,7 @@ impl Stream {
         };
 
         let stream = block_on(client.create_playback_stream(params, callback.as_playback_source()))
-            .map_err(Into::<BackendSpecificError>::into)?;
+            .map_err(Error::from)?;
 
         // Share the error callback between the worker and latency threads so
         // both can surface errors to the user.
@@ -221,11 +225,7 @@ impl Stream {
             if let Err(e) = block_on(stream_clone.play_all()) {
                 error_callback_clone
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())(StreamError::from(
-                    BackendSpecificError {
-                        description: e.to_string(),
-                    },
-                ));
+                    .unwrap_or_else(|e| e.into_inner())(Error::from(e));
             }
         });
 
@@ -243,11 +243,7 @@ impl Stream {
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
-                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(StreamError::from(
-                        BackendSpecificError {
-                            description: e.to_string(),
-                        },
-                    ));
+                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(Error::from(e));
                     break;
                 }
             };
@@ -266,10 +262,10 @@ impl Stream {
 
             // Wait until woken by a write/play/pause/drop event or until LATENCY_MAX_INTERVAL.
             let (lock, cvar) = &*update_thread;
-            let guard = lock.lock().unwrap();
+            let Ok(guard) = lock.lock() else { break };
             let (mut guard, _) = cvar
                 .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
-                .unwrap();
+                .unwrap_or_else(|e| e.into_inner());
             *guard = false;
         });
 
@@ -281,10 +277,10 @@ impl Stream {
         params: protocol::RecordStreamParams,
         mut data_callback: D,
         mut error_callback: E,
-    ) -> Result<Self, BuildStreamError>
+    ) -> Result<Self, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let start = Instant::now();
 
@@ -296,10 +292,15 @@ impl Stream {
         let poll_clone = last_poll_micros.clone();
         let sample_spec = params.sample_spec;
 
-        let format: SampleFormat = sample_spec
-            .format
-            .try_into()
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+        let format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "PulseAudio sample format {:?} is not supported",
+                    sample_spec.format
+                ),
+            )
+        })?;
 
         let handle = LatencyHandle::new();
         let update_callback = handle.update.clone();
@@ -348,8 +349,8 @@ impl Stream {
             cvar.notify_one();
         };
 
-        let stream = block_on(client.create_record_stream(params, callback))
-            .map_err(Into::<BackendSpecificError>::into)?;
+        let stream =
+            block_on(client.create_record_stream(params, callback)).map_err(Error::from)?;
 
         // Spawn a thread to monitor the stream's latency in a loop.
         let cancel_thread = handle.cancel.clone();
@@ -365,9 +366,7 @@ impl Stream {
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
-                    error_callback(StreamError::from(BackendSpecificError {
-                        description: e.to_string(),
-                    }));
+                    error_callback(Error::from(e));
                     break;
                 }
             };
@@ -386,10 +385,10 @@ impl Stream {
 
             // Wait until woken by a read/play/pause/drop event or until LATENCY_MAX_INTERVAL.
             let (lock, cvar) = &*update_thread;
-            let guard = lock.lock().unwrap();
+            let Ok(guard) = lock.lock() else { break };
             let (mut guard, _) = cvar
                 .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
-                .unwrap();
+                .unwrap_or_else(|e| e.into_inner());
             *guard = false;
         });
 

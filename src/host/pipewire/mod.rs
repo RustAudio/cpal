@@ -14,9 +14,14 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, crate::Error> {
         let _pw = PwInitGuard::new();
-        let devices = init_devices().ok_or(crate::HostUnavailable)?;
+        let devices = init_devices().ok_or_else(|| {
+            crate::Error::with_message(
+                crate::ErrorKind::HostUnavailable,
+                "PipeWire host initialization failed",
+            )
+        })?;
         Ok(Host { _pw, devices })
     }
 }
@@ -27,7 +32,7 @@ impl HostTrait for Host {
     fn is_available() -> bool {
         utils::find_socket_path().is_some()
     }
-    fn devices(&self) -> Result<Self::Devices, crate::DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, crate::Error> {
         Ok(self.devices.clone().into_iter())
     }
 
