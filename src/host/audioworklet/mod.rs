@@ -52,7 +52,10 @@ impl Host {
         if Self::is_available() {
             Ok(Host)
         } else {
-            Err(crate::Error::new(crate::ErrorKind::HostUnavailable))
+            Err(crate::Error::with_message(
+                ErrorKind::HostUnavailable,
+                "AudioWorklet API is not available",
+            ))
         }
     }
 }

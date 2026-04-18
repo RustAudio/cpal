@@ -358,10 +358,13 @@ impl DeviceTrait for Device {
                 last_quantum,
                 start,
             }),
-            Ok(false) => Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig)),
+            Ok(false) => Err(crate::Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "stream configuration rejected by PipeWire",
+            )),
             Err(_) => Err(crate::Error::with_message(
                 crate::ErrorKind::DeviceNotAvailable,
-                "pipewire timeout",
+                "PipeWire timed out",
             )),
         }
     }
@@ -444,10 +447,13 @@ impl DeviceTrait for Device {
                 last_quantum,
                 start,
             }),
-            Ok(false) => Err(crate::Error::new(crate::ErrorKind::UnsupportedConfig)),
+            Ok(false) => Err(crate::Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "stream configuration rejected by PipeWire",
+            )),
             Err(_) => Err(crate::Error::with_message(
                 crate::ErrorKind::DeviceNotAvailable,
-                "pipewire timeout",
+                "PipeWire timed out",
             )),
         }
     }

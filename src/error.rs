@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 
@@ -96,7 +97,7 @@ impl Display for ErrorKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Error {
     kind: ErrorKind,
-    message: Option<String>,
+    message: Option<Cow<'static, str>>,
 }
 
 impl Error {
@@ -109,7 +110,7 @@ impl Error {
     }
 
     /// Create a new error with the given kind and a human-readable message.
-    pub fn with_message(kind: ErrorKind, message: impl Into<String>) -> Self {
+    pub fn with_message(kind: ErrorKind, message: impl Into<Cow<'static, str>>) -> Self {
         Self {
             kind,
             message: Some(message.into()),

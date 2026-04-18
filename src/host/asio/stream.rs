@@ -889,17 +889,23 @@ impl Device {
                     sys::AsioMessageSelectors::kAsioResetRequest => {
                         error_callback_shared
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())(Error::new(
-                            ErrorKind::StreamInvalidated,
-                        ));
+                            .unwrap_or_else(|e| e.into_inner())(
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "ASIO driver requested stream reset",
+                            ),
+                        );
                         false
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
                         error_callback_shared
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())(Error::new(
-                            ErrorKind::Xrun,
-                        ));
+                            .unwrap_or_else(|e| e.into_inner())(
+                            Error::with_message(
+                                ErrorKind::Xrun,
+                                "ASIO driver requested resynchronization",
+                            ),
+                        );
                         false
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
