@@ -48,11 +48,11 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 const DEFAULT_RENDER_SIZE: u64 = 128;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::Error> {
+    pub fn new() -> Result<Self, Error> {
         if Self::is_available() {
             Ok(Host)
         } else {
-            Err(crate::Error::with_message(
+            Err(Error::with_message(
                 ErrorKind::HostUnavailable,
                 "AudioWorklet API is not available",
             ))

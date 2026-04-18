@@ -22,6 +22,7 @@ use crate::{
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
 };
+use crate::{Error, ErrorKind};
 
 mod convert;
 mod java_interface;
