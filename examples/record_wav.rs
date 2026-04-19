@@ -11,7 +11,7 @@ use std::{
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Error, ErrorKind, FromSample, HostId, Sample,
+    Error, ErrorKind, FromSample, HostId, Sample, SampleFormat, SupportedStreamConfig,
 };
 
 #[derive(Parser, Debug)]
@@ -125,25 +125,25 @@ fn main() -> Result<(), anyhow::Error> {
     };
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::I8 => device.build_input_stream(
+        SampleFormat::I8 => device.build_input_stream(
             config.into(),
             move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::I16 => device.build_input_stream(
+        SampleFormat::I16 => device.build_input_stream(
             config.into(),
             move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::I32 => device.build_input_stream(
+        SampleFormat::I32 => device.build_input_stream(
             config.into(),
             move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
             err_fn,
             None,
         )?,
-        cpal::SampleFormat::F32 => device.build_input_stream(
+        SampleFormat::F32 => device.build_input_stream(
             config.into(),
             move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
             err_fn,
@@ -166,7 +166,7 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
+fn sample_format(format: SampleFormat) -> hound::SampleFormat {
     if format.is_dsd() {
         panic!("DSD formats cannot be written to WAV files");
     } else if format.is_float() {
@@ -176,7 +176,7 @@ fn sample_format(format: cpal::SampleFormat) -> hound::SampleFormat {
     }
 }
 
-fn wav_spec_from_config(config: &cpal::SupportedStreamConfig) -> hound::WavSpec {
+fn wav_spec_from_config(config: &SupportedStreamConfig) -> hound::WavSpec {
     hound::WavSpec {
         channels: config.channels() as _,
         sample_rate: config.sample_rate() as _,

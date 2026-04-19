@@ -5,9 +5,8 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SizedSample, I24,
+    Device, FromSample, OutputCallbackInfo, Sample, SampleFormat, SizedSample, StreamConfig, I24,
 };
-use cpal::{FromSample, Sample};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
 fn main() {
@@ -20,25 +19,25 @@ fn main() {
     let config = device.default_output_config().unwrap();
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::I16 => run::<i16>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::I24 => run::<I24>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::I32 => run::<i32>(&device, config.into()).unwrap(),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::I64 => run::<i64>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::U8 => run::<u8>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::U16 => run::<u16>(&device, config.into()).unwrap(),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::U32 => run::<u32>(&device, config.into()).unwrap(),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::U64 => run::<u64>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::F32 => run::<f32>(&device, config.into()).unwrap(),
-        cpal::SampleFormat::F64 => run::<f64>(&device, config.into()).unwrap(),
+        SampleFormat::I8 => run::<i8>(&device, config.into()).unwrap(),
+        SampleFormat::I16 => run::<i16>(&device, config.into()).unwrap(),
+        SampleFormat::I24 => run::<I24>(&device, config.into()).unwrap(),
+        SampleFormat::I32 => run::<i32>(&device, config.into()).unwrap(),
+        // SampleFormat::I48 => run::<I48>(&device, config.into()).unwrap(),
+        SampleFormat::I64 => run::<i64>(&device, config.into()).unwrap(),
+        SampleFormat::U8 => run::<u8>(&device, config.into()).unwrap(),
+        SampleFormat::U16 => run::<u16>(&device, config.into()).unwrap(),
+        // SampleFormat::U24 => run::<U24>(&device, config.into()).unwrap(),
+        SampleFormat::U32 => run::<u32>(&device, config.into()).unwrap(),
+        // SampleFormat::U48 => run::<U48>(&device, config.into()).unwrap(),
+        SampleFormat::U64 => run::<u64>(&device, config.into()).unwrap(),
+        SampleFormat::F32 => run::<f32>(&device, config.into()).unwrap(),
+        SampleFormat::F64 => run::<f64>(&device, config.into()).unwrap(),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
-fn run<T>(device: &cpal::Device, config: cpal::StreamConfig) -> Result<(), anyhow::Error>
+fn run<T>(device: &Device, config: StreamConfig) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
 {
@@ -52,11 +51,11 @@ where
         (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+        move |data: &mut [T], _: &OutputCallbackInfo| {
             write_data(data, channels, &mut next_value)
         },
         err_fn,

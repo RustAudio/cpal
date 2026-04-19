@@ -9,7 +9,7 @@
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Error, ErrorKind, HostId,
+    Error, ErrorKind, HostId, InputCallbackInfo, OutputCallbackInfo, StreamConfig,
 };
 use ringbuf::{
     traits::{Consumer, Producer, Split},
@@ -103,7 +103,7 @@ fn main() -> anyhow::Result<()> {
     println!("Using output device: \"{}\"", output_device.id()?);
 
     // We'll try and use the same configuration between streams to keep it simple.
-    let config: cpal::StreamConfig = input_device.default_input_config()?.into();
+    let config: StreamConfig = input_device.default_input_config()?.into();
 
     // Create a delay in case the input and output devices aren't synced.
     let latency_frames = (opt.latency / 1_000.0) * config.sample_rate as f32;
@@ -120,7 +120,7 @@ fn main() -> anyhow::Result<()> {
         producer.try_push(0.0).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+    let input_data_fn = move |data: &[f32], _: &InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
             if producer.try_push(sample).is_err() {
@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+    let output_data_fn = move |data: &mut [f32], _: &OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for sample in data {
             *sample = match consumer.try_pop() {

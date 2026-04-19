@@ -8,9 +8,10 @@ use std::{
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, Error, ErrorKind, FrameCount,
-    FromSample, OutputCallbackInfo, Sample, SampleFormat, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
+    ChannelCount, Data, Device, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind, FrameCount, FromSample, InputCallbackInfo, OutputCallbackInfo,
+    OutputStreamTimestamp, Sample, SampleFormat, Stream, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 #[allow(dead_code)]
@@ -70,10 +71,10 @@ impl DeviceTrait for MyDevice {
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Ok(DeviceDescriptionBuilder::new("Custom Device".to_string()).build())
+        Ok(DeviceDescriptionBuilder::new("Custom Device").build())
     }
 
-    fn id(&self) -> Result<cpal::DeviceId, Error> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Err(Error::new(ErrorKind::UnsupportedOperation))
     }
 
@@ -119,7 +120,7 @@ impl DeviceTrait for MyDevice {
         _: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &cpal::InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Err(Error::new(ErrorKind::UnsupportedConfig))
@@ -162,18 +163,14 @@ impl DeviceTrait for MyDevice {
                 // data is cpal's way of having a type erased buffer.
                 // you're expected to provide a raw pointer, the amount of samples, and the sample format of the buffer
                 let mut data = unsafe {
-                    cpal::Data::from_parts(
-                        buffer.as_mut_ptr().cast(),
-                        buffer.len(),
-                        cpal::SampleFormat::F32,
-                    )
+                    Data::from_parts(buffer.as_mut_ptr().cast(), buffer.len(), SampleFormat::F32)
                 };
 
                 let duration = Instant::now().duration_since(start);
                 let secs = duration.as_nanos() / 1_000_000_000;
                 let subsec_nanos = duration.as_nanos() - secs * 1_000_000_000;
-                let stream_instant = cpal::StreamInstant::new(secs as _, subsec_nanos as _);
-                let timestamp = cpal::OutputStreamTimestamp {
+                let stream_instant = StreamInstant::new(secs as _, subsec_nanos as _);
+                let timestamp = OutputStreamTimestamp {
                     callback: stream_instant,
                     playback: stream_instant,
                 };
@@ -203,12 +200,12 @@ impl StreamTrait for MyStream {
         Ok(())
     }
 
-    fn now(&self) -> cpal::StreamInstant {
+    fn now(&self) -> StreamInstant {
         let elapsed = self.start.elapsed();
-        cpal::StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
+        StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
     }
 
-    fn buffer_size(&self) -> Result<cpal::FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
         Ok(BUFFER_SIZE)
     }
 }
@@ -313,10 +310,7 @@ impl Oscillator {
     }
 }
 
-pub fn make_stream(
-    device: &cpal::Device,
-    config: StreamConfig,
-) -> Result<cpal::Stream, anyhow::Error> {
+pub fn make_stream(device: &Device, config: StreamConfig) -> Result<Stream, anyhow::Error> {
     let num_channels = config.channels as usize;
     let mut oscillator = Oscillator {
         waveform: Waveform::Sine,
@@ -331,7 +325,7 @@ pub fn make_stream(
 
     let stream = device.build_output_stream(
         config,
-        move |output: &mut [f32], _: &cpal::OutputCallbackInfo| {
+        move |output: &mut [f32], _: &OutputCallbackInfo| {
             // for 0-1s play sine, 1-2s play square, 2-3s play saw, 3-4s play triangle_wave
             let time_since_start = Instant::now().duration_since(time_at_start).as_secs_f32();
             if time_since_start < 1.0 {
