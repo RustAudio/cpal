@@ -19,7 +19,10 @@ use std::{
 use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 use crate::{
-    host::{fill_equilibrium, frames_to_duration, DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE},
+    host::{
+        equilibrium::{fill_equilibrium, DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE},
+        frames_to_duration,
+    },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -416,7 +419,7 @@ impl Device {
         let frame_size = sample_format.sample_size() * conf.channels as usize;
         let period_bytes = period_frames * frame_size;
 
-        let equilibrium_fill = EquilibriumFill::new(sample_format, period_bytes as FrameCount);
+        let equilibrium_fill = EquilibriumFill::new(sample_format, period_bytes);
 
         let stream_inner = StreamInner {
             dropping: AtomicBool::new(false),
@@ -680,7 +683,7 @@ enum EquilibriumFill {
 
 impl EquilibriumFill {
     /// Compute the equilibrium-fill strategy for the given sample format at stream creation.
-    fn new(sample_format: SampleFormat, period_bytes: FrameCount) -> Self {
+    fn new(sample_format: SampleFormat, period_bytes: usize) -> Self {
         if sample_format.is_int() || sample_format.is_float() {
             Self::Byte(0)
         } else if sample_format == SampleFormat::U8 {
@@ -691,7 +694,7 @@ impl EquilibriumFill {
             // Multi-byte unsigned integer formats require a fill equal to the midpoint of their
             // range.
             debug_assert!(sample_format.is_uint());
-            let mut template = vec![0u8; period_bytes as usize].into_boxed_slice();
+            let mut template = vec![0u8; period_bytes].into_boxed_slice();
             fill_equilibrium(&mut template, sample_format);
             Self::Template(template)
         }

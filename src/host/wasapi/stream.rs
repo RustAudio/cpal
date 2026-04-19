@@ -12,7 +12,7 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{fill_equilibrium, frames_to_duration},
+    host::{equilibrium::fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
