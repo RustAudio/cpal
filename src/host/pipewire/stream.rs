@@ -25,8 +25,7 @@ use crate::{
     host::{fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant,
+    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
 };
 
 /// Counts the number of live [`PwInitGuard`] instances across all threads.
