@@ -17,9 +17,9 @@ use pipewire::{
 use super::stream::Stream;
 use crate::{
     host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
+    host::pipewire::utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::DeviceTrait,
-    utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, InterfaceType,
     OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,

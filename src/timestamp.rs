@@ -220,7 +220,7 @@ impl std::ops::Sub<Duration> for StreamInstant {
     #[inline]
     fn sub(self, rhs: Duration) -> Self::Output {
         self.checked_sub(rhs)
-            .expect("overflow when subtracting duration from stream instant")
+            .expect("underflow when subtracting duration from stream instant")
     }
 }
 

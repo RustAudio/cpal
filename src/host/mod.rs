@@ -1,7 +1,50 @@
-use crate::{FrameCount, Sample, SampleFormat, SampleRate, I24, U24};
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_vendor = "apple",
+    feature = "audioworklet",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    )
+))]
+use crate::{FrameCount, SampleRate};
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_vendor = "apple",
+    feature = "audioworklet",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    )
+))]
+use std::time::Duration;
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use crate::{Sample, SampleFormat, U24};
+
+#[cfg(windows)]
+pub(crate) mod com;
 
 #[cfg(target_os = "android")]
 pub(crate) mod aaudio;
+
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -9,18 +52,20 @@ pub(crate) mod aaudio;
     target_os = "netbsd"
 ))]
 pub(crate) mod alsa;
+
 #[cfg(all(windows, feature = "asio"))]
 pub(crate) mod asio;
+
 #[cfg(all(
     feature = "wasm-bindgen",
     feature = "audioworklet",
     target_feature = "atomics"
 ))]
 pub(crate) mod audioworklet;
-#[cfg(windows)]
-pub(crate) mod com;
+
 #[cfg(target_vendor = "apple")]
 pub(crate) mod coreaudio;
+
 #[cfg(all(
     feature = "jack",
     any(
@@ -33,6 +78,7 @@ pub(crate) mod coreaudio;
     )
 ))]
 pub(crate) mod jack;
+
 #[cfg(all(
     any(
         target_os = "linux",
@@ -43,6 +89,7 @@ pub(crate) mod jack;
     feature = "pipewire"
 ))]
 pub(crate) mod pipewire;
+
 #[cfg(all(
     any(
         target_os = "linux",
@@ -53,13 +100,16 @@ pub(crate) mod pipewire;
     feature = "pulseaudio"
 ))]
 pub(crate) mod pulseaudio;
+
 #[cfg(windows)]
 pub(crate) mod wasapi;
+
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 pub(crate) mod webaudio;
 
 #[cfg(feature = "custom")]
 pub(crate) mod custom;
+
 #[cfg(not(any(
     windows,
     target_os = "linux",
@@ -72,10 +122,15 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
-// Fill a buffer with equilibrium values for any sample format.
-// Works with any buffer size, even if not perfectly aligned to sample boundaries.
-#[allow(unused)]
-pub(crate) fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(crate) const DSD_EQUILIBRIUM_BYTE: u8 = 0x69;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(crate) const U8_EQUILIBRIUM_BYTE: u8 = 0x80;
+
+/// Fill `buffer` with the equilibrium value for any `sample_format`.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[inline]
+pub(crate) fn fill_equilibrium(buffer: &mut [u8], sample_format: SampleFormat) {
     macro_rules! fill_typed {
         ($sample_type:ty) => {{
             let sample_size = std::mem::size_of::<$sample_type>();
@@ -90,7 +145,7 @@ pub(crate) fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleForm
             let num_samples = buffer.len() / sample_size;
             let equilibrium = <$sample_type as Sample>::EQUILIBRIUM;
 
-            // Safety: We verified the buffer size is correctly aligned for the sample type
+            // Safety: buffer length is verified to be a multiple of the sample size above.
             let samples = unsafe {
                 std::slice::from_raw_parts_mut(
                     buffer.as_mut_ptr() as *mut $sample_type,
@@ -103,34 +158,55 @@ pub(crate) fn fill_with_equilibrium(buffer: &mut [u8], sample_format: SampleForm
             }
         }};
     }
-    const DSD_SILENCE_BYTE: u8 = 0x69;
 
-    match sample_format {
-        SampleFormat::I8 => fill_typed!(i8),
-        SampleFormat::I16 => fill_typed!(i16),
-        SampleFormat::I24 => fill_typed!(I24),
-        SampleFormat::I32 => fill_typed!(i32),
-        // SampleFormat::I48 => fill_typed!(I48),
-        SampleFormat::I64 => fill_typed!(i64),
-        SampleFormat::U8 => fill_typed!(u8),
-        SampleFormat::U16 => fill_typed!(u16),
-        SampleFormat::U24 => fill_typed!(U24),
-        SampleFormat::U32 => fill_typed!(u32),
-        // SampleFormat::U48 => fill_typed!(U48),
-        SampleFormat::U64 => fill_typed!(u64),
-        SampleFormat::F32 => fill_typed!(f32),
-        SampleFormat::F64 => fill_typed!(f64),
-        SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => {
-            buffer.fill(DSD_SILENCE_BYTE)
+    if sample_format.is_int() || sample_format.is_float() {
+        buffer.fill(0);
+    } else if sample_format == SampleFormat::U8 {
+        buffer.fill(U8_EQUILIBRIUM_BYTE);
+    } else if sample_format.is_dsd() {
+        buffer.fill(DSD_EQUILIBRIUM_BYTE);
+    } else {
+        // Multi-byte unsigned integer formats require a fill equal to the midpoint of their range.
+        debug_assert!(sample_format.is_uint());
+        match sample_format {
+            SampleFormat::U16 => fill_typed!(u16),
+            SampleFormat::U24 => fill_typed!(U24),
+            SampleFormat::U32 => fill_typed!(u32),
+            SampleFormat::U64 => fill_typed!(u64),
+            _ => unimplemented!(
+                "failed to fill equilibrium for unsupported unsigned format {sample_format:?}"
+            ),
         }
     }
 }
 
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_vendor = "apple",
+    feature = "audioworklet",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    )
+))]
 #[inline]
-pub(crate) fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
+pub(crate) fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
+    if rate == 0 {
+        return Duration::ZERO;
+    }
+    let rate = rate as u64;
+    let secs = frames as u64 / rate;
+    // rem_frames < rate <= u32::MAX, so rem_frames * 1_000_000_000 < u64::MAX
+    let rem_frames = frames as u64 % rate;
+    let nanos = rem_frames * 1_000_000_000 / rate;
+    Duration::new(secs, nanos as u32)
 }

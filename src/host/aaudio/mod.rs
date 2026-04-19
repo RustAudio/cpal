@@ -7,9 +7,9 @@ use std::{
     convert::TryInto,
     sync::{
         atomic::{AtomicI32, Ordering},
-        time::Duration,
         Arc, Mutex,
     },
+    time::Duration,
     vec::IntoIter as VecIntoIter,
 };
 
@@ -17,7 +17,7 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate,
+    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
 };

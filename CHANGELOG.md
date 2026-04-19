@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
 - **AAudio**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
 - **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
+- **AAudio**: Output buffers are now zero-filled before the callback runs.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
@@ -93,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
 - **ALSA**: Fix timestamp overflows on 32-bit platforms.
 - **ALSA**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
+- **ALSA**: Fix silence template not being applied for DSD.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
@@ -102,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the
   update.
 - **ASIO**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
+- **ASIO**: Output buffers are now zero-filled before the callback runs.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **CoreAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of 
   panicking.
@@ -112,7 +115,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: `activate_async()` failure now returns an error instead of panicking.
 - **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
 - **JACK**: Underrun notification no longer blocks the notification thread.
+- **JACK**: Output buffers are now zero-filled before the callback runs.
 - **WASAPI**: Poisoned locks now returns an error instead of panicking.
+- **WASAPI**: Output buffers are now zero-filled before the callback runs.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 

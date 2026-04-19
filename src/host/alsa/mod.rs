@@ -19,7 +19,7 @@ use std::{
 use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 use crate::{
-    host::{fill_with_equilibrium, frames_to_duration},
+    host::{fill_equilibrium, frames_to_duration, DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -412,16 +412,11 @@ impl Device {
             handle.start()?;
         }
 
-        // Pre-compute a period-sized buffer filled with silence values.
         let period_frames = period_samples / conf.channels as usize;
         let frame_size = sample_format.sample_size() * conf.channels as usize;
         let period_bytes = period_frames * frame_size;
-        let mut silence_template = vec![0u8; period_bytes].into_boxed_slice();
 
-        // Signed integers and floats have zero-byte equilibrium; fill everything else.
-        if !sample_format.is_int() && !sample_format.is_float() {
-            fill_with_equilibrium(&mut silence_template, sample_format);
-        }
+        let equilibrium_fill = EquilibriumFill::new(sample_format, period_bytes as FrameCount);
 
         let stream_inner = StreamInner {
             dropping: AtomicBool::new(false),
@@ -432,7 +427,7 @@ impl Device {
             period_samples,
             period_frames,
             frame_size,
-            silence_template,
+            equilibrium: equilibrium_fill,
             can_pause,
             creation_instant,
             use_hw_timestamps,
@@ -674,6 +669,43 @@ impl Default for Device {
     }
 }
 
+/// Strategy for pre-filling an output buffer with the equilibrium value.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum EquilibriumFill {
+    /// Equilibrium is represented as a single repeating byte value.
+    Byte(u8),
+    /// A period-sized buffer pre-filled with the equilibrium value.
+    Template(Box<[u8]>),
+}
+
+impl EquilibriumFill {
+    /// Compute the equilibrium-fill strategy for the given sample format at stream creation.
+    fn new(sample_format: SampleFormat, period_bytes: FrameCount) -> Self {
+        if sample_format.is_int() || sample_format.is_float() {
+            Self::Byte(0)
+        } else if sample_format == SampleFormat::U8 {
+            Self::Byte(U8_EQUILIBRIUM_BYTE)
+        } else if sample_format.is_dsd() {
+            Self::Byte(DSD_EQUILIBRIUM_BYTE)
+        } else {
+            // Multi-byte unsigned integer formats require a fill equal to the midpoint of their
+            // range.
+            debug_assert!(sample_format.is_uint());
+            let mut template = vec![0u8; period_bytes as usize].into_boxed_slice();
+            fill_equilibrium(&mut template, sample_format);
+            Self::Template(template)
+        }
+    }
+
+    #[inline]
+    fn fill(&self, buffer: &mut [u8]) {
+        match self {
+            Self::Byte(b) => buffer.fill(*b),
+            Self::Template(t) => buffer.copy_from_slice(t),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
@@ -697,7 +729,7 @@ struct StreamInner {
     period_samples: usize,
     period_frames: usize,
     frame_size: usize,
-    silence_template: Box<[u8]>,
+    equilibrium: EquilibriumFill,
 
     #[allow(dead_code)]
     // Whether or not the hardware supports pausing the stream.
@@ -756,8 +788,9 @@ impl StreamWorkerContext {
             -1 // Don't timeout, wait forever.
         };
 
-        // Pre-allocate buffer to exactly one period size with proper equilibrium values.
-        let transfer_buffer = stream.silence_template.clone();
+        // Pre-allocate a period-sized working buffer. Contents are overwritten each callback.
+        let transfer_buffer =
+            vec![0u8; stream.period_frames * stream.frame_size].into_boxed_slice();
 
         // Pre-allocate and initialize descriptors vector: 1 for self-pipe + stream.num_descriptors
         // for ALSA. The descriptor count is constant for the lifetime of stream parameters, and
@@ -1084,8 +1117,8 @@ fn process_output(
     delay_frames: usize,
     data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
 ) -> Result<(), Error> {
-    // Buffer is always pre-filled with equilibrium, user overwrites what they want
-    buffer.copy_from_slice(&stream.silence_template);
+    // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
+    stream.equilibrium.fill(buffer);
     {
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =

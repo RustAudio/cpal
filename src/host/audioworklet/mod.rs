@@ -400,7 +400,7 @@ impl Iterator for Devices {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Self::Item)
+            Some(Device)
         } else {
             None
         }

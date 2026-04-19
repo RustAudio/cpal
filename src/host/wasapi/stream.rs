@@ -12,7 +12,7 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{fill_with_equilibrium, frames_to_duration},
+    host::{fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
@@ -575,10 +575,8 @@ fn process_output(
         debug_assert!(!buffer.is_null());
 
         let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-        fill_with_equilibrium(
-            std::slice::from_raw_parts_mut(buffer, byte_count),
-            stream.sample_format,
-        );
+        let buffer_slice = std::slice::from_raw_parts_mut(buffer, byte_count);
+        fill_equilibrium(buffer_slice, stream.sample_format);
 
         let data = buffer as *mut ();
         let len = byte_count / stream.sample_format.sample_size();

@@ -264,7 +264,7 @@ impl StreamTrait for Stream {
         })?;
         device::get_device_buffer_frame_size(&stream.audio_unit)
             .map(|size| size as FrameCount)
-            .map_err(Error::from)
+            .context("failed to get buffer frame size")
     }
 }
 

@@ -22,7 +22,7 @@ use pipewire::{
 };
 
 use crate::{
-    host::{fill_with_equilibrium, frames_to_duration},
+    host::{fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
@@ -315,15 +315,6 @@ fn monotonic_stream_instant() -> Option<StreamInstant> {
     }
 }
 
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-#[inline]
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
-}
-
 fn remote_props() -> Option<pw::properties::PropertiesBox> {
     let socket = super::utils::find_socket_path()?;
     let mut props = pw::properties::PropertiesBox::new();
@@ -435,10 +426,10 @@ where
                 // samples = frames * channels or samples = data_len / sample_size
                 let n_samples = frames * n_channels as usize;
 
-                // Pre-fill only the active region with silence before handing it to the
+                // Pre-fill only the active region with equilibrium before handing it to the
                 // callback.
                 let active = &mut samples[..frames * stride];
-                fill_with_equilibrium(active, user_data.sample_format);
+                fill_equilibrium(active, user_data.sample_format);
 
                 let data = active.as_mut_ptr() as *mut ();
                 let mut data =
