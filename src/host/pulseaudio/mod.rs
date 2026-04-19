@@ -7,6 +7,7 @@ mod stream;
 pub use stream::Stream;
 
 use crate::{
+    error::ResultExt,
     traits::{DeviceTrait, HostTrait},
     Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind,
     FrameCount, HostId, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
@@ -141,9 +142,11 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        let sinks = block_on(self.client.list_sinks()).map_err(Error::from)?;
+        let sinks =
+            block_on(self.client.list_sinks()).context("failed to list PulseAudio sinks")?;
 
-        let sources = block_on(self.client.list_sources()).map_err(Error::from)?;
+        let sources =
+            block_on(self.client.list_sources()).context("failed to list PulseAudio sources")?;
 
         Ok(sinks
             .into_iter()

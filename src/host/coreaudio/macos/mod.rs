@@ -4,7 +4,7 @@ use super::{asbd_from_config, check_os_status, frames_to_duration, host_time_to_
 use super::OSStatus;
 use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::traits::{HostTrait, StreamTrait};
-use crate::{Error, ErrorKind};
+use crate::{error::ResultExt, Error, ErrorKind};
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::AudioDeviceID;
 use std::sync::{mpsc, Arc, Mutex, Weak};
@@ -196,7 +196,9 @@ struct StreamInner {
 impl StreamInner {
     fn play(&mut self) -> Result<(), Error> {
         if !self.playing {
-            self.audio_unit.start().map_err(Error::from)?;
+            self.audio_unit
+                .start()
+                .context("failed to start audio unit")?;
             self.playing = true;
         }
         Ok(())
@@ -204,7 +206,9 @@ impl StreamInner {
 
     fn pause(&mut self) -> Result<(), Error> {
         if self.playing {
-            self.audio_unit.stop().map_err(Error::from)?;
+            self.audio_unit
+                .stop()
+                .context("failed to stop audio unit")?;
             self.playing = false;
         }
         Ok(())
@@ -260,7 +264,7 @@ impl StreamTrait for Stream {
         })?;
         device::get_device_buffer_frame_size(&stream.audio_unit)
             .map(|size| size as crate::FrameCount)
-            .map_err(Error::from)
+            .context("failed to get buffer frame size")
     }
 }
 

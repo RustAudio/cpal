@@ -4,9 +4,9 @@ use crate::host::coreaudio::macos::loopback::LoopbackDevice;
 use crate::host::coreaudio::macos::StreamInner;
 use crate::traits::DeviceTrait;
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceId, Error, ErrorKind, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
+    error::ResultExt, BufferSize, ChannelCount, Data, DeviceId, Error, ErrorKind,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
@@ -392,7 +392,7 @@ impl Device {
     }
 
     fn description(&self) -> Result<crate::DeviceDescription, Error> {
-        let name = get_device_name(self.audio_device_id).map_err(Error::from)?;
+        let name = get_device_name(self.audio_device_id).context("failed to get device name")?;
 
         let input_configs = self
             .supported_input_configs()

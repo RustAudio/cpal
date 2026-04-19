@@ -1,7 +1,7 @@
 use crate::traits::StreamTrait;
 use crate::{
-    BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamInstant,
+    error::ResultExt, BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamInstant,
 };
 use std::mem;
 use std::ptr;
@@ -282,7 +282,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .stream
                         .audio_client
                         .Start()
-                        .map_err(Error::from)?;
+                        .context("failed to start audio client")?;
                     run_context.stream.playing = true;
                 }
             },
@@ -292,7 +292,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .stream
                         .audio_client
                         .Stop()
-                        .map_err(Error::from)?;
+                        .context("failed to stop audio client")?;
                     run_context.stream.playing = false;
                 }
             },
@@ -340,7 +340,7 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
         let padding = stream
             .audio_client
             .GetCurrentPadding()
-            .map_err(Error::from)?;
+            .context("failed to get current padding")?;
         Ok(stream.max_frames_in_buffer - padding)
     }
 }
@@ -532,7 +532,7 @@ fn process_input(
             // Release the buffer.
             let result = capture_client
                 .ReleaseBuffer(frames_available)
-                .map_err(Error::from);
+                .context("failed to release capture buffer");
             if let Err(err) = result {
                 error_callback(err);
                 return ControlFlow::Break;
@@ -611,7 +611,7 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
         stream
             .audio_clock
             .GetPosition(&mut position, Some(&mut qpc_position))
-            .map_err(Error::from)?;
+            .context("failed to get clock position")?;
     };
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = qpc_position as u128 * 100;

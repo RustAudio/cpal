@@ -1,8 +1,8 @@
 use crate::{
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
+    error::ResultExt, BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 impl From<Audio::EDataFlow> for DeviceDirection {
@@ -482,7 +482,9 @@ impl Device {
         com::com_initialized();
 
         // Retrieve the `IAudioClient`.
-        let lock = self.ensure_future_audio_client().map_err(Error::from)?;
+        let lock = self
+            .ensure_future_audio_client()
+            .context("failed to get audio client")?;
         let client = &lock.as_ref().unwrap().0;
 
         unsafe {
@@ -490,7 +492,7 @@ impl Device {
             let default_waveformatex_ptr = client
                 .GetMixFormat()
                 .map(WaveFormatExPtr)
-                .map_err(Error::from)?;
+                .context("failed to get mix format")?;
 
             // If the default format can't succeed we have no hope of finding other formats.
             if !is_format_supported(client, default_waveformatex_ptr.0)? {
@@ -581,14 +583,16 @@ impl Device {
         // initializing COM because we call `CoTaskMemFree`
         com::com_initialized();
 
-        let lock = self.ensure_future_audio_client().map_err(Error::from)?;
+        let lock = self
+            .ensure_future_audio_client()
+            .context("failed to get audio client")?;
         let client = &lock.as_ref().unwrap().0;
 
         unsafe {
             let format_ptr = client
                 .GetMixFormat()
                 .map(WaveFormatExPtr)
-                .map_err(Error::from)?;
+                .context("failed to get mix format")?;
 
             format_from_waveformatex_ptr(format_ptr.0, client).ok_or_else(|| {
                 Error::with_message(
@@ -638,7 +642,9 @@ impl Device {
             com::com_initialized();
 
             // Obtaining a `IAudioClient`.
-            let audio_client = self.build_audioclient().map_err(Error::from)?;
+            let audio_client = self
+                .build_audioclient()
+                .context("failed to build audio client")?;
 
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
@@ -683,13 +689,15 @@ impl Device {
                         &format_attempt.Format,
                         None,
                     )
-                    .map_err(Error::from)?;
+                    .context("failed to initialize audio client")?;
 
                 format_attempt.Format
             };
 
             // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client.GetBufferSize().map_err(Error::from)?;
+            let max_frames_in_buffer = audio_client
+                .GetBufferSize()
+                .context("failed to get buffer size")?;
 
             let period_frames =
                 shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
@@ -697,14 +705,16 @@ impl Device {
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event =
                 Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-                    .map_err(Error::from)?;
+                    .context("failed to create event")?;
 
-            audio_client.SetEventHandle(event).map_err(Error::from)?;
+            audio_client
+                .SetEventHandle(event)
+                .context("failed to set event handle")?;
 
             // Building a `IAudioCaptureClient` that will be used to read captured samples.
             let capture_client = audio_client
                 .GetService::<Audio::IAudioCaptureClient>()
-                .map_err(Error::from)?;
+                .context("failed to get capture client")?;
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
@@ -713,7 +723,9 @@ impl Device {
             let audio_clock = get_audio_clock(&audio_client)?;
 
             let stream_latency = {
-                let hns = audio_client.GetStreamLatency().map_err(Error::from)?;
+                let hns = audio_client
+                    .GetStreamLatency()
+                    .context("failed to get stream latency")?;
                 Duration::from_nanos(hns.max(0) as u64 * 100)
             };
 
@@ -744,7 +756,9 @@ impl Device {
             com::com_initialized();
 
             // Obtaining a `IAudioClient`.
-            let audio_client = self.build_audioclient().map_err(Error::from)?;
+            let audio_client = self
+                .build_audioclient()
+                .context("failed to build audio client")?;
 
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
@@ -783,7 +797,7 @@ impl Device {
                         &format_attempt.Format,
                         None,
                     )
-                    .map_err(Error::from)?;
+                    .context("failed to initialize audio client")?;
 
                 format_attempt.Format
             };
@@ -791,12 +805,16 @@ impl Device {
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event =
                 Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
-                    .map_err(Error::from)?;
+                    .context("failed to create event")?;
 
-            audio_client.SetEventHandle(event).map_err(Error::from)?;
+            audio_client
+                .SetEventHandle(event)
+                .context("failed to set event handle")?;
 
             // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client.GetBufferSize().map_err(Error::from)?;
+            let max_frames_in_buffer = audio_client
+                .GetBufferSize()
+                .context("failed to get buffer size")?;
 
             let period_frames =
                 shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
@@ -804,7 +822,7 @@ impl Device {
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = audio_client
                 .GetService::<IAudioRenderClient>()
-                .map_err(Error::from)?;
+                .context("failed to get render client")?;
 
             // Once we built the `StreamInner`, we add a command that will be picked up by the
             // `run()` method and added to the `RunContext`.
@@ -813,7 +831,9 @@ impl Device {
             let audio_clock = get_audio_clock(&audio_client)?;
 
             let stream_latency = {
-                let hns = audio_client.GetStreamLatency().map_err(Error::from)?;
+                let hns = audio_client
+                    .GetStreamLatency()
+                    .context("failed to get stream latency")?;
                 Duration::from_nanos(hns.max(0) as u64 * 100)
             };
 
@@ -1035,9 +1055,11 @@ impl Devices {
             let collection = get_enumerator()
                 .0
                 .EnumAudioEndpoints(Audio::eAll, Audio::DEVICE_STATE_ACTIVE)
-                .map_err(Error::from)?;
+                .context("failed to enumerate audio endpoints")?;
 
-            let count = collection.GetCount().map_err(Error::from)?;
+            let count = collection
+                .GetCount()
+                .context("failed to get device count")?;
 
             Ok(Devices {
                 collection,
@@ -1096,7 +1118,7 @@ pub fn default_output_device() -> Option<Device> {
 unsafe fn get_audio_clock(audio_client: &Audio::IAudioClient) -> Result<Audio::IAudioClock, Error> {
     audio_client
         .GetService::<Audio::IAudioClock>()
-        .map_err(Error::from)
+        .context("failed to get audio clock")
 }
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.

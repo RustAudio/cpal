@@ -15,13 +15,13 @@ use convert::{input_stream_instant, now_stream_instant, output_stream_instant};
 use java_interface::{AudioDeviceInfo, AudioManager};
 
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::{error::ResultExt, Error, ErrorKind};
 use crate::{
     BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
     DeviceType, FrameCount, InputCallbackInfo, InputStreamTimestamp, InterfaceType,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
 };
-use crate::{Error, ErrorKind};
 
 mod convert;
 mod java_interface;
@@ -683,14 +683,16 @@ impl StreamTrait for Stream {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
 
-        stream.request_start().map_err(Error::from)?;
+        stream
+            .request_start()
+            .context("failed to start AAudio stream")?;
         stream
             .wait_for_state_change(
                 ndk::audio::AudioStreamState::Starting,
                 DEFAULT_TIMEOUT_NANOS,
             )
             .map(|_| ())
-            .map_err(Error::from)
+            .context("failed to wait for AAudio stream to start")
     }
 
     fn pause(&self) -> Result<(), Error> {
@@ -700,14 +702,16 @@ impl StreamTrait for Stream {
                     Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
                 })?;
 
-                stream.request_pause().map_err(Error::from)?;
+                stream
+                    .request_pause()
+                    .context("failed to pause AAudio stream")?;
                 stream
                     .wait_for_state_change(
                         ndk::audio::AudioStreamState::Pausing,
                         DEFAULT_TIMEOUT_NANOS,
                     )
                     .map(|_| ())
-                    .map_err(Error::from)
+                    .context("failed to wait for AAudio stream to pause")
             }
             _ => Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,

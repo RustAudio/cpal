@@ -15,9 +15,10 @@ use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    error::ResultExt, BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
 };
 
 use self::enumerate::{
@@ -266,7 +267,10 @@ impl StreamTrait for Stream {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
         if !stream.playing {
-            stream.audio_unit.start().map_err(Error::from)?;
+            stream
+                .audio_unit
+                .start()
+                .context("failed to start audio unit")?;
             stream.playing = true;
         }
         Ok(())
@@ -277,7 +281,10 @@ impl StreamTrait for Stream {
             Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
         })?;
         if stream.playing {
-            stream.audio_unit.stop().map_err(Error::from)?;
+            stream
+                .audio_unit
+                .stop()
+                .context("failed to stop audio unit")?;
             stream.playing = false;
         }
         Ok(())

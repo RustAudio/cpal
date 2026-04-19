@@ -144,3 +144,20 @@ impl From<ErrorKind> for Error {
         Self::new(kind)
     }
 }
+
+/// Extension trait for attaching a context message to a [`Result`] whose error converts into
+/// [`cpal::Error`].
+pub(crate) trait ResultExt<T> {
+    /// Converts the error via [`Into<cpal::Error>`] and prepends `msg`, yielding
+    /// `"<msg>: <original error>"` as the message.
+    fn context(self, msg: &'static str) -> Result<T, Error>;
+}
+
+impl<T, E: Into<Error>> ResultExt<T> for Result<T, E> {
+    fn context(self, msg: &'static str) -> Result<T, Error> {
+        self.map_err(|e| {
+            let e = e.into();
+            Error::with_message(e.kind(), format!("{msg}: {e}"))
+        })
+    }
+}
