@@ -101,7 +101,7 @@ impl Host {
         let inner = AlsaContext::new().map_err(|e| {
             Error::with_message(ErrorKind::HostUnavailable, format!("ALSA unavailable: {e}"))
         })?;
-        Ok(Host {
+        Ok(Self {
             inner: Arc::new(inner),
         })
     }
@@ -128,11 +128,11 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(Self::Device::default())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(Self::Device::default())
     }
 }
 
@@ -171,15 +171,15 @@ impl DeviceTrait for Device {
 
     // ALSA overrides name() to return pcm_id directly instead of from description
     fn name(&self) -> Result<String, Error> {
-        Device::name(self)
+        Self::name(self)
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Device::description(self)
+        Self::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Device::id(self)
+        Self::id(self)
     }
 
     // Override trait defaults to avoid opening devices during enumeration.
@@ -202,19 +202,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        Device::supported_input_configs(self)
+        Self::supported_input_configs(self)
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        Device::supported_output_configs(self)
+        Self::supported_output_configs(self)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_input_config(self)
+        Self::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_output_config(self)
+        Self::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(

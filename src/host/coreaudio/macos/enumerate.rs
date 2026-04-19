@@ -13,6 +13,7 @@ use objc2_core_audio::{
 };
 
 use super::{check_os_status, Device};
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::Error;
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
@@ -64,15 +65,15 @@ pub struct Devices(VecIntoIter<AudioDeviceID>);
 impl Devices {
     pub fn new() -> Result<Self, Error> {
         let devices = unsafe { audio_devices() }?;
-        Ok(Devices(devices.into_iter()))
+        Ok(Self(devices.into_iter()))
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
-        self.0.next().map(|id| Device {
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|id| Self::Item {
             audio_device_id: id,
         })
     }
@@ -131,5 +132,3 @@ pub fn default_output_device() -> Option<Device> {
     let device = Device { audio_device_id };
     Some(device)
 }
-
-pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};

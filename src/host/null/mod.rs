@@ -34,13 +34,13 @@ pub struct SupportedOutputConfigs;
 impl Host {
     #[allow(dead_code)]
     pub fn new() -> Result<Self, Error> {
-        Ok(Host)
+        Ok(Self)
     }
 }
 
 impl Devices {
     pub fn new() -> Result<Self, Error> {
-        Ok(Devices)
+        Ok(Self)
     }
 }
 
@@ -50,7 +50,7 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Ok(DeviceDescriptionBuilder::new("Null Device".to_string()).build())
+        Ok(DeviceDescriptionBuilder::new("Null Device").build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
@@ -117,11 +117,11 @@ impl HostTrait for Host {
         Devices::new()
     }
 
-    fn default_input_device(&self) -> Option<Device> {
+    fn default_input_device(&self) -> Option<Self::Device> {
         None
     }
 
-    fn default_output_device(&self) -> Option<Device> {
+    fn default_output_device(&self) -> Option<Self::Device> {
         None
     }
 }
@@ -147,7 +147,7 @@ impl StreamTrait for Stream {
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         None
     }
 }
@@ -155,7 +155,7 @@ impl Iterator for Devices {
 impl Iterator for SupportedInputConfigs {
     type Item = SupportedStreamConfigRange;
 
-    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
+    fn next(&mut self) -> Option<Self::Item> {
         None
     }
 }
@@ -163,7 +163,7 @@ impl Iterator for SupportedInputConfigs {
 impl Iterator for SupportedOutputConfigs {
     type Item = SupportedStreamConfigRange;
 
-    fn next(&mut self) -> Option<SupportedStreamConfigRange> {
+    fn next(&mut self) -> Option<Self::Item> {
         None
     }
 }

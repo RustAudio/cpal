@@ -345,7 +345,7 @@ impl DeviceTrait for Device {
             }
         });
 
-        Ok(Stream {
+        Ok(Self::Stream {
             audio_context,
             buffer_size_frames,
         })
@@ -389,17 +389,18 @@ impl Drop for Stream {
 }
 
 impl Default for Devices {
-    fn default() -> Devices {
-        Devices(true)
+    fn default() -> Self {
+        Self(true)
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
-    fn next(&mut self) -> Option<Device> {
+
+    fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Device)
+            Some(Self::Item)
         } else {
             None
         }

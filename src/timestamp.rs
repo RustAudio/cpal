@@ -108,7 +108,7 @@ impl StreamInstant {
         let total = self.as_nanos().checked_add(duration.as_nanos())?;
         let secs = u64::try_from(total / 1_000_000_000).ok()?;
         let nanos = (total % 1_000_000_000) as u32;
-        Some(StreamInstant { secs, nanos })
+        Some(Self { secs, nanos })
     }
 
     /// Returns `Some(t)` where `t` is `self - duration`, or `None` if the result cannot be
@@ -117,7 +117,7 @@ impl StreamInstant {
         let total = self.as_nanos().checked_sub(duration.as_nanos())?;
         let secs = u64::try_from(total / 1_000_000_000).ok()?;
         let nanos = (total % 1_000_000_000) as u32;
-        Some(StreamInstant { secs, nanos })
+        Some(Self { secs, nanos })
     }
 
     /// Returns the total number of nanoseconds contained by this `StreamInstant`.
@@ -182,7 +182,7 @@ impl StreamInstant {
         let secs = secs
             .checked_add(carry as u64)
             .expect("overflow in StreamInstant::new");
-        StreamInstant {
+        Self {
             secs,
             nanos: subsec_nanos,
         }
@@ -190,14 +190,14 @@ impl StreamInstant {
 }
 
 impl std::ops::Add<Duration> for StreamInstant {
-    type Output = StreamInstant;
+    type Output = Self;
 
     /// # Panics
     ///
     /// Panics if the result overflows the range of `StreamInstant`. Use
     /// [`checked_add`][StreamInstant::checked_add] for a non-panicking variant.
     #[inline]
-    fn add(self, rhs: Duration) -> StreamInstant {
+    fn add(self, rhs: Duration) -> Self::Output {
         self.checked_add(rhs)
             .expect("overflow when adding duration to stream instant")
     }
@@ -211,14 +211,14 @@ impl std::ops::AddAssign<Duration> for StreamInstant {
 }
 
 impl std::ops::Sub<Duration> for StreamInstant {
-    type Output = StreamInstant;
+    type Output = Self;
 
     /// # Panics
     ///
     /// Panics if the result underflows the range of `StreamInstant`. Use
     /// [`checked_sub`][StreamInstant::checked_sub] for a non-panicking variant.
     #[inline]
-    fn sub(self, rhs: Duration) -> StreamInstant {
+    fn sub(self, rhs: Duration) -> Self::Output {
         self.checked_sub(rhs)
             .expect("overflow when subtracting duration from stream instant")
     }
@@ -237,7 +237,7 @@ impl std::ops::Sub<StreamInstant> for StreamInstant {
     /// Returns the duration from `rhs` to `self`, saturating to [`Duration::ZERO`] if `rhs` is
     /// later than `self`.
     #[inline]
-    fn sub(self, rhs: StreamInstant) -> Duration {
+    fn sub(self, rhs: StreamInstant) -> Self::Output {
         self.saturating_duration_since(rhs)
     }
 }

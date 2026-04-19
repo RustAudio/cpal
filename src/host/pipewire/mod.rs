@@ -23,16 +23,18 @@ impl Host {
                 "PipeWire host initialization failed",
             )
         })?;
-        Ok(Host { _pw, devices })
+        Ok(Self { _pw, devices })
     }
 }
 
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
     fn is_available() -> bool {
         utils::find_socket_path().is_some()
     }
+
     fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(self.devices.clone().into_iter())
     }
@@ -43,6 +45,7 @@ impl HostTrait for Host {
             .find(|device| matches!(device.class(), Class::DefaultInput))
             .cloned()
     }
+
     fn default_output_device(&self) -> Option<Self::Device> {
         self.devices
             .iter()

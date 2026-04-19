@@ -68,7 +68,7 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
-        Ok(Host)
+        Ok(Self)
     }
 }
 
@@ -82,7 +82,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        Devices::new()
+        Self::Devices::new()
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -162,27 +162,27 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Device::description(self)
+        Self::description(self)
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Device::id(self)
+        Self::id(self)
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        Device::supported_input_configs(self)
+        Self::supported_input_configs(self)
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        Device::supported_output_configs(self)
+        Self::supported_output_configs(self)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_input_config(self)
+        Self::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_output_config(self)
+        Self::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -500,7 +500,7 @@ impl DeviceTrait for Device {
             on_ended_closures.push(on_ended_closure);
         }
 
-        Ok(Stream {
+        Ok(Self::Stream {
             ctx,
             on_ended_closures,
             config,
@@ -596,10 +596,10 @@ impl Default for Devices {
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Device)
+            Some(Self::Item)
         } else {
             None
         }

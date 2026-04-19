@@ -159,7 +159,7 @@ impl Iterator for Devices {
     type Item = Device;
 
     /// Enumerate devices by briefly loading each driver to capture its metadata.
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         // Drop the previously loaded driver before attempting to load the next one.
         self.current_driver = None;
 

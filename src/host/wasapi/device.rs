@@ -88,7 +88,7 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Device::id(self)
+        Self::id(self)
     }
 
     fn supports_input(&self) -> bool {
@@ -100,19 +100,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        Device::supported_input_configs(self)
+        Self::supported_input_configs(self)
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        Device::supported_output_configs(self)
+        Self::supported_output_configs(self)
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_input_config(self)
+        Self::default_input_config(self)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Device::default_output_config(self)
+        Self::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -1062,7 +1062,7 @@ impl Devices {
                 .GetCount()
                 .context("failed to get device count")?;
 
-            Ok(Devices {
+            Ok(Self {
                 collection,
                 total_count: count,
                 next_item: 0,
@@ -1077,7 +1077,7 @@ unsafe impl Sync for Devices {}
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.next_item >= self.total_count {
             return None;
         }
@@ -1085,7 +1085,7 @@ impl Iterator for Devices {
         unsafe {
             let device = self.collection.Item(self.next_item).unwrap();
             self.next_item += 1;
-            Some(Device::from_immdevice(device))
+            Some(Self::Item::from_immdevice(device))
         }
     }
 
