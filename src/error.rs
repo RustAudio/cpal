@@ -147,6 +147,7 @@ impl From<ErrorKind> for Error {
 
 /// Extension trait for attaching a context message to a [`Result`] whose error converts into
 /// [`cpal::Error`].
+#[allow(dead_code)]
 pub(crate) trait ResultExt<T> {
     /// Converts the error via [`Into<cpal::Error>`] and prepends `msg`, yielding
     /// `"<msg>: <original error>"` as the message.
