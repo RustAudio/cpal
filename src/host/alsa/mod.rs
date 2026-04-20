@@ -943,7 +943,7 @@ fn boost_current_thread_priority(handle: &alsa::pcm::PCM) {
 
     // if the buffer size isn't known, let audio_thread_priority choose a sensible default value
     let (buffer_size, _) = handle.get_params().unwrap_or((0, 0));
-    let hw_params = match handle
+    let sample_rate = match handle
         .hw_params_current()
         .and_then(|params| params.get_rate())
     {
@@ -954,7 +954,7 @@ fn boost_current_thread_priority(handle: &alsa::pcm::PCM) {
         }
     };
 
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
+    if let Err(err) = promote_current_thread_to_real_time(buffer_size as u32, sample_rate) {
         eprintln!("Failed to promote audio thread to real-time priority: {err}");
     }
 }
