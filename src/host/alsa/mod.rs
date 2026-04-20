@@ -8,7 +8,7 @@ extern crate libc;
 use std::{
     cmp,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -86,6 +86,7 @@ mod enumerate;
 // buffers.
 
 const DEFAULT_DEVICE: &str = "default";
+const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
 
 // Some ALSA plugins (e.g. alsaequal, certain USB drivers) are not reentrant.
 static ALSA_OPEN_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -392,8 +393,22 @@ impl Device {
             alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)?
         };
 
-        let can_pause = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let period_samples = set_sw_params_from_format(&handle, conf, stream_type)?;
+        let _ = set_hw_params_from_format(&handle, conf, sample_format)?;
+        let _ = set_sw_params_from_format(&handle, stream_type)?;
+
+        let (buffer_size, period_size) = handle.get_params()?;
+        if buffer_size == 0 {
+            return Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "initialization resulted in a null buffer",
+            ));
+        }
+        if period_size == 0 {
+            return Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "initialization resulted in a null period",
+            ));
+        }
 
         handle.prepare()?;
 
@@ -408,33 +423,29 @@ impl Device {
         // Check to see if we can retrieve valid timestamps from the device.
         // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let ts = handle.status()?.get_htstamp();
-        let creation_instant = std::time::Instant::now();
         let use_hw_timestamps = !(ts.tv_sec == 0 && ts.tv_nsec == 0);
 
         if let alsa::Direction::Capture = stream_type {
             handle.start()?;
         }
 
-        let period_frames = period_samples / conf.channels as usize;
+        let period_size = period_size as usize;
         let frame_size = sample_format.sample_size() * conf.channels as usize;
-        let period_bytes = period_frames * frame_size;
-
-        let equilibrium_fill = EquilibriumFill::new(sample_format, period_bytes);
 
         let stream_inner = StreamInner {
             dropping: AtomicBool::new(false),
-            channel: handle,
+            pause_state: AtomicU32::new(PauseState::NotPaused.into()),
+            handle,
             sample_format,
+            sample_rate: conf.sample_rate,
             num_descriptors,
-            conf,
-            period_samples,
-            period_frames,
             frame_size,
-            equilibrium: equilibrium_fill,
-            can_pause,
-            creation_instant,
+            period_size,
+            period_samples: period_size * conf.channels as usize,
+            equilibrium: EquilibriumFill::new(sample_format, period_size * frame_size),
             use_hw_timestamps,
             _context: self._context.clone(),
+            creation_instant: std::time::Instant::now(),
         };
 
         Ok(stream_inner)
@@ -567,7 +578,7 @@ impl Device {
         let max_channels = hw_params.get_channels_max()?;
 
         let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
-        let supported_channels = (min_channels..max_channels + 1)
+        let supported_channels = (min_channels..=max_channels)
             .filter_map(|num| {
                 if hw_params.test_channels(num).is_ok() {
                     Some(num as ChannelCount)
@@ -715,8 +726,8 @@ struct StreamInner {
     // (e.g. broken due to a disconnected device).
     dropping: AtomicBool,
 
-    // The ALSA channel.
-    channel: alsa::pcm::PCM,
+    // The ALSA handle.
+    handle: alsa::pcm::PCM,
 
     // When converting between file descriptors and `snd_pcm_t`, this is the number of
     // file descriptors that this `snd_pcm_t` uses.
@@ -725,19 +736,17 @@ struct StreamInner {
     // Format of the samples.
     sample_format: SampleFormat,
 
-    // The configuration used to open this stream.
-    conf: StreamConfig,
+    // Sample rate of the stream.
+    sample_rate: SampleRate,
 
     // Cached values for performance in audio callback hot path
-    period_samples: usize,
-    period_frames: usize,
     frame_size: usize,
+    period_size: usize,
+    period_samples: usize,
     equilibrium: EquilibriumFill,
 
-    #[allow(dead_code)]
-    // Whether or not the hardware supports pausing the stream.
-    // TODO: We need an API to expose this. See #197, #284.
-    can_pause: bool,
+    // Pause state machine; see `PauseState`.
+    pause_state: AtomicU32,
 
     // Whether to attempt hardware timestamps via `get_htstamp` / `get_trigger_htstamp`.
     //
@@ -792,8 +801,7 @@ impl StreamWorkerContext {
         };
 
         // Pre-allocate a period-sized working buffer. Contents are overwritten each callback.
-        let transfer_buffer =
-            vec![0u8; stream.period_frames * stream.frame_size].into_boxed_slice();
+        let transfer_buffer = vec![0u8; stream.period_size * stream.frame_size].into_boxed_slice();
 
         // Pre-allocate and initialize descriptors vector: 1 for self-pipe + stream.num_descriptors
         // for ALSA. The descriptor count is constant for the lifetime of stream parameters, and
@@ -818,7 +826,7 @@ impl StreamWorkerContext {
 
         // Set up ALSA descriptors starting at index 1
         let filled = stream
-            .channel
+            .handle
             .fill(&mut descriptors[1..])
             .expect("Failed to fill ALSA descriptors");
         debug_assert_eq!(filled, stream.num_descriptors);
@@ -838,7 +846,7 @@ fn input_stream_worker(
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
-    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+    boost_current_thread_priority(&stream.handle);
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
@@ -861,11 +869,11 @@ fn input_stream_worker(
         };
         if let Err(err) = result {
             match err.kind() {
-                ErrorKind::Xrun => {
+                ErrorKind::Xrun | ErrorKind::UnsupportedOperation => {
                     error_callback(err);
-                    if let Err(err) = stream.channel.prepare() {
+                    if let Err(err) = stream.handle.prepare() {
                         error_callback(err.into());
-                    } else if let Err(err) = stream.channel.start() {
+                    } else if let Err(err) = stream.handle.start() {
                         error_callback(err.into());
                     }
                 }
@@ -886,7 +894,7 @@ fn output_stream_worker(
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
-    boost_current_thread_priority(stream.conf.buffer_size, stream.conf.sample_rate);
+    boost_current_thread_priority(&stream.handle);
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
@@ -912,7 +920,7 @@ fn output_stream_worker(
             match err.kind() {
                 ErrorKind::Xrun => {
                     error_callback(err);
-                    if let Err(err) = stream.channel.prepare() {
+                    if let Err(err) = stream.handle.prepare() {
                         error_callback(err.into());
                     }
                     // No need to call start() for output streams after prepare();
@@ -930,14 +938,20 @@ fn output_stream_worker(
 }
 
 #[cfg(feature = "audio_thread_priority")]
-fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRate) {
+fn boost_current_thread_priority(handle: &alsa::pcm::PCM) {
     use audio_thread_priority::promote_current_thread_to_real_time;
 
-    let buffer_size = if let BufferSize::Fixed(buffer_size) = buffer_size {
-        buffer_size
-    } else {
-        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
-        0
+    // if the buffer size isn't known, let audio_thread_priority choose a sensible default value
+    let (buffer_size, _) = handle.get_params().unwrap_or((0, 0));
+    let hw_params = match handle
+        .hw_params_current()
+        .and_then(|params| params.get_rate())
+    {
+        Ok(rate) => rate,
+        Err(err) => {
+            eprintln!("Failed to get current hardware parameters for audio thread priority: {err}");
+            return;
+        }
     };
 
     if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
@@ -946,20 +960,28 @@ fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRat
 }
 
 #[cfg(not(feature = "audio_thread_priority"))]
-fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {}
+fn boost_current_thread_priority(_: &alsa::pcm::PCM) {}
 
 /// Attempt hardware resume from a suspend event (`ESTRPIPE`).
-fn try_resume(channel: &alsa::PCM) -> Result<Poll, Error> {
-    match channel.resume() {
+fn try_resume(handle: &alsa::PCM) -> Result<Poll, Error> {
+    let hw_params = handle.hw_params_current()?;
+    if !hw_params.can_resume() {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "hardware suspend/resume not supported",
+        ));
+    }
+
+    match handle.resume() {
         Ok(()) => {
-            if channel
+            if handle
                 .info()
                 .map(|i| i.get_stream() == alsa::Direction::Capture)
                 .unwrap_or(false)
             {
                 // A successful `resume()` may leave the device `PREPARED` rather than `RUNNING`.
                 // `start()` to ensure the capture actually resumes.
-                if let Err(e) = channel.start() {
+                if let Err(e) = handle.start() {
                     // `EBUSY` is ignored because it means the device is already running.
                     if e.errno() != libc::EBUSY {
                         return Err(e.into());
@@ -971,9 +993,10 @@ fn try_resume(channel: &alsa::PCM) -> Result<Poll, Error> {
         // device is still resuming; poll again until it is ready.
         Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
         // hardware does not support soft resume
-        Err(e) if e.errno() == libc::ENOSYS => {
-            Err(Error::with_message(ErrorKind::Xrun, e.to_string()))
-        }
+        Err(e) if e.errno() == libc::ENOSYS => Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            e.to_string(),
+        )),
         Err(e) => Err(e.into()),
     }
 }
@@ -1011,7 +1034,7 @@ fn poll_for_period(
         return Ok(Poll::Pending);
     }
 
-    let revents = stream.channel.revents(&descriptors[1..])?;
+    let revents = stream.handle.revents(&descriptors[1..])?;
     // No events: spurious wakeup, poll again.
     if revents.is_empty() {
         return Ok(Poll::Pending);
@@ -1026,27 +1049,23 @@ fn poll_for_period(
     // POLLERR signals an xrun or suspend; avail() below returns EPIPE/ESTRPIPE accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
 
-    let status = stream.channel.status()?;
-    let avail_frames = match stream.channel.avail() {
+    let status = stream.handle.status()?;
+    let avail_frames = match stream.handle.avail() {
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
         Err(err) if err.errno() == libc::EPIPE => {
             return Err(Error::with_message(ErrorKind::Xrun, err.to_string()))
         }
         // Suspend: try hardware resume first; fall back to prepare() if unsupported.
-        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.channel),
+        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.handle),
         res => res,
     }? as usize;
-    let delay_frames = match status.get_delay() {
-        d if d < 0 => 0,
-        d => d as usize,
-    };
-    let available_samples = avail_frames * stream.conf.channels as usize;
+    let delay_frames = status.get_delay().max(0) as usize;
 
     // ALSA can have spurious wakeups where poll returns but avail < avail_min.
     // This is documented to occur with dmix (timer-driven) and other plugins.
     // Verify we have room for at least one full period before processing.
     // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
-    if available_samples < stream.period_samples {
+    if avail_frames < stream.period_size {
         return Ok(Poll::Pending);
     }
 
@@ -1065,9 +1084,9 @@ fn process_input(
     data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
 ) -> Result<(), Error> {
     let mut frames_read = 0;
-    while frames_read < stream.period_frames {
+    while frames_read < stream.period_size {
         match stream
-            .channel
+            .handle
             .io_bytes()
             .readi(&mut buffer[frames_read * stream.frame_size..])
         {
@@ -1088,7 +1107,7 @@ fn process_input(
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
-                return try_resume(&stream.channel).map(|_| ());
+                return try_resume(&stream.handle).map(|_| ());
             }
             Err(err) => return Err(err.into()),
         }
@@ -1101,7 +1120,7 @@ fn process_input(
     } else {
         stream_timestamp_fallback(stream.creation_instant)
     }?;
-    let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.conf.sample_rate);
+    let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
     let capture = callback
         .checked_sub(delay_duration)
         .unwrap_or(StreamInstant::ZERO);
@@ -1122,7 +1141,11 @@ fn process_output(
 ) -> Result<(), Error> {
     // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
     stream.equilibrium.fill(buffer);
-    {
+
+    // If the stream is to be paused, skip calling the callback to flush one period of data with
+    // silence. This prevents stale data from playing after resuming.
+    let pause_state = PauseState::load(&stream.pause_state);
+    if pause_state == PauseState::NotPaused {
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =
             unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
@@ -1132,8 +1155,7 @@ fn process_output(
         } else {
             stream_timestamp_fallback(stream.creation_instant)
         }?;
-        let delay_duration =
-            frames_to_duration(delay_frames as FrameCount, stream.conf.sample_rate);
+        let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
         let playback = callback + delay_duration;
         let timestamp = OutputStreamTimestamp { callback, playback };
         let info = OutputCallbackInfo { timestamp };
@@ -1141,9 +1163,9 @@ fn process_output(
     }
 
     let mut frames_written = 0;
-    while frames_written < stream.period_frames {
+    while frames_written < stream.period_size {
         match stream
-            .channel
+            .handle
             .io_bytes()
             .writei(&buffer[frames_written * stream.frame_size..])
         {
@@ -1165,11 +1187,45 @@ fn process_output(
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
-                return try_resume(&stream.channel).map(|_| ());
+                return try_resume(&stream.handle).map(|_| ());
             }
             Err(err) => return Err(err.into()),
         }
     }
+
+    if let PauseState::Flushing { remaining } = pause_state {
+        if remaining == 0 {
+            // The stream is now fully flushed with silence; pause the stream.
+            stream.handle.pause(true).ok();
+            if stream
+                .pause_state
+                .compare_exchange(
+                    pause_state.into(),
+                    PauseState::Paused.into(),
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                )
+                .is_err()
+            {
+                // The state was rapidly changed to `NotPaused` by another thread calling `play()`.
+                stream.handle.pause(false).ok();
+            }
+        } else {
+            stream
+                .pause_state
+                .compare_exchange(
+                    pause_state.into(),
+                    PauseState::Flushing {
+                        remaining: remaining - 1,
+                    }
+                    .into(),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .expect("PauseState::Flushing should only be modified by the worker thread");
+        }
+    }
+
     Ok(())
 }
 
@@ -1312,16 +1368,41 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        self.inner.channel.pause(false).ok();
+        if PauseState::from(
+            self.inner
+                .pause_state
+                .swap(PauseState::NotPaused.into(), Ordering::AcqRel),
+        ) == PauseState::Paused
+        {
+            self.inner.handle.pause(false)?;
+        }
         Ok(())
     }
+
     fn pause(&self) -> Result<(), Error> {
-        self.inner.channel.pause(true).ok();
+        let hw_params = self.inner.handle.hw_params_current()?;
+        if !hw_params.can_pause() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "hardware does not support pausing this stream",
+            ));
+        }
+        // Continue when already paused or flushing.
+        let _ = self.inner.pause_state.compare_exchange(
+            PauseState::NotPaused.into(),
+            PauseState::Flushing {
+                remaining: hw_params.get_periods().unwrap_or(DEFAULT_PERIODS as u32),
+            }
+            .into(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
         Ok(())
     }
+
     fn now(&self) -> StreamInstant {
         if self.inner.use_hw_timestamps {
-            if let Ok(status) = self.inner.channel.status() {
+            if let Ok(status) = self.inner.handle.status() {
                 if let Ok(instant) = stream_timestamp_hardware(&status) {
                     return instant;
                 }
@@ -1332,7 +1413,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Ok(self.inner.period_frames as FrameCount)
+        Ok(self.inner.period_size as FrameCount)
     }
 }
 
@@ -1454,14 +1535,14 @@ fn set_hw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
     config: StreamConfig,
     sample_format: SampleFormat,
-) -> Result<bool, Error> {
+) -> Result<alsa::pcm::HwParams<'_>, Error> {
     let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
     // When BufferSize::Fixed(x) is specified, we configure double-buffering with
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
     // behavior across different ALSA implementations and hardware.
     if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
-        hw_params.set_buffer_size_near(2 * buffer_frames as alsa::pcm::Frames)?;
+        hw_params.set_buffer_size_near(DEFAULT_PERIODS * buffer_frames as alsa::pcm::Frames)?;
         hw_params
             .set_period_size_near(buffer_frames as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
     }
@@ -1473,50 +1554,40 @@ fn set_hw_params_from_format(
     // PipeWire-ALSA picks a good period size but pairs it with many periods (huge buffer).
     // We need to re-initialize hw_params and set BOTH period and buffer to constrain properly.
     if config.buffer_size == BufferSize::Default {
-        if let Ok(period) = hw_params.get_period_size() {
+        if let Ok(period_size) = hw_params.get_period_size().map(|s| s as alsa::pcm::Frames) {
             // Re-initialize hw_params to clear previous constraints
             let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
             // Set both period (to device's chosen value) and buffer (to 2 periods)
-            hw_params.set_period_size_near(period, alsa::ValueOr::Nearest)?;
-            hw_params.set_buffer_size_near(2 * period)?;
+            hw_params.set_period_size_near(period_size, alsa::ValueOr::Nearest)?;
+            hw_params.set_buffer_size_near(DEFAULT_PERIODS * period_size)?;
 
             // Re-apply with new constraints
             pcm_handle.hw_params(&hw_params)?;
         }
     }
 
-    Ok(hw_params.can_pause())
+    pcm_handle.hw_params_current().map_err(Into::into)
 }
 
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    config: StreamConfig,
     stream_type: alsa::Direction,
-) -> Result<usize, Error> {
+) -> Result<alsa::pcm::SwParams<'_>, Error> {
     let sw_params = pcm_handle.sw_params_current()?;
+    let (_, period_size) = pcm_handle.get_params()?;
+    let period_size = period_size as alsa::pcm::Frames;
 
-    let period_samples = {
-        let (buffer, period) = pcm_handle.get_params()?;
-        if buffer == 0 {
-            return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "initialization resulted in a null buffer",
-            ));
+    let start_threshold = match stream_type {
+        alsa::Direction::Playback => {
+            // Start playback when 2 periods are filled. This ensures consistent low-latency
+            // startup regardless of total buffer size (whether 2 or more periods).
+            DEFAULT_PERIODS * period_size
         }
-        let start_threshold = match stream_type {
-            alsa::Direction::Playback => {
-                // Start playback when 2 periods are filled. This ensures consistent low-latency
-                // startup regardless of total buffer size (whether 2 or more periods).
-                2 * period
-            }
-            alsa::Direction::Capture => 1,
-        };
-        sw_params.set_start_threshold(start_threshold as alsa::pcm::Frames)?;
-        sw_params.set_avail_min(period as alsa::pcm::Frames)?;
-
-        period as usize * config.channels as usize
+        alsa::Direction::Capture => 1,
     };
+    sw_params.set_start_threshold(start_threshold)?;
+    sw_params.set_avail_min(period_size)?;
 
     sw_params.set_tstamp_mode(true)?;
     sw_params.set_tstamp_type(alsa::pcm::TstampType::MonotonicRaw)?;
@@ -1529,7 +1600,7 @@ fn set_sw_params_from_format(
         pcm_handle.sw_params(&sw_params)?;
     }
 
-    Ok(period_samples)
+    Ok(sw_params)
 }
 
 fn canonical_pcm_id(pcm_id: &str) -> String {
@@ -1545,6 +1616,43 @@ fn canonical_pcm_id(pcm_id: &str) -> String {
         }
     }
     pcm_id.to_owned()
+}
+
+/// Pause state for output streams, packed into a single `u32`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PauseState {
+    NotPaused,
+    Flushing {
+        /// Silence periods remaining before pausing hardware.
+        remaining: u32,
+    },
+    Paused,
+}
+
+impl From<PauseState> for u32 {
+    fn from(s: PauseState) -> Self {
+        match s {
+            PauseState::NotPaused => 0,
+            PauseState::Paused => 1,
+            PauseState::Flushing { remaining } => 0b10 | (remaining << 2),
+        }
+    }
+}
+
+impl From<u32> for PauseState {
+    fn from(v: u32) -> Self {
+        match v & 0b11 {
+            0 => Self::NotPaused,
+            1 => Self::Paused,
+            _ => Self::Flushing { remaining: v >> 2 },
+        }
+    }
+}
+
+impl PauseState {
+    fn load(atom: &AtomicU32) -> Self {
+        atom.load(Ordering::Relaxed).into()
+    }
 }
 
 impl From<alsa::Error> for Error {

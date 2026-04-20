@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix timestamp overflows on 32-bit platforms.
 - **ALSA**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
 - **ALSA**: Fix silence template not being applied for DSD.
+- **ALSA**: Output buffers are now flushed before pausing.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
