@@ -1022,11 +1022,9 @@ fn poll_for_period(
             "device disconnected",
         ));
     }
-    // POLLERR signals an xrun or suspend; avail() below returns EPIPE/ESTRPIPE accordingly.
+    // POLLERR signals an xrun or suspend; avail_delay() below returns EPIPE/ESTRPIPE accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
-
-    let status = stream.handle.status()?;
-    let avail_frames = match stream.handle.avail() {
+    let (avail_frames, delay_frames) = match stream.handle.avail_delay() {
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
         Err(err) if err.errno() == libc::EPIPE => {
             return Err(Error::with_message(ErrorKind::Xrun, err.to_string()))
@@ -1034,20 +1032,24 @@ fn poll_for_period(
         // Suspend: try hardware resume first; fall back to prepare() if unsupported.
         Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.handle),
         res => res,
-    }? as usize;
-    let delay_frames = status.get_delay().max(0) as usize;
-
+    }?;
     // ALSA can have spurious wakeups where poll returns but avail < avail_min.
     // This is documented to occur with dmix (timer-driven) and other plugins.
     // Verify we have room for at least one full period before processing.
     // See: https://bugzilla.kernel.org/show_bug.cgi?id=202499
-    if avail_frames < stream.period_size {
+    //
+    // Compare in Frames (i64) so that a negative avail_frames from a buggy driver
+    // naturally fails the guard rather than wrapping to a huge usize that passes it.
+    if avail_frames < stream.period_size as alsa::pcm::Frames {
         return Ok(Poll::Pending);
     }
 
+    // We now know this is not a spurious wakeup, so we also know the device is in a stable state.
+    let status = stream.handle.status()?;
+
     Ok(Poll::Ready {
         status,
-        delay_frames,
+        delay_frames: delay_frames.max(0) as usize,
     })
 }
 
