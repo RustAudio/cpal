@@ -1,33 +1,36 @@
 //! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
-use std::sync::Mutex;
-
-use coreaudio::audio_unit::render_callback::data;
-use coreaudio::audio_unit::{render_callback, AudioUnit, Element, Scope};
-use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
-use objc2_core_audio_types::AudioBuffer;
-
-use objc2_avf_audio::AVAudioSession;
-
-use super::{asbd_from_config, frames_to_duration, host_time_to_stream_instant};
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-
-use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, ChannelCount, Data,
-    DefaultStreamConfigError, DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError,
-    DeviceNameError, DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError,
-    PlayStreamError, SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+use std::{
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+
+use coreaudio::audio_unit::{
+    render_callback::{self, data},
+    AudioUnit, Element, Scope,
+};
+use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
+use objc2_avf_audio::AVAudioSession;
+use objc2_core_audio_types::AudioBuffer;
 
 use self::enumerate::{
     default_input_device, default_output_device, Devices, SupportedInputConfigs,
     SupportedOutputConfigs,
 };
-use std::ptr::NonNull;
-use std::time::Duration;
+use super::{asbd_from_config, host_time_to_stream_instant};
+use crate::{
+    host::frames_to_duration,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
+    OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+};
 
 pub mod enumerate;
+mod session_event_manager;
+use session_event_manager::{ErrorCallbackMutex, SessionEventManager};
 
 // These days the default of iOS is now F32 and no longer I16
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
@@ -38,7 +41,7 @@ pub struct Device;
 pub struct Host;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -51,7 +54,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(Devices::new())
     }
 
@@ -65,7 +68,7 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         // Query AVAudioSession to determine actual input/output availability
         // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
         let direction = unsafe {
@@ -81,39 +84,45 @@ impl Device {
             .build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::CoreAudio,
             "default".to_string(),
         ))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
         Ok(get_supported_stream_configs(true))
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         Ok(get_supported_stream_configs(false))
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the primary (exact channel count) config from supported configs
         get_supported_stream_configs(true)
             .next()
             .map(|range| range.with_max_sample_rate())
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported input configuration",
+                )
+            })
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the maximum channel count config from supported configs
         get_supported_stream_configs(false)
             .last()
             .map(|range| range.with_max_sample_rate())
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported output configuration",
+                )
+            })
     }
 }
 
@@ -122,31 +131,27 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Device::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Device::id(self)
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Device::supported_input_configs(self)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         Device::supported_output_configs(self)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_output_config(self)
     }
 
@@ -157,16 +162,19 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
 
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
+
+        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let session_manager = SessionEventManager::new(error_callback.clone());
 
         // Set up input callback
         setup_input_callback(
@@ -175,15 +183,22 @@ impl DeviceTrait for Device {
             config.sample_rate,
             device_buffer_frames,
             data_callback,
-            error_callback,
+            move |e| {
+                if let Ok(mut cb) = error_callback.lock() {
+                    cb(e);
+                }
+            },
         )?;
 
         audio_unit.start()?;
 
-        Ok(Stream::new(StreamInner {
-            playing: true,
-            audio_unit,
-        }))
+        Ok(Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+            },
+            session_manager,
+        ))
     }
 
     /// Create an output stream.
@@ -194,16 +209,19 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, false)?;
 
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
+
+        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let session_manager = SessionEventManager::new(error_callback.clone());
 
         // Set up output callback
         setup_output_callback(
@@ -212,75 +230,75 @@ impl DeviceTrait for Device {
             config.sample_rate,
             device_buffer_frames,
             data_callback,
-            error_callback,
+            move |e| {
+                if let Ok(mut cb) = error_callback.lock() {
+                    cb(e);
+                }
+            },
         )?;
 
         audio_unit.start()?;
 
-        Ok(Stream::new(StreamInner {
-            playing: true,
-            audio_unit,
-        }))
+        Ok(Stream::new(
+            StreamInner {
+                playing: true,
+                audio_unit,
+            },
+            session_manager,
+        ))
     }
 }
 
 pub struct Stream {
     inner: Mutex<StreamInner>,
+    _session_manager: SessionEventManager,
 }
 
 impl Stream {
-    fn new(inner: StreamInner) -> Self {
+    fn new(inner: StreamInner, session_manager: SessionEventManager) -> Self {
         Self {
             inner: Mutex::new(inner),
+            _session_manager: session_manager,
         }
     }
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        let mut stream = self
-            .inner
-            .lock()
-            .map_err(|_| PlayStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?;
-
+    fn play(&self) -> Result<(), Error> {
+        let mut stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
         if !stream.playing {
-            if let Err(e) = stream.audio_unit.start() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
+            stream
+                .audio_unit
+                .start()
+                .context("failed to start audio unit")?;
             stream.playing = true;
         }
         Ok(())
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
-        let mut stream = self
-            .inner
-            .lock()
-            .map_err(|_| PauseStreamError::BackendSpecific {
-                err: BackendSpecificError {
-                    description: "A cpal stream operation panicked while holding the lock - this is a bug, please report it".to_string(),
-                },
-            })?;
-
+    fn pause(&self) -> Result<(), Error> {
+        let mut stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
         if stream.playing {
-            if let Err(e) = stream.audio_unit.stop() {
-                let description = format!("{}", e);
-                let err = BackendSpecificError { description };
-                return Err(err.into());
-            }
+            stream
+                .audio_unit
+                .stop()
+                .context("failed to stop audio unit")?;
             stream.playing = false;
         }
         Ok(())
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(get_device_buffer_frames() as crate::FrameCount)
+    fn now(&self) -> StreamInstant {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        host_time_to_stream_instant(m_host_time).expect("mach_timebase_info failed")
+    }
+
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(get_device_buffer_frames() as FrameCount)
     }
 }
 
@@ -319,9 +337,9 @@ fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::
 ///
 /// Note: iOS may not honor the exact request due to system constraints.
 fn set_audio_session_buffer_size(
-    buffer_size: u32,
-    sample_rate: crate::SampleRate,
-) -> Result<(), BuildStreamError> {
+    buffer_size: FrameCount,
+    sample_rate: SampleRate,
+) -> Result<(), Error> {
     // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
     let audio_session = unsafe { AVAudioSession::sharedInstance() };
 
@@ -333,7 +351,12 @@ fn set_audio_session_buffer_size(
     unsafe {
         audio_session
             .setPreferredIOBufferDuration_error(buffer_duration)
-            .map_err(|_| BuildStreamError::StreamConfigNotSupported)?;
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("failed to set preferred I/O buffer duration: {e}"),
+                )
+            })?;
     }
 
     Ok(())
@@ -358,11 +381,11 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
     // SAFETY: AVAudioSession methods are safe to call on the singleton instance
     let (sample_rate, max_channels) = unsafe {
         let audio_session = AVAudioSession::sharedInstance();
-        let sample_rate = audio_session.sampleRate() as u32;
+        let sample_rate = audio_session.sampleRate() as SampleRate;
         let max_channels = if is_input {
-            audio_session.inputNumberOfChannels() as u16
+            audio_session.inputNumberOfChannels() as ChannelCount
         } else {
-            audio_session.outputNumberOfChannels() as u16
+            audio_session.outputNumberOfChannels() as ChannelCount
         };
         (sample_rate, max_channels)
     };
@@ -395,7 +418,7 @@ fn setup_stream_audio_unit(
     config: StreamConfig,
     sample_format: SampleFormat,
     is_input: bool,
-) -> Result<AudioUnit, BuildStreamError> {
+) -> Result<AudioUnit, Error> {
     // Configure buffer size via AVAudioSession
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
         set_audio_session_buffer_size(buffer_size, config.sample_rate)?;
@@ -471,10 +494,10 @@ fn setup_input_callback<D, E>(
     device_buffer_frames: Option<usize>,
     mut data_callback: D,
     mut error_callback: E,
-) -> Result<(), BuildStreamError>
+) -> Result<(), Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
     type Args = render_callback::Args<data::Raw>;
@@ -486,7 +509,7 @@ where
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
-                error_callback(err.into());
+                error_callback(err);
                 return Err(());
             }
             Ok(cb) => cb,
@@ -494,17 +517,11 @@ where
 
         let latency_frames = device_buffer_frames.unwrap_or_else(|| {
             let channels = buffer.mNumberChannels as usize;
-            if channels > 0 {
-                data.len() / channels
-            } else {
-                0
-            }
+            data.len().checked_div(channels).unwrap_or(0)
         });
-        let delay = frames_to_duration(latency_frames, sample_rate);
-        let capture = callback
-            .sub(delay)
-            .expect("`capture` occurs before origin of alsa `StreamInstant`");
-        let timestamp = crate::InputStreamTimestamp { callback, capture };
+        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+        let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
+        let timestamp = InputStreamTimestamp { callback, capture };
 
         let info = InputCallbackInfo { timestamp };
         data_callback(&data, &info);
@@ -522,10 +539,10 @@ fn setup_output_callback<D, E>(
     device_buffer_frames: Option<usize>,
     mut data_callback: D,
     mut error_callback: E,
-) -> Result<(), BuildStreamError>
+) -> Result<(), Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
     type Args = render_callback::Args<data::Raw>;
@@ -537,7 +554,7 @@ where
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
-                error_callback(err.into());
+                error_callback(err);
                 return Err(());
             }
             Ok(cb) => cb,
@@ -545,17 +562,11 @@ where
 
         let latency_frames = device_buffer_frames.unwrap_or_else(|| {
             let channels = buffer.mNumberChannels as usize;
-            if channels > 0 {
-                data.len() / channels
-            } else {
-                0
-            }
+            data.len().checked_div(channels).unwrap_or(0)
         });
-        let delay = frames_to_duration(latency_frames, sample_rate);
-        let playback = callback
-            .add(delay)
-            .expect("`playback` occurs beyond representation supported by `StreamInstant`");
-        let timestamp = crate::OutputStreamTimestamp { callback, playback };
+        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+        let playback = callback + delay;
+        let timestamp = OutputStreamTimestamp { callback, playback };
 
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
@@ -582,7 +593,7 @@ mod tests {
 
         let result = device.build_output_stream(
             &config,
-            |_data: &mut [f32], _info: &crate::OutputCallbackInfo| {},
+            |_data: &mut [f32], _info: &OutputCallbackInfo| {},
             |_err| {},
             None,
         );

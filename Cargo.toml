@@ -85,12 +85,14 @@ clap = { version = ">=4.0, <=4.5.57", features = ["derive"] }
 # When updating this, also update the "windows-version" matrix in the CI workflow.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = ">=0.59, <=0.62", features = [
+    "Win32_Media",
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
     "Win32_Media_KernelStreaming",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Threading",
+    "Win32_System_Performance",
     "Win32_Security",
     "Win32_System_SystemServices",
     "Win32_System_Variant",
@@ -112,7 +114,7 @@ futures = { version = "0.3", optional = true }
 pipewire = { version = "0.9", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
-mach2 = "0.5"
+mach2 = "0.6"
 coreaudio-rs = { version = "0.14", default-features = false, features = [
     "core_audio",
     "audio_toolbox",
@@ -134,31 +136,29 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
     "CoreAudioBaseTypes",
 ] }
 objc2-core-foundation = { version = "0.3" }
-objc2-foundation = { version = "0.3" }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSString",
+    "NSValue",
+] }
 objc2 = { version = "0.6" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 jack = { version = "0.13", optional = true }
 
-[target.'cfg(target_os = "ios")'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "block2",
+    "NSDictionary",
+    "NSNotification",
+    "NSOperation",
+] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = [
     "std",
     "AVAudioSession",
-] }
-
-[target.'cfg(target_os = "emscripten")'.dependencies]
-wasm-bindgen = { version = "0.2" }
-wasm-bindgen-futures = "0.4"
-js-sys = { version = "0.3" }
-web-sys = { version = "0.3", features = [
-    "AudioContext",
-    "AudioContextOptions",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "AudioNode",
-    "AudioDestinationNode",
-    "Window",
-    "AudioContextState",
+    "AVAudioSessionTypes",
 ] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
@@ -183,6 +183,7 @@ ndk = { version = "0.9", default-features = false, features = [
 ] }
 ndk-context = "0.1"
 jni = "0.21"
+libc = "0.2"
 num-derive = "0.4"
 num-traits = "0.2"
 
@@ -211,7 +212,6 @@ targets = [
     "aarch64-apple-darwin",
     "aarch64-apple-ios",
     "wasm32-unknown-unknown",
-    "wasm32-unknown-emscripten",
     "aarch64-linux-android",
     "x86_64-unknown-freebsd",
     "x86_64-unknown-netbsd",

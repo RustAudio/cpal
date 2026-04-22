@@ -23,18 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sampleRateDidChange` notifications
 - `CallbackId` renamed to `BufferCallbackId`
 - Public-facing `c_long` fields and return types replaced with `i32`
-- Public-facing `c_double` parameters and return types replaced with `f64`.
-- `Driver::latencies()` now returns `Latencies { input, output }`.
-- `Driver::buffersize_range()` now returns `BufferSizeRange { min, max }`.
-- `CallbackInfo::system_time` is now `u64` nanoseconds.
-- `AsioError::ASE_NoMemory` renamed to `AsioError::NoMemory`.
+- Public-facing `c_double` parameters and return types replaced with `f64`
+- `Driver::latencies()` now returns `Latencies { input, output }`
+- `Driver::buffersize_range()` now returns `BufferSizeRange { min, max }`
+- `CallbackInfo::system_time` is now `u64` nanoseconds
+- `AsioError::ASE_NoMemory` renamed to `AsioError::NoMemory`
 - `AsioTime::reserved`, `AsioTimeInfo::reserved`, `AsioTimeCode::future` fields made private.
 - `asio_import` module is now `pub(crate)`; raw bindgen types are no longer public API
 - `asio_message` delegates `kAsioSelectorSupported` for unknown selectors to registered
   callbacks, so each host decides which capabilities it opts into
 
 ### Fixed
-- `Asio::load_driver` now returns `LoadDriverError::LoadDriverFailed` instead of panicking when the 
+- `Asio::load_driver` now returns `LoadDriverError::LoadDriverFailed` instead of panicking when the
   driver name contains a null byte
 - Fixed TOCTOU race condition when creating streams concurrently
 - `Driver::set_sample_rate` now performs a dummy buffer cycle and driver reload when
@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `asio_message` not advertising `kAsioSelectorSupported` itself as a supported selector
 - Fixed data race where `channels`, `latencies`, `sample_rate`, and related query methods could
   call ASIO concurrently during `set_sample_rate`'s teardown/reload
+- Fix rust-analyzer errors on non-Windows targets by using stub instead of ASIO bindings
 
 ### Removed
 - Removed unused `SampleRate` struct

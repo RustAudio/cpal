@@ -1,354 +1,166 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    borrow::Cow,
+    error::Error as StdError,
+    fmt::{Display, Formatter},
+};
 
-/// The requested host, although supported on this platform, is unavailable.
+/// A list specifying general categories of CPAL error.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct HostUnavailable;
-
-impl Display for HostUnavailable {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the requested host is unavailable")
-    }
-}
-
-impl Error for HostUnavailable {}
-
-/// Some error has occurred that is specific to the backend from which it was produced.
-///
-/// This error is often used as a catch-all in cases where:
-///
-/// - It is unclear exactly what error might be produced by the backend API.
-/// - It does not make sense to add a variant to the enclosing error type.
-/// - No error was expected to occur at all, but we return an error to avoid the possibility of a
-///   `panic!` caused by some unforeseen or unknown reason.
-///
-/// **Note:** If you notice a `BackendSpecificError` that you believe could be better handled in a
-/// cross-platform manner, please create an issue at <https://github.com/RustAudio/cpal/issues>
-/// with details about your use case, the backend you're using, and the error message. Or submit
-/// a pull request with a patch that adds the necessary error variant to the appropriate error enum.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BackendSpecificError {
-    pub description: String,
-}
-
-impl Display for BackendSpecificError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "A backend-specific error has occurred: {}",
-            self.description
-        )
-    }
-}
-
-impl Error for BackendSpecificError {}
-
-/// An error that might occur while attempting to enumerate the available devices on a system.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum DevicesError {
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
-
-impl Display for DevicesError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-        }
-    }
-}
-
-impl Error for DevicesError {}
-
-impl From<BackendSpecificError> for DevicesError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// An error that may occur while attempting to retrieve a device ID.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum DeviceIdError {
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific {
-        err: BackendSpecificError,
-    },
-    UnsupportedPlatform,
-}
-
-impl Display for DeviceIdError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::UnsupportedPlatform => f.write_str("Device IDs are unsupported for this OS"),
-        }
-    }
-}
-
-impl Error for DeviceIdError {}
-
-impl From<BackendSpecificError> for DeviceIdError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// An error that may occur while attempting to retrieve a device name.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum DeviceNameError {
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
-
-impl Display for DeviceNameError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-        }
-    }
-}
-
-impl Error for DeviceNameError {}
-
-impl From<BackendSpecificError> for DeviceNameError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// Error that can happen when enumerating the list of supported formats.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum SupportedStreamConfigsError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
-    /// The device is temporarily busy. This can happen when another application or stream
-    /// is using the device. Retrying may succeed.
-    DeviceBusy,
-    /// We called something the C-Layer did not understand
-    InvalidArgument,
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
-
-impl Display for SupportedStreamConfigsError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::DeviceNotAvailable => f.write_str("The requested device is no longer available. For example, it has been unplugged."),
-            Self::DeviceBusy => f.write_str("The requested device is temporarily busy. Another application or stream may be using it."),
-            Self::InvalidArgument => f.write_str("Invalid argument passed to the backend. For example, this happens when trying to read capture capabilities when the device does not support it.")
-        }
-    }
-}
-
-impl Error for SupportedStreamConfigsError {}
-
-impl From<BackendSpecificError> for SupportedStreamConfigsError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// May occur when attempting to request the default input or output stream format from a [`Device`](crate::Device).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum DefaultStreamConfigError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
+pub enum ErrorKind {
     /// The device is temporarily busy. This can happen when another application or stream
     /// is using the device. Retrying after a short delay may succeed.
     DeviceBusy,
-    /// Returned if e.g. the default input format was requested on an output-only audio device.
-    StreamTypeNotSupported,
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
 
-impl Display for DefaultStreamConfigError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::DeviceNotAvailable => f.write_str(
-                "The requested device is no longer available. For example, it has been unplugged.",
-            ),
-            Self::DeviceBusy => f.write_str(
-                "The requested device is temporarily busy. Another application or stream may be using it.",
-            ),
-            Self::StreamTypeNotSupported => {
-                f.write_str("The requested stream type is not supported by the device.")
-            }
-        }
-    }
-}
-
-impl Error for DefaultStreamConfigError {}
-
-impl From<BackendSpecificError> for DefaultStreamConfigError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-/// Error that can happen when creating a [`Stream`](crate::Stream).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum BuildStreamError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
-    /// The device is temporarily busy. This can happen when another application or stream
-    /// is using the device. Retrying may succeed.
-    DeviceBusy,
-    /// The specified stream configuration is not supported.
-    StreamConfigNotSupported,
-    /// We called something the C-Layer did not understand
+    /// The requested audio device is not available.
     ///
-    /// On ALSA device functions called with a feature they do not support will yield this. E.g.
-    /// Trying to use capture capabilities on an output only format yields this.
-    InvalidArgument,
-    /// Occurs if adding a new Stream ID would cause an integer overflow.
-    StreamIdOverflow,
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
-
-impl Display for BuildStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::DeviceNotAvailable => f.write_str(
-                "The requested device is no longer available. For example, it has been unplugged.",
-            ),
-            Self::DeviceBusy => f.write_str(
-                "The requested device is temporarily busy. Another application or stream may be using it.",
-            ),
-            Self::StreamConfigNotSupported => {
-                f.write_str("The requested stream configuration is not supported by the device.")
-            }
-            Self::InvalidArgument => f.write_str(
-                "The requested device does not support this capability (invalid argument)",
-            ),
-            Self::StreamIdOverflow => f.write_str("Adding a new stream ID would cause an overflow"),
-        }
-    }
-}
-
-impl Error for BuildStreamError {}
-
-impl From<BackendSpecificError> for BuildStreamError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// Errors that might occur when calling [`Stream::play()`](crate::traits::StreamTrait::play).
-///
-/// As of writing this, only macOS may immediately return an error while calling this method. This
-/// is because both the alsa and wasapi backends only enqueue these commands and do not process
-/// them immediately.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum PlayStreamError {
-    /// The device associated with the stream is no longer available.
+    /// This can happen if the device has been disconnected while the program is running, or if
+    /// the device identifier refers to a device that does not exist on this system.
     DeviceNotAvailable,
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
 
-impl Display for PlayStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::DeviceNotAvailable => {
-                f.write_str("the device associated with the stream is no longer available")
-            }
-        }
-    }
-}
+    /// The audio host (server or subsystem) is not available on this system.
+    ///
+    /// This is distinct from [`DeviceNotAvailable`]: when a host (e.g. PulseAudio, PipeWire, JACK,
+    /// or kernel subsystem) is absent or not running, no devices can be reached through it.
+    ///
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
+    HostUnavailable,
 
-impl Error for PlayStreamError {}
+    /// Invalid input or argument.
+    InvalidInput,
 
-impl From<BackendSpecificError> for PlayStreamError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// Errors that might occur when calling [`Stream::pause()`](crate::traits::StreamTrait::pause).
-///
-/// As of writing this, only macOS may immediately return an error while calling this method. This
-/// is because both the alsa and wasapi backends only enqueue these commands and do not process
-/// them immediately.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum PauseStreamError {
-    /// The device associated with the stream is no longer available.
-    DeviceNotAvailable,
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
-}
-
-impl Display for PauseStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BackendSpecific { err } => err.fmt(f),
-            Self::DeviceNotAvailable => {
-                f.write_str("the device associated with the stream is no longer available")
-            }
-        }
-    }
-}
-
-impl Error for PauseStreamError {}
-
-impl From<BackendSpecificError> for PauseStreamError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
-    }
-}
-
-/// Errors that might occur while a stream is running.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum StreamError {
-    /// The device no longer exists. This can happen if the device is disconnected while the
-    /// program is running.
-    DeviceNotAvailable,
+    /// Access to the device or resource was denied by the operating system or audio subsystem.
+    ///
+    /// The device exists and may be functional, but the current process or user does not have
+    /// permission to use it. Common causes include microphone privacy settings (iOS, macOS),
+    /// missing audio group membership (Linux), or file permission errors.
+    ///
+    /// Unlike [`DeviceNotAvailable`], which signals absence, this variant signals an
+    /// authorization failure.
+    ///
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
+    PermissionDenied,
 
     /// The stream configuration is no longer valid and must be rebuilt.
     StreamInvalidated,
 
-    /// Buffer underrun or overrun occurred, causing a potential audio glitch.
-    BufferUnderrun,
+    /// The requested stream configuration is not supported. This includes unsupported sample
+    /// rates, channel counts, or sample formats.
+    UnsupportedConfig,
 
-    /// See the [`BackendSpecificError`] docs for more information about this error variant.
-    BackendSpecific { err: BackendSpecificError },
+    /// The requested operation is not supported. This includes unsupported stream directions
+    /// (e.g., requesting input on an output-only device), unavailable features, or operations
+    /// not implemented by the backend.
+    UnsupportedOperation,
+
+    /// A buffer underrun or overrun occurred, causing a potential audio glitch.
+    Xrun,
+
+    /// A catch-all for errors that do not fall under any other CPAL error kind.
+    ///
+    /// CPAL itself emits this variant only for genuinely unclassifiable conditions. Treat them as
+    /// permanent: no retry strategy is possible without host-specific knowledge.
+    ///
+    /// New [`ErrorKind`] variants may be added in future releases to cover specific cases
+    /// currently reported as `Other`.
+    Other,
 }
 
-impl Display for StreamError {
+impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BackendSpecific { err } => err.fmt(f),
+            Self::HostUnavailable => f.write_str(
+                "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
+            ),
+            Self::DeviceNotAvailable => f.write_str(
+                "The requested audio device is not available. It may have been disconnected.",
+            ),
+            Self::DeviceBusy => f.write_str(
+                "The requested device is temporarily busy. Another application or stream may be using it.",
+            ),
+            Self::UnsupportedConfig => f.write_str(
+                "The requested stream configuration is not supported by the device.",
+            ),
+            Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
+            Self::InvalidInput => f.write_str("Invalid input or argument."),
             Self::StreamInvalidated => {
                 f.write_str("The stream configuration is no longer valid and must be rebuilt.")
             }
-            Self::BufferUnderrun => f.write_str("Buffer underrun/overrun occurred."),
-            Self::DeviceNotAvailable => f.write_str(
-                "The requested device is no longer available. For example, it has been unplugged.",
+            Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
+            Self::PermissionDenied => f.write_str(
+                "Permission denied. Grant the required access and retry.",
             ),
+            Self::Other => f.write_str("An error occurred."),
         }
     }
 }
 
-impl Error for StreamError {}
+/// Error type for all CPAL operations.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Error {
+    kind: ErrorKind,
+    message: Option<Cow<'static, str>>,
+}
 
-impl From<BackendSpecificError> for StreamError {
-    fn from(err: BackendSpecificError) -> Self {
-        Self::BackendSpecific { err }
+impl Error {
+    /// Create a new error with the given kind and no message.
+    pub fn new(kind: ErrorKind) -> Self {
+        Self {
+            kind,
+            message: None,
+        }
+    }
+
+    /// Create a new error with the given kind and a human-readable message.
+    pub fn with_message(kind: ErrorKind, message: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            kind,
+            message: Some(message.into()),
+        }
+    }
+
+    /// Returns the error kind.
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    /// Returns the human-readable message, if any.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.message {
+            Some(msg) => f.write_str(msg),
+            None => write!(f, "{}", self.kind),
+        }
+    }
+}
+
+impl StdError for Error {}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self::new(kind)
+    }
+}
+
+/// Extension trait for attaching a context message to a [`Result`] whose error converts into
+/// [`cpal::Error`].
+#[allow(dead_code)]
+pub(crate) trait ResultExt<T> {
+    /// Converts the error via [`Into<cpal::Error>`] and prepends `msg`, yielding
+    /// `"<msg>: <original error>"` as the message.
+    fn context(self, msg: impl Display) -> Result<T, Error>;
+}
+
+impl<T, E: Into<Error>> ResultExt<T> for Result<T, E> {
+    fn context(self, msg: impl Display) -> Result<T, Error> {
+        self.map_err(|e| {
+            let e = e.into();
+            Error::with_message(e.kind(), format!("{msg}: {e}"))
+        })
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::{alsa, Device, Host};
-use crate::{BackendSpecificError, DeviceDirection, DevicesError};
+use crate::{DeviceDirection, Error};
 
 const HW_PREFIX: &str = "hw";
 const PLUGHW_PREFIX: &str = "plughw";
@@ -24,7 +24,7 @@ impl Host {
     /// We enumerate both ALSA hints and physical devices because:
     /// - Hints provide virtual devices, user configs, and card-specific devices with metadata
     /// - Physical probing provides traditional numeric naming (hw:CARD=0,DEV=0) for compatibility
-    pub(super) fn enumerate_devices(&self) -> Result<Devices, DevicesError> {
+    pub(super) fn enumerate_devices(&self) -> Result<Devices, Error> {
         let mut devices = Vec::new();
         let mut seen_pcm_ids = HashSet::new();
 
@@ -145,13 +145,6 @@ fn physical_devices() -> Vec<PhysicalDevice> {
     }
 
     devices
-}
-
-impl From<alsa::Error> for DevicesError {
-    fn from(err: alsa::Error) -> Self {
-        let err: BackendSpecificError = err.into();
-        err.into()
-    }
 }
 
 impl From<alsa::Direction> for DeviceDirection {

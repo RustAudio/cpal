@@ -26,7 +26,7 @@ env:
   # MSRV varies by backend due to platform-specific dependencies
   MSRV_AAUDIO: "1.85"
   MSRV_ALSA: "1.82"
-  MSRV_COREAUDIO: "1.80"
+  MSRV_COREAUDIO: "1.85"
   MSRV_JACK: "1.82"
   MSRV_PIPEWIRE: "1.85"
   MSRV_PULSEAUDIO: "1.88"
@@ -405,33 +405,32 @@ jobs:
         working-directory: examples/ios-feedback
         run: xcodebuild -scheme cpal-ios-example -configuration Debug -derivedDataPath build -sdk iphonesimulator -arch arm64
 
-  # WebAssembly - Emscripten
-  wasm-emscripten:
-    runs-on: ubuntu-latest
+  # tvOS (Tier 3 target, requires nightly + build-std)
+  tvos:
+    runs-on: macOS-latest
     env:
-      TARGET: wasm32-unknown-emscripten
+      TARGET: aarch64-apple-tvos
     steps:
       - uses: actions/checkout@v5
 
-      - name: Setup Emscripten toolchain
-        uses: mymindstorm/setup-emsdk@v14
-
-      - name: Install Rust MSRV (${{ env.MSRV_WASM }})
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust nightly (for build-std)
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: ${{ env.MSRV_WASM }}
-          targets: ${{ env.TARGET }}
+          components: rust-src
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm-emscripten
+          key: tvos
 
       - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
+        run: cargo +nightly check --examples --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
       - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
+        run: cargo +nightly check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
+
+      - name: Check examples (all features)
+        run: cargo +nightly check --examples --all-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
   # WebAssembly - wasm-bindgen
   wasm-bindgen:
@@ -574,7 +573,7 @@ jobs:
       - macos
       - android
       - ios
-      - wasm-emscripten
+      - tvos
       - wasm-bindgen
       - wasm-audioworklet
       - wasm-wasip1

@@ -4,17 +4,27 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 
 ## Breaking Changes Checklist
 
-- [ ] Add wildcard arms to exhaustive `match` expressions on cpal error enums
-- [ ] Optionally handle the new `DeviceBusy` variant for retryable device errors
+- [ ] Replace per-operation error type matches with `e.kind()` on `ErrorKind`
+- [ ] Replace `HostUnavailable` error type with `ErrorKind::HostUnavailable` on `Error`
 - [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
 - [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
+- [ ] Remove `instant.duration_since(e)` unwraps; it now returns `Duration` (saturating).
+- [ ] Change `instant.add(d)` to `instant.checked_add(d)` (or use `instant + d`).
+- [ ] Change `instant.sub(d)` to `instant.checked_sub(d)` (or use `instant - d`).
+- [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
+- [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
+- [ ] Update `duration_since` call sites to pass by value (drop the `&`).
+- [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
 
-## 1. Error enums are now `#[non_exhaustive]`
+## 1. Unified `Error` and `ErrorKind` type
 
-**What changed:** Public error enums in `cpal` are now marked `#[non_exhaustive]`.
+**What changed:** All per-operation error types (`DevicesError`, `SupportedStreamConfigsError`,
+`DefaultStreamConfigError`, `BuildStreamError`, `StreamError`, `PlayStreamError`,
+`PauseStreamError`) and the `HostUnavailable` struct are replaced by a single `cpal::Error` struct
+with getters for its `kind()` and optional `message()`.
 
 ```rust
-// Before (v0.17)
+// Before (v0.17): each operation returned its own error type
 match device.default_output_config() {
     Ok(config) => config,
     Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
@@ -22,30 +32,43 @@ match device.default_output_config() {
     Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
 }
 
-// After (v0.18)
-loop {
-    match device.default_output_config() {
-        Ok(config) => break config,
-        Err(DefaultStreamConfigError::DeviceBusy) => {
+// After (v0.18): all operations return cpal::Error; match on e.kind()
+match device.default_output_config() {
+    Ok(config) => config,
+    Err(e) => match e.kind() {
+        cpal::ErrorKind::DeviceNotAvailable => panic!("device gone"),
+        cpal::ErrorKind::UnsupportedConfig => panic!("unsupported"),
+        cpal::ErrorKind::DeviceBusy => {
             std::thread::sleep(std::time::Duration::from_millis(100));
+            // retry
         }
-        Err(DefaultStreamConfigError::DeviceNotAvailable) => panic!("device gone"),
-        Err(DefaultStreamConfigError::StreamTypeNotSupported) => panic!("unsupported"),
-        Err(DefaultStreamConfigError::BackendSpecific { err }) => panic!("{err}"),
-        Err(_) => panic!("unknown error"),
-    }
+        _ => panic!("{e}"),
+    },
 }
 ```
 
-**Why:** This lets cpal add new variants in future minor releases without a SemVer-breaking change.
+The `ErrorKind` variants and their equivalents from v0.17:
 
-## 2. New `DeviceBusy` variant
+| `ErrorKind`            | Former equivalent                                    |
+|------------------------|------------------------------------------------------|
+| `HostUnavailable`      | `HostUnavailable` (struct)                           |
+| `DeviceNotAvailable`   | `DeviceNotAvailable` in most enums                   |
+| `DeviceBusy`           | - (new; previously mapped to `DeviceNotAvailable`)   |
+| `UnsupportedConfig`    | `StreamConfigNotSupported`, `StreamTypeNotSupported` |
+| `UnsupportedOperation` | - (new)                                              |
+| `InvalidInput`         | - (new)                                              |
+| `StreamInvalidated`    | `StreamError::StreamInvalidated`                     |
+| `Xrun`                 | `StreamError::BufferUnderrun`                        |
+| `PermissionDenied`     | - (new)                                              |
+| `Other`                | `BackendSpecific`                                    |
 
-**What changed:** On ALSA, `EBUSY`/`EAGAIN` errors from device open calls now produce `DeviceBusy` instead of `DeviceNotAvailable`. This may be added to other hosts in the future.
+The `message()` getter on `Error` returns human-readable context (formerly in
+`BackendSpecific::err`).
 
-**Why:** Unlike `DeviceNotAvailable` (device is gone), `DeviceBusy` signals a transient condition. Retrying after a short delay may succeed, as shown in the example above.
+**Why:** A single type simplifies error handling across all cpal operations and allows new
+`ErrorKind` variants to be added without changing any return types.
 
-## 3. `StreamConfig` is now passed by value
+## 2. `StreamConfig` is now passed by value
 
 **What changed:** `StreamConfig` now implements `Copy`, and all `DeviceTrait` stream-building methods accept it by value.
 
@@ -60,6 +83,97 @@ let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
 **Impact:** Remove the `&` at every `build_*_stream` call site. Because `StreamConfig` is `Copy`, you can reuse the same binding across multiple calls without cloning.
 
 If you implement `DeviceTrait` on your own type (via the `custom` feature), update your `build_input_stream_raw` and `build_output_stream_raw` signatures from `config: &StreamConfig` to `config: StreamConfig`. Any `config.clone()` calls before `move` closures can also be removed.
+
+## 3. `StreamInstant` API overhaul
+
+The `StreamInstant` API has been aligned with `std::time::Instant` and `std::time::Duration`.
+
+### `duration_since` now returns `Duration` (saturating)
+
+**What changed:** `duration_since` now returns `Duration` directly, saturating to `Duration::ZERO`
+when the argument is later than `self`, instead of returning `Option<Duration>`.
+
+```rust
+// Before (v0.17): returned Option<Duration>, argument by reference
+if let Some(d) = callback.duration_since(&start) {
+    println!("elapsed: {d:?}");
+}
+
+// After (v0.18): returns Duration (saturating), argument by value
+let d = callback.duration_since(start);
+println!("elapsed: {d:?}");
+
+// For the previous Option-returning behaviour, use checked_duration_since:
+if let Some(d) = callback.checked_duration_since(start) {
+    println!("elapsed: {d:?}");
+}
+```
+
+**Why:** Mirrors the saturating behavior of `std::time::Instant::saturating_duration_since` in the Rust standard library.
+
+### `add` / `sub` renamed to `checked_add` / `checked_sub`; operator impls added
+
+**What changed:** The `add` and `sub` methods (which returned `Option`) are replaced by
+`checked_add` / `checked_sub` with the same semantics. `+`, `-`, `+=`, and `-=` operator impls
+are also added.
+
+```rust
+// Before (v0.17)
+let future = instant.add(Duration::from_millis(10)).expect("overflow");
+let past   = instant.sub(Duration::from_millis(10)).expect("underflow");
+
+// After (v0.18): explicit checked form (same semantics):
+let future = instant.checked_add(Duration::from_millis(10)).expect("overflow");
+let past   = instant.checked_sub(Duration::from_millis(10)).expect("underflow");
+
+// Or use the operator (panics on overflow, like std::time::Instant):
+let future = instant + Duration::from_millis(10);
+let past   = instant - Duration::from_millis(10);
+
+// Subtract two instants to get a Duration (saturates to zero):
+let elapsed: Duration = later - earlier;
+```
+
+**Why:** Aligns the API with `std::time::Instant`, making `StreamInstant` more idiomatic.
+
+### `new` and `from_nanos` take unsigned integers
+
+**What changed:** The `secs` parameter of `StreamInstant::new` and the `nanos` parameter of
+`StreamInstant::from_nanos` are now `u64` instead of `i64`.
+
+```rust
+// Before (v0.17): negative seconds were accepted
+StreamInstant::new(-1_i64, 0);
+
+// After (v0.18): all stream clocks are non-negative
+StreamInstant::new(0_u64, 0);
+```
+
+**Why:** All audio host clocks are positive and monotonic; they are never negative.
+
+## 4. `wasm32-unknown-emscripten` target removed
+
+**What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
+
+Migrate to `wasm32-unknown-unknown` and enable the `wasm-bindgen` feature:
+
+```toml
+# Before (v0.17)
+cpal = { version = "0.17", features = ["emscripten"] }
+
+# After (v0.18)
+cpal = { version = "0.18", features = ["wasm-bindgen"] }
+```
+
+Then select the `webaudio` host at runtime:
+
+```rust
+let host = cpal::host_from_id(cpal::HostId::WebAudio)?;
+```
+
+If you must target `wasm32-unknown-emscripten` specifically, consider using OpenAL or another audio approach that supports that target, as cpal no longer provides audio on Emscripten.
+
+**Why:** The old `emscripten` host relied on deprecated Emscripten audio APIs that are no longer functional.
 
 ---
 

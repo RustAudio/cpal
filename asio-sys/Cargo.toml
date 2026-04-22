@@ -14,7 +14,6 @@ rust-version = "1.82"
 bindgen = "0.72"
 walkdir = "2"
 cc = "1.2"
-parse_cfg = "4.1"
 
 [dependencies]
 num-derive = "0.4"

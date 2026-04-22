@@ -5,13 +5,34 @@
 
 Low-level library for audio input and output in pure Rust.
 
+## Supported Functionality
+
+- Enumerate audio hosts, devices, and their supported stream configurations.
+- Look up devices by stable ID or by default input/output role.
+- Inspect device metadata: name, manufacturer, type, and bus type.       
+- Build input and output streams with compile-time or runtime sample formats.
+- Play, pause, and query the buffer size and clock of a stream.
+
+## Supported Platforms
+
+- Android (via AAudio)
+- BSD (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
+- iOS (via CoreAudio)
+- Linux (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
+- macOS (via CoreAudio by default, JACK optionally)
+- tvOS (via CoreAudio)
+- WebAssembly (via Web Audio API or Audio Worklet)
+- Windows (via WASAPI by default, ASIO or JACK optionally)
+
+Note that on Linux, the ALSA development files are required for building (even when using JACK, PipeWire or PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
+
 ## Minimum Supported Rust Version (MSRV)
 
 The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
 
 - **AAudio (Android):** Rust **1.85**
 - **ALSA (Linux/BSD):** Rust **1.82**
-- **CoreAudio (macOS/iOS):** Rust **1.80**
+- **CoreAudio (macOS/iOS/tvOS):** Rust **1.85**
 - **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
 - **PipeWire (Linux/BSD):** Rust **1.85**
 - **PulseAudio (Linux/BSD):** Rust **1.88**
@@ -19,30 +40,6 @@ The minimum Rust version required depends on which audio backend and features yo
 - **WASM (`wasm32-unknown`):** Rust **1.85**
 - **WASM (`wasm32-wasip1`):** Rust **1.78**
 - **WASM (`audioworklet`):** Rust **nightly** (requires `-Zbuild-std` for atomics support)
-
-## Supported Platforms
-
-This library currently supports the following:
-
-- Enumerate supported audio hosts.
-- Enumerate all available audio devices.
-- Get the current default input and output devices.
-- Enumerate known supported input and output stream formats for a device.
-- Get the current default input and output stream formats for a device.
-- Build and run input and output PCM streams on a chosen device with a given stream format.
-
-Currently, supported platforms include:
-
-- Android (via AAudio)
-- BSD (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
-- Emscripten
-- iOS (via CoreAudio)
-- Linux (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
-- macOS (via CoreAudio by default, JACK optionally)
-- WebAssembly (via Web Audio API or Audio Worklet)
-- Windows (via WASAPI by default, ASIO or JACK optionally)
-
-Note that on Linux, the ALSA development files are required for building (even when using JACK, PipeWire or PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
 
 ## Compiling for WebAssembly
 
@@ -52,8 +49,8 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 
 | Feature | Platform | Description |
 |---------|----------|-------------|
+| `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio). |
 | `audio_thread_priority` | Linux, BSD, Windows | Raises the audio callback thread to real-time priority for lower latency and fewer glitches. On Linux, requires `rtkit` or appropriate user permissions (`limits.conf` or capabilities). |
-| `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio-on-windows). |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
 | `custom` | All | User-defined host implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
@@ -63,7 +60,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 
 See the [beep example](examples/beep.rs) for selecting the host at runtime.
 
-## ASIO on Windows
+## ASIO
 
 ### Locating the ASIO SDK
 
@@ -125,7 +122,7 @@ It is also possible to compile Windows applications with ASIO support on Linux a
 - Include the LLVM include directory in your `CPLUS_INCLUDE_PATH` environment variable
 
 **Example for macOS** (targeting `x86_64-pc-windows-gnu` with `mingw-w64` installed via brew):
-```
+```sh
 export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11.0.1/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```
 
@@ -177,12 +174,12 @@ If you are unable to build the library:
 CPAL comes with several examples in `examples/`.
 
 Run an example with:
-```bash
+```sh
 cargo run --example beep
 ```
 
 For platform-specific features, enable the relevant features:
-```bash
+```sh
 cargo run --example beep --features asio        # Windows ASIO backend
 cargo run --example beep --features jack        # JACK backend
 cargo run --example beep --features pipewire    # PipeWire backend

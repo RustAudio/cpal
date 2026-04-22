@@ -6,20 +6,26 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use self::wasm_bindgen::prelude::*;
-use self::wasm_bindgen::JsCast;
-use self::web_sys::{AudioContext, AudioContextOptions};
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+use std::{
+    ops::DerefMut,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+    },
+    time::Duration,
 };
-use std::ops::DerefMut;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+
+use self::{
+    wasm_bindgen::{prelude::*, JsCast},
+    web_sys::{AudioContext, AudioContextOptions},
+};
+use crate::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+};
 
 /// Type alias for shared closure handles used in audio callbacks
 type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
@@ -37,6 +43,7 @@ pub struct Stream {
     on_ended_closures: Vec<ClosureHandle>,
     config: StreamConfig,
     buffer_size_frames: usize,
+    is_started: Arc<AtomicBool>,
 }
 
 // WASM runs in a single-threaded environment, so Send and Sync are safe by design.
@@ -49,8 +56,8 @@ crate::assert_stream_sync!(Stream);
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
-const MIN_CHANNELS: u16 = 1;
-const MAX_CHANNELS: u16 = 32;
+const MIN_CHANNELS: ChannelCount = 1;
+const MAX_CHANNELS: ChannelCount = 32;
 const MIN_SAMPLE_RATE: SampleRate = 8_000;
 const MAX_SAMPLE_RATE: SampleRate = 96_000;
 const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
@@ -60,8 +67,8 @@ const DEFAULT_BUFFER_SIZE: usize = 2048;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
-        Ok(Host)
+    pub fn new() -> Result<Self, Error> {
+        Ok(Self)
     }
 }
 
@@ -74,8 +81,8 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
-        Devices::new()
+    fn devices(&self) -> Result<Self::Devices, Error> {
+        Self::Devices::new()
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -88,35 +95,31 @@ impl HostTrait for Host {
 }
 
 impl Devices {
-    fn new() -> Result<Self, DevicesError> {
+    fn new() -> Result<Self, Error> {
         Ok(Self::default())
     }
 }
 
 impl Device {
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
-            .direction(crate::DeviceDirection::Output)
+            .direction(DeviceDirection::Output)
             .build())
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::WebAudio,
             "default".to_string(),
         ))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
         // TODO
         Ok(Vec::new().into_iter())
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Range {
             min: MIN_BUFFER_SIZE,
             max: MAX_BUFFER_SIZE,
@@ -133,12 +136,14 @@ impl Device {
         Ok(configs.into_iter())
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO
-        Err(DefaultStreamConfigError::StreamTypeNotSupported)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "WebAudio does not support audio input",
+        ))
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
             .supported_output_configs()
@@ -156,32 +161,28 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
-        Device::description(self)
+    fn description(&self) -> Result<DeviceDescription, Error> {
+        Self::description(self)
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
-        Device::id(self)
+    fn id(&self) -> Result<DeviceId, Error> {
+        Self::id(self)
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
-        Device::supported_input_configs(self)
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
+        Self::supported_input_configs(self)
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
-        Device::supported_output_configs(self)
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
+        Self::supported_output_configs(self)
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        Device::default_input_config(self)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Self::default_input_config(self)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        Device::default_output_config(self)
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Self::default_output_config(self)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -191,13 +192,15 @@ impl DeviceTrait for Device {
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        // TODO
-        Err(BuildStreamError::StreamConfigNotSupported)
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "WebAudio does not support audio input",
+        ))
     }
 
     /// Create an output stream.
@@ -206,15 +209,21 @@ impl DeviceTrait for Device {
         config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
-        _error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         if !valid_config(config, sample_format) {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} or channel count {} is not supported by WebAudio",
+                    config.channels
+                ),
+            ));
         }
 
         let n_channels = config.channels as usize;
@@ -222,7 +231,12 @@ impl DeviceTrait for Device {
         let buffer_size_frames = match config.buffer_size {
             BufferSize::Fixed(v) => {
                 if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
-                    return Err(BuildStreamError::StreamConfigNotSupported);
+                    return Err(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!(
+                            "buffer size {v} is out of the supported range {MIN_BUFFER_SIZE}..={MAX_BUFFER_SIZE}"
+                        ),
+                    ));
                 }
                 v as usize
             }
@@ -232,17 +246,16 @@ impl DeviceTrait for Device {
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
         let data_callback = Arc::new(Mutex::new(Box::new(data_callback)));
+        let error_callback = Arc::new(Mutex::new(
+            Box::new(error_callback) as Box<dyn FnMut(Error) + Send + 'static>
+        ));
+        let is_started = Arc::new(AtomicBool::new(false));
 
         // Create the WebAudio stream.
         let stream_opts = AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
-        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(
-            |err| -> BuildStreamError {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                err.into()
-            },
-        )?;
+        let ctx = AudioContext::new_with_context_options(&stream_opts)
+            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
 
         let destination = ctx.destination();
 
@@ -274,6 +287,7 @@ impl DeviceTrait for Device {
         // can be fetched in the background.
         for _i in 0..2 {
             let data_callback_handle = data_callback.clone();
+            let error_callback_handle = error_callback.clone();
             let ctx_handle = ctx.clone();
             let time_handle = time.clone();
 
@@ -298,10 +312,8 @@ impl DeviceTrait for Device {
                     buffer_size_frames as u32,
                     config.sample_rate as f32,
                 )
-                .map_err(|err| -> BuildStreamError {
-                    let description = format!("{:?}", err);
-                    let err = BackendSpecificError { description };
-                    err.into()
+                .map_err(|err| {
+                    Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}"))
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
@@ -336,30 +348,44 @@ impl DeviceTrait for Device {
                         let len = temporary_buffer.len();
                         let data = temporary_buffer.as_mut_ptr() as *mut ();
                         let mut data = unsafe { Data::from_parts(data, len, sample_format) };
-                        let mut data_callback = data_callback_handle.lock().unwrap();
-                        // outputLatency can change at runtime, so read it each callback.
-                        let output_latency_secs = js_sys::Reflect::get(
-                            ctx_handle.as_ref(),
-                            &JsValue::from("outputLatency"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let total_hw_latency_secs = {
-                            let sum = base_latency_secs + output_latency_secs;
-                            if sum.is_finite() {
-                                sum.max(0.0)
-                            } else {
-                                0.0
+                        match data_callback_handle.lock() {
+                            Ok(mut data_callback) => {
+                                // outputLatency can change at runtime, so read it each callback.
+                                let output_latency_secs = js_sys::Reflect::get(
+                                    ctx_handle.as_ref(),
+                                    &JsValue::from("outputLatency"),
+                                )
+                                .ok()
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0);
+                                let total_hw_latency_secs = {
+                                    let sum = base_latency_secs + output_latency_secs;
+                                    if sum.is_finite() {
+                                        sum.max(0.0)
+                                    } else {
+                                        0.0
+                                    }
+                                };
+                                let callback = StreamInstant::from_secs_f64(now);
+                                let playback = StreamInstant::from_secs_f64(
+                                    time_at_start_of_buffer + total_hw_latency_secs,
+                                );
+                                let timestamp = OutputStreamTimestamp { callback, playback };
+                                let info = OutputCallbackInfo { timestamp };
+                                (data_callback.deref_mut())(&mut data, &info);
                             }
-                        };
-                        let callback = crate::StreamInstant::from_secs_f64(now);
-                        let playback = crate::StreamInstant::from_secs_f64(
-                            time_at_start_of_buffer + total_hw_latency_secs,
-                        );
-                        let timestamp = crate::OutputStreamTimestamp { callback, playback };
-                        let info = OutputCallbackInfo { timestamp };
-                        (data_callback.deref_mut())(&mut data, &info);
+                            Err(_) => {
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        "data callback lock poisoned",
+                                    ),
+                                );
+                                return;
+                            }
+                        }
                     }
 
                     // Deinterleave the sample data and copy into the audio context buffer.
@@ -373,11 +399,19 @@ impl DeviceTrait for Device {
 
                         #[cfg(not(target_feature = "atomics"))]
                         {
-                            ctx_buffer
+                            if let Err(err) = ctx_buffer
                                 .copy_to_channel(&temporary_channel_buffer, channel as i32)
-                                .expect(
-                                    "Unable to write sample data into the audio context buffer",
+                            {
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        format!("{err:?}"),
+                                    ),
                                 );
+                                return;
+                            }
                         }
 
                         // copyToChannel cannot be directly copied into from a SharedArrayBuffer,
@@ -388,42 +422,76 @@ impl DeviceTrait for Device {
                         #[cfg(target_feature = "atomics")]
                         {
                             temporary_channel_array_view.copy_from(&temporary_channel_buffer);
-                            ctx_buffer
+                            if let Err(err) = ctx_buffer
                                 .unchecked_ref::<ExternalArrayAudioBuffer>()
                                 .copy_to_channel(&temporary_channel_array_view, channel as i32)
-                                .expect(
-                                    "Unable to write sample data into the audio context buffer",
+                            {
+                                (error_callback_handle
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()))(
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        format!("{err:?}"),
+                                    ),
                                 );
+                                return;
+                            }
                         }
                     }
 
                     // Create an AudioBufferSourceNode, schedule it to playback the reused buffer
                     // in the future.
-                    let source = ctx_handle
-                        .create_buffer_source()
-                        .expect("Unable to create a webaudio buffer source");
+                    let source = match ctx_handle.create_buffer_source() {
+                        Ok(s) => s,
+                        Err(err) => {
+                            // create_buffer_source is documented not to throw; defensive only.
+                            (error_callback_handle
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("{err:?}"),
+                                ),
+                            );
+                            return;
+                        }
+                    };
                     source.set_buffer(Some(&ctx_buffer));
-                    source
-                        .connect_with_audio_node(&ctx_handle.destination())
-                        .expect(
-                        "Unable to connect the web audio buffer source to the context destination",
-                    );
-                    source
-                        .add_event_listener_with_callback(
-                            "ended",
-                            on_ended_closure_handle
-                                .read()
-                                .unwrap()
-                                .as_ref()
-                                .unwrap()
-                                .as_ref()
-                                .unchecked_ref(),
-                        )
-                        .expect("Failed to add ended event listener");
-
-                    source
-                        .start_with_when(time_at_start_of_buffer)
-                        .expect("Unable to start the webaudio buffer source");
+                    if let Err(err) = source.connect_with_audio_node(&ctx_handle.destination()) {
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                        );
+                        return;
+                    }
+                    if let Err(err) = source.add_event_listener_with_callback(
+                        "ended",
+                        on_ended_closure_handle
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unchecked_ref(),
+                    ) {
+                        // addEventListener is documented not to throw; defensive only.
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                        );
+                        return;
+                    }
+                    if let Err(err) = source.start_with_when(time_at_start_of_buffer) {
+                        // InvalidStateError (already started) is the expected failure mode.
+                        (error_callback_handle
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()))(
+                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                        );
+                        return;
+                    }
 
                     // Keep track of when the next buffer worth of samples should be played.
                     *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
@@ -432,11 +500,12 @@ impl DeviceTrait for Device {
             on_ended_closures.push(on_ended_closure);
         }
 
-        Ok(Stream {
+        Ok(Self::Stream {
             ctx,
             on_ended_closures,
             config,
             buffer_size_frames,
+            is_started,
         })
     }
 }
@@ -450,16 +519,24 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn play(&self) -> Result<(), Error> {
         let window = web_sys::window().unwrap();
         match self.ctx.resume() {
             Ok(_) => {
+                // Only schedule the initial timeouts once.
+                if self
+                    .is_started
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    return Ok(());
+                }
                 // Begin webaudio playback, initially scheduling the closures to fire on a timeout
-                // event.
-                let mut offset_ms = 10;
+                // event. Minimum value as per spec: https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timers
+                let mut offset_ms = 4;
                 let time_step_secs =
                     buffer_time_step_secs(self.buffer_size_frames, self.config.sample_rate);
-                let time_step_ms = (time_step_secs * 1_000.0) as i32;
+                let time_step_ms = ((time_step_secs * 1_000.0).ceil() as i32).max(1);
                 for on_ended_closure in self.on_ended_closures.iter() {
                     window
                         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -477,27 +554,29 @@ impl StreamTrait for Stream {
                 }
                 Ok(())
             }
-            Err(err) => {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         match self.ctx.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{:?}", err);
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        Some(self.buffer_size_frames as crate::FrameCount)
+    fn now(&self) -> StreamInstant {
+        StreamInstant::from_secs_f64(self.ctx.current_time())
+    }
+
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(self.buffer_size_frames as FrameCount)
     }
 }
 
@@ -517,8 +596,7 @@ impl Default for Devices {
 impl Iterator for Devices {
     type Item = Device;
 
-    #[inline]
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
             Some(Device)

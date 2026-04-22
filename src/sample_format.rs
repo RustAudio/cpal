@@ -6,14 +6,10 @@
 //! CPAL handles any necessary conversions when interfacing with hardware that uses
 //! a different byte order.
 
-use std::{fmt::Display, mem};
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
-use wasm_bindgen::prelude::*;
-
-pub use dasp_sample::{FromSample, Sample};
+use std::{
+    fmt::{self, Display},
+    mem,
+};
 
 /// 24-bit signed integer sample type.
 ///
@@ -32,6 +28,10 @@ pub use dasp_sample::I24;
 /// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::U24;
+pub use dasp_sample::{FromSample, Sample};
+
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+use wasm_bindgen::prelude::*;
 
 // I48 and U48 are not currently supported by cpal but available in dasp_sample:
 // pub use dasp_sample::{I48, U48};
@@ -51,13 +51,7 @@ pub use dasp_sample::U24;
 ///
 /// [`is_float`]: SampleFormat::is_float
 /// [`supported_input_configs`]: crate::traits::DeviceTrait::supported_input_configs
-#[cfg_attr(
-    all(
-        target_arch = "wasm32",
-        any(target_os = "emscripten", feature = "wasm-bindgen")
-    ),
-    wasm_bindgen
-)]
+#[cfg_attr(all(target_arch = "wasm32", feature = "wasm-bindgen"), wasm_bindgen)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SampleFormat {
@@ -214,7 +208,7 @@ impl SampleFormat {
 }
 
 impl Display for SampleFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             SampleFormat::I8 => "i8",
             SampleFormat::I16 => "i16",

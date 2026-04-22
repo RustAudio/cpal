@@ -1,42 +1,34 @@
 //! CoreAudio backend implementation.
 //!
-//! Default backend on macOS and iOS.
+//! Default backend on macOS, iOS, and tvOS.
 
 use objc2_core_audio_types::{
     kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
     kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
 
-use crate::DefaultStreamConfigError;
-use crate::{BuildStreamError, SupportedStreamConfigsError};
+use crate::{Error, ErrorKind, SampleFormat, StreamConfig, StreamInstant};
 
-use crate::{BackendSpecificError, SampleFormat, StreamConfig};
-
-#[cfg(target_os = "ios")]
+// iOS and tvOS share the same CoreAudio / AudioUnit surface (RemoteIO,
+// AVAudioSession), so both target the `ios` submodule.
+#[cfg(not(target_os = "macos"))]
 mod ios;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[cfg(target_os = "ios")]
+#[cfg(not(target_os = "macos"))]
 #[allow(unused_imports)]
 pub use self::ios::{
     enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
     Device, Host, Stream,
 };
-
 #[cfg(target_os = "macos")]
 pub use self::macos::{Host, Stream};
 
 // Common helper methods used by both macOS and iOS
 
-fn check_os_status(os_status: OSStatus) -> Result<(), BackendSpecificError> {
-    match coreaudio::Error::from_os_status(os_status) {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            let description = err.to_string();
-            Err(BackendSpecificError { description })
-        }
-    }
+fn check_os_status(os_status: OSStatus) -> Result<(), Error> {
+    coreaudio::Error::from_os_status(os_status).map_err(Error::from)
 }
 
 // Create a coreaudio AudioStreamBasicDescription from a CPAL Format.
@@ -74,56 +66,73 @@ fn asbd_from_config(
 }
 
 #[inline]
-fn host_time_to_stream_instant(
-    m_host_time: u64,
-) -> Result<crate::StreamInstant, BackendSpecificError> {
+fn host_time_to_stream_instant(m_host_time: u64) -> Result<StreamInstant, Error> {
     let mut info: mach2::mach_time::mach_timebase_info = Default::default();
     let res = unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     check_os_status(res)?;
     let nanos = m_host_time as u128 * info.numer as u128 / info.denom as u128;
-    crate::StreamInstant::from_nanos_i128(nanos as i128).ok_or(BackendSpecificError {
-        description: "host time out of range of `StreamInstant` representation".to_string(),
-    })
+    let secs = u64::try_from(nanos / 1_000_000_000)
+        .map_err(|_| Error::with_message(ErrorKind::Other, "mach absolute time overflow"))?;
+    let subsec_nanos = (nanos % 1_000_000_000) as u32;
+    Ok(StreamInstant::new(secs, subsec_nanos))
 }
 
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-#[inline]
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
-}
-
-// TODO need stronger error identification
-impl From<coreaudio::Error> for BuildStreamError {
-    fn from(err: coreaudio::Error) -> BuildStreamError {
+impl From<coreaudio::Error> for Error {
+    fn from(err: coreaudio::Error) -> Self {
+        use coreaudio::error::{AudioCodecError, AudioError, AudioFormatError, AudioUnitError};
+        let msg = format!("{err}");
         match err {
             coreaudio::Error::RenderCallbackBufferFormatDoesNotMatchAudioUnitStreamFormat
             | coreaudio::Error::NoKnownSubtype
-            | coreaudio::Error::AudioUnit(coreaudio::error::AudioUnitError::FormatNotSupported)
-            | coreaudio::Error::AudioCodec(_)
-            | coreaudio::Error::AudioFormat(_) => BuildStreamError::StreamConfigNotSupported,
-            _ => BuildStreamError::DeviceNotAvailable,
+            | coreaudio::Error::UnsupportedSampleRate
+            | coreaudio::Error::UnsupportedStreamFormat
+            | coreaudio::Error::NonInterleavedInputOnlySupportsMono
+            | coreaudio::Error::AudioUnit(AudioUnitError::FormatNotSupported)
+            | coreaudio::Error::AudioUnit(AudioUnitError::InvalidPropertyValue)
+            | coreaudio::Error::AudioUnit(AudioUnitError::TooManyFramesToProcess)
+            | coreaudio::Error::AudioCodec(AudioCodecError::UnsupportedFormat)
+            | coreaudio::Error::AudioFormat(AudioFormatError::UnsupportedDataFormat)
+            | coreaudio::Error::AudioFormat(AudioFormatError::UnknownFormat) => {
+                Error::with_message(ErrorKind::UnsupportedConfig, msg)
+            }
+
+            coreaudio::Error::SystemSoundClientMessageTimedOut
+            | coreaudio::Error::NoMatchingDefaultAudioUnitFound
+            | coreaudio::Error::AudioUnit(AudioUnitError::NoConnection)
+            | coreaudio::Error::AudioUnit(AudioUnitError::FailedInitialization)
+            | coreaudio::Error::Audio(AudioError::FileNotFound) => {
+                Error::with_message(ErrorKind::DeviceNotAvailable, msg)
+            }
+
+            coreaudio::Error::AudioUnit(AudioUnitError::Unauthorized)
+            | coreaudio::Error::Audio(AudioError::FilePermission) => {
+                Error::with_message(ErrorKind::PermissionDenied, msg)
+            }
+
+            coreaudio::Error::AudioUnit(AudioUnitError::InvalidProperty)
+            | coreaudio::Error::AudioUnit(AudioUnitError::InvalidParameter)
+            | coreaudio::Error::AudioUnit(AudioUnitError::InvalidElement)
+            | coreaudio::Error::AudioUnit(AudioUnitError::InvalidScope)
+            | coreaudio::Error::AudioUnit(AudioUnitError::PropertyNotInUse)
+            | coreaudio::Error::AudioCodec(AudioCodecError::UnknownProperty)
+            | coreaudio::Error::AudioCodec(AudioCodecError::BadPropertySize)
+            | coreaudio::Error::AudioFormat(AudioFormatError::UnsupportedProperty)
+            | coreaudio::Error::AudioFormat(AudioFormatError::BadPropertySize)
+            | coreaudio::Error::AudioFormat(AudioFormatError::BadSpecifierSize)
+            | coreaudio::Error::Audio(AudioError::Param)
+            | coreaudio::Error::Audio(AudioError::BadFilePath) => {
+                Error::with_message(ErrorKind::InvalidInput, msg)
+            }
+
+            coreaudio::Error::Audio(AudioError::Unimplemented)
+            | coreaudio::Error::AudioUnit(AudioUnitError::PropertyNotWritable)
+            | coreaudio::Error::AudioUnit(AudioUnitError::InvalidOfflineRender)
+            | coreaudio::Error::AudioCodec(AudioCodecError::IllegalOperation) => {
+                Error::with_message(ErrorKind::UnsupportedOperation, msg)
+            }
+
+            _ => Error::with_message(ErrorKind::Other, msg),
         }
-    }
-}
-
-impl From<coreaudio::Error> for SupportedStreamConfigsError {
-    fn from(err: coreaudio::Error) -> SupportedStreamConfigsError {
-        let description = format!("{err}");
-        let err = BackendSpecificError { description };
-        // Check for possible DeviceNotAvailable variant
-        SupportedStreamConfigsError::BackendSpecific { err }
-    }
-}
-
-impl From<coreaudio::Error> for DefaultStreamConfigError {
-    fn from(err: coreaudio::Error) -> DefaultStreamConfigError {
-        let description = format!("{err}");
-        let err = BackendSpecificError { description };
-        // Check for possible DeviceNotAvailable variant
-        DefaultStreamConfigError::BackendSpecific { err }
     }
 }
 

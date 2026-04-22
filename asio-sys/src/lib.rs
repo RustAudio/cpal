@@ -5,5 +5,7 @@ extern crate num_derive;
 extern crate num_traits;
 
 pub mod bindings;
-pub use bindings::errors::{AsioError, LoadDriverError};
-pub use bindings::*;
+pub use bindings::{
+    errors::{AsioError, LoadDriverError},
+    *,
+};

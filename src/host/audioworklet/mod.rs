@@ -3,22 +3,28 @@
 //! Available on WebAssembly with the `audioworklet` feature. Requires atomics support.
 //! See the `audioworklet-beep` example for setup instructions.
 
-mod dependent_module;
-use js_sys::wasm_bindgen;
-
-use crate::dependent_module;
-use wasm_bindgen::prelude::*;
-
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    BackendSpecificError, BuildStreamError, ChannelCount, Data, DefaultStreamConfigError,
-    DeviceDescription, DeviceDescriptionBuilder, DeviceId, DeviceIdError, DeviceNameError,
-    DevicesError, InputCallbackInfo, OutputCallbackInfo, PauseStreamError, PlayStreamError,
-    SampleFormat, SampleRate, StreamConfig, StreamError, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange, SupportedStreamConfigsError,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
-use std::time::Duration;
+use js_sys::wasm_bindgen;
+use wasm_bindgen::prelude::*;
+
+use crate::{
+    host::frames_to_duration,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
+    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+};
+
+mod dependent_module;
+use crate::dependent_module;
 
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
@@ -30,6 +36,7 @@ pub struct Host;
 
 pub struct Stream {
     audio_context: web_sys::AudioContext,
+    buffer_size_frames: Arc<AtomicU64>,
 }
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
@@ -41,12 +48,18 @@ const MAX_SAMPLE_RATE: SampleRate = 96_000;
 const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
+// https://webaudio.github.io/web-audio-api/#render-quantum-size
+const DEFAULT_RENDER_SIZE: u64 = 128;
+
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, Error> {
         if Self::is_available() {
             Ok(Host)
         } else {
-            Err(crate::HostUnavailable)
+            Err(Error::with_message(
+                ErrorKind::HostUnavailable,
+                "AudioWorklet API is not available",
+            ))
         }
     }
 }
@@ -72,7 +85,7 @@ impl HostTrait for Host {
         }
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         Devices::new()
     }
 
@@ -87,7 +100,7 @@ impl HostTrait for Host {
 }
 
 impl Devices {
-    fn new() -> Result<Self, DevicesError> {
+    fn new() -> Result<Self, Error> {
         Ok(Self::default())
     }
 }
@@ -97,33 +110,25 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    #[inline]
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
-            .direction(crate::DeviceDirection::Output)
+            .direction(DeviceDirection::Output)
             .build())
     }
 
-    #[inline]
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         Ok(DeviceId(
             crate::platform::HostId::AudioWorklet,
             "default".to_string(),
         ))
     }
 
-    #[inline]
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         // TODO
         Ok(Vec::new().into_iter())
     }
 
-    #[inline]
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Unknown;
 
         // In actuality the number of supported channels cannot be fully known until
@@ -141,14 +146,14 @@ impl DeviceTrait for Device {
         Ok(configs.into_iter())
     }
 
-    #[inline]
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        // TODO
-        Err(DefaultStreamConfigError::StreamTypeNotSupported)
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "AudioWorklet does not support audio input",
+        ))
     }
 
-    #[inline]
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         const EXPECT: &str = "expected at least one valid webaudio stream config";
         let config = self
             .supported_output_configs()
@@ -167,16 +172,30 @@ impl DeviceTrait for Device {
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        // TODO
-        Err(BuildStreamError::StreamConfigNotSupported)
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "AudioWorklet does not support audio input",
+        ))
     }
 
     /// Create an output stream.
+    ///
+    /// # Async completion
+    ///
+    /// This function returns `Ok` synchronously once the [`AudioContext`] is created, before the
+    /// AudioWorklet module has been loaded or the [`AudioWorkletNode`] has been initialized. The
+    /// actual worklet setup runs asynchronously via [`wasm_bindgen_futures::spawn_local`]. If
+    /// setup fails (e.g. `add_module` or `AudioWorkletNode` construction throws), the error is
+    /// delivered to `error_callback` after the caller already holds a [`Stream`]. There is no
+    /// way to surface such errors synchronously given the Web Audio API's design.
+    ///
+    /// [`AudioContext`]: web_sys::AudioContext
+    /// [`AudioWorkletNode`]: web_sys::AudioWorkletNode
     fn build_output_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -184,25 +203,50 @@ impl DeviceTrait for Device {
         mut data_callback: D,
         mut error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
-        if !valid_config(config, sample_format) {
-            return Err(BuildStreamError::StreamConfigNotSupported);
+        if config.channels < MIN_CHANNELS || config.channels > MAX_CHANNELS {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "{} channels is not supported; AudioWorklet supports {} to {}",
+                    config.channels, MIN_CHANNELS, MAX_CHANNELS
+                ),
+            ));
+        }
+        if config.sample_rate < MIN_SAMPLE_RATE || config.sample_rate > MAX_SAMPLE_RATE {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "{} Hz is not supported; AudioWorklet supports {} to {} Hz",
+                    config.sample_rate, MIN_SAMPLE_RATE, MAX_SAMPLE_RATE
+                ),
+            ));
+        }
+        if sample_format != SUPPORTED_SAMPLE_FORMAT {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "sample format {sample_format} is not supported; AudioWorklet requires {SUPPORTED_SAMPLE_FORMAT}"
+                ),
+            ));
         }
 
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            let _ = js_sys::Reflect::set(
+                stream_opts.as_ref(),
+                &JsValue::from_str("renderSizeHint"),
+                &JsValue::from_f64(n as f64),
+            );
+        }
 
-        let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(
-            |err| -> BuildStreamError {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                err.into()
-            },
-        )?;
+        let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts)
+            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
 
         let destination = audio_context.destination();
 
@@ -213,6 +257,12 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
+        let initial_quantum = match config.buffer_size {
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => DEFAULT_RENDER_SIZE,
+        };
+        let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
+        let buffer_size_frames_cb = buffer_size_frames.clone();
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let result: Result<(), JsValue> = async move {
@@ -243,7 +293,11 @@ impl DeviceTrait for Device {
                         .unwrap_or(0.0);
                 let total_output_latency_secs = {
                     let sum = base_latency_secs + output_latency_secs;
-                    if sum.is_finite() { sum.max(0.0) } else { 0.0 }
+                    if sum.is_finite() {
+                        sum.max(0.0)
+                    } else {
+                        0.0
+                    }
                 };
 
                 options.set_processor_options(Some(&js_sys::Array::of3(
@@ -251,19 +305,19 @@ impl DeviceTrait for Device {
                     &wasm_bindgen::memory(),
                     &WasmAudioProcessor::new(Box::new(
                         move |interleaved_data, frame_size, sample_rate, now| {
+                            buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
                             let data = interleaved_data.as_mut_ptr() as *mut ();
                             let mut data = unsafe {
                                 Data::from_parts(data, interleaved_data.len(), sample_format)
                             };
 
-                            let callback = crate::StreamInstant::from_secs_f64(now);
-                            let buffer_duration = frames_to_duration(frame_size as _, sample_rate);
+                            let callback = StreamInstant::from_secs_f64(now);
+                            let buffer_duration =
+                                frames_to_duration(frame_size as FrameCount, sample_rate);
                             let playback = callback
-                                .add(buffer_duration + Duration::from_secs_f64(total_output_latency_secs))
-                                .expect(
-                                "`playback` occurs beyond representation supported by `StreamInstant`",
-                            );
-                            let timestamp = crate::OutputStreamTimestamp { callback, playback };
+                                + (buffer_duration
+                                    + Duration::from_secs_f64(total_output_latency_secs));
+                            let timestamp = OutputStreamTimestamp { callback, playback };
                             let info = OutputCallbackInfo { timestamp };
                             (data_callback)(&mut data, &info);
                         },
@@ -281,43 +335,50 @@ impl DeviceTrait for Device {
             .await;
 
             if let Err(err) = result {
-                let description = if let Some(string_value) = err.as_string() {
-                    string_value
-                } else {
-                    format!("Browser error initializing stream: {err:?}")
-                };
-
-                error_callback(StreamError::BackendSpecific {
-                    err: BackendSpecificError { description },
-                })
+                let message = err
+                    .as_string()
+                    .unwrap_or_else(|| format!("Browser error initializing stream: {err:?}"));
+                error_callback(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    message,
+                ))
             }
         });
 
-        Ok(Stream { audio_context })
+        Ok(Self::Stream {
+            audio_context,
+            buffer_size_frames,
+        })
     }
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        Ok(self.buffer_size_frames.load(Ordering::Relaxed) as FrameCount)
+    }
+
+    fn play(&self) -> Result<(), Error> {
         match self.audio_context.resume() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         match self.audio_context.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => {
-                let description = format!("{err:?}");
-                let err = BackendSpecificError { description };
-                Err(err.into())
-            }
+            Err(err) => Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("{err:?}"),
+            )),
         }
+    }
+
+    fn now(&self) -> StreamInstant {
+        StreamInstant::from_secs_f64(self.audio_context.current_time())
     }
 }
 
@@ -328,15 +389,15 @@ impl Drop for Stream {
 }
 
 impl Default for Devices {
-    fn default() -> Devices {
-        Devices(true)
+    fn default() -> Self {
+        Self(true)
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
-    #[inline]
-    fn next(&mut self) -> Option<Device> {
+
+    fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
             Some(Device)
@@ -344,23 +405,6 @@ impl Iterator for Devices {
             None
         }
     }
-}
-
-// Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
-    conf.channels <= MAX_CHANNELS
-        && conf.channels >= MIN_CHANNELS
-        && conf.sample_rate <= MAX_SAMPLE_RATE
-        && conf.sample_rate >= MIN_SAMPLE_RATE
-        && sample_format == SUPPORTED_SAMPLE_FORMAT
-}
-
-// Convert the given duration in frames at the given sample rate to a `std::time::Duration`.
-fn frames_to_duration(frames: usize, rate: crate::SampleRate) -> std::time::Duration {
-    let secsf = frames as f64 / rate as f64;
-    let secs = secsf as u64;
-    let nanos = ((secsf - secs as f64) * 1_000_000_000.0) as u32;
-    std::time::Duration::new(secs, nanos)
 }
 
 type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
@@ -423,20 +467,8 @@ impl WasmAudioProcessor {
 
     /// Converts this `WasmAudioProcessor` into a raw pointer (as `usize`) for FFI use.
     ///
-    /// # Purpose
-    /// This function is intended to transfer ownership of the processor instance to the caller,
-    /// typically for passing between Rust and JavaScript via WebAssembly.
-    ///
-    /// # Relationship with [`unpack`]
-    /// The returned pointer must be passed to [`unpack`] exactly once to recover the original
-    /// `WasmAudioProcessor` instance. Failing to do so will result in a memory leak. Calling
-    /// [`unpack`] more than once or using the pointer after it has been unpacked will result in
-    /// undefined behavior.
-    ///
-    /// # Safety and Lifetime
-    /// After calling `pack`, the caller is responsible for ensuring that `unpack` is called
-    /// exactly once, and that the pointer is not used after being unpacked. This function
-    /// should be used with care, as improper use can lead to memory safety issues.
+    /// Transfers ownership of the processor to the caller. The returned pointer must be passed to
+    /// [`unpack`] exactly once. Failing to call [`unpack`] will leak the allocation.
     ///
     /// [`unpack`]: Self::unpack
     pub fn pack(self) -> usize {

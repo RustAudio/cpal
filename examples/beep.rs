@@ -14,7 +14,8 @@
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    FromSample, HostUnavailable, Sample, SizedSample, I24,
+    Device, Error, ErrorKind, FromSample, HostId, OutputCallbackInfo, Sample, SampleFormat,
+    SizedSample, StreamConfig, I24,
 };
 
 #[derive(Parser, Debug)]
@@ -40,14 +41,14 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    // Jack/PulseAudio support must be enabled at compile time, and is
+    // JACK/PulseAudio support must be enabled at compile time, and is
     // only available on some platforms.
     #[allow(unused_mut, unused_assignments)]
-    let mut jack_host_id = Err(HostUnavailable);
+    let mut jack_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
-    let mut pulseaudio_host_id = Err(HostUnavailable);
+    let mut pulseaudio_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
-    let mut pipewire_host_id = Err(HostUnavailable);
+    let mut pipewire_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -57,16 +58,16 @@ fn main() -> anyhow::Result<()> {
     {
         #[cfg(feature = "jack")]
         {
-            jack_host_id = Ok(cpal::HostId::Jack);
+            jack_host_id = Ok(HostId::Jack);
         }
 
         #[cfg(feature = "pulseaudio")]
         {
-            pulseaudio_host_id = Ok(cpal::HostId::PulseAudio);
+            pulseaudio_host_id = Ok(HostId::PulseAudio);
         }
         #[cfg(feature = "pipewire")]
         {
-            pipewire_host_id = Ok(cpal::HostId::PipeWire);
+            pipewire_host_id = Ok(HostId::PipeWire);
         }
     }
 
@@ -101,25 +102,25 @@ fn main() -> anyhow::Result<()> {
     println!("Default output config: {config:?}");
 
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(&device, config.into()),
-        cpal::SampleFormat::I16 => run::<i16>(&device, config.into()),
-        cpal::SampleFormat::I24 => run::<I24>(&device, config.into()),
-        cpal::SampleFormat::I32 => run::<i32>(&device, config.into()),
-        // cpal::SampleFormat::I48 => run::<I48>(&device, config.into()),
-        cpal::SampleFormat::I64 => run::<i64>(&device, config.into()),
-        cpal::SampleFormat::U8 => run::<u8>(&device, config.into()),
-        cpal::SampleFormat::U16 => run::<u16>(&device, config.into()),
-        // cpal::SampleFormat::U24 => run::<U24>(&device, config.into()),
-        cpal::SampleFormat::U32 => run::<u32>(&device, config.into()),
-        // cpal::SampleFormat::U48 => run::<U48>(&device, config.into()),
-        cpal::SampleFormat::U64 => run::<u64>(&device, config.into()),
-        cpal::SampleFormat::F32 => run::<f32>(&device, config.into()),
-        cpal::SampleFormat::F64 => run::<f64>(&device, config.into()),
+        SampleFormat::I8 => run::<i8>(&device, config.into()),
+        SampleFormat::I16 => run::<i16>(&device, config.into()),
+        SampleFormat::I24 => run::<I24>(&device, config.into()),
+        SampleFormat::I32 => run::<i32>(&device, config.into()),
+        // SampleFormat::I48 => run::<I48>(&device, config.into()),
+        SampleFormat::I64 => run::<i64>(&device, config.into()),
+        SampleFormat::U8 => run::<u8>(&device, config.into()),
+        SampleFormat::U16 => run::<u16>(&device, config.into()),
+        // SampleFormat::U24 => run::<U24>(&device, config.into()),
+        SampleFormat::U32 => run::<u32>(&device, config.into()),
+        // SampleFormat::U48 => run::<U48>(&device, config.into()),
+        SampleFormat::U64 => run::<u64>(&device, config.into()),
+        SampleFormat::F32 => run::<f32>(&device, config.into()),
+        SampleFormat::F64 => run::<f64>(&device, config.into()),
         sample_format => panic!("Unsupported sample format '{sample_format}'"),
     }
 }
 
-pub fn run<T>(device: &cpal::Device, config: cpal::StreamConfig) -> Result<(), anyhow::Error>
+pub fn run<T>(device: &Device, config: StreamConfig) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
 {
@@ -137,9 +138,7 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
-        },
+        move |data: &mut [T], _: &OutputCallbackInfo| write_data(data, channels, &mut next_value),
         err_fn,
         None,
     )?;

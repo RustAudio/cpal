@@ -73,7 +73,8 @@
 //!     move |err| {
 //!         // react to errors here.
 //!     },
-//!     None // None=blocking, Some(Duration)=timeout
+//!     None // Timeout for stream initialization: None = wait indefinitely,
+//!          // Some(Duration) = time to wait for the backend to initialize the stream.
 //! );
 //! ```
 //!
@@ -157,27 +158,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 extern crate js_sys;
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 extern crate wasm_bindgen;
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 extern crate web_sys;
-
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
-use wasm_bindgen::prelude::*;
 
 pub use device_description::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
@@ -187,15 +173,16 @@ pub use platform::{
     available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
     SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
 };
-pub use samples_formats::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
-use std::convert::TryInto;
-use std::time::Duration;
+pub use sample_format::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+use wasm_bindgen::prelude::*;
 
 pub mod device_description;
 mod error;
 mod host;
 pub mod platform;
-mod samples_formats;
+mod sample_format;
+mod timestamp;
 pub mod traits;
 
 /// Iterator of devices wrapped in a filter to only include certain device types
@@ -259,21 +246,32 @@ impl std::fmt::Display for DeviceId {
 }
 
 impl std::str::FromStr for DeviceId {
-    type Err = DeviceIdError;
+    type Err = Error;
 
+    /// Parse a device identifier from its string representation (e.g. `"alsa:hw:0,0"`).
+    ///
+    /// The format is `"<host>:<device>"` where `<host>` is the lowercase host name (see
+    /// [`HostId`]) and `<device>` is the device-specific identifier string.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::InvalidInput`] if the string is not in `"host:device"` format.
+    /// - [`ErrorKind::UnsupportedOperation`] if the host portion names a host not available on this
+    ///   platform.
+    ///
+    /// [`ErrorKind::InvalidInput`]: ErrorKind::InvalidInput
+    /// [`ErrorKind::UnsupportedOperation`]: ErrorKind::UnsupportedOperation
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (host_str, device_str) = s.split_once(':').ok_or(DeviceIdError::BackendSpecific {
-            err: BackendSpecificError {
-                description: format!(
-                    "Failed to parse device ID from: {s}\nCheck if format matches \"host:device_id\""
-                ),
-            },
+        let (host_str, device_str) = s.split_once(':').ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::InvalidInput,
+                format!("failed to parse device ID \"{s}\": expected \"host:device_id\" format"),
+            )
         })?;
 
-        let host_id = crate::platform::HostId::from_str(host_str)
-            .map_err(|_| DeviceIdError::UnsupportedPlatform)?;
+        let host_id = crate::platform::HostId::from_str(host_str)?;
 
-        Ok(DeviceId(host_id, device_str.to_string()))
+        Ok(Self(host_id, device_str.to_string()))
     }
 }
 
@@ -340,20 +338,14 @@ pub enum BufferSize {
     Fixed(FrameCount),
 }
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
     fn describe() {
         <Option<FrameCount> as wasm_bindgen::describe::WasmDescribe>::describe();
     }
 }
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::IntoWasmAbi>::Abi;
 
@@ -366,10 +358,7 @@ impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     }
 }
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", feature = "wasm-bindgen")
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::FromWasmAbi>::Abi;
 
@@ -386,13 +375,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
 /// The sample format is omitted in favour of using a sample type.
 ///
 /// See also [`BufferSize`] for details on buffer size behavior and latency considerations.
-#[cfg_attr(
-    all(
-        target_arch = "wasm32",
-        any(target_os = "emscripten", feature = "wasm-bindgen")
-    ),
-    wasm_bindgen
-)]
+#[cfg_attr(all(target_arch = "wasm32", feature = "wasm-bindgen"), wasm_bindgen)]
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
@@ -461,7 +444,6 @@ pub struct SupportedStreamConfig {
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
 ///
 /// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut Data`.
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
 #[derive(Debug)]
 pub struct Data {
     data: *mut (),
@@ -469,66 +451,10 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
-/// A monotonic time instance associated with a stream, retrieved from either:
-///
-/// 1. A timestamp provided to the stream's underlying audio data callback or
-/// 2. The same time source used to generate timestamps for a stream's underlying audio data
-///    callback.
-///
-/// `StreamInstant` represents a duration since an unspecified origin point. The origin
-/// is guaranteed to occur at or before the stream starts, and remains consistent for the
-/// lifetime of that stream. Different streams may have different origins.
-///
-/// ## Host `StreamInstant` Sources
-///
-/// | Host | Source |
-/// | ---- | ------ |
-/// | alsa | `snd_pcm_status_get_htstamp` |
-/// | asio | `timeGetTime` |
-/// | coreaudio | `mach_absolute_time` |
-/// | emscripten | `AudioContext.getOutputTimestamp` |
-/// | pulseaudio | `std::time::Instant` |
-/// | wasapi | `QueryPerformanceCounter` |
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct StreamInstant {
-    secs: i64,
-    nanos: u32,
-}
-
-/// A timestamp associated with a call to an input stream's data callback.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct InputStreamTimestamp {
-    /// The instant the stream's data callback was invoked.
-    pub callback: StreamInstant,
-    /// The instant that data was captured from the device.
-    ///
-    /// E.g. The instant data was read from an ADC.
-    pub capture: StreamInstant,
-}
-
-/// A timestamp associated with a call to an output stream's data callback.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct OutputStreamTimestamp {
-    /// The instant the stream's data callback was invoked.
-    pub callback: StreamInstant,
-    /// The predicted instant that data written will be delivered to the device for playback.
-    ///
-    /// E.g. The instant data will be played by a DAC.
-    pub playback: StreamInstant,
-}
-
-/// Information relevant to a single call to the user's input stream data callback.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct InputCallbackInfo {
-    timestamp: InputStreamTimestamp,
-}
-
-/// Information relevant to a single call to the user's output stream data callback.
-#[cfg_attr(target_os = "emscripten", wasm_bindgen)]
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct OutputCallbackInfo {
-    timestamp: OutputStreamTimestamp,
-}
+pub use timestamp::{
+    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
+    StreamInstant,
+};
 
 impl SupportedStreamConfig {
     pub fn new(
@@ -570,99 +496,6 @@ impl SupportedStreamConfig {
     }
 }
 
-impl StreamInstant {
-    /// The amount of time elapsed from another instant to this one.
-    ///
-    /// Returns `None` if `earlier` is later than self.
-    pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
-        if self < earlier {
-            None
-        } else {
-            (self.as_nanos() - earlier.as_nanos())
-                .try_into()
-                .ok()
-                .map(Duration::from_nanos)
-        }
-    }
-
-    /// Returns the instant in time after the given duration has passed.
-    ///
-    /// Returns `None` if the resulting instant would exceed the bounds of the underlying data
-    /// structure.
-    pub fn add(&self, duration: Duration) -> Option<Self> {
-        self.as_nanos()
-            .checked_add(duration.as_nanos() as i128)
-            .and_then(Self::from_nanos_i128)
-    }
-
-    /// Returns the instant in time one `duration` ago.
-    ///
-    /// Returns `None` if the resulting instant would underflow. As a result, it is important to
-    /// consider that on some platforms the [`StreamInstant`] may begin at `0` from the moment the
-    /// source stream is created.
-    pub fn sub(&self, duration: Duration) -> Option<Self> {
-        self.as_nanos()
-            .checked_sub(duration.as_nanos() as i128)
-            .and_then(Self::from_nanos_i128)
-    }
-
-    fn as_nanos(&self) -> i128 {
-        (self.secs as i128 * 1_000_000_000) + self.nanos as i128
-    }
-
-    #[allow(dead_code)]
-    fn from_nanos(nanos: i64) -> Self {
-        let secs = nanos / 1_000_000_000;
-        let subsec_nanos = nanos - secs * 1_000_000_000;
-        Self::new(secs, subsec_nanos as u32)
-    }
-
-    #[allow(dead_code)]
-    fn from_nanos_i128(nanos: i128) -> Option<Self> {
-        let secs = nanos / 1_000_000_000;
-        if secs > i64::MAX as i128 || secs < i64::MIN as i128 {
-            None
-        } else {
-            let subsec_nanos = nanos - secs * 1_000_000_000;
-            debug_assert!(subsec_nanos < u32::MAX as i128);
-            Some(Self::new(secs as i64, subsec_nanos as u32))
-        }
-    }
-
-    #[allow(dead_code)]
-    fn from_secs_f64(secs: f64) -> crate::StreamInstant {
-        let s = secs.floor() as i64;
-        let ns = ((secs - s as f64) * 1_000_000_000.0) as u32;
-        Self::new(s, ns)
-    }
-
-    pub fn new(secs: i64, nanos: u32) -> Self {
-        StreamInstant { secs, nanos }
-    }
-}
-
-impl InputCallbackInfo {
-    pub fn new(timestamp: InputStreamTimestamp) -> Self {
-        Self { timestamp }
-    }
-
-    /// The timestamp associated with the call to an input stream's data callback.
-    pub fn timestamp(&self) -> InputStreamTimestamp {
-        self.timestamp
-    }
-}
-
-impl OutputCallbackInfo {
-    pub fn new(timestamp: OutputStreamTimestamp) -> Self {
-        Self { timestamp }
-    }
-
-    /// The timestamp associated with the call to an output stream's data callback.
-    pub fn timestamp(&self) -> OutputStreamTimestamp {
-        self.timestamp
-    }
-}
-
 // Note: Data does not implement `is_empty()` because it always contains a valid audio buffer
 // by design. The buffer may contain silence, but it is never structurally empty.
 #[allow(clippy::len_without_is_empty)]
@@ -677,7 +510,7 @@ impl Data {
     /// - The `sample_format` must correctly represent the underlying sample data delivered/expected
     ///   by the stream.
     pub unsafe fn from_parts(data: *mut (), len: usize, sample_format: SampleFormat) -> Self {
-        Data {
+        Self {
             data,
             len,
             sample_format,
@@ -858,6 +691,7 @@ impl SupportedStreamConfigRange {
     /// - Max sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
+
         use SampleFormat::{F32, I16, I24, I32, U16, U24, U32};
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
@@ -1005,37 +839,3 @@ pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
     176400, 192000, 352800, 384000, 705600, 768000, 1411200, 1536000,
 ];
-
-#[test]
-fn test_stream_instant() {
-    let a = StreamInstant::new(2, 0);
-    let b = StreamInstant::new(-2, 0);
-    let min = StreamInstant::new(i64::MIN, 0);
-    let max = StreamInstant::new(i64::MAX, 0);
-    assert_eq!(
-        a.sub(Duration::from_secs(1)),
-        Some(StreamInstant::new(1, 0))
-    );
-    assert_eq!(
-        a.sub(Duration::from_secs(2)),
-        Some(StreamInstant::new(0, 0))
-    );
-    assert_eq!(
-        a.sub(Duration::from_secs(3)),
-        Some(StreamInstant::new(-1, 0))
-    );
-    assert_eq!(min.sub(Duration::from_secs(1)), None);
-    assert_eq!(
-        b.add(Duration::from_secs(1)),
-        Some(StreamInstant::new(-1, 0))
-    );
-    assert_eq!(
-        b.add(Duration::from_secs(2)),
-        Some(StreamInstant::new(0, 0))
-    );
-    assert_eq!(
-        b.add(Duration::from_secs(3)),
-        Some(StreamInstant::new(1, 0))
-    );
-    assert_eq!(max.add(Duration::from_secs(1)), None);
-}

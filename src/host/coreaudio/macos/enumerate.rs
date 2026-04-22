@@ -1,5 +1,9 @@
-use super::{Device, OSStatus};
-use crate::{BackendSpecificError, DevicesError};
+use std::{
+    mem,
+    ptr::{null, NonNull},
+    vec::IntoIter as VecIntoIter,
+};
+
 use objc2_core_audio::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
@@ -7,11 +11,12 @@ use objc2_core_audio::{
     AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress,
 };
-use std::mem;
-use std::ptr::{null, NonNull};
-use std::vec::IntoIter as VecIntoIter;
 
-unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
+use super::{check_os_status, Device};
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+use crate::Error;
+
+unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -21,7 +26,7 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
     macro_rules! try_status_or_return {
         ($status:expr) => {
             if $status != kAudioHardwareNoError as i32 {
-                return Err($status);
+                return Err(check_os_status($status).unwrap_err());
             }
         };
     }
@@ -58,26 +63,17 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, OSStatus> {
 pub struct Devices(VecIntoIter<AudioDeviceID>);
 
 impl Devices {
-    pub fn new() -> Result<Self, DevicesError> {
-        let devices = unsafe {
-            match audio_devices() {
-                Ok(devices) => devices,
-                Err(os_status) => {
-                    let description = format!("{os_status}");
-                    let err = BackendSpecificError { description };
-                    return Err(err.into());
-                }
-            }
-        };
-        Ok(Devices(devices.into_iter()))
+    pub fn new() -> Result<Self, Error> {
+        let devices = unsafe { audio_devices() }?;
+        Ok(Self(devices.into_iter()))
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
-        self.0.next().map(|id| Device {
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|id| Self::Item {
             audio_device_id: id,
         })
     }
@@ -136,5 +132,3 @@ pub fn default_output_device() -> Option<Device> {
     let device = Device { audio_device_id };
     Some(device)
 }
-
-pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};

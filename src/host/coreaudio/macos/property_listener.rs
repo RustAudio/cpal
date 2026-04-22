@@ -7,11 +7,11 @@ use objc2_core_audio::{
 };
 
 use super::OSStatus;
-use crate::BuildStreamError;
+use crate::Error;
 
 /// A double-indirection to be able to pass a closure (a fat pointer)
 /// via a single c_void.
-struct PropertyListenerCallbackWrapper(Box<dyn FnMut()>);
+struct PropertyListenerCallbackWrapper(Box<dyn FnMut() + Send>);
 
 /// Maintain an audio object property listener.
 /// The listener will be removed when this type is dropped.
@@ -24,11 +24,11 @@ pub struct AudioObjectPropertyListener {
 
 impl AudioObjectPropertyListener {
     /// Attach the provided callback as a audio object property listener.
-    pub fn new<F: FnMut() + 'static>(
+    pub fn new<F: FnMut() + Send + 'static>(
         audio_object_id: AudioObjectID,
         property_address: AudioObjectPropertyAddress,
         callback: F,
-    ) -> Result<Self, BuildStreamError> {
+    ) -> Result<Self, Error> {
         let callback = Box::new(PropertyListenerCallbackWrapper(Box::new(callback)));
         unsafe {
             coreaudio::Error::from_os_status(AudioObjectAddPropertyListener(
@@ -49,11 +49,12 @@ impl AudioObjectPropertyListener {
     /// Explicitly remove the property listener.
     /// Use this method if you need to explicitly handle failure to remove
     /// the property listener.
-    pub fn remove(mut self) -> Result<(), BuildStreamError> {
+    #[allow(dead_code)]
+    pub fn remove(mut self) -> Result<(), Error> {
         self.remove_inner()
     }
 
-    fn remove_inner(&mut self) -> Result<(), BuildStreamError> {
+    fn remove_inner(&mut self) -> Result<(), Error> {
         unsafe {
             coreaudio::Error::from_os_status(AudioObjectRemovePropertyListener(
                 self.audio_object_id,

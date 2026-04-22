@@ -1,7 +1,6 @@
 use std::vec::IntoIter as VecIntoIter;
 
 use super::Device;
-
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // TODO: Support enumerating earpiece vs headset vs speaker etc?
@@ -14,15 +13,15 @@ impl Devices {
 }
 
 impl Default for Devices {
-    fn default() -> Devices {
-        Devices(vec![Device].into_iter())
+    fn default() -> Self {
+        Self(vec![Device].into_iter())
     }
 }
 
 impl Iterator for Devices {
     type Item = Device;
 
-    fn next(&mut self) -> Option<Device> {
+    fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }

@@ -1,7 +1,5 @@
 use num_traits::FromPrimitive;
 
-use crate::{DeviceDirection, SampleFormat};
-
 use super::{
     android_device_flags,
     utils::{
@@ -12,6 +10,7 @@ use super::{
     },
     AudioDeviceInfo, AudioDeviceType, Context,
 };
+use crate::{DeviceDirection, SampleFormat};
 
 impl AudioDeviceInfo {
     /**

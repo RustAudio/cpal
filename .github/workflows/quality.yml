@@ -65,12 +65,6 @@ jobs:
             features: ""
             os: ubuntu-latest
 
-          # WASM - Emscripten
-          - target: wasm32-unknown-emscripten
-            name: WASM-emscripten
-            features: ""
-            os: ubuntu-latest
-
           # WASM - wasm-bindgen feature
           - target: wasm32-unknown-unknown
             name: WASM-bindgen
@@ -120,12 +114,33 @@ jobs:
         run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
 
   lints-nightly:
-    name: clippy-WASM-worklet
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # WASM - AudioWorklet (requires atomics + build-std)
+          - target: wasm32-unknown-unknown
+            name: WASM-worklet
+            features: --features audioworklet
+            os: ubuntu-latest
+            build_std: std,panic_abort
+            rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+
+          # tvOS - CoreAudio (Tier 3 target)
+          - target: aarch64-apple-tvos
+            name: tvOS
+            features: ""
+            os: macOS-latest
+            build_std: std
+            rustflags: ""
+
+    name: clippy-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Cache Linux audio packages
+        if: runner.os == 'Linux'
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
@@ -134,14 +149,14 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rust-src
-          targets: wasm32-unknown-unknown
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: clippy-wasm32-worklet
+          key: clippy-${{ matrix.target }}-${{ matrix.name }}
 
-      - name: Run clippy (audioworklet)
+      - name: Run clippy
         env:
-          RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
-        run: cargo +nightly clippy --all --target wasm32-unknown-unknown --features audioworklet -Z build-std=std,panic_abort -- -D warnings
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo +nightly clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -Z build-std=${{ matrix.build_std }} -- -D warnings

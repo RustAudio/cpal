@@ -2,33 +2,34 @@
 //!
 //! Default backend on Android.
 
-use std::cmp;
-use std::convert::TryInto;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::vec::IntoIter as VecIntoIter;
+use std::{
+    cmp,
+    convert::TryInto,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+    vec::IntoIter as VecIntoIter,
+};
+
+use crate::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
+};
 
 extern crate ndk;
-
-use convert::{stream_instant, to_stream_instant};
-use java_interface::{AudioDeviceInfo, AudioManager};
-
-use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crate::{
-    BackendSpecificError, BufferSize, BuildStreamError, Data, DefaultStreamConfigError,
-    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceIdError,
-    DeviceNameError, DeviceType, DevicesError, InputCallbackInfo, InputStreamTimestamp,
-    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, PauseStreamError, PlayStreamError,
-    SampleFormat, StreamConfig, StreamError, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, SupportedStreamConfigsError,
-};
+use self::ndk::audio::AudioStream;
 
 mod convert;
 mod java_interface;
 
-use self::ndk::audio::AudioStream;
-use java_interface::AudioDeviceType as AndroidDeviceType;
+use convert::{input_stream_instant, now_stream_instant, output_stream_instant};
+use java_interface::{AudioDeviceInfo, AudioDeviceType as AndroidDeviceType, AudioManager};
 
 impl From<AndroidDeviceType> for DeviceType {
     fn from(device_type: AndroidDeviceType) -> Self {
@@ -105,7 +106,7 @@ const CHANNEL_OUT_STEREO: i32 = 12;
 // Android Java API supports up to 8 channels
 // TODO: more channels available in native AAudio
 // Maps channel masks to their corresponding channel counts
-const CHANNEL_CONFIGS: [(i32, u16); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
+const CHANNEL_CONFIGS: [(i32, ChannelCount); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
 
 const SAMPLE_RATES: [i32; 15] = [
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
@@ -164,7 +165,7 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 pub type Devices = std::vec::IntoIter<Device>;
 
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Host)
     }
 }
@@ -177,7 +178,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, DevicesError> {
+    fn devices(&self) -> Result<Self::Devices, Error> {
         if let Ok(devices) = AudioDeviceInfo::request(DeviceDirection::Duplex) {
             Ok(devices
                 .into_iter()
@@ -199,13 +200,9 @@ impl HostTrait for Host {
 }
 
 fn buffer_size_range() -> SupportedBufferSize {
-    if let Ok(min_buffer_size) = AudioManager::get_frames_per_buffer() {
-        SupportedBufferSize::Range {
-            min: min_buffer_size as u32,
-            max: i32::MAX as u32,
-        }
-    } else {
-        SupportedBufferSize::Unknown
+    SupportedBufferSize::Range {
+        min: 1,
+        max: i32::MAX as FrameCount,
     }
 }
 
@@ -219,8 +216,8 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
             for sample_rate in &SAMPLE_RATES {
                 output.push(SupportedStreamConfigRange {
                     channels: *channel_count,
-                    min_sample_rate: *sample_rate as u32,
-                    max_sample_rate: *sample_rate as u32,
+                    min_sample_rate: *sample_rate as SampleRate,
+                    max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
                     sample_format: *sample_format,
                 });
@@ -264,9 +261,9 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
             }
             for format in formats {
                 output.push(SupportedStreamConfigRange {
-                    channels: cmp::min(*channel_count as u16, 2u16),
-                    min_sample_rate: *sample_rate as u32,
-                    max_sample_rate: *sample_rate as u32,
+                    channels: cmp::min(*channel_count as ChannelCount, 2),
+                    min_sample_rate: *sample_rate as SampleRate,
+                    max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
                     sample_format: *format,
                 });
@@ -296,8 +293,8 @@ fn configure_for_device(
     if let BufferSize::Fixed(size) = config.buffer_size {
         // For fixed sizes, the user explicitly wants control over the callback size.
         builder = builder
-            .frames_per_data_callback(size as i32)
-            .buffer_capacity_in_frames(2 * size as i32);
+            .frames_per_data_callback(size.min(i32::MAX as FrameCount) as i32)
+            .buffer_capacity_in_frames(size.saturating_mul(2).min(i32::MAX as FrameCount) as i32);
     }
 
     builder
@@ -310,20 +307,20 @@ fn build_input_stream<D, E>(
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
     sample_format: SampleFormat,
-) -> Result<Stream, BuildStreamError>
+) -> Result<Stream, Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
-    let created = Instant::now();
     let channel_count = config.channels as i32;
+    let sample_rate = config.sample_rate;
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
-                    callback: to_stream_instant(created.elapsed()),
-                    capture: stream_instant(stream),
+                    callback: now_stream_instant(),
+                    capture: input_stream_instant(stream, sample_rate),
                 },
             };
             (data_callback)(
@@ -339,7 +336,7 @@ where
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
-            (error_callback)(StreamError::from(error))
+            (error_callback)(Error::from(error))
         }))
         .open_stream()?;
 
@@ -360,14 +357,14 @@ fn build_output_stream<D, E>(
     mut error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
     sample_format: SampleFormat,
-) -> Result<Stream, BuildStreamError>
+) -> Result<Stream, Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-    E: FnMut(StreamError) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
-    let created = Instant::now();
     let channel_count = config.channels as i32;
+    let sample_rate = config.sample_rate;
     let tune_dynamically = config.buffer_size == BufferSize::Default;
 
     let tuning = Arc::new(BufferTuningState::default());
@@ -375,21 +372,23 @@ where
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            // Pre-fill with equilibrium so unwritten frames are silent.
+            let n_samples: usize = (num_frames * channel_count).try_into().unwrap();
+            let byte_count = n_samples * sample_format.sample_size();
+            // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
+            unsafe {
+                std::slice::from_raw_parts_mut(data as *mut u8, byte_count).fill(0);
+            }
+
             // Deliver audio data to user callback
             let cb_info = OutputCallbackInfo {
                 timestamp: OutputStreamTimestamp {
-                    callback: to_stream_instant(created.elapsed()),
-                    playback: stream_instant(stream),
+                    callback: now_stream_instant(),
+                    playback: output_stream_instant(stream, sample_rate),
                 },
             };
             (data_callback)(
-                &mut unsafe {
-                    Data::from_parts(
-                        data as *mut _,
-                        (num_frames * channel_count).try_into().unwrap(),
-                        sample_format,
-                    )
-                },
+                &mut unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
                 &cb_info,
             );
 
@@ -436,7 +435,7 @@ where
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
-            (error_callback)(StreamError::from(error))
+            (error_callback)(Error::from(error))
         }))
         .open_stream()?;
 
@@ -472,7 +471,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, DeviceNameError> {
+    fn name(&self) -> Result<String, Error> {
         match &self.0 {
             None => Ok("default".to_string()),
             Some(info) => {
@@ -489,7 +488,7 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn description(&self) -> Result<DeviceDescription, DeviceNameError> {
+    fn description(&self) -> Result<DeviceDescription, Error> {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
             Some(info) => {
@@ -513,7 +512,7 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn id(&self) -> Result<DeviceId, DeviceIdError> {
+    fn id(&self) -> Result<DeviceId, Error> {
         let device_str = match &self.0 {
             None => "-1".to_string(), // Default device
             Some(info) => info.id.to_string(),
@@ -521,17 +520,14 @@ impl DeviceTrait for Device {
         Ok(DeviceId(crate::platform::HostId::AAudio, device_str))
     }
 
-    fn supported_input_configs(
-        &self,
-    ) -> Result<Self::SupportedInputConfigs, SupportedStreamConfigsError> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         if let Some(info) = &self.0 {
             // Output-only devices do not support input
             if matches!(info.direction, DeviceDirection::Output) {
-                return Err(SupportedStreamConfigsError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: "output-only device does not support input".to_string(),
-                    },
-                });
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    "output-only device does not support input",
+                ));
             }
             Ok(device_supported_configs(info))
         } else {
@@ -539,17 +535,14 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn supported_output_configs(
-        &self,
-    ) -> Result<Self::SupportedOutputConfigs, SupportedStreamConfigsError> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         if let Some(info) = &self.0 {
             // Input-only devices do not support output
             if matches!(info.direction, DeviceDirection::Input) {
-                return Err(SupportedStreamConfigsError::BackendSpecific {
-                    err: BackendSpecificError {
-                        description: "input-only device does not support output".to_string(),
-                    },
-                });
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    "input-only device does not support output",
+                ));
             }
             Ok(device_supported_configs(info))
         } else {
@@ -557,24 +550,34 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let mut configs: Vec<_> = self.supported_input_configs().unwrap().collect();
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+        let mut configs: Vec<_> = self.supported_input_configs()?.collect();
         configs.sort_by(|a, b| b.cmp_default_heuristics(a));
         let config = configs
             .into_iter()
             .next()
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported input configuration",
+                )
+            })?
             .with_max_sample_rate();
         Ok(config)
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, DefaultStreamConfigError> {
-        let mut configs: Vec<_> = self.supported_output_configs().unwrap().collect();
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
+        let mut configs: Vec<_> = self.supported_output_configs()?.collect();
         configs.sort_by(|a, b| b.cmp_default_heuristics(a));
         let config = configs
             .into_iter()
             .next()
-            .ok_or(DefaultStreamConfigError::StreamTypeNotSupported)?
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no supported output configuration",
+                )
+            })?
             .with_max_sample_rate();
         Ok(config)
     }
@@ -586,19 +589,19 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
             sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!("{} format is not supported on Android.", sample_format),
-                }
-                .into())
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("{sample_format} format is not supported on Android"),
+                ))
             }
         };
         let channel_count = match config.channels {
@@ -606,13 +609,10 @@ impl DeviceTrait for Device {
             2 => 2,
             channels => {
                 // TODO: more channels available in native AAudio
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "{} channels are not supported yet (only 1 or 2).",
-                        channels
-                    ),
-                }
-                .into());
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("{channels} channels are not supported yet (only 1 or 2)"),
+                ));
             }
         };
 
@@ -638,19 +638,19 @@ impl DeviceTrait for Device {
         data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, BuildStreamError>
+    ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
-        E: FnMut(StreamError) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
             sample_format => {
-                return Err(BackendSpecificError {
-                    description: format!("{} format is not supported on Android.", sample_format),
-                }
-                .into())
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("{sample_format} format is not supported on Android"),
+                ))
             }
         };
         let channel_count = match config.channels {
@@ -658,13 +658,10 @@ impl DeviceTrait for Device {
             2 => 2,
             channels => {
                 // TODO: more channels available in native AAudio
-                return Err(BackendSpecificError {
-                    description: format!(
-                        "{} channels are not supported yet (only 1 or 2).",
-                        channels
-                    ),
-                }
-                .into());
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("{channels} channels are not supported yet (only 1 or 2)"),
+                ));
             }
         };
 
@@ -685,42 +682,56 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), PlayStreamError> {
-        let stream = self.inner.lock().unwrap();
+    fn play(&self) -> Result<(), Error> {
+        let stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
 
-        stream.request_start().map_err(PlayStreamError::from)?;
+        stream
+            .request_start()
+            .context("failed to start AAudio stream")?;
         stream
             .wait_for_state_change(
                 ndk::audio::AudioStreamState::Starting,
                 DEFAULT_TIMEOUT_NANOS,
             )
             .map(|_| ())
-            .map_err(PlayStreamError::from)
+            .context("failed to wait for AAudio stream to start")
     }
 
-    fn pause(&self) -> Result<(), PauseStreamError> {
+    fn pause(&self) -> Result<(), Error> {
         match self.direction {
             DeviceDirection::Output => {
-                let stream = self.inner.lock().unwrap();
+                let stream = self.inner.lock().map_err(|_| {
+                    Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+                })?;
 
-                stream.request_pause().map_err(PauseStreamError::from)?;
+                stream
+                    .request_pause()
+                    .context("failed to pause AAudio stream")?;
                 stream
                     .wait_for_state_change(
                         ndk::audio::AudioStreamState::Pausing,
                         DEFAULT_TIMEOUT_NANOS,
                     )
                     .map(|_| ())
-                    .map_err(PauseStreamError::from)
+                    .context("failed to wait for AAudio stream to pause")
             }
-            _ => Err(BackendSpecificError {
-                description: "Pause only supported on output streams.".to_owned(),
-            }
-            .into()),
+            _ => Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "pause only supported on output streams",
+            )),
         }
     }
 
-    fn buffer_size(&self) -> Option<crate::FrameCount> {
-        let stream = self.inner.lock().ok()?;
+    fn now(&self) -> StreamInstant {
+        now_stream_instant()
+    }
+
+    fn buffer_size(&self) -> Result<FrameCount, Error> {
+        let stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+        })?;
 
         // frames_per_data_callback is only set for BufferSize::Fixed; for Default AAudio
         // schedules callbacks at the burst size, so that is the best available estimate.
@@ -728,10 +739,6 @@ impl StreamTrait for Stream {
             Some(size) if size > 0 => size,
             _ => stream.frames_per_burst(),
         };
-        if frames > 0 {
-            Some(frames as crate::FrameCount)
-        } else {
-            None
-        }
+        Ok(frames as FrameCount)
     }
 }

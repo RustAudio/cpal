@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::fmt;
+use std::{error::Error, fmt};
 
 /// Errors that might occur during `Asio::load_driver`.
 #[derive(Clone, Debug)]

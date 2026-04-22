@@ -1,45 +1,53 @@
-use crate::traits::HostTrait;
 use device::{init_devices, Class, Device, Devices};
+use stream::PwInitGuard;
+
+use crate::{traits::HostTrait, Error, ErrorKind};
+
 mod device;
 mod stream;
 mod utils;
 
-#[inline]
-fn pipewire_available() -> bool {
-    let dir = std::env::var("PIPEWIRE_RUNTIME_DIR")
-        .or_else(|_| std::env::var("XDG_RUNTIME_DIR"))
-        .unwrap_or_default();
-    std::path::Path::new(&dir).join("pipewire-0").exists()
+pub struct Host {
+    // Keeps PipeWire initialized for the lifetime of the host, preventing
+    // pw_deinit() from running between device enumeration and stream creation.
+    _pw: PwInitGuard,
+    devices: Vec<Device>,
 }
 
-#[derive(Debug)]
-pub struct Host(Vec<Device>);
-
 impl Host {
-    pub fn new() -> Result<Self, crate::HostUnavailable> {
-        let devices = init_devices().ok_or(crate::HostUnavailable)?;
-        Ok(Host(devices))
+    pub fn new() -> Result<Self, Error> {
+        let _pw = PwInitGuard::new();
+        let devices = init_devices().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                "PipeWire host initialization failed",
+            )
+        })?;
+        Ok(Self { _pw, devices })
     }
 }
 
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
     fn is_available() -> bool {
-        pipewire_available()
+        utils::find_socket_path().is_some()
     }
-    fn devices(&self) -> Result<Self::Devices, crate::DevicesError> {
-        Ok(self.0.clone().into_iter())
+
+    fn devices(&self) -> Result<Self::Devices, Error> {
+        Ok(self.devices.clone().into_iter())
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        self.0
+        self.devices
             .iter()
             .find(|device| matches!(device.class(), Class::DefaultInput))
             .cloned()
     }
+
     fn default_output_device(&self) -> Option<Self::Device> {
-        self.0
+        self.devices
             .iter()
             .find(|device| matches!(device.class(), Class::DefaultOutput))
             .cloned()

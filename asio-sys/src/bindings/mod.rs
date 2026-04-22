@@ -2,22 +2,24 @@ pub(crate) mod asio_import;
 #[macro_use]
 pub mod errors;
 
-use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
-use num_traits::FromPrimitive;
-
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_double, c_void};
-use std::ptr::null_mut;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-    Arc, Mutex, MutexGuard, Weak,
-};
-use std::time::Duration;
-
 // On Windows (where ASIO actually runs), c_long is i32.
 // On non-Windows platforms (for docs.rs and local testing), redefine c_long as i32 to match.
 #[cfg(target_os = "windows")]
 use std::os::raw::c_long;
+use std::{
+    ffi::{CStr, CString},
+    os::raw::{c_char, c_double, c_void},
+    ptr::null_mut,
+    sync::{
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        Arc, Mutex, MutexGuard, Weak,
+    },
+    time::Duration,
+};
+
+use num_traits::FromPrimitive;
+
+use self::errors::{AsioError, AsioErrorWrapper, LoadDriverError};
 #[cfg(not(target_os = "windows"))]
 type c_long = i32;
 
