@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ALSA**: Loop partial reads and writes to completion.
 - **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
+- **ALSA**: Callback timestamps use `LinkSynchronized` hardware cross-timestamps for lower jitter
+  on supported devices.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.

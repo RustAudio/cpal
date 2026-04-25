@@ -393,7 +393,7 @@ impl Device {
             alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)?
         };
 
-        let _ = set_hw_params_from_format(&handle, conf, sample_format)?;
+        let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
         let (buffer_size, period_size) = set_sw_params_from_format(&handle, stream_type)?;
         if buffer_size == 0 {
             return Err(Error::with_message(
@@ -411,10 +411,17 @@ impl Device {
             ));
         }
 
-        // Check to see if we can retrieve valid timestamps from the device.
+        // A zero get_htstamp() at prepare time indicates the device does not support hardware timestamps (e.g. PulseAudio ALSA plugin).
         // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let ts = handle.status()?.get_htstamp();
-        let use_hw_timestamps = !(ts.tv_sec == 0 && ts.tv_nsec == 0);
+        let timestamp_mode = if ts.tv_sec == 0 && ts.tv_nsec == 0 {
+            TimestampMode::CreationInstant
+        } else if hw_params.supports_audio_ts_type(alsa::pcm::AudioTstampType::LinkSynchronized) {
+            TimestampMode::AudioLink
+        } else {
+            TimestampMode::SystemClock
+        };
+        drop(hw_params);
 
         if let alsa::Direction::Capture = stream_type {
             handle.start()?;
@@ -432,7 +439,7 @@ impl Device {
             period_size,
             period_samples: period_size * conf.channels as usize,
             equilibrium: EquilibriumFill::new(sample_format, period_size * frame_size),
-            use_hw_timestamps,
+            timestamp_mode,
             _context: self._context.clone(),
             creation_instant: std::time::Instant::now(),
         };
@@ -709,6 +716,22 @@ impl EquilibriumFill {
     }
 }
 
+// How stream timestamps are produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum TimestampMode {
+    // Every callback uses elapsed time since stream creation.
+    CreationInstant,
+
+    // ALSA get_htstamp() captured in the interrupt handler minus trigger_htstamp.
+    // Both are in CLOCK_MONOTONIC_RAW; their difference is stream-relative elapsed time.
+    SystemClock,
+
+    // ALSA get_audio_htstamp() cross-timestamped with LinkSynchronized, no subtraction needed.
+    // Higher fidelity than SystemClock because it reflects actual hardware audio clock events
+    // rather than DMA interrupt time.
+    AudioLink,
+}
+
 #[derive(Debug)]
 struct StreamInner {
     // Flag used to check when to stop polling, regardless of the state of the stream
@@ -730,14 +753,10 @@ struct StreamInner {
     period_samples: usize,
     equilibrium: EquilibriumFill,
 
-    // Whether to attempt hardware timestamps via `get_htstamp` / `get_trigger_htstamp`.
-    //
-    // When `true`, hardware timestamps are tried first on every callback and we fall back silently
-    // to `creation_instant` if they are transiently unavailable; e.g. the PulseAudio ALSA plugin
-    // returns `(0, 0)` for the first several periods after the stream is triggered.
-    use_hw_timestamps: bool,
+    // How callback timestamps are produced
+    timestamp_mode: TimestampMode,
 
-    // Timestamp origin used by the fallback path. Faster without `Option`.
+    // Timestamp origin used by the CreationInstant fallback path
     creation_instant: std::time::Instant,
 
     // Keep ALSA context alive to prevent premature ALSA config cleanup
@@ -767,6 +786,33 @@ pub struct Stream {
 // Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
+
+impl StreamInner {
+    fn callback_instant(&self, status: &alsa::pcm::Status) -> StreamInstant {
+        match self.timestamp_mode {
+            TimestampMode::CreationInstant => stream_timestamp_fallback(self.creation_instant),
+            TimestampMode::SystemClock => {
+                let trigger_ts = status.get_trigger_htstamp();
+                let nanos = timespec_diff_nanos(status.get_htstamp(), trigger_ts);
+                if (trigger_ts.tv_sec == 0 && trigger_ts.tv_nsec == 0) || nanos < 0 {
+                    stream_timestamp_fallback(self.creation_instant)
+                } else {
+                    StreamInstant::from_nanos(nanos as u64)
+                }
+            }
+            TimestampMode::AudioLink => {
+                // The hardware cross-timestamps the audio sample counter against CLOCK_MONOTONIC_RAW
+                // and resets it to zero at stream trigger, so no subtraction needed.
+                let ts = status.get_audio_htstamp();
+                if ts.tv_sec == 0 && ts.tv_nsec == 0 {
+                    stream_timestamp_fallback(self.creation_instant)
+                } else {
+                    StreamInstant::from_nanos(timespec_to_nanos(ts) as u64)
+                }
+            }
+        }
+    }
+}
 
 struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
@@ -1044,8 +1090,17 @@ fn poll_for_period(
         return Ok(Poll::Pending);
     }
 
-    // We now know this is not a spurious wakeup, so we also know the device is in a stable state.
-    let status = stream.handle.status()?;
+    let audio_ts_type = match stream.timestamp_mode {
+        TimestampMode::AudioLink => alsa::pcm::AudioTstampType::LinkSynchronized,
+        TimestampMode::SystemClock | TimestampMode::CreationInstant => {
+            alsa::pcm::AudioTstampType::Compat
+        }
+    };
+    // From the guard above we know that this poll is not a spurious wakeup,
+    // so we also know we can query the device in a stable state.
+    let status = alsa::pcm::StatusBuilder::new()
+        .audio_htstamp_config(audio_ts_type, false)
+        .build(&stream.handle)?;
 
     Ok(Poll::Ready {
         status,
@@ -1092,17 +1147,15 @@ fn process_input(
     }
     let data = buffer.as_mut_ptr() as *mut ();
     let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback = if stream.use_hw_timestamps {
-        stream_timestamp_hardware(&status)
-            .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
-    } else {
-        stream_timestamp_fallback(stream.creation_instant)
-    }?;
+    let callback_instant = stream.callback_instant(&status);
     let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
-    let capture = callback
+    let capture = callback_instant
         .checked_sub(delay_duration)
         .unwrap_or(StreamInstant::ZERO);
-    let timestamp = InputStreamTimestamp { callback, capture };
+    let timestamp = InputStreamTimestamp {
+        callback: callback_instant,
+        capture,
+    };
     let info = InputCallbackInfo { timestamp };
     data_callback(&data, &info);
 
@@ -1122,15 +1175,13 @@ fn process_output(
 
     let data = buffer.as_mut_ptr() as *mut ();
     let mut data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback = if stream.use_hw_timestamps {
-        stream_timestamp_hardware(&status)
-            .or_else(|_| stream_timestamp_fallback(stream.creation_instant))
-    } else {
-        stream_timestamp_fallback(stream.creation_instant)
-    }?;
+    let callback_instant = stream.callback_instant(&status);
     let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
-    let playback = callback + delay_duration;
-    let timestamp = OutputStreamTimestamp { callback, playback };
+    let playback = callback_instant + delay_duration;
+    let timestamp = OutputStreamTimestamp {
+        callback: callback_instant,
+        playback,
+    };
     let info = OutputCallbackInfo { timestamp };
     data_callback(&mut data, &info);
 
@@ -1168,48 +1219,11 @@ fn process_output(
     Ok(())
 }
 
-// Use hardware timestamps from ALSA.
-//
-// This ensures accurate timestamps based on actual hardware timing.
-#[inline]
-fn stream_timestamp_hardware(status: &alsa::pcm::Status) -> Result<StreamInstant, Error> {
-    let trigger_ts = status.get_trigger_htstamp();
-    // trigger_htstamp records when the PCM stream started.
-    // On the first few callbacks, it might not have been set yet,
-    // which would yield a huge positive nanos nd cause non-monotonicity
-    // once it is set. Bail out and let the caller use the fallback.
-    // See https://github.com/RustAudio/cpal/issues/710
-    if trigger_ts.tv_sec == 0 && trigger_ts.tv_nsec == 0 {
-        return Err(Error::with_message(
-            ErrorKind::Other,
-            "trigger_htstamp not yet set",
-        ));
-    }
-    let ts = status.get_htstamp();
-    let nanos = timespec_diff_nanos(ts, trigger_ts);
-    if nanos < 0 {
-        return Err(Error::with_message(
-            ErrorKind::Other,
-            format!(
-                "get_htstamp `{}.{}` was earlier than get_trigger_htstamp `{}.{}`",
-                ts.tv_sec, ts.tv_nsec, trigger_ts.tv_sec, trigger_ts.tv_nsec
-            ),
-        ));
-    }
-    Ok(StreamInstant::from_nanos(nanos as u64))
-}
-
 // Use elapsed duration since stream creation as fallback when hardware timestamps are unavailable.
-//
-// This ensures positive values that are compatible with our `StreamInstant` representation.
 #[inline]
-fn stream_timestamp_fallback(creation: std::time::Instant) -> Result<StreamInstant, Error> {
-    let now = std::time::Instant::now();
-    let duration = now.duration_since(creation);
-    Ok(StreamInstant::new(
-        duration.as_secs(),
-        duration.subsec_nanos(),
-    ))
+fn stream_timestamp_fallback(creation: std::time::Instant) -> StreamInstant {
+    let duration = std::time::Instant::now().duration_since(creation);
+    StreamInstant::new(duration.as_secs(), duration.subsec_nanos())
 }
 
 // Adapted from `timestamp2ns` here:
@@ -1328,15 +1342,18 @@ impl StreamTrait for Stream {
     }
 
     fn now(&self) -> StreamInstant {
-        if self.inner.use_hw_timestamps {
+        if self.inner.timestamp_mode != TimestampMode::CreationInstant {
             if let Ok(status) = self.inner.handle.status() {
-                if let Ok(instant) = stream_timestamp_hardware(&status) {
-                    return instant;
+                let trigger_ts = status.get_trigger_htstamp();
+                if trigger_ts.tv_sec != 0 || trigger_ts.tv_nsec != 0 {
+                    let nanos = timespec_diff_nanos(status.get_htstamp(), trigger_ts);
+                    if nanos >= 0 {
+                        return StreamInstant::from_nanos(nanos as u64);
+                    }
                 }
             }
         }
         stream_timestamp_fallback(self.inner.creation_instant)
-            .expect("stream duration exceeded `StreamInstant` range")
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
