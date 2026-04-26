@@ -830,7 +830,7 @@ impl StreamInner {
                     let trigger_ts = status.get_trigger_htstamp();
                     let audio_ts = status.get_audio_htstamp();
                     let trigger_offset = timespec_diff_nanos(trigger_ts, self.creation_ts);
-                    let nanos = timespec_to_nanos(audio_ts) as i64 + trigger_offset;
+                    let nanos = timespec_to_nanos(audio_ts) + trigger_offset;
                     StreamInstant::from_nanos(nanos.max(0) as u64)
                 }
             }
