@@ -639,16 +639,9 @@ impl Device {
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
         match formats.into_iter().next_back() {
-            Some(f) => {
-                let min_r = f.min_sample_rate;
-                let max_r = f.max_sample_rate;
-                let mut format = f.with_max_sample_rate();
-                const HZ_44100: SampleRate = 44_100;
-                if min_r <= HZ_44100 && HZ_44100 <= max_r {
-                    format.sample_rate = HZ_44100;
-                }
-                Ok(format)
-            }
+            Some(f) => Ok(f
+                .try_with_standard_sample_rate()
+                .unwrap_or_else(|| f.with_max_sample_rate())),
             None => Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 "no supported configuration for this device",

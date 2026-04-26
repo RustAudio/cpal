@@ -15,6 +15,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
 - [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
+- [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
 
 ## 1. Unified `Error` and `ErrorKind` type
 
@@ -151,7 +152,24 @@ StreamInstant::new(0_u64, 0);
 
 **Why:** All audio host clocks are positive and monotonic; they are never negative.
 
-## 4. `wasm32-unknown-emscripten` target removed
+## 4. Default sample rate changed to 48 kHz
+
+**What changed:** `default_input_config()` and `default_output_config()` now prefer 48 kHz over
+44.1 kHz on backends that apply a heuristic. The new selection order is 48 kHz, then 44.1 kHz, then the device maximum.
+
+If your pipeline requires 44.1 kHz, request it explicitly:
+
+```rust
+let config = device
+    .supported_output_configs()?
+    .find_map(|r| r.try_with_sample_rate(44_100))
+    .expect("device does not support 44.1 kHz");
+```
+
+**Why:** 48 kHz is the native rate of virtually all modern hardware; the old default caused
+unnecessary resampling on such devices.
+
+## 5. `wasm32-unknown-emscripten` target removed
 
 **What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
 

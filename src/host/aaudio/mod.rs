@@ -553,32 +553,30 @@ impl DeviceTrait for Device {
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         let mut configs: Vec<_> = self.supported_input_configs()?.collect();
         configs.sort_by(|a, b| b.cmp_default_heuristics(a));
-        let config = configs
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "no supported input configuration",
-                )
-            })?
-            .with_max_sample_rate();
+        let range = configs.into_iter().next().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "no supported input configuration",
+            )
+        })?;
+        let config = range
+            .try_with_standard_sample_rate()
+            .unwrap_or_else(|| range.with_max_sample_rate());
         Ok(config)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         let mut configs: Vec<_> = self.supported_output_configs()?.collect();
         configs.sort_by(|a, b| b.cmp_default_heuristics(a));
-        let config = configs
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "no supported output configuration",
-                )
-            })?
-            .with_max_sample_rate();
+        let range = configs.into_iter().next().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "no supported output configuration",
+            )
+        })?;
+        let config = range
+            .try_with_standard_sample_rate()
+            .unwrap_or_else(|| range.with_max_sample_rate());
         Ok(config)
     }
 

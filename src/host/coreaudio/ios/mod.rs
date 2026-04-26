@@ -101,28 +101,28 @@ impl Device {
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the primary (exact channel count) config from supported configs
-        get_supported_stream_configs(true)
-            .next()
-            .map(|range| range.with_max_sample_rate())
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "no supported input configuration",
-                )
-            })
+        let range = get_supported_stream_configs(true).next().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "no supported input configuration",
+            )
+        })?;
+        Ok(range
+            .try_with_standard_sample_rate()
+            .unwrap_or_else(|| range.with_max_sample_rate()))
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         // Get the maximum channel count config from supported configs
-        get_supported_stream_configs(false)
-            .last()
-            .map(|range| range.with_max_sample_rate())
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "no supported output configuration",
-                )
-            })
+        let range = get_supported_stream_configs(false).last().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "no supported output configuration",
+            )
+        })?;
+        Ok(range
+            .try_with_standard_sample_rate()
+            .unwrap_or_else(|| range.with_max_sample_rate()))
     }
 }
 

@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
   backends to override it.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
+- `SAMPLE_RATE_CD` (44100 Hz) and `SAMPLE_RATE_BROADCAST` (48000 Hz) constants.
+- `SupportedStreamConfigRange::contains_rate()` to test whether a sample rate falls within a range.
+- `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
+  to select 48 kHz or 44.1 kHz from a range.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
@@ -29,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HostId::name()` now returns a more human-friendly name instead of the raw backend identifier.
 - `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
   [UPGRADING.md](UPGRADING.md) for migration details.
+- `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
@@ -37,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **AAudio**: `SupportedBufferSize` now reports `min: 1`.
+- **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
+  44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
 - **ALSA**: Device disconnection now stops the stream with `ErrorKind::DeviceNotAvailable`.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
@@ -44,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ALSA**: Callback timestamps use `LinkSynchronized` hardware cross-timestamps for lower jitter
   on supported devices.
+- **ALSA**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
+  44.1 kHz, then the maximum supported sample rate, instead of preferring 44.1 kHz.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
@@ -51,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` when the driver
   reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
+- **AudioWorklet**: `default_output_config()` now uses 48 kHz as the default sample rate instead
+  of 44.1 kHz, reflecting the dominant native rate on modern hardware.
 - **CoreAudio**: Bump MSRV to 1.85.
 - **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
@@ -60,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on iOS
   when media services are lost.
 - **CoreAudio**: User timeouts are now respected when building a stream.
+- **CoreAudio (iOS)**: `default_input_config()` and `default_output_config()` now prefer 48 kHz,
+  then 44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
   without error.
@@ -73,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
+- **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
+  44.1 kHz, reflecting the dominant native rate on modern hardware.
 
 ### Removed
 

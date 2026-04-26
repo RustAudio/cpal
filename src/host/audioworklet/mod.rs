@@ -45,7 +45,7 @@ const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;
 const MIN_SAMPLE_RATE: SampleRate = 8_000;
 const MAX_SAMPLE_RATE: SampleRate = 96_000;
-const DEFAULT_SAMPLE_RATE: SampleRate = 44_100;
+
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 // https://webaudio.github.io/web-audio-api/#render-quantum-size
@@ -154,13 +154,18 @@ impl DeviceTrait for Device {
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        const EXPECT: &str = "expected at least one valid webaudio stream config";
-        let config = self
-            .supported_output_configs()
-            .expect(EXPECT)
+        let range = self
+            .supported_output_configs()?
             .max_by(|a, b| a.cmp_default_heuristics(b))
-            .unwrap()
-            .with_sample_rate(DEFAULT_SAMPLE_RATE);
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "AudioWorklet has no supported output configurations",
+                )
+            })?;
+        let config = range
+            .try_with_standard_sample_rate()
+            .unwrap_or_else(|| range.with_max_sample_rate());
 
         Ok(config)
     }
