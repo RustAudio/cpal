@@ -90,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **AAudio**: Output buffers are now zero-filled before the callback runs.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
-- **ALSA**: Fix non-monotonic `StreamInstant` during stream startup.
+- **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
 - **ALSA**: Fix spurious timeout errors during polling.
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
