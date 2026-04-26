@@ -28,7 +28,7 @@ unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     match reason {
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable => Some(Error::with_message(
             ErrorKind::DeviceChanged,
-            "audio output device changed",
+            "audio route changed",
         )),
 
         AVAudioSessionRouteChangeReason::CategoryChange

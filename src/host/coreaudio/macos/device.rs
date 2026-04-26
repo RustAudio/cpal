@@ -44,7 +44,7 @@ use objc2_core_audio_types::{
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::Type;
 
-pub use super::enumerate::{default_output_device, SupportedInputConfigs, SupportedOutputConfigs};
+pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use std::fmt;
 use std::mem::{self, size_of};
 use std::ptr::{null, NonNull};
@@ -358,20 +358,34 @@ impl DeviceTrait for Device {
     }
 }
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
+    pub(crate) is_default_output: bool,
 }
 
-fn is_default_output_device(device: &Device) -> bool {
-    default_output_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.audio_device_id == other.audio_device_id
+    }
+}
+
+impl Eq for Device {}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.audio_device_id.hash(state);
+    }
 }
 
 impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
     pub fn new(audio_device_id: AudioDeviceID) -> Self {
-        Self { audio_device_id }
+        Self {
+            audio_device_id,
+            is_default_output: false,
+        }
     }
 
     /// Checks if this device is an aggregate device.
@@ -863,7 +877,7 @@ impl Device {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
 
-        let mode = if is_default_output_device(self) {
+        let mode = if self.is_default_output {
             AudioUnitMode::DefaultOutput
         } else {
             AudioUnitMode::Output
