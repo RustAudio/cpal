@@ -163,7 +163,7 @@ If your pipeline requires 44.1 kHz, request it explicitly:
 ```rust
 let config = device
     .supported_output_configs()?
-    .find_map(|r| r.try_with_sample_rate(44_100))
+    .find_map(|r| r.try_with_sample_rate(cpal::SAMPLE_RATE_CD))
     .expect("device does not support 44.1 kHz");
 ```
 
