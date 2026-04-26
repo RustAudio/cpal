@@ -737,7 +737,6 @@ impl SupportedStreamConfigRange {
     /// 3. Highest supported sample rate
     pub fn cmp_default_heuristics(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering::Equal;
-        use SampleFormat::*;
 
         let cmp_stereo = (self.channels == 2).cmp(&(other.channels == 2));
         if cmp_stereo != Equal {
@@ -754,79 +753,27 @@ impl SupportedStreamConfigRange {
             return cmp_channels;
         }
 
-        let cmp_f64 = (self.sample_format == F64).cmp(&(other.sample_format == F64));
-        if cmp_f64 != Equal {
-            return cmp_f64;
+        // Returns a (category, depth, signed) rank for a sample format.
+        fn format_rank(fmt: SampleFormat) -> (u8, u32, u8) {
+            let category = if fmt.is_float() {
+                2
+            } else if fmt.is_int() || fmt.is_uint() {
+                1
+            } else {
+                0
+            };
+            let depth = if fmt.is_dsd() {
+                fmt.sample_size() as u32
+            } else {
+                fmt.bits_per_sample()
+            };
+            let signed = u8::from(fmt.is_float() || fmt.is_int());
+            (category, depth, signed)
         }
 
-        let cmp_f32 = (self.sample_format == F32).cmp(&(other.sample_format == F32));
-        if cmp_f32 != Equal {
-            return cmp_f32;
-        }
-
-        let cmp_i64 = (self.sample_format == I64).cmp(&(other.sample_format == I64));
-        if cmp_i64 != Equal {
-            return cmp_i64;
-        }
-
-        let cmp_u64 = (self.sample_format == U64).cmp(&(other.sample_format == U64));
-        if cmp_u64 != Equal {
-            return cmp_u64;
-        }
-
-        let cmp_i32 = (self.sample_format == I32).cmp(&(other.sample_format == I32));
-        if cmp_i32 != Equal {
-            return cmp_i32;
-        }
-
-        let cmp_u32 = (self.sample_format == U32).cmp(&(other.sample_format == U32));
-        if cmp_u32 != Equal {
-            return cmp_u32;
-        }
-
-        let cmp_i24 = (self.sample_format == I24).cmp(&(other.sample_format == I24));
-        if cmp_i24 != Equal {
-            return cmp_i24;
-        }
-
-        let cmp_u24 = (self.sample_format == U24).cmp(&(other.sample_format == U24));
-        if cmp_u24 != Equal {
-            return cmp_u24;
-        }
-
-        let cmp_i16 = (self.sample_format == I16).cmp(&(other.sample_format == I16));
-        if cmp_i16 != Equal {
-            return cmp_i16;
-        }
-
-        let cmp_u16 = (self.sample_format == U16).cmp(&(other.sample_format == U16));
-        if cmp_u16 != Equal {
-            return cmp_u16;
-        }
-
-        let cmp_i8 = (self.sample_format == I8).cmp(&(other.sample_format == I8));
-        if cmp_i8 != Equal {
-            return cmp_i8;
-        }
-
-        let cmp_u8 = (self.sample_format == U8).cmp(&(other.sample_format == U8));
-        if cmp_u8 != Equal {
-            return cmp_u8;
-        }
-
-        let cmp_dsd_u32 = (self.sample_format == DsdU32).cmp(&(other.sample_format == DsdU32));
-        if cmp_dsd_u32 != Equal {
-            return cmp_dsd_u32;
-        }
-
-        let cmp_dsd_u16 = (self.sample_format == DsdU16).cmp(&(other.sample_format == DsdU16));
-        if cmp_dsd_u16 != Equal {
-            return cmp_dsd_u16;
-        }
-
-        let cmp_dsd_u8 = (self.sample_format == DsdU8).cmp(&(other.sample_format == DsdU8));
-        if cmp_dsd_u8 != Equal {
-            return cmp_dsd_u8;
+        let cmp_format = format_rank(self.sample_format).cmp(&format_rank(other.sample_format));
+        if cmp_format != Equal {
+            return cmp_format;
         }
 
         let cmp_broadcast = self
