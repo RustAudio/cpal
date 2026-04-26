@@ -812,8 +812,7 @@ impl StreamInner {
                 // htstamp is the time of the most recent DMA interrupt on the configured
                 // monotonic clock. Subtracting creation_ts (same clock, prepare() time)
                 // gives elapsed time since stream creation in any PCM state.
-                let nanos = timespec_diff_nanos(status.get_htstamp(), self.creation_ts);
-                StreamInstant::from_nanos(nanos.max(0) as u64)
+                htstamp_elapsed(status, self.creation_ts)
             }
             TimestampMode::AudioLink => {
                 // audio_htstamp measures elapsed time since snd_pcm_start() via hardware
@@ -822,16 +821,21 @@ impl StreamInner {
                     // After xrun recovery, snd_pcm_prepare() does not reset trigger_htstamp
                     // (only snd_pcm_start() does), so it keeps its pre-xrun value while the
                     // hardware counter has not yet restarted.
-                    let nanos = timespec_diff_nanos(status.get_htstamp(), self.creation_ts);
-                    StreamInstant::from_nanos(nanos.max(0) as u64)
+                    htstamp_elapsed(status, self.creation_ts)
                 } else {
                     // When running, add (trigger_ts − creation_ts) to express elapsed time
                     // since stream creation rather than since the last snd_pcm_start().
                     let trigger_ts = status.get_trigger_htstamp();
-                    let audio_ts = status.get_audio_htstamp();
                     let trigger_offset = timespec_diff_nanos(trigger_ts, self.creation_ts);
-                    let nanos = timespec_to_nanos(audio_ts) + trigger_offset;
-                    StreamInstant::from_nanos(nanos.max(0) as u64)
+                    if trigger_offset < 0 {
+                        // trigger_ts predates creation_ts (driver bug); fall back to
+                        // htstamp − creation_ts to preserve a monotone result.
+                        htstamp_elapsed(status, self.creation_ts)
+                    } else {
+                        let audio_ts = status.get_audio_htstamp();
+                        let nanos = timespec_to_nanos(audio_ts) + trigger_offset;
+                        StreamInstant::from_nanos(nanos as u64)
+                    }
                 }
             }
         }
@@ -1258,6 +1262,14 @@ fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
     timespec_to_nanos(a) - timespec_to_nanos(b)
 }
 
+// StreamInstant representing how long htstamp is ahead of origin, clamped to zero.
+// Used as the creation-relative timestamp source for SystemClock and AudioLink fallback paths.
+#[inline]
+fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> StreamInstant {
+    let nanos = timespec_diff_nanos(status.get_htstamp(), origin);
+    StreamInstant::from_nanos(nanos.max(0) as u64)
+}
+
 impl Stream {
     fn new_input<D, E>(
         inner: Arc<StreamInner>,
@@ -1372,7 +1384,6 @@ impl StreamTrait for Stream {
             }
         }
 
-        // Fallback for CreationInstant mode or if the status query fails: use wall-clock time.
         let d = std::time::Instant::now().duration_since(self.inner.creation_instant);
         StreamInstant::new(d.as_secs(), d.subsec_nanos())
     }
