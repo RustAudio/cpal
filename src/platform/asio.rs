@@ -1,7 +1,6 @@
 //! Implementations for ASIO-specific device functionality.
 
-use crate::BackendSpecificError;
-use crate::Device;
+use crate::{Device, Error};
 
 /// Extension trait to get the ASIO device.
 pub trait AsioDeviceExt {
@@ -30,7 +29,7 @@ impl AsioDevice<'_> {
     ///
     /// This call may block until the user closes the control panel.
     /// Consider spawning a thread to avoid blocking the main thread.
-    pub fn open_control_panel(&self) -> Result<(), BackendSpecificError> {
+    pub fn open_control_panel(&self) -> Result<(), Error> {
         #[cfg(all(target_os = "windows", feature = "asio"))]
         {
             self.inner.open_control_panel()
