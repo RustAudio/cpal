@@ -904,7 +904,7 @@ fn input_stream_worker(
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "audio_thread_priority")]
-    if let Err(err) = boost_current_thread_priority(&stream.handle, stream.sample_rate) {
+    if let Err(err) = boost_current_thread_priority(stream) {
         error_callback(err);
     }
 
@@ -955,7 +955,7 @@ fn output_stream_worker(
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "audio_thread_priority")]
-    if let Err(err) = boost_current_thread_priority(&stream.handle, stream.sample_rate) {
+    if let Err(err) = boost_current_thread_priority(stream) {
         error_callback(err);
     }
 
@@ -1002,15 +1002,11 @@ fn output_stream_worker(
 
 #[cfg(feature = "audio_thread_priority")]
 fn boost_current_thread_priority(
-    handle: &alsa::pcm::PCM,
-    sample_rate: SampleRate,
+    stream: &StreamInner,
 ) -> Result<audio_thread_priority::RtPriorityHandle, Error> {
-    use audio_thread_priority::promote_current_thread_to_real_time;
-
-    // if the buffer size isn't known, let audio_thread_priority choose a sensible default value
-    let (buffer_size, _) = handle.get_params().unwrap_or((0, 0));
-    let buffer_size = u32::try_from(buffer_size).unwrap_or(0);
-    promote_current_thread_to_real_time(buffer_size, sample_rate).map_err(Error::from)
+    let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
+    audio_thread_priority::promote_current_thread_to_real_time(period_frames, stream.sample_rate)
+        .map_err(Error::from)
 }
 
 /// Attempt hardware resume from a suspend event (`ESTRPIPE`).
@@ -1593,20 +1589,6 @@ fn canonical_pcm_id(pcm_id: &str) -> String {
         }
     }
     pcm_id.to_owned()
-}
-
-#[cfg(feature = "audio_thread_priority")]
-impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
-    fn from(err: audio_thread_priority::AudioThreadPriorityError) -> Self {
-        use std::error::Error as StdError;
-        let msg = match err.source() {
-            Some(inner) => {
-                format!("Failed to promote audio thread to real-time priority: {err}: {inner}")
-            }
-            None => format!("Failed to promote audio thread to real-time priority: {err}"),
-        };
-        Error::with_message(ErrorKind::Other, msg)
-    }
 }
 
 impl From<alsa::Error> for Error {

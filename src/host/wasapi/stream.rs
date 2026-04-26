@@ -14,7 +14,7 @@ use windows::Win32::{
 use crate::{
     host::{equilibrium::fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
-    BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
     StreamInstant,
 };
@@ -355,10 +355,12 @@ fn run_input(
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &mut dyn FnMut(Error),
 ) {
-    boost_current_thread_priority(
-        run_ctxt.stream.config.buffer_size,
+    if let Err(err) = boost_current_thread_priority(
+        run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    );
+    ) {
+        error_callback(err);
+    }
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -387,10 +389,12 @@ fn run_output(
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
     error_callback: &mut dyn FnMut(Error),
 ) {
-    boost_current_thread_priority(
-        run_ctxt.stream.config.buffer_size,
+    if let Err(err) = boost_current_thread_priority(
+        run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    );
+    ) {
+        error_callback(err);
+    }
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -415,28 +419,22 @@ fn run_output(
 }
 
 #[cfg(feature = "audio_thread_priority")]
-fn boost_current_thread_priority(buffer_size: BufferSize, sample_rate: SampleRate) {
-    use audio_thread_priority::promote_current_thread_to_real_time;
-
-    let buffer_size = if let BufferSize::Fixed(buffer_size) = buffer_size {
-        buffer_size
-    } else {
-        // if the buffer size isn't fixed, let audio_thread_priority choose a sensible default value
-        0
-    };
-
-    if let Err(err) = promote_current_thread_to_real_time(buffer_size, sample_rate) {
-        eprintln!("Failed to promote audio thread to real-time priority: {err}");
-    }
+fn boost_current_thread_priority(
+    period_frames: FrameCount,
+    sample_rate: SampleRate,
+) -> Result<(), Error> {
+    audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate)
+        .map(|_| ())
+        .map_err(Error::from)
 }
 
 #[cfg(not(feature = "audio_thread_priority"))]
-fn boost_current_thread_priority(_: BufferSize, _: SampleRate) {
+fn boost_current_thread_priority(_: FrameCount, _: SampleRate) -> Result<(), Error> {
     unsafe {
         let thread_handle = Threading::GetCurrentThread();
-
-        let _ =
-            Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL);
+        Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
+            .ok()
+            .context("Failed to promote audio thread to real-time priority")
     }
 }
 

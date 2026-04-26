@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
 - `ErrorKind::PermissionDenied` for OS-level access denials.
+- `ErrorKind::ThreadPriorityUnavailable` for when a thread priority request is not granted.
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing

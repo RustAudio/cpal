@@ -56,6 +56,10 @@ pub enum ErrorKind {
     /// A buffer underrun or overrun occurred, causing a potential audio glitch.
     Xrun,
 
+    /// The requested thread priority is unavailable for the audio callback thread.
+    /// Audio will still play, but may be subject to increased latency or glitches under load.
+    ThreadPriorityUnavailable,
+
     /// A catch-all for errors that do not fall under any other CPAL error kind.
     ///
     /// CPAL itself emits this variant only for genuinely unclassifiable conditions. Treat them as
@@ -89,6 +93,10 @@ impl Display for ErrorKind {
             Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
             Self::PermissionDenied => f.write_str(
                 "Permission denied. Grant the required access and retry.",
+            ),
+            Self::ThreadPriorityUnavailable => f.write_str(
+                "Thread priority elevation is unavailable for the audio thread. \
+                 Audio may be subject to increased latency or glitches under load.",
             ),
             Self::Other => f.write_str("An error occurred."),
         }
@@ -144,6 +152,29 @@ impl StdError for Error {}
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
         Self::new(kind)
+    }
+}
+
+#[cfg(all(
+    feature = "audio_thread_priority",
+    any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    )
+))]
+impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
+    fn from(err: audio_thread_priority::AudioThreadPriorityError) -> Self {
+        use std::error::Error as StdError;
+        let msg = match err.source() {
+            Some(inner) => {
+                format!("Failed to promote audio thread to real-time priority: {err}: {inner}")
+            }
+            None => format!("Failed to promote audio thread to real-time priority: {err}"),
+        };
+        Error::with_message(ErrorKind::ThreadPriorityUnavailable, msg)
     }
 }
 
