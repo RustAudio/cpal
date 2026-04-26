@@ -1,5 +1,5 @@
-use super::Stream;
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant};
+use super::{DefaultOutputMonitor, DisconnectManager, Stream};
 
 use crate::{
     host::{
@@ -44,9 +44,7 @@ use objc2_core_audio_types::{
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::Type;
 
-pub use super::enumerate::{
-    default_input_device, default_output_device, SupportedInputConfigs, SupportedOutputConfigs,
-};
+pub use super::enumerate::{default_output_device, SupportedInputConfigs, SupportedOutputConfigs};
 use std::fmt;
 use std::mem::{self, size_of};
 use std::ptr::{null, NonNull};
@@ -216,43 +214,57 @@ fn set_sample_rate(
     Ok(())
 }
 
-fn audio_unit_from_device(device: &Device, input: bool) -> Result<AudioUnit, coreaudio::Error> {
-    let output_type = if !input && is_default_output_device(device) {
-        coreaudio::audio_unit::IOType::DefaultOutput
-    } else {
-        coreaudio::audio_unit::IOType::HalOutput
-    };
-    let mut audio_unit = AudioUnit::new(output_type)?;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum AudioUnitMode {
+    /// HAL Output AudioUnit with input enabled, pinned to a specific device.
+    Input,
+    /// HAL Output AudioUnit for output, pinned to a specific device.
+    Output,
+    /// DefaultOutput AudioUnit; follows the system default output device automatically.
+    DefaultOutput,
+}
 
-    if input {
-        // Enable input processing.
-        let enable_input = 1u32;
-        audio_unit.set_property(
-            kAudioOutputUnitProperty_EnableIO,
-            Scope::Input,
-            Element::Input,
-            Some(&enable_input),
-        )?;
+fn audio_unit_from_device(
+    device: &Device,
+    mode: AudioUnitMode,
+) -> Result<AudioUnit, coreaudio::Error> {
+    match mode {
+        AudioUnitMode::DefaultOutput => {
+            AudioUnit::new(coreaudio::audio_unit::IOType::DefaultOutput)
+        }
+        AudioUnitMode::Input | AudioUnitMode::Output => {
+            let mut audio_unit = AudioUnit::new(coreaudio::audio_unit::IOType::HalOutput)?;
 
-        // Disable output processing.
-        let disable_output = 0u32;
-        audio_unit.set_property(
-            kAudioOutputUnitProperty_EnableIO,
-            Scope::Output,
-            Element::Output,
-            Some(&disable_output),
-        )?;
+            if matches!(mode, AudioUnitMode::Input) {
+                let enable_input = 1u32;
+                audio_unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Input,
+                    Element::Input,
+                    Some(&enable_input),
+                )?;
+
+                let disable_output = 0u32;
+                audio_unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Output,
+                    Element::Output,
+                    Some(&disable_output),
+                )?;
+            }
+
+            // Device selection is a device-level property:
+            // always use Scope::Global + Element::Output
+            audio_unit.set_property(
+                kAudioOutputUnitProperty_CurrentDevice,
+                Scope::Global,
+                Element::Output,
+                Some(&device.audio_device_id),
+            )?;
+
+            Ok(audio_unit)
+        }
     }
-
-    // Device selection is a device-level property: always use Scope::Global + Element::Output
-    audio_unit.set_property(
-        kAudioOutputUnitProperty_CurrentDevice,
-        Scope::Global,
-        Element::Output,
-        Some(&device.audio_device_id),
-    )?;
-
-    Ok(audio_unit)
 }
 
 fn get_io_buffer_frame_size_range(
@@ -349,10 +361,6 @@ impl DeviceTrait for Device {
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Device {
     pub(crate) audio_device_id: AudioDeviceID,
-}
-
-fn is_default_input_device(device: &Device) -> bool {
-    default_input_device().is_some_and(|d| d.audio_device_id == device.audio_device_id)
 }
 
 fn is_default_output_device(device: &Device) -> bool {
@@ -554,9 +562,9 @@ impl Device {
             ranges.set_len(n_ranges);
 
             #[allow(non_upper_case_globals)]
-            let input = match scope {
-                kAudioObjectPropertyScopeInput => true,
-                kAudioObjectPropertyScopeOutput => false,
+            let mode = match scope {
+                kAudioObjectPropertyScopeInput => AudioUnitMode::Input,
+                kAudioObjectPropertyScopeOutput => AudioUnitMode::Output,
                 _ => {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
@@ -564,7 +572,7 @@ impl Device {
                     ))
                 }
             };
-            let audio_unit = audio_unit_from_device(self, input)?;
+            let audio_unit = audio_unit_from_device(self, mode)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             // Collect the supported formats for the device.
@@ -665,9 +673,9 @@ impl Device {
                 };
 
             #[allow(non_upper_case_globals)]
-            let input = match scope {
-                kAudioObjectPropertyScopeInput => true,
-                kAudioObjectPropertyScopeOutput => false,
+            let mode = match scope {
+                kAudioObjectPropertyScopeInput => AudioUnitMode::Input,
+                kAudioObjectPropertyScopeOutput => AudioUnitMode::Output,
                 _ => {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
@@ -675,7 +683,7 @@ impl Device {
                     ))
                 }
             };
-            let audio_unit = audio_unit_from_device(self, input)?;
+            let audio_unit = audio_unit_from_device(self, mode)?;
             let buffer_size = get_io_buffer_frame_size_range(&audio_unit)?;
 
             let config = SupportedStreamConfig {
@@ -750,16 +758,20 @@ impl Device {
 
         let mut loopback_aggregate: Option<LoopbackDevice> = None;
         let mut audio_unit = if self.supports_input() {
-            audio_unit_from_device(self, true)?
+            audio_unit_from_device(self, AudioUnitMode::Input)?
         } else {
             loopback_aggregate.replace(LoopbackDevice::from_device(self)?);
-            audio_unit_from_device(&loopback_aggregate.as_ref().unwrap().aggregate_device, true)?
+            audio_unit_from_device(
+                &loopback_aggregate.as_ref().unwrap().aggregate_device,
+                AudioUnitMode::Input,
+            )?
         };
 
         // Configure stream format and buffer size for predictable callback behavior.
         configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
-        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback: Arc<Mutex<super::ErrorCallback>> =
+            Arc::new(Mutex::new(Box::new(error_callback)));
         let error_callback_disconnect = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
@@ -801,25 +813,19 @@ impl Device {
             Ok(())
         })?;
 
-        // Create error callback for stream - either dummy or real based on device type
-        let error_callback_for_stream: super::ErrorCallback = if is_default_input_device(self) {
-            Box::new(|_: Error| {})
-        } else {
-            let error_callback_clone = error_callback_disconnect.clone();
-            Box::new(move |err: Error| {
-                invoke_error_callback(&error_callback_clone, err);
-            })
-        };
-
-        let stream = Stream::new(
-            StreamInner {
-                playing: true,
-                audio_unit,
-                device_id: self.audio_device_id,
-                _loopback_device: loopback_aggregate,
-            },
-            error_callback_for_stream,
-        )?;
+        let inner_arc = Arc::new(Mutex::new(StreamInner {
+            playing: true,
+            audio_unit,
+            device_id: self.audio_device_id,
+            _loopback_device: loopback_aggregate,
+        }));
+        let weak_inner = Arc::downgrade(&inner_arc);
+        let monitor: Box<dyn Send + Sync> = Box::new(DisconnectManager::new(
+            self.audio_device_id,
+            weak_inner,
+            error_callback_disconnect,
+        )?);
+        let stream = Stream::new(inner_arc, monitor);
 
         stream
             .inner
@@ -857,7 +863,12 @@ impl Device {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
 
-        let mut audio_unit = audio_unit_from_device(self, false)?;
+        let mode = if is_default_output_device(self) {
+            AudioUnitMode::DefaultOutput
+        } else {
+            AudioUnitMode::Output
+        };
+        let mut audio_unit = audio_unit_from_device(self, mode)?;
 
         // The scope and element for working with a device's output stream.
         let scope = Scope::Input;
@@ -866,8 +877,9 @@ impl Device {
         // Configure device buffer (see comprehensive documentation in input stream above)
         configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
-        let error_callback = Arc::new(Mutex::new(error_callback));
-        let error_callback_disconnect = error_callback.clone();
+        let error_callback: Arc<Mutex<super::ErrorCallback>> =
+            Arc::new(Mutex::new(Box::new(error_callback)));
+        let error_callback_for_render = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
@@ -891,7 +903,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    invoke_error_callback(&error_callback, err);
+                    invoke_error_callback(&error_callback_for_render, err);
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -909,25 +921,23 @@ impl Device {
             Ok(())
         })?;
 
-        // Create error callback for stream - either dummy or real based on device type
-        let error_callback_for_stream: super::ErrorCallback = if is_default_output_device(self) {
-            Box::new(|_: Error| {})
+        let inner_arc = Arc::new(Mutex::new(StreamInner {
+            playing: true,
+            audio_unit,
+            device_id: self.audio_device_id,
+            _loopback_device: None,
+        }));
+        let weak_inner = Arc::downgrade(&inner_arc);
+        let monitor: Box<dyn Send + Sync> = if matches!(mode, AudioUnitMode::DefaultOutput) {
+            Box::new(DefaultOutputMonitor::new(weak_inner, error_callback)?)
         } else {
-            let error_callback_clone = error_callback_disconnect.clone();
-            Box::new(move |err: Error| {
-                invoke_error_callback(&error_callback_clone, err);
-            })
+            Box::new(DisconnectManager::new(
+                self.audio_device_id,
+                weak_inner,
+                error_callback,
+            )?)
         };
-
-        let stream = Stream::new(
-            StreamInner {
-                playing: true,
-                audio_unit,
-                device_id: self.audio_device_id,
-                _loopback_device: None,
-            },
-            error_callback_for_stream,
-        )?;
+        let stream = Stream::new(inner_arc, monitor);
 
         stream
             .inner

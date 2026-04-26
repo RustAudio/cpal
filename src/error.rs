@@ -12,6 +12,10 @@ pub enum ErrorKind {
     /// is using the device. Retrying after a short delay may succeed.
     DeviceBusy,
 
+    /// The active audio route changed and the stream was automatically rerouted.
+    /// The stream remains active and no rebuild is required.
+    DeviceChanged,
+
     /// The requested audio device is not available.
     ///
     /// This can happen if the device has been disconnected while the program is running, or if
@@ -71,6 +75,9 @@ impl Display for ErrorKind {
         match self {
             Self::HostUnavailable => f.write_str(
                 "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
+            ),
+            Self::DeviceChanged => f.write_str(
+                "The audio route changed. The stream was automatically rerouted to a different device.",
             ),
             Self::DeviceNotAvailable => f.write_str(
                 "The requested audio device is not available. It may have been disconnected.",

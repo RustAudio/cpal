@@ -4,7 +4,8 @@ use std::sync::{mpsc, Arc, Mutex, Weak};
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::{
     kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioDeviceID,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioDeviceID, AudioObjectID,
     AudioObjectPropertyAddress,
 };
 use property_listener::AudioObjectPropertyListener;
@@ -82,6 +83,41 @@ where
     }
 }
 
+/// Spawns a dedicated thread that registers a single property listener and signals a channel on
+/// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
+fn spawn_property_listener_thread(
+    object_id: AudioObjectID,
+    address: AudioObjectPropertyAddress,
+) -> Result<(mpsc::Receiver<()>, mpsc::Sender<()>), Error> {
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
+    let (change_tx, change_rx) = mpsc::channel::<()>();
+    let (ready_tx, ready_rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let listener = AudioObjectPropertyListener::new(object_id, address, move || {
+            let _ = change_tx.send(());
+        });
+        match listener {
+            Ok(_l) => {
+                let _ = ready_tx.send(Ok(()));
+                let _ = shutdown_rx.recv();
+            }
+            Err(e) => {
+                let _ = ready_tx.send(Err(e));
+            }
+        }
+    });
+
+    ready_rx.recv().map_err(|_| {
+        Error::with_message(
+            ErrorKind::Other,
+            "property listener thread terminated unexpectedly",
+        )
+    })??;
+
+    Ok((change_rx, shutdown_tx))
+}
+
 /// Manages device disconnection listener on a dedicated thread to ensure the
 /// AudioObjectPropertyListener is always created and dropped on the same thread.
 /// This avoids potential threading issues with CoreAudio APIs.
@@ -96,7 +132,6 @@ struct DisconnectManager {
 }
 
 impl DisconnectManager {
-    /// Create a new DisconnectManager that monitors device disconnection on a dedicated thread
     fn new(
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
@@ -149,24 +184,20 @@ impl DisconnectManager {
             }
         });
 
-        // Wait for listener creation to complete or fail
         ready_rx.recv().map_err(|_| {
             Error::with_message(
-                ErrorKind::StreamInvalidated,
+                ErrorKind::Other,
                 "disconnect listener thread terminated unexpectedly",
             )
         })??;
 
-        // Handle disconnect events on the main thread pool
-        let stream_weak_clone = stream_weak.clone();
-        let error_callback_clone = error_callback.clone();
         std::thread::spawn(move || {
             while let Ok(err) = disconnect_rx.recv() {
-                if let Some(stream_arc) = stream_weak_clone.upgrade() {
+                if let Some(stream_arc) = stream_weak.upgrade() {
                     if let Ok(mut stream_inner) = stream_arc.try_lock() {
                         let _ = stream_inner.pause();
                     }
-                    invoke_error_callback(&error_callback_clone, err);
+                    invoke_error_callback(&error_callback, err);
                 } else {
                     break;
                 }
@@ -174,6 +205,64 @@ impl DisconnectManager {
         });
 
         Ok(DisconnectManager {
+            _shutdown_tx: shutdown_tx,
+        })
+    }
+}
+
+/// Manages the system default output device change listener on a dedicated thread.
+///
+/// When the system default output device changes:
+/// - If a new valid default exists, AudioUnit reroutes and `DeviceChanged` is reported.
+/// - If there is no new default, the stream is paused and `DeviceNotAvailable` is reported.
+struct DefaultOutputMonitor {
+    _shutdown_tx: mpsc::Sender<()>,
+}
+
+impl DefaultOutputMonitor {
+    fn new(
+        stream_weak: Weak<Mutex<StreamInner>>,
+        error_callback: Arc<Mutex<ErrorCallback>>,
+    ) -> Result<Self, Error> {
+        let (change_rx, shutdown_tx) = spawn_property_listener_thread(
+            kAudioObjectSystemObject as AudioObjectID,
+            AudioObjectPropertyAddress {
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            },
+        )?;
+
+        std::thread::spawn(move || {
+            while let Ok(()) = change_rx.recv() {
+                let Some(arc) = stream_weak.upgrade() else {
+                    break;
+                };
+                if default_output_device().is_none() {
+                    if let Ok(mut inner) = arc.try_lock() {
+                        let _ = inner.pause();
+                    }
+                    invoke_error_callback(
+                        &error_callback,
+                        Error::with_message(
+                            ErrorKind::DeviceNotAvailable,
+                            "no default output device",
+                        ),
+                    );
+                } else {
+                    // DefaultOutput AudioUnit rerouted automatically; notify the caller.
+                    invoke_error_callback(
+                        &error_callback,
+                        Error::with_message(
+                            ErrorKind::DeviceChanged,
+                            "default output device changed",
+                        ),
+                    );
+                }
+            }
+        });
+
+        Ok(DefaultOutputMonitor {
             _shutdown_tx: shutdown_tx,
         })
     }
@@ -217,24 +306,17 @@ impl StreamInner {
 
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
-    // Manages the device disconnection listener separately to allow Stream to be Send.
-    // The DisconnectManager contains the non-Send AudioObjectPropertyListener.
-    _disconnect_manager: DisconnectManager,
+    // Holds the device monitor (either DisconnectManager or DefaultOutputMonitor) to keep it
+    // alive for the lifetime of the stream.
+    _monitor: Box<dyn Send + Sync>,
 }
 
 impl Stream {
-    fn new(inner: StreamInner, error_callback: ErrorCallback) -> Result<Self, Error> {
-        let device_id = inner.device_id;
-        let inner_arc = Arc::new(Mutex::new(inner));
-        let weak_inner = Arc::downgrade(&inner_arc);
-
-        let error_callback = Arc::new(Mutex::new(error_callback));
-        let disconnect_manager = DisconnectManager::new(device_id, weak_inner, error_callback)?;
-
-        Ok(Self {
-            inner: inner_arc,
-            _disconnect_manager: disconnect_manager,
-        })
+    fn new(inner: Arc<Mutex<StreamInner>>, monitor: Box<dyn Send + Sync>) -> Self {
+        Self {
+            inner,
+            _monitor: monitor,
+        }
     }
 }
 
