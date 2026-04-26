@@ -721,7 +721,7 @@ impl EquilibriumFill {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum TimestampMode {
     // Hardware timestamps are unavailable (e.g. PulseAudio ALSA plugin returns zero htstamp).
-    // Timestamps are wall-clock elapsed time since stream creation.
+    // Timestamps are monotonic elapsed time since stream creation, sourced from Instant::now().
     CreationInstant,
 
     // The kernel records the monotonic clock at each DMA interrupt in htstamp.
@@ -763,8 +763,8 @@ struct StreamInner {
     // Used as the creation-time anchor for SystemClock and AudioLink calculations.
     creation_ts: libc::timespec,
 
-    // Wall-clock instant at stream creation. Timestamp origin for CreationInstant mode
-    // and last-resort fallback if the status query in now() fails.
+    // Monotonic instant captured at stream creation. Timestamp origin for CreationInstant
+    // mode and last-resort fallback if the status query in now() fails.
     creation_instant: std::time::Instant,
 
     // Keep ALSA context alive to prevent premature ALSA config cleanup.
