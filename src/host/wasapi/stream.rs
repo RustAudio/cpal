@@ -73,12 +73,20 @@ impl DefaultDeviceMonitor {
 
 impl Drop for DefaultDeviceMonitor {
     fn drop(&mut self) {
+        // Ensure COM is initialised on this thread before making COM calls. Drop can run on
+        // any thread (e.g. the audio run thread), which may not have called CoInitialize.
+        crate::host::com::com_initialized();
         unsafe {
             // Synchronous: waits for any in-progress callback to finish before returning.
-            let _ = self
+            // Only close the event handle on success; if unregister fails the callback may
+            // still hold a reference and could later call SetEvent on a closed/reused handle.
+            if self
                 .enumerator
-                .UnregisterEndpointNotificationCallback(&self.client);
-            let _ = Foundation::CloseHandle(self.event);
+                .UnregisterEndpointNotificationCallback(&self.client)
+                .is_ok()
+            {
+                let _ = Foundation::CloseHandle(self.event);
+            }
         }
     }
 }

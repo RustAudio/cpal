@@ -544,7 +544,7 @@ impl Device {
 
     /// Creates a `DefaultDeviceMonitor` for default-device streams, or `None` for specific devices.
     fn default_device_monitor(&self) -> Result<Option<DefaultDeviceMonitor>, Error> {
-        let flow = match self.device {
+        let flow = match &self.device {
             DeviceHandle::DefaultOutput => Audio::eRender,
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
@@ -1102,6 +1102,9 @@ static ENUMERATOR: OnceLock<Enumerator> = OnceLock::new();
 /// Shared by [`Device::immdevice`] and the stream-side `get_current_default` helper to
 /// avoid duplicating the `GetDefaultAudioEndpoint` call.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
+    // Ensure COM is initialised on this thread — callers include notification callbacks on
+    // threads that may not have called CoInitialize themselves.
+    com::com_initialized();
     // SAFETY: `get_enumerator()` is a thread-safe singleton initialised at first use.
     unsafe {
         get_enumerator()
