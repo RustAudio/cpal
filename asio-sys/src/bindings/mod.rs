@@ -926,6 +926,18 @@ impl Driver {
         let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
         dcb.retain(|&(id, _)| id != rem_id);
     }
+
+    /// Returns the name of the channel at the given index.
+    ///
+    /// `channel` is a 0-based channel index. `is_input` selects the input (`true`) or output
+    /// (`false`) direction.
+    ///
+    /// The driver must already be loaded (i.e. this `Driver` instance must be alive).
+    pub fn channel_name(&self, channel: i32, is_input: bool) -> Result<String, AsioError> {
+        let _guard = self.inner.lock_state();
+        let info = asio_channel_info(channel, is_input)?;
+        Ok(driver_name_to_utf8(&info.name).into_owned())
+    }
 }
 
 impl DriverState {
