@@ -554,6 +554,7 @@ jobs:
         run: |
           cargo generate-lockfile
           cargo update -p windows --precise ${{ matrix.version }}
+          cargo update -p windows-core --precise ${{ matrix.version }}
           echo "Locked windows crate version:"
           cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
           echo "Cargo.lock entry:"
