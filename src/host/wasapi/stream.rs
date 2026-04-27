@@ -180,7 +180,7 @@ pub struct Stream {
     // Present for default-device streams; fires `ErrorKind::DeviceChanged` when the system
     // default changes. Dropped after the run thread joins, ensuring the HANDLE is not
     // waited on when it is closed.
-    default_device_monitor: Option<DefaultDeviceMonitor>,
+    _default_device_monitor: Option<DefaultDeviceMonitor>,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -302,7 +302,7 @@ impl Stream {
             pending_scheduled_event,
             period_frames,
             qpc_frequency: qpc_frequency as u64,
-            default_device_monitor,
+            _default_device_monitor: default_device_monitor,
         }
     }
 
@@ -352,7 +352,7 @@ impl Stream {
             pending_scheduled_event,
             period_frames,
             qpc_frequency: qpc_frequency as u64,
-            default_device_monitor,
+            _default_device_monitor: default_device_monitor,
         }
     }
 
