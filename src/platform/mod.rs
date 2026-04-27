@@ -537,6 +537,15 @@ macro_rules! impl_platform_host {
                     )*
                 }
             }
+
+            fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, crate::Error> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => d.get_channel_name(channel_index, input),
+                    )*
+                }
+            }
         }
 
         impl crate::traits::HostTrait for Host {
