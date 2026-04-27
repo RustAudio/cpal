@@ -539,6 +539,35 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
             "duplex streams are not supported by this device",
         ))
     }
+
+    /// Obtain the associated string name for a channel index.
+    ///
+    /// This method is only implemented for CoreAudio (macOS) and ASIO (Windows). All other
+    /// backends will return [`ErrorKind::UnsupportedOperation`].
+    ///
+    /// # Parameters
+    ///
+    /// * `channel_index` - Channel index to query name for.
+    /// * `input` - Whether to query an input channel (true) or output channel (false).
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not implement channel name
+    ///   queries.
+    /// - [`ErrorKind::InvalidInput`] if the channel index is out of range for the device,
+    ///   or if the device does not support the requested direction (input/output).
+    /// - [`ErrorKind::Other`] for unclassifiable backend failures (e.g., the channel name could
+    ///   not be retrieved from the device).
+    ///
+    /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
+    /// [`ErrorKind::Other`]: crate::ErrorKind::Other
+    fn get_channel_name(&self, _channel_index: u16, _input: bool) -> Result<String, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "device does not support channel names",
+        ))
+    }
 }
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control it.
