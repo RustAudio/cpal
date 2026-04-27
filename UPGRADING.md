@@ -15,6 +15,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
 - [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
+- [ ] Raise your `windows` dependency to `>= 0.61` if you pin it below that.
 - [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
 - [ ] If you relied on the default config returning `F32`, pin the sample format explicitly.
 

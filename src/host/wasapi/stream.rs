@@ -8,7 +8,7 @@ use std::{
 };
 
 use windows::Win32::{
-    Foundation::{self, WAIT_OBJECT_0},
+    Foundation::{self, PROPERTYKEY, WAIT_OBJECT_0},
     Media::Audio,
     System::{Performance, SystemServices, Threading},
 };
@@ -20,6 +20,140 @@ use crate::{
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
     StreamInstant,
 };
+
+/// Returns the current default audio endpoint for `flow`, or `None` if none exists.
+///
+/// Used by `OnDeviceStateChanged` and `OnDeviceRemoved` to cover the edge case where the
+/// default device becomes unavailable with no replacement: in that situation Windows does
+/// not fire `OnDefaultDeviceChanged`, so these callbacks must signal the run loop instead.
+/// When a replacement *does* exist this returns `Some` and we skip signalling, letting
+/// `OnDefaultDeviceChanged` fire as the sole notifier and avoiding a double wakeup.
+fn get_current_default(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
+    super::device::current_default_endpoint(flow)
+}
+
+/// Fires a Windows auto-reset event when the system default audio device changes, allowing
+/// the stream run loop to deliver `ErrorKind::DeviceChanged` to the caller.
+pub(crate) struct DefaultDeviceMonitor {
+    enumerator: Audio::IMMDeviceEnumerator,
+    client: Audio::IMMNotificationClient,
+    event: Foundation::HANDLE,
+}
+
+// SAFETY: `IMMDeviceEnumerator` and `IMMNotificationClient` are COM objects used only for
+// register/unregister (in new/drop) and `SetEvent` (from the Windows notification thread).
+// All of these are thread-safe operations on Windows.
+unsafe impl Send for DefaultDeviceMonitor {}
+unsafe impl Sync for DefaultDeviceMonitor {}
+
+impl DefaultDeviceMonitor {
+    pub fn new(
+        enumerator: Audio::IMMDeviceEnumerator,
+        flow: Audio::EDataFlow,
+    ) -> Result<Self, Error> {
+        let event =
+            unsafe { Threading::CreateEventW(None, false, false, None).map_err(Error::from)? };
+
+        let client: Audio::IMMNotificationClient =
+            DefaultDeviceNotificationImpl { flow, event }.into();
+
+        unsafe {
+            enumerator
+                .RegisterEndpointNotificationCallback(&client)
+                .map_err(Error::from)?;
+        }
+
+        Ok(Self {
+            enumerator,
+            client,
+            event,
+        })
+    }
+}
+
+impl Drop for DefaultDeviceMonitor {
+    fn drop(&mut self) {
+        unsafe {
+            // Synchronous: waits for any in-progress callback to finish before returning.
+            let _ = self
+                .enumerator
+                .UnregisterEndpointNotificationCallback(&self.client);
+            let _ = Foundation::CloseHandle(self.event);
+        }
+    }
+}
+
+#[windows::core::implement(Audio::IMMNotificationClient)]
+struct DefaultDeviceNotificationImpl {
+    flow: Audio::EDataFlow,
+    event: Foundation::HANDLE,
+}
+
+impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
+    fn OnDefaultDeviceChanged(
+        &self,
+        flow: Audio::EDataFlow,
+        role: Audio::ERole,
+        _pwstrdefaultdeviceid: &windows::core::PCWSTR,
+    ) -> windows::core::Result<()> {
+        if flow == self.flow && role == Audio::eConsole {
+            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor,
+            // which outlives all uses of this HANDLE copy.
+            unsafe {
+                let _ = Threading::SetEvent(self.event);
+            }
+        }
+        Ok(())
+    }
+
+    fn OnDeviceStateChanged(
+        &self,
+        _pwstrdeviceid: &windows::core::PCWSTR,
+        dwnewstate: Audio::DEVICE_STATE,
+    ) -> windows::core::Result<()> {
+        // `DEVICE_STATE_UNPLUGGED`: physical jack disconnected; endpoint still exists in the
+        // collection but produces no audio. `OnDeviceRemoved` does *not* fire for this state.
+        // `DEVICE_STATE_NOTPRESENT`: hardware absent; endpoint may persist as a ghost record.
+        // `DEVICE_STATE_DISABLED`: device was manually disabled by the user.
+        //
+        // Only signal when there is no replacement default; if one exists `OnDefaultDeviceChanged`
+        // will fire instead, avoiding a double wakeup.
+        let is_unavailable = dwnewstate == Audio::DEVICE_STATE_DISABLED
+            || dwnewstate == Audio::DEVICE_STATE_NOTPRESENT
+            || dwnewstate == Audio::DEVICE_STATE_UNPLUGGED;
+        if is_unavailable && get_current_default(self.flow).is_none() {
+            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
+            unsafe {
+                let _ = Threading::SetEvent(self.event);
+            }
+        }
+        Ok(())
+    }
+
+    fn OnDeviceAdded(&self, _pwstrdeviceid: &windows::core::PCWSTR) -> windows::core::Result<()> {
+        Ok(())
+    }
+
+    fn OnDeviceRemoved(&self, _pwstrdeviceid: &windows::core::PCWSTR) -> windows::core::Result<()> {
+        // Only signal when there is no replacement default; if one exists `OnDefaultDeviceChanged`
+        // will fire instead, avoiding a double wakeup.
+        if get_current_default(self.flow).is_none() {
+            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
+            unsafe {
+                let _ = Threading::SetEvent(self.event);
+            }
+        }
+        Ok(())
+    }
+
+    fn OnPropertyValueChanged(
+        &self,
+        _pwstrdeviceid: &windows::core::PCWSTR,
+        _key: &PROPERTYKEY,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+}
 
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
@@ -42,6 +176,11 @@ pub struct Stream {
 
     // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
     qpc_frequency: u64,
+
+    // Present for default-device streams; fires `ErrorKind::DeviceChanged` when the system
+    // default changes. Dropped after the run thread joins, ensuring the HANDLE is not
+    // waited on when it is closed.
+    default_device_monitor: Option<DefaultDeviceMonitor>,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -121,6 +260,7 @@ impl Stream {
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
+        default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Stream
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
@@ -140,8 +280,13 @@ impl Stream {
             debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
+        let mut handles = vec![pending_scheduled_event, stream_inner.event];
+        if let Some(ref monitor) = default_device_monitor {
+            handles.push(monitor.event);
+        }
+
         let run_context = RunContext {
-            handles: vec![pending_scheduled_event, stream_inner.event],
+            handles,
             stream: stream_inner,
             commands: rx,
         };
@@ -157,6 +302,7 @@ impl Stream {
             pending_scheduled_event,
             period_frames,
             qpc_frequency: qpc_frequency as u64,
+            default_device_monitor,
         }
     }
 
@@ -164,6 +310,7 @@ impl Stream {
         stream_inner: StreamInner,
         mut data_callback: D,
         mut error_callback: E,
+        default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Stream
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
@@ -183,8 +330,13 @@ impl Stream {
             debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
+        let mut handles = vec![pending_scheduled_event, stream_inner.event];
+        if let Some(ref monitor) = default_device_monitor {
+            handles.push(monitor.event);
+        }
+
         let run_context = RunContext {
-            handles: vec![pending_scheduled_event, stream_inner.event],
+            handles,
             stream: stream_inner,
             commands: rx,
         };
@@ -200,6 +352,7 @@ impl Stream {
             pending_scheduled_event,
             period_frames,
             qpc_frequency: qpc_frequency as u64,
+            default_device_monitor,
         }
     }
 
@@ -462,10 +615,17 @@ fn process_commands_and_await_signal(
         }
     };
 
-    // If `handle_idx` is 0, then it's `pending_scheduled_event` that was signalled in
-    // order for us to pick up the pending commands. Otherwise, a stream needs data.
+    // Handle layout: 0 = pending_scheduled_event (commands), 1 = WASAPI audio event,
+    // 2+ = default-device change event (only present for default-device streams).
     // Continue(true)  = audio event fired, proceed to process audio this iteration.
-    // Continue(false) = command event fired, loop around and wait again.
+    // Continue(false) = command or device-change event, loop around and wait again.
+    if handle_idx >= 2 {
+        error_callback(Error::with_message(
+            ErrorKind::DeviceChanged,
+            "default audio device changed",
+        ));
+        return ControlFlow::Continue(false);
+    }
     ControlFlow::Continue(handle_idx != 0)
 }
 

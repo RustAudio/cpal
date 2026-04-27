@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate change on macOS, and on iOS on route changes that require a stream rebuild.
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on iOS
   when media services are lost.
-- **CoreAudio**: Default output streams now receive `ErrorKind::DeviceChanged` when the system
+- **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` when the system
   default output device changes.
 - **CoreAudio**: On iOS, unplugging headphones now emits `ErrorKind::DeviceChanged` (stream
   rerouted to speaker).
@@ -88,8 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: User timeouts are now respected when building a stream.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
+- **WASAPI**: Raise `windows` dependency lower bound to 0.61.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
 - **WASAPI**: `FriendlyName` is now preferred as device name over `DeviceDesc`.
+- **WASAPI**: Default output and input streams now automatically reroute when the system default
+  device changes, and fire `ErrorKind::DeviceChanged` on the stream error callback.
+- **WASAPI**: `Device::immdevice()` now returns `Option<Audio::IMMDevice>` instead of
+  `&Audio::IMMDevice`.
 - **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
