@@ -154,6 +154,10 @@ impl DeviceTrait for Device {
             error_callback,
         ))
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Err(Error::UnsupportedOperation)
+    }
 }
 
 struct Endpoint {

@@ -431,6 +431,10 @@ impl DeviceTrait for Device {
             timeout,
         )
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Err(Error::UnsupportedOperation)
+    }
 }
 
 impl StreamTrait for Stream {

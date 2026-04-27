@@ -468,6 +468,10 @@ impl DeviceTrait for Device {
 
         Ok(DeviceId(HostId::PulseAudio, id.to_string()))
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Err(Error::UnsupportedOperation)
+    }
 }
 
 fn make_sample_spec(config: StreamConfig, format: protocol::SampleFormat) -> protocol::SampleSpec {

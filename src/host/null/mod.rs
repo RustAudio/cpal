@@ -103,6 +103,10 @@ impl DeviceTrait for Device {
     {
         unimplemented!()
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Err(Error::UnsupportedOperation)
+    }
 }
 
 impl HostTrait for Host {
