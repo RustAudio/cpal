@@ -143,6 +143,10 @@ impl DeviceTrait for Device {
             timeout,
         )
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Device::get_channel_name(self, channel_index, input)
+    }
 }
 
 impl StreamTrait for Stream {
