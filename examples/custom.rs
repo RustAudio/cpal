@@ -187,6 +187,13 @@ impl DeviceTrait for MyDevice {
             handle: Some(handle),
         })
     }
+
+    fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        Ok(format!(
+            "{} {channel_index}",
+            if input { "Input" } else { "Output" }
+        ))
+    }
 }
 
 impl StreamTrait for MyStream {
