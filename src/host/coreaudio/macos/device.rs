@@ -200,7 +200,7 @@ fn set_sample_rate(
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     return Err(Error::with_message(
-                        ErrorKind::Other,
+                        ErrorKind::StreamInvalidated,
                         "sample rate listener channel disconnected unexpectedly",
                     ));
                 }

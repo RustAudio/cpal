@@ -442,11 +442,10 @@ impl Device {
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
     fn ensure_future_audio_client(
         &self,
-    ) -> Result<MutexGuard<'_, Option<IAudioClientWrapper>>, windows::core::Error> {
-        let mut lock = self
-            .future_audio_client
-            .lock()
-            .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_UNEXPECTED))?;
+    ) -> Result<MutexGuard<'_, Option<IAudioClientWrapper>>, Error> {
+        let mut lock = self.future_audio_client.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "audio client lock poisoned")
+        })?;
         if lock.is_some() {
             return Ok(lock);
         }
@@ -454,7 +453,9 @@ impl Device {
         let audio_client: Audio::IAudioClient = unsafe {
             // can fail if the device has been disconnected since we enumerated it, or if
             // the device doesn't support playback for some reason
-            self.device.Activate(Com::CLSCTX_ALL, None)?
+            self.device
+                .Activate(Com::CLSCTX_ALL, None)
+                .map_err(Error::from)?
         };
 
         *lock = Some(IAudioClientWrapper(audio_client));
@@ -462,7 +463,7 @@ impl Device {
     }
 
     /// Returns an uninitialized `IAudioClient`.
-    pub(crate) fn build_audioclient(&self) -> Result<Audio::IAudioClient, windows::core::Error> {
+    pub(crate) fn build_audioclient(&self) -> Result<Audio::IAudioClient, Error> {
         let mut lock = self.ensure_future_audio_client()?;
         Ok(lock.take().unwrap().0)
     }

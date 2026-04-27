@@ -388,7 +388,7 @@ where
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
                         (user_data.error_callback)(Error::with_message(
-                            ErrorKind::Other,
+                            ErrorKind::StreamInvalidated,
                             format!("failed to stop the stream, reason: {e}"),
                         ));
                     }
@@ -549,7 +549,7 @@ where
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
                         (user_data.error_callback)(Error::with_message(
-                            ErrorKind::Other,
+                            ErrorKind::StreamInvalidated,
                             format!("failed to stop the stream, reason: {e}"),
                         ));
                     }

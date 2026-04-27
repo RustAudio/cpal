@@ -110,7 +110,7 @@ fn spawn_property_listener_thread(
 
     ready_rx.recv().map_err(|_| {
         Error::with_message(
-            ErrorKind::Other,
+            ErrorKind::StreamInvalidated,
             "property listener thread terminated unexpectedly",
         )
     })??;
@@ -186,7 +186,7 @@ impl DisconnectManager {
 
         ready_rx.recv().map_err(|_| {
             Error::with_message(
-                ErrorKind::Other,
+                ErrorKind::StreamInvalidated,
                 "disconnect listener thread terminated unexpectedly",
             )
         })??;

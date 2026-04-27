@@ -1109,6 +1109,10 @@ fn build_stream_err(e: sys::AsioError) -> Error {
         sys::AsioError::InvalidInput | sys::AsioError::BadMode => {
             Error::with_message(ErrorKind::InvalidInput, e.to_string())
         }
+        sys::AsioError::InvalidBufferSize | sys::AsioError::NoRate => {
+            Error::with_message(ErrorKind::UnsupportedConfig, e.to_string())
+        }
+        sys::AsioError::HardwareStuck => Error::with_message(ErrorKind::DeviceBusy, e.to_string()),
         err => Error::with_message(ErrorKind::Other, err.to_string()),
     }
 }
