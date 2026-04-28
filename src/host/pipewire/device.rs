@@ -329,16 +329,18 @@ impl DeviceTrait for Device {
                     listener,
                     stream,
                     context,
-                    ..
+                    default_monitor,
                 }) = super::stream::connect_input(
-                    config,
-                    properties,
-                    sample_format,
+                    super::stream::ConnectParams {
+                        config,
+                        properties,
+                        sample_format,
+                        last_quantum: last_quantum_clone,
+                        start,
+                        default_metadata_key: device.default_metadata_key(),
+                    },
                     data_callback,
                     error_callback,
-                    last_quantum_clone,
-                    start,
-                    device.default_metadata_key(),
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -358,6 +360,7 @@ impl DeviceTrait for Device {
                 });
                 mainloop.run();
                 drop(listener);
+                drop(default_monitor);
                 drop(context);
             })
             .map_err(|e| {
@@ -416,16 +419,18 @@ impl DeviceTrait for Device {
                     listener,
                     stream,
                     context,
-                    ..
+                    default_monitor,
                 }) = super::stream::connect_output(
-                    config,
-                    properties,
-                    sample_format,
+                    super::stream::ConnectParams {
+                        config,
+                        properties,
+                        sample_format,
+                        last_quantum: last_quantum_clone,
+                        start,
+                        default_metadata_key: device.default_metadata_key(),
+                    },
                     data_callback,
                     error_callback,
-                    last_quantum_clone,
-                    start,
-                    device.default_metadata_key(),
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -446,6 +451,7 @@ impl DeviceTrait for Device {
                 });
                 mainloop.run();
                 drop(listener);
+                drop(default_monitor);
                 drop(context);
             })
             .map_err(|e| {
@@ -861,7 +867,8 @@ fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
 
 #[cfg(test)]
 mod test {
-    use super::{parse_allow_rates, parse_fraction};
+    use super::{parse_allow_rates, parse_fraction, Class, Device};
+    use crate::host::pipewire::utils::default;
 
     #[test]
     fn rate_parse() {
@@ -898,5 +905,27 @@ mod test {
         assert_eq!(parse_fraction("abc/def"), None);
         assert_eq!(parse_fraction("/48000"), None);
         assert_eq!(parse_fraction("256/"), None);
+    }
+
+    #[test]
+    fn default_metadata_key_mapping() {
+        assert_eq!(
+            Device::output_default().default_metadata_key(),
+            Some(default::SINK)
+        );
+        assert_eq!(
+            Device::sink_default().default_metadata_key(),
+            Some(default::SINK)
+        );
+        assert_eq!(
+            Device::input_default().default_metadata_key(),
+            Some(default::SOURCE)
+        );
+
+        let node = Device {
+            class: Class::Node,
+            ..Default::default()
+        };
+        assert_eq!(node.default_metadata_key(), None);
     }
 }

@@ -293,7 +293,7 @@ pub struct StreamData<D> {
     pub listener: StreamListener<UserData<D>>,
     pub stream: StreamRc,
     pub context: ContextRc,
-    pub _default_monitor: Option<DefaultDeviceMonitor>,
+    pub default_monitor: Option<DefaultDeviceMonitor>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -402,20 +402,33 @@ impl DefaultDeviceMonitor {
     }
 }
 
+pub struct ConnectParams {
+    pub config: StreamConfig,
+    pub properties: pw::properties::PropertiesBox,
+    pub sample_format: SampleFormat,
+    pub last_quantum: Arc<AtomicU64>,
+    pub start: Instant,
+    pub default_metadata_key: Option<&'static str>,
+}
+
 pub fn connect_output<D, E>(
-    config: StreamConfig,
-    properties: pw::properties::PropertiesBox,
-    sample_format: SampleFormat,
+    params: ConnectParams,
     data_callback: D,
     error_callback: E,
-    last_quantum: Arc<AtomicU64>,
-    start: Instant,
-    default_metadata_key: Option<&'static str>,
 ) -> Result<StreamData<D>, pw::Error>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
+    let ConnectParams {
+        config,
+        properties,
+        sample_format,
+        last_quantum,
+        start,
+        default_metadata_key,
+    } = params;
+
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
@@ -567,24 +580,28 @@ where
         listener,
         stream,
         context,
-        _default_monitor: default_monitor,
+        default_monitor,
     })
 }
 
 pub fn connect_input<D, E>(
-    config: StreamConfig,
-    properties: pw::properties::PropertiesBox,
-    sample_format: SampleFormat,
+    params: ConnectParams,
     data_callback: D,
     error_callback: E,
-    last_quantum: Arc<AtomicU64>,
-    start: Instant,
-    default_metadata_key: Option<&'static str>,
 ) -> Result<StreamData<D>, pw::Error>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
+    let ConnectParams {
+        config,
+        properties,
+        sample_format,
+        last_quantum,
+        start,
+        default_metadata_key,
+    } = params;
+
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
@@ -720,6 +737,6 @@ where
         listener,
         stream,
         context,
-        _default_monitor: default_monitor,
+        default_monitor,
     })
 }
