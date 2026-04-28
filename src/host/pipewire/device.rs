@@ -17,7 +17,7 @@ use pipewire::{
 use super::stream::Stream;
 use crate::{
     host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
-    host::pipewire::utils::{audio, clock, node, DEVICE_ICON_NAME, METADATA_NAME},
+    host::pipewire::utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::DeviceTrait,
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -117,6 +117,16 @@ impl Device {
             "audio-input-microphone" => DeviceType::Microphone,
             "audio-speakers" => DeviceType::Speaker,
             _ => DeviceType::Unknown,
+        }
+    }
+
+    /// Returns the WirePlumber metadata key to watch for default-device changes,
+    /// or `None` if this device is pinned to a specific node.
+    pub(crate) fn default_metadata_key(&self) -> Option<&'static str> {
+        match self.class {
+            Class::DefaultOutput | Class::DefaultSink => Some(default::SINK),
+            Class::DefaultInput => Some(default::SOURCE),
+            Class::Node => None,
         }
     }
 
@@ -319,6 +329,7 @@ impl DeviceTrait for Device {
                     listener,
                     stream,
                     context,
+                    ..
                 }) = super::stream::connect_input(
                     config,
                     properties,
@@ -327,6 +338,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     last_quantum_clone,
                     start,
+                    device.default_metadata_key(),
                 )
                 else {
                     let _ = pw_init_tx.send(false);
@@ -404,6 +416,7 @@ impl DeviceTrait for Device {
                     listener,
                     stream,
                     context,
+                    ..
                 }) = super::stream::connect_output(
                     config,
                     properties,
@@ -412,6 +425,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     last_quantum_clone,
                     start,
+                    device.default_metadata_key(),
                 )
                 else {
                     let _ = pw_init_tx.send(false);
