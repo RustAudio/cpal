@@ -130,7 +130,7 @@ pub(crate) mod null;
 
 /// Invoke an error callback behind a shared mutex without blocking the caller.
 #[cfg(any(
-    target_vendor = "apple",
+    target_os = "macos",
     all(
         feature = "jack",
         any(
@@ -144,11 +144,9 @@ pub(crate) mod null;
     ),
     all(feature = "pipewire", target_os = "linux"),
 ))]
-pub(crate) fn emit_error<E: ?Sized>(
-    callback: &std::sync::Arc<std::sync::Mutex<E>>,
-    error: crate::Error,
-) where
-    E: FnMut(crate::Error) + Send,
+pub(crate) fn emit_error<E>(callback: &std::sync::Arc<std::sync::Mutex<E>>, error: crate::Error)
+where
+    E: FnMut(crate::Error) + Send + ?Sized,
 {
     match callback.try_lock() {
         Ok(mut cb) => cb(error),
