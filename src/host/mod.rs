@@ -128,6 +128,35 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
+/// Invoke an error callback behind a shared mutex without blocking the caller.
+#[cfg(any(
+    target_vendor = "apple",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(feature = "pipewire", target_os = "linux"),
+))]
+pub(crate) fn emit_error<E: ?Sized>(
+    callback: &std::sync::Arc<std::sync::Mutex<E>>,
+    error: crate::Error,
+) where
+    E: FnMut(crate::Error) + Send,
+{
+    match callback.try_lock() {
+        Ok(mut cb) => cb(error),
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner()(error),
+        Err(std::sync::TryLockError::WouldBlock) => {}
+    }
+}
+
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(
     target_os = "linux",

@@ -26,7 +26,7 @@ use pipewire::{
 };
 
 use crate::{
-    host::{equilibrium::fill_equilibrium, frames_to_duration},
+    host::{emit_error, equilibrium::fill_equilibrium, frames_to_duration},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
@@ -191,17 +191,12 @@ pub struct UserData<D> {
 }
 
 impl<D> UserData<D> {
-    fn emit_error(&self, error: Error) {
-        let mut cb = self
-            .error_callback
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        cb(error);
-    }
-
     fn state_changed(&mut self, new: StreamState) {
         if let StreamState::Error(e) = new {
-            self.emit_error(Error::with_message(ErrorKind::StreamInvalidated, e));
+            emit_error(
+                &self.error_callback,
+                Error::with_message(ErrorKind::StreamInvalidated, e),
+            );
         }
     }
 }
@@ -372,14 +367,22 @@ impl DefaultDeviceMonitor {
                 let listener = metadata
                     .add_listener_local()
                     .property(move |_subject, prop_key, _type, value| {
-                        if prop_key == Some(key) && value.is_some() {
+                        // The first delivery for this key is catchup of existing state;
+                        // only subsequent ones are real changes worth reporting.
+                        if prop_key == Some(key) {
                             if seen_first.get() {
-                                let mut cb =
-                                    error_callback_cb.lock().unwrap_or_else(|e| e.into_inner());
-                                cb(Error::with_message(
-                                    ErrorKind::DeviceChanged,
-                                    "default device changed",
-                                ));
+                                let error = if value.is_some() {
+                                    Error::with_message(
+                                        ErrorKind::DeviceChanged,
+                                        "default device changed",
+                                    )
+                                } else {
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "default device removed",
+                                    )
+                                };
+                                emit_error(&error_callback_cb, error);
                             } else {
                                 seen_first.set(true);
                             }
@@ -484,13 +487,13 @@ where
                     || current_rate != rate
                     || current_fmt != expected_fmt;
                 if mismatch {
-                    user_data.emit_error(Error::with_message(
+                    emit_error(&user_data.error_callback, Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
                     ));
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
-                        user_data.emit_error(Error::with_message(
+                        emit_error(&user_data.error_callback, Error::with_message(
                             ErrorKind::StreamInvalidated,
                             format!("failed to stop the stream, reason: {e}"),
                         ));
@@ -660,13 +663,13 @@ where
                     || current_rate != rate
                     || current_fmt != expected_fmt;
                 if mismatch {
-                    user_data.emit_error(Error::with_message(
+                    emit_error(&user_data.error_callback, Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
                     ));
                     // if the format does not match, we stop the stream
                     if let Err(e) = stream.set_active(false) {
-                        user_data.emit_error(Error::with_message(
+                        emit_error(&user_data.error_callback, Error::with_message(
                             ErrorKind::StreamInvalidated,
                             format!("failed to stop the stream, reason: {e}"),
                         ));
