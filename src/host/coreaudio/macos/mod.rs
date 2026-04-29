@@ -13,7 +13,7 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::coreaudio::macos::loopback::LoopbackDevice,
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -58,30 +58,6 @@ impl HostTrait for Host {
 
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = Box<dyn FnMut(Error) + Send + 'static>;
-
-/// Invoke error callback, recovering from poisoned mutex if needed.
-/// Returns true if callback was invoked, false if skipped due to WouldBlock.
-#[inline]
-fn invoke_error_callback<E>(error_callback: &Arc<Mutex<E>>, err: Error) -> bool
-where
-    E: FnMut(Error) + Send,
-{
-    match error_callback.try_lock() {
-        Ok(mut cb) => {
-            cb(err);
-            true
-        }
-        Err(std::sync::TryLockError::Poisoned(guard)) => {
-            // Recover from poisoned lock to still report this error
-            guard.into_inner()(err);
-            true
-        }
-        Err(std::sync::TryLockError::WouldBlock) => {
-            // Skip if callback is busy
-            false
-        }
-    }
-}
 
 /// Spawns a dedicated thread that registers a single property listener and signals a channel on
 /// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
@@ -197,7 +173,7 @@ impl DisconnectManager {
                     if let Ok(mut stream_inner) = stream_arc.try_lock() {
                         let _ = stream_inner.pause();
                     }
-                    invoke_error_callback(&error_callback, err);
+                    emit_error(&error_callback, err);
                 } else {
                     break;
                 }
@@ -242,7 +218,7 @@ impl DefaultOutputMonitor {
                     if let Ok(mut inner) = arc.try_lock() {
                         let _ = inner.pause();
                     }
-                    invoke_error_callback(
+                    emit_error(
                         &error_callback,
                         Error::with_message(
                             ErrorKind::DeviceNotAvailable,
@@ -251,7 +227,7 @@ impl DefaultOutputMonitor {
                     );
                 } else {
                     // DefaultOutput AudioUnit rerouted automatically; notify the caller.
-                    invoke_error_callback(
+                    emit_error(
                         &error_callback,
                         Error::with_message(
                             ErrorKind::DeviceChanged,

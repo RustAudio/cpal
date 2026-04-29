@@ -52,7 +52,7 @@ use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::invoke_error_callback;
+use crate::host::emit_error;
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 
 /// Try to find a matching physical stream format on the device and apply it.
@@ -810,7 +810,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    invoke_error_callback(&error_callback, err);
+                    emit_error(&error_callback, err);
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -917,7 +917,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    invoke_error_callback(&error_callback_for_render, err);
+                    emit_error(&error_callback_for_render, err);
                     return Err(());
                 }
                 Ok(cb) => cb,

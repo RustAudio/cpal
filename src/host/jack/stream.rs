@@ -10,6 +10,8 @@ use crate::{
     ResultExt, Sample, SampleRate, StreamInstant,
 };
 
+use crate::host::emit_error;
+
 type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(Error) + Send + 'static>>;
 
 pub struct Stream {
@@ -383,12 +385,13 @@ impl JackNotificationHandler {
 
 impl jack::NotificationHandler for JackNotificationHandler {
     unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
-        self.error_callback_ptr
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())(Error::with_message(
-            ErrorKind::DeviceNotAvailable,
-            format!("JACK server shut down: {reason}"),
-        ));
+        emit_error(
+            &self.error_callback_ptr,
+            Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("JACK server shut down: {reason}"),
+            ),
+        );
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
@@ -401,25 +404,23 @@ impl jack::NotificationHandler for JackNotificationHandler {
             true => {
                 // The JACK server has changed the sample rate, invalidating this stream.
                 // The stream configuration must be rebuilt with the new sample rate.
-                self.error_callback_ptr
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())(Error::with_message(
-                    ErrorKind::StreamInvalidated,
-                    format!("JACK server changed sample rate to {srate} Hz"),
-                ));
+                emit_error(
+                    &self.error_callback_ptr,
+                    Error::with_message(
+                        ErrorKind::StreamInvalidated,
+                        format!("JACK server changed sample rate to {srate} Hz"),
+                    ),
+                );
                 jack::Control::Quit
             }
         }
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        match self.error_callback_ptr.try_lock() {
-            Ok(mut cb) => cb(Error::with_message(ErrorKind::Xrun, "JACK xrun detected")),
-            Err(std::sync::TryLockError::Poisoned(e)) => {
-                e.into_inner()(Error::with_message(ErrorKind::Xrun, "JACK xrun detected"))
-            }
-            Err(std::sync::TryLockError::WouldBlock) => {}
-        }
+        emit_error(
+            &self.error_callback_ptr,
+            Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
+        );
         jack::Control::Continue
     }
 }
