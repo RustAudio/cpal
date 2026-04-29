@@ -330,6 +330,7 @@ impl DeviceTrait for Device {
                     stream,
                     context,
                     default_monitor,
+                    core_monitor,
                 }) = super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
@@ -361,6 +362,7 @@ impl DeviceTrait for Device {
                 mainloop.run();
                 drop(listener);
                 drop(default_monitor);
+                drop(core_monitor);
                 drop(context);
             })
             .map_err(|e| {
@@ -420,6 +422,7 @@ impl DeviceTrait for Device {
                     stream,
                     context,
                     default_monitor,
+                    core_monitor,
                 }) = super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,
@@ -452,6 +455,7 @@ impl DeviceTrait for Device {
                 mainloop.run();
                 drop(listener);
                 drop(default_monitor);
+                drop(core_monitor);
                 drop(context);
             })
             .map_err(|e| {
