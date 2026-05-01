@@ -131,7 +131,7 @@ pub(crate) mod null;
 /// Deliver an error that the app must not miss, blocking if the callback is currently
 /// executing on another thread. Use this for fatal or actionable errors.
 #[cfg(any(
-    target_os = "macos",
+    target_vendor = "apple",
     all(
         feature = "jack",
         any(
@@ -145,6 +145,15 @@ pub(crate) mod null;
     ),
     all(
         feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+    all(
+        feature = "pulseaudio",
         any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -167,7 +176,7 @@ where
 /// Use this only for non-fatal notifications where missing one occurrence is acceptable
 /// and blocking a real-time thread is not.
 #[cfg(any(
-    target_os = "macos",
+    target_vendor = "apple",
     all(
         feature = "jack",
         any(
@@ -181,6 +190,15 @@ where
     ),
     all(
         feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+    all(
+        feature = "pulseaudio",
         any(
             target_os = "linux",
             target_os = "dragonfly",

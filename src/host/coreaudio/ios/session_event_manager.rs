@@ -14,7 +14,7 @@ use objc2_avf_audio::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
-use crate::{Error, ErrorKind};
+use crate::{host::emit_error, Error, ErrorKind};
 
 pub(super) type ErrorCallbackMutex = Arc<Mutex<Box<dyn FnMut(Error) + Send>>>;
 
@@ -67,9 +67,7 @@ impl SessionEventManager {
             let cb = error_callback.clone();
             let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
                 if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
-                    if let Ok(mut cb) = cb.lock() {
-                        cb(err);
-                    }
+                    emit_error(&cb, err);
                 }
             });
             if let Some(name) = unsafe { AVAudioSessionRouteChangeNotification } {
@@ -83,12 +81,13 @@ impl SessionEventManager {
         {
             let cb = error_callback.clone();
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-                if let Ok(mut cb) = cb.lock() {
-                    cb(Error::with_message(
+                emit_error(
+                    &cb,
+                    Error::with_message(
                         ErrorKind::DeviceNotAvailable,
                         "audio media services were lost",
-                    ));
-                }
+                    ),
+                );
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereLostNotification } {
                 let observer = unsafe {
@@ -101,12 +100,13 @@ impl SessionEventManager {
         {
             let cb = error_callback.clone();
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-                if let Ok(mut cb) = cb.lock() {
-                    cb(Error::with_message(
+                emit_error(
+                    &cb,
+                    Error::with_message(
                         ErrorKind::StreamInvalidated,
                         "audio media services were reset",
-                    ));
-                }
+                    ),
+                );
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereResetNotification } {
                 let observer = unsafe {

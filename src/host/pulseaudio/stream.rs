@@ -10,7 +10,7 @@ use futures::executor::block_on;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
-    traits::StreamTrait, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    host::emit_error, traits::StreamTrait, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
     InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
 };
 
@@ -221,9 +221,7 @@ impl Stream {
         let error_callback_clone = error_callback.clone();
         std::thread::spawn(move || {
             if let Err(e) = block_on(stream_clone.play_all()) {
-                error_callback_clone
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())(Error::from(e));
+                emit_error(&error_callback_clone, Error::from(e));
             }
         });
 
@@ -241,7 +239,7 @@ impl Stream {
             let timing_info = match block_on(stream_clone.timing_info()) {
                 Ok(timing_info) => timing_info,
                 Err(e) => {
-                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(Error::from(e));
+                    emit_error(&error_callback, Error::from(e));
                     break;
                 }
             };

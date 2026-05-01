@@ -396,10 +396,7 @@ impl DefaultDeviceMonitor {
                     .add_listener_local()
                     .property(move |_subject, prop_key, _type, value| {
                         if prop_key == Some(key) {
-                            let prev = std::mem::replace(
-                                &mut *last_value.borrow_mut(),
-                                Some(value.map(str::to_owned)),
-                            );
+                            let prev = last_value.borrow_mut().replace(value.map(str::to_owned));
                             if let Some(old) = prev {
                                 if old.as_deref() != value {
                                     if value.is_some() {
