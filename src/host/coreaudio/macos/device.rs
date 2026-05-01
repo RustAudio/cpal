@@ -15,15 +15,15 @@ use crate::{
 
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
-    find_matching_physical_format, set_device_physical_stream_format, RateListener,
+    audio_unit_from_device_id_uninitialized, find_matching_physical_format,
+    set_device_physical_stream_format, RateListener,
 };
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{
     AudioUnit, Element, SampleFormat as CoreAudioSampleFormat, Scope, StreamFormat,
 };
 use objc2_audio_toolbox::{
-    kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO,
-    kAudioUnitProperty_StreamFormat,
+    kAudioOutputUnitProperty_CurrentDevice, kAudioUnitProperty_StreamFormat,
 };
 use objc2_core_audio::kAudioDevicePropertyDeviceUID;
 use objc2_core_audio::kAudioObjectPropertyElementMain;
@@ -230,32 +230,17 @@ fn audio_unit_from_device(
 ) -> Result<AudioUnit, coreaudio::Error> {
     match mode {
         AudioUnitMode::DefaultOutput => {
-            let mut audio_unit = AudioUnit::new(coreaudio::audio_unit::IOType::DefaultOutput)?;
-            audio_unit.uninitialize()?;
-            Ok(audio_unit)
+            AudioUnit::new_uninitialized(coreaudio::audio_unit::IOType::DefaultOutput)
         }
-        AudioUnitMode::Input | AudioUnitMode::Output => {
-            let mut audio_unit = AudioUnit::new(coreaudio::audio_unit::IOType::HalOutput)?;
-            audio_unit.uninitialize()?;
-
-            if matches!(mode, AudioUnitMode::Input) {
-                let enable_input = 1u32;
-                audio_unit.set_property(
-                    kAudioOutputUnitProperty_EnableIO,
-                    Scope::Input,
-                    Element::Input,
-                    Some(&enable_input),
-                )?;
-
-                let disable_output = 0u32;
-                audio_unit.set_property(
-                    kAudioOutputUnitProperty_EnableIO,
-                    Scope::Output,
-                    Element::Output,
-                    Some(&disable_output),
-                )?;
-            }
-
+        AudioUnitMode::Input => {
+            audio_unit_from_device_id_uninitialized(device.audio_device_id, true)
+        }
+        AudioUnitMode::Output => {
+            // Do not use audio_unit_from_device_id_uninitialized here: that function compares the
+            // device ID against the live system default and silently switches to DefaultOutput
+            // mode if they match. We explicitly pin HalOutput unit here.
+            let mut audio_unit =
+                AudioUnit::new_uninitialized(coreaudio::audio_unit::IOType::HalOutput)?;
             // Device selection is a device-level property:
             // always use Scope::Global + Element::Output
             audio_unit.set_property(
@@ -264,7 +249,6 @@ fn audio_unit_from_device(
                 Element::Output,
                 Some(&device.audio_device_id),
             )?;
-
             Ok(audio_unit)
         }
     }

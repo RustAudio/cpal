@@ -308,7 +308,7 @@ struct StreamInner {
 }
 
 fn create_audio_unit() -> Result<AudioUnit, coreaudio::Error> {
-    AudioUnit::new(coreaudio::audio_unit::IOType::RemoteIO)
+    AudioUnit::new_uninitialized(coreaudio::audio_unit::IOType::RemoteIO)
 }
 
 fn configure_for_recording(audio_unit: &mut AudioUnit) -> Result<(), coreaudio::Error> {
@@ -425,7 +425,6 @@ fn setup_stream_audio_unit(
     }
 
     let mut audio_unit = create_audio_unit()?;
-    audio_unit.uninitialize()?;
 
     if is_input {
         configure_for_recording(&mut audio_unit)?;

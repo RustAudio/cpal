@@ -115,7 +115,7 @@ pipewire = { version = "0.9", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
-coreaudio-rs = { version = "0.14", default-features = false, features = [
+coreaudio-rs = { version = "0.14.2", default-features = false, features = [
     "core_audio",
     "audio_toolbox",
 ] }
