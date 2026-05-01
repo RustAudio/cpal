@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -27,7 +27,7 @@ use pipewire::{
 };
 
 use crate::{
-    host::{emit_error, equilibrium::fill_equilibrium, frames_to_duration},
+    host::{emit_error, equilibrium::fill_equilibrium, frames_to_duration, try_emit_error},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
@@ -202,7 +202,7 @@ impl<D> UserData<D> {
                 // Let the metadata monitor fire for default-device streams
                 if self.has_connected
                     && !self.is_default_device
-                    && !self.invalidated.swap(true, Ordering::AcqRel)
+                    && !self.invalidated.swap(true, Ordering::Relaxed)
                 {
                     emit_error(
                         &self.error_callback,
@@ -211,7 +211,7 @@ impl<D> UserData<D> {
                 }
             }
             StreamState::Error(e) => {
-                if !self.invalidated.swap(true, Ordering::AcqRel) {
+                if !self.invalidated.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &self.error_callback,
                         Error::with_message(ErrorKind::StreamInvalidated, e),
@@ -391,34 +391,35 @@ impl DefaultDeviceMonitor {
                 let error_callback_cb = error_callback.clone();
                 let invalidated_cb = invalidated.clone();
 
-                // Skip the initial catchup delivery; only fire on actual changes.
-                let seen_first = Cell::new(false);
+                let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
                 let listener = metadata
                     .add_listener_local()
                     .property(move |_subject, prop_key, _type, value| {
-                        // The first delivery for this key is catchup of existing state;
-                        // only subsequent ones are real changes worth reporting.
                         if prop_key == Some(key) {
-                            if seen_first.get() {
-                                if value.is_some() {
-                                    emit_error(
-                                        &error_callback_cb,
-                                        Error::with_message(
-                                            ErrorKind::DeviceChanged,
-                                            "default device changed",
-                                        ),
-                                    );
-                                } else if !invalidated_cb.swap(true, Ordering::AcqRel) {
-                                    emit_error(
-                                        &error_callback_cb,
-                                        Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
-                                            "default device removed",
-                                        ),
-                                    );
+                            let prev = std::mem::replace(
+                                &mut *last_value.borrow_mut(),
+                                Some(value.map(str::to_owned)),
+                            );
+                            if let Some(old) = prev {
+                                if old.as_deref() != value {
+                                    if value.is_some() {
+                                        try_emit_error(
+                                            &error_callback_cb,
+                                            Error::with_message(
+                                                ErrorKind::DeviceChanged,
+                                                "default device changed",
+                                            ),
+                                        );
+                                    } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
+                                        emit_error(
+                                            &error_callback_cb,
+                                            Error::with_message(
+                                                ErrorKind::DeviceNotAvailable,
+                                                "default device removed",
+                                            ),
+                                        );
+                                    }
                                 }
-                            } else {
-                                seen_first.set(true);
                             }
                         }
                         0
@@ -485,7 +486,7 @@ where
         let error_callback_core = error_callback.clone();
         core.add_listener_local()
             .error(move |id, _seq, _res, message| {
-                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::AcqRel) {
+                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &error_callback_core,
                         Error::with_message(
@@ -543,7 +544,7 @@ where
                 let mismatch = current_channels != channels
                     || current_rate != rate
                     || current_fmt != expected_fmt;
-                if mismatch && !user_data.invalidated.swap(true, Ordering::AcqRel) {
+                if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &user_data.error_callback,
                         Error::with_message(
@@ -686,7 +687,7 @@ where
         let error_callback_core = error_callback.clone();
         core.add_listener_local()
             .error(move |id, _seq, _res, message| {
-                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::AcqRel) {
+                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &error_callback_core,
                         Error::with_message(
@@ -747,9 +748,7 @@ where
                 let mismatch = current_channels != channels
                     || current_rate != rate
                     || current_fmt != expected_fmt;
-                if mismatch
-                    && !user_data.invalidated.swap(true, Ordering::AcqRel)
-                {
+                if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &user_data.error_callback,
                         Error::with_message(
@@ -758,7 +757,9 @@ where
                         ),
                     );
                     if let Err(e) = stream.set_active(false) {
-                        emit_error(&user_data.error_callback, Error::with_message(
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 format!("failed to stop the stream, reason: {e}"),
                             ),

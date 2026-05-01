@@ -128,7 +128,8 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
-/// Invoke an error callback behind a shared mutex without blocking the caller.
+/// Deliver an error that the app must not miss, blocking if the callback is currently
+/// executing on another thread. Use this for fatal or actionable errors.
 #[cfg(any(
     target_os = "macos",
     all(
@@ -142,9 +143,53 @@ pub(crate) mod null;
             target_os = "windows",
         )
     ),
-    all(feature = "pipewire", target_os = "linux"),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
 ))]
 pub(crate) fn emit_error<E>(callback: &std::sync::Arc<std::sync::Mutex<E>>, error: crate::Error)
+where
+    E: FnMut(crate::Error) + Send + ?Sized,
+{
+    let mut cb = callback.lock().unwrap_or_else(|e| e.into_inner());
+    cb(error);
+}
+
+/// Try to deliver an error without blocking the caller.
+///
+/// Silently drops the error if the callback is currently executing on another thread.
+/// Use this only for non-fatal notifications where missing one occurrence is acceptable
+/// and blocking a real-time thread is not.
+#[cfg(any(
+    target_os = "macos",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) fn try_emit_error<E>(callback: &std::sync::Arc<std::sync::Mutex<E>>, error: crate::Error)
 where
     E: FnMut(crate::Error) + Send + ?Sized,
 {

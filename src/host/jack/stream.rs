@@ -10,7 +10,7 @@ use crate::{
     ResultExt, Sample, SampleRate, StreamInstant,
 };
 
-use crate::host::emit_error;
+use crate::host::{emit_error, try_emit_error};
 
 type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(Error) + Send + 'static>>;
 
@@ -417,7 +417,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        emit_error(
+        try_emit_error(
             &self.error_callback_ptr,
             Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
         );
