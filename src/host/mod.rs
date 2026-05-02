@@ -131,6 +131,7 @@ pub(crate) mod null;
 /// Deliver an error that the app must not miss, blocking if the callback is currently
 /// executing on another thread. Use this for fatal or actionable errors.
 #[cfg(any(
+    target_os = "android",
     target_vendor = "apple",
     all(
         feature = "jack",

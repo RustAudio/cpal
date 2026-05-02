@@ -60,9 +60,9 @@ pub enum ErrorKind {
     /// A buffer underrun or overrun occurred, causing a potential audio glitch.
     Xrun,
 
-    /// The requested thread priority is unavailable for the audio callback thread.
+    /// Real-time scheduling was requested for the audio callback thread but was not granted.
     /// Audio will still play, but may be subject to increased latency or glitches under load.
-    ThreadPriorityUnavailable,
+    RealtimeDenied,
 
     /// A catch-all for errors that do not fall under any other CPAL error kind.
     ///
@@ -101,8 +101,8 @@ impl Display for ErrorKind {
             Self::PermissionDenied => f.write_str(
                 "Permission denied. Grant the required access and retry.",
             ),
-            Self::ThreadPriorityUnavailable => f.write_str(
-                "Thread priority elevation is unavailable for the audio thread. \
+            Self::RealtimeDenied => f.write_str(
+                "Real-time scheduling was requested but not granted for the audio thread. \
                  Audio may be subject to increased latency or glitches under load.",
             ),
             Self::Other => f.write_str("An error occurred."),
@@ -163,13 +163,14 @@ impl From<ErrorKind> for Error {
 }
 
 #[cfg(all(
-    feature = "audio_thread_priority",
+    feature = "realtime",
     any(
         target_os = "windows",
         target_os = "linux",
         target_os = "dragonfly",
         target_os = "freebsd",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "android"
     )
 ))]
 impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
@@ -181,7 +182,7 @@ impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
             }
             None => format!("Failed to promote audio thread to real-time priority: {err}"),
         };
-        Error::with_message(ErrorKind::ThreadPriorityUnavailable, msg)
+        Error::with_message(ErrorKind::RealtimeDenied, msg)
     }
 }
 

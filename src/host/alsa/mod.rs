@@ -896,7 +896,7 @@ fn input_stream_worker(
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
-    #[cfg(feature = "audio_thread_priority")]
+    #[cfg(feature = "realtime")]
     if let Err(err) = boost_current_thread_priority(stream) {
         error_callback(err);
     }
@@ -947,7 +947,7 @@ fn output_stream_worker(
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
-    #[cfg(feature = "audio_thread_priority")]
+    #[cfg(feature = "realtime")]
     if let Err(err) = boost_current_thread_priority(stream) {
         error_callback(err);
     }
@@ -993,7 +993,7 @@ fn output_stream_worker(
     }
 }
 
-#[cfg(feature = "audio_thread_priority")]
+#[cfg(feature = "realtime")]
 fn boost_current_thread_priority(
     stream: &StreamInner,
 ) -> Result<audio_thread_priority::RtPriorityHandle, Error> {

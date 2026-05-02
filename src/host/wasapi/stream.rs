@@ -581,7 +581,7 @@ fn run_output(
     }
 }
 
-#[cfg(feature = "audio_thread_priority")]
+#[cfg(feature = "realtime")]
 fn boost_current_thread_priority(
     period_frames: FrameCount,
     sample_rate: SampleRate,
@@ -591,7 +591,7 @@ fn boost_current_thread_priority(
         .map_err(Error::from)
 }
 
-#[cfg(not(feature = "audio_thread_priority"))]
+#[cfg(not(feature = "realtime"))]
 fn boost_current_thread_priority(_: FrameCount, _: SampleRate) -> Result<(), Error> {
     unsafe {
         let thread_handle = Threading::GetCurrentThread();

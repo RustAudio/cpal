@@ -61,6 +61,8 @@ impl Stream {
             Some(Box::new(data_callback)),
             None,
             playing.clone(),
+            #[cfg(feature = "realtime")]
+            error_callback_ptr.clone(),
         );
 
         let notification_handler = JackNotificationHandler::new(error_callback_ptr);
@@ -110,6 +112,8 @@ impl Stream {
             None,
             Some(Box::new(data_callback)),
             playing.clone(),
+            #[cfg(feature = "realtime")]
+            error_callback_ptr.clone(),
         );
 
         let notification_handler = JackNotificationHandler::new(error_callback_ptr);
@@ -216,6 +220,10 @@ struct LocalProcessHandler {
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
     playing: Arc<AtomicBool>,
+    #[cfg(feature = "realtime")]
+    error_callback: ErrorCallbackPtr,
+    #[cfg(feature = "realtime")]
+    rt_checked: bool,
 }
 
 impl LocalProcessHandler {
@@ -228,6 +236,7 @@ impl LocalProcessHandler {
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
         playing: Arc<AtomicBool>,
+        #[cfg(feature = "realtime")] error_callback: ErrorCallbackPtr,
     ) -> Self {
         let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
         let temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
@@ -242,6 +251,10 @@ impl LocalProcessHandler {
             temp_input_buffer,
             temp_output_buffer,
             playing,
+            #[cfg(feature = "realtime")]
+            error_callback,
+            #[cfg(feature = "realtime")]
+            rt_checked: false,
         }
     }
 }
@@ -259,6 +272,61 @@ impl jack::ProcessHandler for LocalProcessHandler {
         client: &jack::Client,
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
+        #[cfg(feature = "realtime")]
+        if !self.rt_checked {
+            self.rt_checked = true;
+
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+            ))]
+            let denied = {
+                let sched = unsafe { libc::sched_getscheduler(0) };
+                sched != libc::SCHED_FIFO && sched != libc::SCHED_RR
+            };
+
+            #[cfg(target_vendor = "apple")]
+            let denied = {
+                use mach2::{
+                    boolean::boolean_t,
+                    kern_return::KERN_SUCCESS,
+                    mach_init::mach_thread_self,
+                    thread_policy::{
+                        thread_policy_get, thread_policy_t, thread_time_constraint_policy_data_t,
+                        THREAD_TIME_CONSTRAINT_POLICY, THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+                    },
+                };
+                let mut policy: thread_time_constraint_policy_data_t =
+                    unsafe { std::mem::zeroed() };
+                let mut count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
+                let mut get_default: boolean_t = 0;
+                let kr = unsafe {
+                    thread_policy_get(
+                        mach_thread_self(),
+                        THREAD_TIME_CONSTRAINT_POLICY,
+                        &mut policy as *mut _ as thread_policy_t,
+                        &mut count,
+                        &mut get_default,
+                    )
+                };
+                kr != KERN_SUCCESS || get_default != 0 || policy.period == 0
+            };
+
+            #[cfg(target_os = "windows")]
+            let denied = {
+                use windows::Win32::System::Threading;
+                let priority =
+                    unsafe { Threading::GetThreadPriority(Threading::GetCurrentThread()) };
+                priority < Threading::THREAD_PRIORITY_ABOVE_NORMAL.0
+            };
+
+            if denied {
+                emit_error(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
+            }
+        }
+
         if !self.playing.load(Ordering::Relaxed) {
             return jack::Control::Continue;
         }

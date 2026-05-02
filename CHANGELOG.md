@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
 - `ErrorKind::DeviceChanged` signals that the audio route changed to another device.
 - `ErrorKind::PermissionDenied` for OS-level access denials.
-- `ErrorKind::ThreadPriorityUnavailable` for when a thread priority request is not granted.
+- `ErrorKind::RealtimeDenied` for when a thread priority request is not granted.
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [UPGRADING.md](UPGRADING.md) for migration details.
 - `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
   See [UPGRADING.md](UPGRADING.md) for migration details.
+- `audio_thread_priority` feature renamed to `realtime` and enabled by default.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
@@ -47,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `SupportedBufferSize` now reports `min: 1`.
 - **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
   44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
+- **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
+  enabled.
 - **ALSA**: Device disconnection now stops the stream with `ErrorKind::DeviceNotAvailable`.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
@@ -108,7 +111,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Reintroduce `audio_thread_priority` feature.
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
 - **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
 - **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
@@ -116,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
 - **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **AAudio**: Output buffers are now zero-filled before the callback runs.
+- **AAudio**: Stream errors are now forwarded to `error_callback`.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
 - **ALSA**: Fix spurious timestamp errors during stream startup.

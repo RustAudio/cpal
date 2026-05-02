@@ -192,6 +192,7 @@ pub struct UserData<D> {
     is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
+    rt_checked: bool,
 }
 
 impl<D> UserData<D> {
@@ -506,6 +507,7 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        rt_checked: false,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -565,6 +567,18 @@ where
             user_data.state_changed(new);
         })
         .process(|stream, user_data| {
+            #[cfg(feature = "realtime")]
+            if !user_data.rt_checked {
+                user_data.rt_checked = true;
+                let sched = unsafe { libc::sched_getscheduler(0) };
+                if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
+                    emit_error(
+                        &user_data.error_callback,
+                        Error::new(ErrorKind::RealtimeDenied),
+                    );
+                }
+            }
+
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
                 return; // format not yet negotiated by param_changed
@@ -626,16 +640,11 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
-    // Connect the stream; RT_PROCESS schedules the process callback on
-    // PipeWire's real-time driver thread.
-    stream.connect(
-        pw::spa::utils::Direction::Output,
-        None,
-        pw::stream::StreamFlags::AUTOCONNECT
-            | pw::stream::StreamFlags::MAP_BUFFERS
-            | pw::stream::StreamFlags::RT_PROCESS,
-        &mut params,
-    )?;
+    let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
+    #[cfg(feature = "realtime")]
+    let flags = flags | pw::stream::StreamFlags::RT_PROCESS;
+
+    stream.connect(pw::spa::utils::Direction::Output, None, flags, &mut params)?;
 
     Ok(StreamData {
         mainloop,
@@ -707,6 +716,7 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        rt_checked: false,
     };
 
     let channels = config.channels as _;
@@ -769,6 +779,18 @@ where
             user_data.state_changed(new);
         })
         .process(|stream, user_data| {
+            #[cfg(feature = "realtime")]
+            if !user_data.rt_checked {
+                user_data.rt_checked = true;
+                let sched = unsafe { libc::sched_getscheduler(0) };
+                if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
+                    emit_error(
+                        &user_data.error_callback,
+                        Error::new(ErrorKind::RealtimeDenied),
+                    );
+                }
+            }
+
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
                 return; // format not yet negotiated by param_changed
@@ -812,16 +834,11 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
-    // Connect the stream; RT_PROCESS schedules the process callback on
-    // PipeWire's real-time driver thread.
-    stream.connect(
-        pw::spa::utils::Direction::Input,
-        None,
-        pw::stream::StreamFlags::AUTOCONNECT
-            | pw::stream::StreamFlags::MAP_BUFFERS
-            | pw::stream::StreamFlags::RT_PROCESS,
-        &mut params,
-    )?;
+    let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
+    #[cfg(feature = "realtime")]
+    let flags = flags | pw::stream::StreamFlags::RT_PROCESS;
+
+    stream.connect(pw::spa::utils::Direction::Input, None, flags, &mut params)?;
 
     Ok(StreamData {
         mainloop,

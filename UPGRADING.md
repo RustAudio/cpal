@@ -195,7 +195,34 @@ unpredictable for any other format the device reported. The new ordering is comp
 consistent: floats before integers (F64 > F32 for maximum fidelity), integers by bit-depth
 descending with signed above unsigned at each width, and DSD last.
 
-## 6. `wasm32-unknown-emscripten` target removed
+## 6. `audio_thread_priority` feature renamed to `realtime` and enabled by default
+
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime` and is now a
+default feature. If you did not previously enable it, real-time scheduling will now be requested
+automatically for audio callback threads.
+
+```toml
+# Before (v0.17): opt-in required
+cpal = { version = "0.17", features = ["audio_thread_priority"] }
+
+# After (v0.18): on by default; rename the feature if you were opting in
+cpal = { version = "0.18" }
+
+# To opt out explicitly:
+cpal = { version = "0.18", default-features = false, features = ["...other features..."] }
+```
+
+Promotion failures are non-fatal: the stream still starts and a `ErrorKind::RealtimeDenied`
+error is delivered through `error_callback`.
+
+**Impact:** In most cases no action is needed. If your `Cargo.toml` names `audio_thread_priority`
+explicitly, rename it to `realtime`. If you relied on the opt-out behavior, pass
+`default-features = false`.
+
+**Why:** Real-time scheduling is the correct default for audio applications. The previous opt-in
+made it easy to accidentally ship without it.
+
+## 7. `wasm32-unknown-emscripten` target removed
 
 **What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
 

@@ -14,6 +14,7 @@ use std::{
 };
 
 use crate::{
+    host::emit_error,
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -297,6 +298,11 @@ fn configure_for_device(
             .buffer_capacity_in_frames(size.saturating_mul(2).min(i32::MAX as FrameCount) as i32);
     }
 
+    #[cfg(feature = "realtime")]
+    {
+        builder = builder.performance_mode(ndk::audio::AudioPerformanceMode::LowLatency);
+    }
+
     builder
 }
 
@@ -315,6 +321,10 @@ where
     let builder = configure_for_device(builder, device, config);
     let channel_count = config.channels as i32;
     let sample_rate = config.sample_rate;
+
+    let error_callback = Arc::new(Mutex::new(error_callback));
+    let error_callback_for_stream = error_callback.clone();
+
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             let cb_info = InputCallbackInfo {
@@ -336,9 +346,14 @@ where
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
-            (error_callback)(Error::from(error))
+            emit_error(&error_callback_for_stream, Error::from(error));
         }))
         .open_stream()?;
+
+    #[cfg(feature = "realtime")]
+    if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
+        emit_error(&error_callback, Error::new(ErrorKind::RealtimeDenied));
+    }
 
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
@@ -369,6 +384,9 @@ where
 
     let tuning = Arc::new(BufferTuningState::default());
     let tuning_for_callback = tuning.clone();
+
+    let error_callback = Arc::new(Mutex::new(error_callback));
+    let error_callback_for_stream = error_callback.clone();
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
@@ -435,7 +453,7 @@ where
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
-            (error_callback)(Error::from(error))
+            emit_error(&error_callback_for_stream, Error::from(error));
         }))
         .open_stream()?;
 
@@ -455,6 +473,11 @@ where
         }
     };
     tuning.mixer_bursts.store(mixer_bursts, Ordering::Relaxed);
+
+    #[cfg(feature = "realtime")]
+    if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
+        emit_error(&error_callback, Error::new(ErrorKind::RealtimeDenied));
+    }
 
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety

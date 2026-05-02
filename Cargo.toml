@@ -10,11 +10,13 @@ edition = "2021"
 rust-version = "1.78"
 
 [features]
-# Audio thread priority elevation
-# Raises the audio callback thread to real-time priority for lower latency and fewer glitches
-# Requires: On Linux, either rtkit or appropriate user permissions (e.g. limits.conf or capabilities)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows
-audio_thread_priority = ["dep:audio_thread_priority"]
+default = ["realtime"]
+
+# Real-time audio thread scheduling
+# Requests real-time or high-priority scheduling for audio callback threads for lower latency.
+# Requires: On Linux, either rtkit (default on desktop) or appropriate user permissions
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android, PipeWire
+realtime = ["dep:audio_thread_priority"]
 
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
@@ -101,7 +103,7 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-audio_thread_priority = { version = "0.34", optional = true }
+audio_thread_priority = { version = "0.35", optional = true }
 asio-sys = { version = "0.3.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
@@ -109,7 +111,7 @@ jack = { version = "0.13", optional = true }
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.11"
 libc = "0.2"
-audio_thread_priority = { version = "0.34", optional = true }
+audio_thread_priority = { version = "0.35", optional = true }
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
@@ -179,6 +181,7 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
+audio_thread_priority = { version = "0.35", optional = true }
 ndk = { version = "0.9", default-features = false, features = [
     "audio",
     "api-level-26",
