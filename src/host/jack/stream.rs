@@ -293,24 +293,29 @@ impl jack::ProcessHandler for LocalProcessHandler {
                     boolean::boolean_t,
                     kern_return::KERN_SUCCESS,
                     mach_init::mach_thread_self,
+                    mach_port::mach_port_deallocate,
                     thread_policy::{
                         thread_policy_get, thread_policy_t, thread_time_constraint_policy_data_t,
                         THREAD_TIME_CONSTRAINT_POLICY, THREAD_TIME_CONSTRAINT_POLICY_COUNT,
                     },
+                    traps::mach_task_self,
                 };
                 let mut policy: thread_time_constraint_policy_data_t =
                     unsafe { std::mem::zeroed() };
                 let mut count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
                 let mut get_default: boolean_t = 0;
+                // SAFETY: mach_thread_self() returns a send right that we must release afterwards.
+                let thread_port = unsafe { mach_thread_self() };
                 let kr = unsafe {
                     thread_policy_get(
-                        mach_thread_self(),
+                        thread_port,
                         THREAD_TIME_CONSTRAINT_POLICY,
                         &mut policy as *mut _ as thread_policy_t,
                         &mut count,
                         &mut get_default,
                     )
                 };
+                unsafe { mach_port_deallocate(mach_task_self(), thread_port) };
                 kr != KERN_SUCCESS || get_default != 0 || policy.period == 0
             };
 
@@ -323,7 +328,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
             };
 
             if denied {
-                emit_error(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
+                try_emit_error(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
             }
         }
 

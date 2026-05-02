@@ -572,7 +572,7 @@ where
                 user_data.rt_checked = true;
                 let sched = unsafe { libc::sched_getscheduler(0) };
                 if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                    emit_error(
+                    try_emit_error(
                         &user_data.error_callback,
                         Error::new(ErrorKind::RealtimeDenied),
                     );
@@ -784,7 +784,7 @@ where
                 user_data.rt_checked = true;
                 let sched = unsafe { libc::sched_getscheduler(0) };
                 if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                    emit_error(
+                    try_emit_error(
                         &user_data.error_callback,
                         Error::new(ErrorKind::RealtimeDenied),
                     );

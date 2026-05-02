@@ -171,7 +171,7 @@ jobs:
       - name: Install audio packages
         run: |
           apt-get update -qq
-          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libpipewire-0.3-dev
+          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libpipewire-0.3-dev libdbus-1-dev
 
       - name: Install Rust (${{ env.MSRV_PIPEWIRE }})
         uses: dtolnay/rust-toolchain@master

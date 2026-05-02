@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
 - `ErrorKind::DeviceChanged` signals that the audio route changed to another device.
 - `ErrorKind::PermissionDenied` for OS-level access denials.
-- `ErrorKind::RealtimeDenied` for when a thread priority request is not granted.
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
@@ -38,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
   See [UPGRADING.md](UPGRADING.md) for migration details.
 - `audio_thread_priority` feature renamed to `realtime` and enabled by default.
+- `ErrorKind::ThreadPriorityUnavailable` renamed to `ErrorKind::RealtimeDenied`.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for

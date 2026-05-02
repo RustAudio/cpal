@@ -310,7 +310,7 @@ fn build_input_stream<D, E>(
     device: &Device,
     config: StreamConfig,
     mut data_callback: D,
-    mut error_callback: E,
+    error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
     sample_format: SampleFormat,
 ) -> Result<Stream, Error>
@@ -369,7 +369,7 @@ fn build_output_stream<D, E>(
     device: &Device,
     config: StreamConfig,
     mut data_callback: D,
-    mut error_callback: E,
+    error_callback: E,
     builder: ndk::audio::AudioStreamBuilder,
     sample_format: SampleFormat,
 ) -> Result<Stream, Error>
