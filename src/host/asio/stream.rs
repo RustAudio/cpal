@@ -873,7 +873,19 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
-        let configured_sample_rate = driver.sample_rate().ok().filter(|&r| r > 0.0);
+        let configured_sample_rate = match driver.sample_rate() {
+            Ok(r) if r > 0.0 => Some(r),
+            Ok(_) => None,
+            Err(e) => {
+                // Route the failure to the callback immediately. Any future SampleRateChanged
+                // event will be treated as invalidating since we have no baseline to compare
+                // against.
+                error_callback_shared
+                    .lock()
+                    .unwrap_or_else(|g| g.into_inner())(build_stream_err(e));
+                None
+            }
+        };
         let driver_for_latency = driver.clone();
         let asio_streams_for_event = self.asio_streams.clone();
 
@@ -942,17 +954,22 @@ impl Device {
                     _ => false,
                 },
                 sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
-                    if let Some(rate) = configured_sample_rate {
-                        if (new_rate - rate).abs() >= 1.0 {
-                            error_callback_shared
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())(
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("ASIO driver changed sample rate to {new_rate} Hz"),
-                                ),
-                            );
+                    let should_notify = match configured_sample_rate {
+                        Some(rate) => (new_rate - rate).abs() >= 1.0,
+                        None => {
+                            // Unknown baseline: any reported change is treated as invalidating.
+                            true
                         }
+                    };
+                    if should_notify {
+                        error_callback_shared
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())(
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                format!("ASIO driver changed sample rate to {new_rate} Hz"),
+                            ),
+                        );
                     }
                     false
                 }
