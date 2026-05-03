@@ -1,43 +1,5 @@
 #[cfg(any(
     target_os = "linux",
-    target_os = "windows",
-    target_vendor = "apple",
-    feature = "audioworklet",
-    all(
-        feature = "jack",
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "macos",
-            target_os = "windows",
-        )
-    )
-))]
-use crate::{FrameCount, SampleRate};
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_vendor = "apple",
-    feature = "audioworklet",
-    all(
-        feature = "jack",
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "macos",
-            target_os = "windows",
-        )
-    )
-))]
-use std::time::Duration;
-
-#[cfg(any(
-    target_os = "linux",
     target_os = "dragonfly",
     target_os = "freebsd",
     target_os = "netbsd",
@@ -128,11 +90,14 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
-/// Deliver an error that the app must not miss, blocking if the callback is currently
-/// executing on another thread. Use this for fatal or actionable errors.
+/// Shared error-callback type that hands the callback across thread boundaries.
+pub(crate) type ErrorCallbackArc = std::sync::Arc<std::sync::Mutex<dyn FnMut(crate::Error) + Send>>;
+
+/// Error-delivery helpers shared by backends that hold an `ErrorCallbackArc`.
 #[cfg(any(
     target_os = "android",
     target_vendor = "apple",
+    target_os = "windows",
     all(
         feature = "jack",
         any(
@@ -163,21 +128,12 @@ pub(crate) mod null;
         )
     ),
 ))]
-pub(crate) fn emit_error<E>(callback: &std::sync::Arc<std::sync::Mutex<E>>, error: crate::Error)
-where
-    E: FnMut(crate::Error) + Send + ?Sized,
-{
-    let mut cb = callback.lock().unwrap_or_else(|e| e.into_inner());
-    cb(error);
-}
+pub(crate) mod error_emit;
 
-/// Try to deliver an error without blocking the caller.
-///
-/// Silently drops the error if the callback is currently executing on another thread.
-/// Use this only for non-fatal notifications where missing one occurrence is acceptable
-/// and blocking a real-time thread is not.
 #[cfg(any(
+    target_os = "android",
     target_vendor = "apple",
+    target_os = "windows",
     all(
         feature = "jack",
         any(
@@ -208,16 +164,7 @@ where
         )
     ),
 ))]
-pub(crate) fn try_emit_error<E>(callback: &std::sync::Arc<std::sync::Mutex<E>>, error: crate::Error)
-where
-    E: FnMut(crate::Error) + Send + ?Sized,
-{
-    match callback.try_lock() {
-        Ok(mut cb) => cb(error),
-        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner()(error),
-        Err(std::sync::TryLockError::WouldBlock) => {}
-    }
-}
+pub(crate) use error_emit::{emit_error, emit_error_or_warn, try_emit_error};
 
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(
@@ -238,14 +185,17 @@ where
     )
 ))]
 #[inline]
-pub(crate) fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
+pub(crate) fn frames_to_duration(
+    frames: crate::FrameCount,
+    rate: crate::SampleRate,
+) -> std::time::Duration {
     if rate == 0 {
-        return Duration::ZERO;
+        return std::time::Duration::ZERO;
     }
     let rate = rate as u64;
     let secs = frames as u64 / rate;
     // rem_frames < rate <= u32::MAX, so rem_frames * 1_000_000_000 < u64::MAX
     let rem_frames = frames as u64 % rate;
     let nanos = rem_frames * 1_000_000_000 / rate;
-    Duration::new(secs, nanos as u32)
+    std::time::Duration::new(secs, nanos as u32)
 }
