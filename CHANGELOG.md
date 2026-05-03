@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SupportedStreamConfigRange::contains_rate()` to test whether a sample rate falls within a range.
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
+- `log` feature to forward non-fatal, informational diagnostics that cannot go through the error
+  callback to the `log` facade.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
@@ -89,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Server shutdown now fires `ErrorKind::DeviceNotAvailable`.
 - **JACK**: Default client name now includes the process PID.
 - **JACK**: User timeouts are now respected when building a stream.
+- **JACK**: `Stream::connect_to_system_outputs()` and `Stream::connect_to_system_inputs()` now
+  return `Result<(), Error>` instead of silently discarding port-connection failures.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
 - **WASAPI**: Raise `windows` dependency lower bound to 0.61.

@@ -10,13 +10,22 @@ edition = "2021"
 rust-version = "1.78"
 
 [features]
-default = ["realtime"]
+default = ["log", "realtime-dbus"]
+
+# Fallback sink for non-fatal, informational diagnostics that cannot go through the error callback
+# Without this feature, such notifications are silently discarded
+log = ["dep:log"]
 
 # Real-time audio thread scheduling
-# Requests real-time or high-priority scheduling for audio callback threads for lower latency.
-# Requires: On Linux, either rtkit (default on desktop) or appropriate user permissions
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android, PipeWire
+# Promotes audio callback threads to real-time or high-priority scheduling for lower latency
+# Requires: (Linux/BSD) `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android
 realtime = ["dep:audio_thread_priority"]
+
+# D-Bus/rtkit support on top of `realtime` for RT scheduling on Linux/BSD desktop systems
+# Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (no-op on all other platforms)
+realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
@@ -42,7 +51,6 @@ audioworklet = [
 ]
 
 # Support for user-defined custom hosts, devices, and streams
-# Allows integration with audio systems not natively supported by CPAL
 # See examples/custom.rs for usage
 # Platform: All platforms
 custom = []
@@ -75,6 +83,7 @@ wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 
 [dependencies]
 dasp_sample = "0.11"
+log = { version = "0.4", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -103,7 +112,7 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-audio_thread_priority = { version = "0.35", optional = true }
+audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 asio-sys = { version = "0.3.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
@@ -111,7 +120,7 @@ jack = { version = "0.13", optional = true }
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.11"
 libc = "0.2"
-audio_thread_priority = { version = "0.35", optional = true }
+audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
@@ -181,7 +190,7 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-audio_thread_priority = { version = "0.35", optional = true }
+audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 ndk = { version = "0.9", default-features = false, features = [
     "audio",
     "api-level-26",

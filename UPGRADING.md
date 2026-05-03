@@ -18,6 +18,8 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Raise your `windows` dependency to `>= 0.61` if you pin it below that.
 - [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
 - [ ] If you relied on the default config returning `F32`, pin the sample format explicitly.
+- [ ] **JACK**: Handle or discard the new `Result` from `Stream::connect_to_system_outputs()` and
+  `Stream::connect_to_system_inputs()`.
 
 ## 1. Unified `Error` and `ErrorKind` type
 
@@ -212,7 +214,7 @@ cpal = { version = "0.18" }
 cpal = { version = "0.18", default-features = false, features = ["...other features..."] }
 ```
 
-Promotion failures are non-fatal: the stream still starts and a `ErrorKind::RealtimeDenied`
+Promotion failures are non-fatal: the stream still starts and an `ErrorKind::RealtimeDenied`
 error is delivered through `error_callback`.
 
 **Impact:** In most cases no action is needed. If your `Cargo.toml` names `audio_thread_priority`
@@ -245,6 +247,28 @@ let host = cpal::host_from_id(cpal::HostId::WebAudio)?;
 If you must target `wasm32-unknown-emscripten` specifically, consider using OpenAL or another audio approach that supports that target, as cpal no longer provides audio on Emscripten.
 
 **Why:** The old `emscripten` host relied on deprecated Emscripten audio APIs that are no longer functional.
+
+## 8. JACK: `connect_to_system_outputs` and `connect_to_system_inputs` now return `Result`
+
+**What changed:** Both methods now return `Result<(), cpal::Error>` instead of `()`.
+Port-connection failures that were previously silently discarded now surface as
+`ErrorKind::DeviceNotAvailable`.
+
+```rust
+// Before: return value was () — failures were silent
+stream.connect_to_system_outputs();
+
+// After: propagate the error
+stream.connect_to_system_outputs()?;
+
+// Or discard explicitly to restore the previous silent behaviour
+stream.connect_to_system_outputs().ok();
+```
+
+**Impact:** Every call site now produces an unused-`Result` warning unless the value is handled.
+Add `?` to propagate or `.ok()` to explicitly discard.
+
+**Why:** Silent failure prevented callers from knowing when automatic port connection failed.
 
 ---
 
