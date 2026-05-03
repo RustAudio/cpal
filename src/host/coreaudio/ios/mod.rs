@@ -20,7 +20,7 @@ use self::enumerate::{
 };
 use super::{asbd_from_config, host_time_to_stream_instant};
 use crate::{
-    host::{frames_to_duration, try_emit_error},
+    host::{emit_error_or_warn, frames_to_duration, ErrorCallbackArc},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
@@ -30,7 +30,7 @@ use crate::{
 
 pub mod enumerate;
 mod session_event_manager;
-use session_event_manager::{ErrorCallbackMutex, SessionEventManager};
+use session_event_manager::SessionEventManager;
 
 // These days the default of iOS is now F32 and no longer I16
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
@@ -173,7 +173,7 @@ impl DeviceTrait for Device {
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
 
-        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let session_manager = SessionEventManager::new(error_callback.clone());
 
         // Set up input callback
@@ -184,7 +184,7 @@ impl DeviceTrait for Device {
             device_buffer_frames,
             data_callback,
             move |e| {
-                try_emit_error(&error_callback, e);
+                emit_error_or_warn(&error_callback, e);
             },
         )?;
 
@@ -218,7 +218,7 @@ impl DeviceTrait for Device {
         // Query device buffer size for latency calculation
         let device_buffer_frames = Some(get_device_buffer_frames());
 
-        let error_callback: ErrorCallbackMutex = Arc::new(Mutex::new(Box::new(error_callback)));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let session_manager = SessionEventManager::new(error_callback.clone());
 
         // Set up output callback
@@ -229,7 +229,7 @@ impl DeviceTrait for Device {
             device_buffer_frames,
             data_callback,
             move |e| {
-                try_emit_error(&error_callback, e);
+                emit_error_or_warn(&error_callback, e);
             },
         )?;
 

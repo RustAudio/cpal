@@ -52,7 +52,7 @@ use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::host::try_emit_error;
+use crate::host::{try_emit_error, ErrorCallbackArc};
 use coreaudio::audio_unit::macos_helpers::get_device_name;
 
 /// Try to find a matching physical stream format on the device and apply it.
@@ -778,8 +778,7 @@ impl Device {
         // Configure stream format and buffer size for predictable callback behavior.
         configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
-        let error_callback: Arc<Mutex<super::ErrorCallback>> =
-            Arc::new(Mutex::new(Box::new(error_callback)));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_disconnect = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
@@ -804,7 +803,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    try_emit_error(&error_callback, err);
+                    let _ = try_emit_error(&error_callback, err);
                     return Err(());
                 }
                 Ok(cb) => cb,
@@ -889,8 +888,7 @@ impl Device {
         // Configure device buffer (see comprehensive documentation in input stream above)
         configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
 
-        let error_callback: Arc<Mutex<super::ErrorCallback>> =
-            Arc::new(Mutex::new(Box::new(error_callback)));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_for_render = error_callback.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
@@ -915,7 +913,7 @@ impl Device {
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
-                    try_emit_error(&error_callback_for_render, err);
+                    let _ = try_emit_error(&error_callback_for_render, err);
                     return Err(());
                 }
                 Ok(cb) => cb,

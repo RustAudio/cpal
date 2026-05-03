@@ -13,7 +13,7 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, try_emit_error},
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, emit_error_or_warn},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -57,7 +57,7 @@ impl HostTrait for Host {
 }
 
 /// Type alias for the error callback to reduce complexity
-type ErrorCallback = Box<dyn FnMut(Error) + Send + 'static>;
+type ErrorCallback = dyn FnMut(Error) + Send;
 
 /// Spawns a dedicated thread that registers a single property listener and signals a channel on
 /// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
@@ -227,7 +227,7 @@ impl DefaultOutputMonitor {
                     );
                 } else {
                     // DefaultOutput AudioUnit rerouted automatically; notify the caller.
-                    try_emit_error(
+                    emit_error_or_warn(
                         &error_callback,
                         Error::with_message(
                             ErrorKind::DeviceChanged,

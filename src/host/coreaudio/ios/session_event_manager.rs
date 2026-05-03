@@ -14,9 +14,10 @@ use objc2_avf_audio::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
-use crate::{host::emit_error, Error, ErrorKind};
-
-pub(super) type ErrorCallbackMutex = Arc<Mutex<Box<dyn FnMut(Error) + Send>>>;
+use crate::{
+    host::{emit_error, ErrorCallbackArc},
+    Error, ErrorKind,
+};
 
 unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     let user_info = notification.userInfo()?;
@@ -59,7 +60,7 @@ unsafe impl Send for SessionEventManager {}
 unsafe impl Sync for SessionEventManager {}
 
 impl SessionEventManager {
-    pub(super) fn new(error_callback: ErrorCallbackMutex) -> Self {
+    pub(super) fn new(error_callback: ErrorCallbackArc) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
         let mut observers = Vec::new();
 
