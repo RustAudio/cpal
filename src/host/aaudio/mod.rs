@@ -6,7 +6,7 @@ use std::{
     cmp,
     convert::TryInto,
     sync::{
-        atomic::{AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    host::emit_error,
+    host::{emit_error, ErrorCallbackArc},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -25,6 +25,9 @@ use crate::{
 
 extern crate ndk;
 use self::ndk::audio::AudioStream;
+
+#[cfg(feature = "realtime")]
+use crate::host::emit_error_or_warn;
 
 mod convert;
 mod java_interface;
@@ -322,11 +325,28 @@ where
     let channel_count = config.channels as i32;
     let sample_rate = config.sample_rate;
 
-    let error_callback = Arc::new(Mutex::new(error_callback));
+    let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+
+    // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
+    // before the Stream handle is returned to the caller.
+    #[cfg(feature = "realtime")]
+    let rt_checked = Arc::new(AtomicBool::new(false));
+    #[cfg(feature = "realtime")]
+    let error_callback_for_rt = error_callback.clone();
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            #[cfg(feature = "realtime")]
+            if !rt_checked.swap(true, Ordering::Relaxed) {
+                if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
+                    emit_error_or_warn(
+                        &error_callback_for_rt,
+                        Error::new(ErrorKind::RealtimeDenied),
+                    );
+                }
+            }
+
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
                     callback: now_stream_instant(),
@@ -349,11 +369,6 @@ where
             emit_error(&error_callback_for_stream, Error::from(error));
         }))
         .open_stream()?;
-
-    #[cfg(feature = "realtime")]
-    if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
-        emit_error(&error_callback, Error::new(ErrorKind::RealtimeDenied));
-    }
 
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
@@ -385,11 +400,28 @@ where
     let tuning = Arc::new(BufferTuningState::default());
     let tuning_for_callback = tuning.clone();
 
-    let error_callback = Arc::new(Mutex::new(error_callback));
+    let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+
+    // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
+    // before the Stream handle is returned to the caller.
+    #[cfg(feature = "realtime")]
+    let rt_checked = Arc::new(AtomicBool::new(false));
+    #[cfg(feature = "realtime")]
+    let error_callback_for_rt = error_callback.clone();
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
+            #[cfg(feature = "realtime")]
+            if !rt_checked.swap(true, Ordering::Relaxed) {
+                if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
+                    emit_error_or_warn(
+                        &error_callback_for_rt,
+                        Error::new(ErrorKind::RealtimeDenied),
+                    );
+                }
+            }
+
             // Pre-fill with equilibrium so unwritten frames are silent.
             let n_samples: usize = (num_frames * channel_count).try_into().unwrap();
             let byte_count = n_samples * sample_format.sample_size();
@@ -473,11 +505,6 @@ where
         }
     };
     tuning.mixer_bursts.store(mixer_bursts, Ordering::Relaxed);
-
-    #[cfg(feature = "realtime")]
-    if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
-        emit_error(&error_callback, Error::new(ErrorKind::RealtimeDenied));
-    }
 
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
