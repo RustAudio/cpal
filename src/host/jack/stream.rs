@@ -10,9 +10,8 @@ use crate::{
     ResultExt, Sample, SampleRate, StreamInstant,
 };
 
-use crate::host::{emit_error, try_emit_error};
-
-type ErrorCallbackPtr = Arc<Mutex<dyn FnMut(Error) + Send + 'static>>;
+#[cfg(feature = "realtime")]
+use crate::host::{emit_error, emit_error_or_warn, try_emit_error, ErrorCallbackArc};
 
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
@@ -51,7 +50,7 @@ impl Stream {
         }
 
         let playing = Arc::new(AtomicBool::new(true));
-        let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
+        let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let input_process_handler = LocalProcessHandler::new(
             vec![],
@@ -102,7 +101,7 @@ impl Stream {
         }
 
         let playing = Arc::new(AtomicBool::new(true));
-        let error_callback_ptr = Arc::new(Mutex::new(error_callback)) as ErrorCallbackPtr;
+        let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let output_process_handler = LocalProcessHandler::new(
             ports,
@@ -132,7 +131,7 @@ impl Stream {
 
     /// Connect to the standard system outputs in jack, system:playback_1 and system:playback_2
     /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
-    pub fn connect_to_system_outputs(&mut self) {
+    pub fn connect_to_system_outputs(&mut self) -> Result<(), Error> {
         // Get the system ports
         let system_ports = self.async_client.as_client().ports(
             Some("system:playback_.*"),
@@ -145,20 +144,25 @@ impl Stream {
             if i >= system_ports.len() {
                 break;
             }
-            match self
-                .async_client
+            self.async_client
                 .as_client()
                 .connect_ports_by_name(&self.output_port_names[i], &system_ports[i])
-            {
-                Ok(_) => (),
-                Err(e) => println!("Unable to connect to port with error {}", e),
-            }
+                .map_err(|e| {
+                    Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        format!(
+                            "JACK failed to connect port '{}' to '{}': {}",
+                            self.output_port_names[i], system_ports[i], e
+                        ),
+                    )
+                })?;
         }
+        Ok(())
     }
 
-    /// Connect to the standard system outputs in jack, system:capture_1 and system:capture_2
+    /// Connect to the standard system inputs in jack, system:capture_1 and system:capture_2
     /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
-    pub fn connect_to_system_inputs(&mut self) {
+    pub fn connect_to_system_inputs(&mut self) -> Result<(), Error> {
         // Get the system ports
         let system_ports = self.async_client.as_client().ports(
             Some("system:capture_.*"),
@@ -166,20 +170,25 @@ impl Stream {
             jack::PortFlags::empty(),
         );
 
-        // Connect outputs from this client to the system playback inputs
+        // Connect inputs from system capture ports to this client
         for i in 0..self.input_port_names.len() {
             if i >= system_ports.len() {
                 break;
             }
-            match self
-                .async_client
+            self.async_client
                 .as_client()
                 .connect_ports_by_name(&system_ports[i], &self.input_port_names[i])
-            {
-                Ok(_) => (),
-                Err(e) => println!("Unable to connect to port with error {}", e),
-            }
+                .map_err(|e| {
+                    Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        format!(
+                            "JACK failed to connect port '{}' to '{}': {}",
+                            system_ports[i], self.input_port_names[i], e
+                        ),
+                    )
+                })?;
         }
+        Ok(())
     }
 }
 
@@ -221,7 +230,7 @@ struct LocalProcessHandler {
     temp_output_buffer: Vec<f32>,
     playing: Arc<AtomicBool>,
     #[cfg(feature = "realtime")]
-    error_callback: ErrorCallbackPtr,
+    error_callback: ErrorCallbackArc,
     #[cfg(feature = "realtime")]
     rt_checked: bool,
 }
@@ -236,7 +245,7 @@ impl LocalProcessHandler {
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
         playing: Arc<AtomicBool>,
-        #[cfg(feature = "realtime")] error_callback: ErrorCallbackPtr,
+        #[cfg(feature = "realtime")] error_callback: ErrorCallbackArc,
     ) -> Self {
         let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
         let temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
@@ -273,62 +282,64 @@ impl jack::ProcessHandler for LocalProcessHandler {
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
         #[cfg(feature = "realtime")]
-        if !self.rt_checked {
-            self.rt_checked = true;
-
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd",
-            ))]
-            let denied = {
-                let sched = unsafe { libc::sched_getscheduler(0) };
-                sched != libc::SCHED_FIFO && sched != libc::SCHED_RR
-            };
-
-            #[cfg(target_vendor = "apple")]
-            let denied = {
-                use mach2::{
-                    boolean::boolean_t,
-                    kern_return::KERN_SUCCESS,
-                    mach_init::mach_thread_self,
-                    mach_port::mach_port_deallocate,
-                    thread_policy::{
-                        thread_policy_get, thread_policy_t, thread_time_constraint_policy_data_t,
-                        THREAD_TIME_CONSTRAINT_POLICY, THREAD_TIME_CONSTRAINT_POLICY_COUNT,
-                    },
-                    traps::mach_task_self,
+        {
+            if !self.rt_checked {
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd",
+                ))]
+                let denied = {
+                    let sched = unsafe { libc::sched_getscheduler(0) };
+                    sched != libc::SCHED_FIFO && sched != libc::SCHED_RR
                 };
-                let mut policy: thread_time_constraint_policy_data_t =
-                    unsafe { std::mem::zeroed() };
-                let mut count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
-                let mut get_default: boolean_t = 0;
-                // SAFETY: mach_thread_self() returns a send right that we must release afterwards.
-                let thread_port = unsafe { mach_thread_self() };
-                let kr = unsafe {
-                    thread_policy_get(
-                        thread_port,
-                        THREAD_TIME_CONSTRAINT_POLICY,
-                        &mut policy as *mut _ as thread_policy_t,
-                        &mut count,
-                        &mut get_default,
-                    )
+
+                #[cfg(target_vendor = "apple")]
+                let denied = {
+                    use mach2::{
+                        boolean::boolean_t,
+                        kern_return::KERN_SUCCESS,
+                        mach_init::mach_thread_self,
+                        mach_port::mach_port_deallocate,
+                        thread_policy::{
+                            thread_policy_get, thread_policy_t,
+                            thread_time_constraint_policy_data_t, THREAD_TIME_CONSTRAINT_POLICY,
+                            THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+                        },
+                        traps::mach_task_self,
+                    };
+                    let mut policy: thread_time_constraint_policy_data_t =
+                        unsafe { std::mem::zeroed() };
+                    let mut count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
+                    let mut get_default: boolean_t = 0;
+                    // SAFETY: mach_thread_self() returns a send right that we must release.
+                    let thread_port = unsafe { mach_thread_self() };
+                    let kr = unsafe {
+                        thread_policy_get(
+                            thread_port,
+                            THREAD_TIME_CONSTRAINT_POLICY,
+                            &mut policy as *mut _ as thread_policy_t,
+                            &mut count,
+                            &mut get_default,
+                        )
+                    };
+                    unsafe { mach_port_deallocate(mach_task_self(), thread_port) };
+                    kr != KERN_SUCCESS || get_default != 0 || policy.period == 0
                 };
-                unsafe { mach_port_deallocate(mach_task_self(), thread_port) };
-                kr != KERN_SUCCESS || get_default != 0 || policy.period == 0
-            };
 
-            #[cfg(target_os = "windows")]
-            let denied = {
-                use windows::Win32::System::Threading;
-                let priority =
-                    unsafe { Threading::GetThreadPriority(Threading::GetCurrentThread()) };
-                priority < Threading::THREAD_PRIORITY_ABOVE_NORMAL.0
-            };
+                #[cfg(target_os = "windows")]
+                let denied = {
+                    use windows::Win32::System::Threading;
+                    let priority =
+                        unsafe { Threading::GetThreadPriority(Threading::GetCurrentThread()) };
+                    priority < Threading::THREAD_PRIORITY_ABOVE_NORMAL.0
+                };
 
-            if denied {
-                try_emit_error(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
+                if denied {
+                    emit_error_or_warn(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
+                }
+                self.rt_checked = true;
             }
         }
 
@@ -443,15 +454,15 @@ fn micros_to_stream_instant(micros: u64) -> StreamInstant {
 /// Receives notifications from the JACK server. It is unclear if this may be run concurrent with itself under JACK2 specs
 /// so it needs to be Sync.
 struct JackNotificationHandler {
-    error_callback_ptr: ErrorCallbackPtr,
-    init_sample_rate_flag: Arc<AtomicBool>,
+    error_callback_ptr: ErrorCallbackArc,
+    init_sample_rate_flag: bool,
 }
 
 impl JackNotificationHandler {
-    pub fn new(error_callback_ptr: ErrorCallbackPtr) -> Self {
+    pub fn new(error_callback_ptr: ErrorCallbackArc) -> Self {
         JackNotificationHandler {
             error_callback_ptr,
-            init_sample_rate_flag: Arc::new(AtomicBool::new(false)),
+            init_sample_rate_flag: false,
         }
     }
 }
@@ -468,10 +479,10 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        match self.init_sample_rate_flag.load(Ordering::Relaxed) {
+        match self.init_sample_rate_flag {
             false => {
                 // One of these notifications is sent every time a client is started.
-                self.init_sample_rate_flag.store(true, Ordering::Relaxed);
+                self.init_sample_rate_flag = true;
                 jack::Control::Continue
             }
             true => {
@@ -490,7 +501,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        try_emit_error(
+        let _ = try_emit_error(
             &self.error_callback_ptr,
             Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
         );

@@ -224,7 +224,7 @@ impl DeviceTrait for Device {
             let mut stream =
                 Stream::new_input(client, conf.channels, data_callback, error_callback)?;
             if connect_ports_automatically {
-                stream.connect_to_system_inputs();
+                stream.connect_to_system_inputs()?;
             }
             Ok(stream)
         };
@@ -303,7 +303,7 @@ impl DeviceTrait for Device {
             let mut stream =
                 Stream::new_output(client, conf.channels, data_callback, error_callback)?;
             if connect_ports_automatically {
-                stream.connect_to_system_outputs();
+                stream.connect_to_system_outputs()?;
             }
             Ok(stream)
         };
