@@ -7,6 +7,7 @@ use std::{
 };
 
 use futures::executor::block_on;
+use futures::FutureExt as _;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
@@ -58,8 +59,16 @@ pub struct Stream(StreamInner);
 impl Drop for Stream {
     fn drop(&mut self) {
         match &mut self.0 {
-            StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
-                handle.cancel()
+            StreamInner::Playback(stream, _, handle) => {
+                handle.cancel();
+                // Help the play_all driver thread terminate by
+                // queueing a delete, which causes the reactor to drop
+                // the source's eof_tx. We need to do this because
+                // pool_read always reports a non-empty buffer.
+                let _ = stream.clone().delete().now_or_never();
+            }
+            StreamInner::Record(_, _, handle) => {
+                handle.cancel();
             }
         }
     }
