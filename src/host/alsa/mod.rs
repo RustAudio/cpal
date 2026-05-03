@@ -1273,9 +1273,17 @@ impl Stream {
         let (tx, rx) = trigger();
         let rx_thread = rx.clone();
         let stream = inner.clone();
+
+        // The barrier prevents the worker from firing data callbacks before the caller has
+        // received the Stream handle. Without it, callbacks could arrive before the caller can
+        // pause, stop, or drop the stream.
+        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let ready_worker = ready.clone();
+
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
+                ready_worker.wait();
                 input_stream_worker(
                     rx_thread,
                     &stream,
@@ -1285,12 +1293,15 @@ impl Stream {
                 );
             })
             .unwrap();
-        Self {
+        let stream = Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-        }
+        };
+
+        ready.wait();
+        stream
     }
 
     fn new_output<D, E>(
@@ -1306,9 +1317,17 @@ impl Stream {
         let (tx, rx) = trigger();
         let rx_thread = rx.clone();
         let stream = inner.clone();
+
+        // The barrier prevents the worker from firing data callbacks before the caller has
+        // received the Stream handle. Without it, callbacks could arrive before the caller can
+        // pause, stop, or drop the stream.
+        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let ready_worker = ready.clone();
+
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
+                ready_worker.wait();
                 output_stream_worker(
                     rx_thread,
                     &stream,
@@ -1318,12 +1337,16 @@ impl Stream {
                 );
             })
             .unwrap();
-        Self {
+
+        let stream = Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-        }
+        };
+
+        ready.wait();
+        stream
     }
 }
 
