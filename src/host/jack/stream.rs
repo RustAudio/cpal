@@ -5,13 +5,11 @@ use std::sync::{
 
 use super::JACK_SAMPLE_FORMAT;
 use crate::{
-    host::frames_to_duration, traits::StreamTrait, ChannelCount, Data, Error, ErrorKind,
-    FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    ResultExt, Sample, SampleRate, StreamInstant,
+    host::{emit_error, frames_to_duration, try_emit_error, ErrorCallbackArc},
+    traits::StreamTrait,
+    ChannelCount, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, Sample, SampleRate, StreamInstant,
 };
-
-#[cfg(feature = "realtime")]
-use crate::host::{emit_error, emit_error_or_warn, try_emit_error, ErrorCallbackArc};
 
 pub struct Stream {
     // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
@@ -129,64 +127,114 @@ impl Stream {
         })
     }
 
-    /// Connect to the standard system outputs in jack, system:playback_1 and system:playback_2
-    /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
+    /// Connect stream output ports to the standard JACK system playback ports.
+    /// Must be called after the client is activated.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if every stream channel was connected to a system playback port.
+    /// - `Err` if there are fewer system playback ports than stream channels, or if any
+    ///   individual port-connection call fails.
+    ///
+    /// On error, connections that were made before the failure are rolled back on a best-effort
+    /// basis so the JACK graph is left unchanged.
     pub fn connect_to_system_outputs(&mut self) -> Result<(), Error> {
-        // Get the system ports
         let system_ports = self.async_client.as_client().ports(
             Some("system:playback_.*"),
             None,
             jack::PortFlags::empty(),
         );
 
-        // Connect outputs from this client to the system playback inputs
-        for i in 0..self.output_port_names.len() {
-            if i >= system_ports.len() {
-                break;
-            }
-            self.async_client
+        let n_our = self.output_port_names.len();
+        let n_sys = system_ports.len();
+        if n_sys < n_our {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "JACK: only {n_sys} system playback port(s) available, but the stream has {n_our} output channel(s)"
+                ),
+            ));
+        }
+
+        // Connect outputs from this client to the system playback inputs.
+        for (i, (our_port, system_port)) in
+            self.output_port_names.iter().zip(&system_ports).enumerate()
+        {
+            if let Err(e) = self
+                .async_client
                 .as_client()
-                .connect_ports_by_name(&self.output_port_names[i], &system_ports[i])
-                .map_err(|e| {
-                    Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
-                        format!(
-                            "JACK failed to connect port '{}' to '{}': {}",
-                            self.output_port_names[i], system_ports[i], e
-                        ),
-                    )
-                })?;
+                .connect_ports_by_name(our_port, system_port)
+            {
+                for (prev_our, prev_sys) in
+                    self.output_port_names[..i].iter().zip(&system_ports[..i])
+                {
+                    let _ = self
+                        .async_client
+                        .as_client()
+                        .disconnect_ports_by_name(prev_our, prev_sys);
+                }
+
+                return Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    format!("JACK failed to connect port '{our_port}' to '{system_port}': {e}"),
+                ));
+            }
         }
         Ok(())
     }
 
-    /// Connect to the standard system inputs in jack, system:capture_1 and system:capture_2
-    /// This has to be done after the client is activated, doing it just after creating the ports doesn't work.
+    /// Connect stream input ports to the standard JACK system capture ports.
+    /// Must be called after the client is activated.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if every stream channel was connected to a system capture port.
+    /// - `Err` if there are fewer system capture ports than stream channels, or if any individual
+    ///   port-connection call fails.
+    ///
+    /// On error, connections that were made before the failure are rolled back on a best-effort
+    /// basis so the JACK graph is left unchanged.
     pub fn connect_to_system_inputs(&mut self) -> Result<(), Error> {
-        // Get the system ports
         let system_ports = self.async_client.as_client().ports(
             Some("system:capture_.*"),
             None,
             jack::PortFlags::empty(),
         );
 
-        // Connect inputs from system capture ports to this client
-        for i in 0..self.input_port_names.len() {
-            if i >= system_ports.len() {
-                break;
-            }
-            self.async_client
+        let n_our = self.input_port_names.len();
+        let n_sys = system_ports.len();
+        if n_sys < n_our {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "JACK: only {n_sys} system capture port(s) available, but the stream has {n_our} input channel(s)"
+                ),
+            ));
+        }
+
+        // Connect inputs from system capture ports to this client.
+        for (i, (system_port, our_port)) in
+            system_ports.iter().zip(&self.input_port_names).enumerate()
+        {
+            if let Err(e) = self
+                .async_client
                 .as_client()
-                .connect_ports_by_name(&system_ports[i], &self.input_port_names[i])
-                .map_err(|e| {
-                    Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
-                        format!(
-                            "JACK failed to connect port '{}' to '{}': {}",
-                            system_ports[i], self.input_port_names[i], e
-                        ),
-                    )
-                })?;
+                .connect_ports_by_name(system_port, our_port)
+            {
+                for (prev_sys, prev_our) in
+                    system_ports[..i].iter().zip(&self.input_port_names[..i])
+                {
+                    let _ = self
+                        .async_client
+                        .as_client()
+                        .disconnect_ports_by_name(prev_sys, prev_our);
+                }
+
+                return Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    format!("JACK failed to connect port '{system_port}' to '{our_port}': {e}"),
+                ));
+            }
         }
         Ok(())
     }
@@ -337,9 +385,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 };
 
                 if denied {
-                    emit_error_or_warn(&self.error_callback, Error::new(ErrorKind::RealtimeDenied));
+                    if try_emit_error(&self.error_callback, Error::new(ErrorKind::RealtimeDenied))
+                        .is_ok()
+                    {
+                        self.rt_checked = true;
+                    }
+                } else {
+                    self.rt_checked = true;
                 }
-                self.rt_checked = true;
             }
         }
 
@@ -451,8 +504,7 @@ fn micros_to_stream_instant(micros: u64) -> StreamInstant {
     StreamInstant::from_micros(micros)
 }
 
-/// Receives notifications from the JACK server. It is unclear if this may be run concurrent with itself under JACK2 specs
-/// so it needs to be Sync.
+/// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
 struct JackNotificationHandler {
     error_callback_ptr: ErrorCallbackArc,
     init_sample_rate_flag: bool,

@@ -56,8 +56,8 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 | `log` | All | Fallback sink for non-fatal, informational diagnostics that cannot go through the error callback. Without this feature, such notifications are silently discarded. Enabled by default. |
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
-| `realtime` | Linux, BSD, Windows, Android | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux/BSD, requires `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`) unless `realtime-dbus` is also enabled. Enabled by default. |
-| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Disable on headless or embedded targets where D-Bus is unavailable and configure RT permissions via `limits.conf` instead. No-op on other platforms. Requires `realtime`. Enabled by default. |
+| `realtime` | Linux, BSD, Windows, Android | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux/BSD, requires `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`) unless `realtime-dbus` is also enabled. |
+| `realtime-dbus` | Linux, BSD, Windows, Android | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Enabled by default. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
 See the [beep example](examples/beep.rs) for selecting the host at runtime.

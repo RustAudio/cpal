@@ -141,13 +141,8 @@ impl DeviceTrait for Device {
     {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let monitor = self.default_device_monitor(error_callback.clone())?;
-        Ok(Stream::new_input(
-            stream_inner,
-            data_callback,
-            error_callback,
-            monitor,
-        ))
+        let monitor = self.default_device_monitor()?;
+        Stream::new_input(stream_inner, data_callback, error_callback, monitor)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -164,13 +159,8 @@ impl DeviceTrait for Device {
     {
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let monitor = self.default_device_monitor(error_callback.clone())?;
-        Ok(Stream::new_output(
-            stream_inner,
-            data_callback,
-            error_callback,
-            monitor,
-        ))
+        let monitor = self.default_device_monitor()?;
+        Stream::new_output(stream_inner, data_callback, error_callback, monitor)
     }
 }
 
@@ -547,17 +537,14 @@ impl Device {
     }
 
     /// Creates a `DefaultDeviceMonitor` for default-device streams, or `None` for specific devices.
-    fn default_device_monitor(
-        &self,
-        error_callback: ErrorCallbackArc,
-    ) -> Result<Option<DefaultDeviceMonitor>, Error> {
+    fn default_device_monitor(&self) -> Result<Option<DefaultDeviceMonitor>, Error> {
         let flow = match &self.device {
             DeviceHandle::DefaultOutput => Audio::eRender,
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
         };
         let enumerator = get_enumerator().0.clone();
-        DefaultDeviceMonitor::new(enumerator, flow, error_callback).map(Some)
+        DefaultDeviceMonitor::new(enumerator, flow).map(Some)
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.

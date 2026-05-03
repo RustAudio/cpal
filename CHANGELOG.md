@@ -22,7 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
 - `log` feature to forward non-fatal, informational diagnostics that cannot go through the error
-  callback to the `log` facade.
+  callback to the `log` facade; enabled by default.
+- `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
+- **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
+  enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
@@ -38,7 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [UPGRADING.md](UPGRADING.md) for migration details.
 - `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
   See [UPGRADING.md](UPGRADING.md) for migration details.
-- `audio_thread_priority` feature renamed to `realtime` and enabled by default.
+- `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default.
+- `audio_thread_priority` dependency bumped to 0.35.
 - `ErrorKind::ThreadPriorityUnavailable` renamed to `ErrorKind::RealtimeDenied`.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
@@ -50,9 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `SupportedBufferSize` now reports `min: 1`.
 - **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
   44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
-- **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
-  enabled.
-- **ALSA**: Device disconnection now stops the stream with `ErrorKind::DeviceNotAvailable`.
+- **ALSA**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on device 
+  disconnection.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
 - **ALSA**: Loop partial reads and writes to completion.
@@ -80,26 +83,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when media services are lost.
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` when the system
   default output device changes.
-- **CoreAudio**: On iOS, unplugging headphones now emits `ErrorKind::DeviceChanged` (stream
-  rerouted to speaker).
+- **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` on iOS when
+  headphones are unplugged.
 - **CoreAudio**: User timeouts are now respected when building a stream.
 - **CoreAudio (iOS)**: `default_input_config()` and `default_output_config()` now prefer 48 kHz,
   then 44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
 - **JACK**: Timestamps now use the precise hardware deadline.
-- **JACK**: Buffer size change no longer fires an error callback; internal buffers are resized
+- **JACK**: Buffer size change no longer invokes the error callback; internal buffers are resized
   without error.
-- **JACK**: Server shutdown now fires `ErrorKind::DeviceNotAvailable`.
+- **JACK**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on server shutdown.
 - **JACK**: Default client name now includes the process PID.
 - **JACK**: User timeouts are now respected when building a stream.
 - **JACK**: `Stream::connect_to_system_outputs()` and `Stream::connect_to_system_inputs()` now
-  return `Result<(), Error>` instead of silently discarding port-connection failures.
+  return `Result<(), Error>` and roll back the graph instead of silently discarding 
+  port-connection failures.
+- **JACK**: Stream error callback now receives `ErrorKind::RealtimeDenied` once if the process
+  callback is not running at real-time scheduling priority.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
 - **WASAPI**: Raise `windows` dependency lower bound to 0.61.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
 - **WASAPI**: `FriendlyName` is now preferred as device name over `DeviceDesc`.
 - **WASAPI**: Default output and input streams now automatically reroute when the system default
-  device changes, and fire `ErrorKind::DeviceChanged` on the stream error callback.
+  device changes; stream error callback now receives `ErrorKind::DeviceChanged`.
 - **WASAPI**: `Device::immdevice()` now returns `Option<Audio::IMMDevice>` instead of
   `&Audio::IMMDevice`.
 - **WebAudio**: Bump MSRV to 1.85.
@@ -132,6 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
 - **ALSA**: Fix silence template not being applied for DSD.
 - **ALSA**: Fix stream corruption on certain drivers with spurious wakeups.
+- **ALSA**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
@@ -142,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   update.
 - **ASIO**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **ASIO**: Output buffers are now zero-filled before the callback runs.
+- **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
@@ -150,7 +158,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Fix crashes on certain drivers due to early initialization.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
-- **PulseAudio**: Poisoned locks now exit the thread gracefully instead of panicking.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.
 - **JACK**: `activate_async()` failure now returns an error instead of panicking.
 - **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
@@ -158,6 +165,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Output buffers are now zero-filled before the callback runs.
 - **WASAPI**: Poisoned locks now returns an error instead of panicking.
 - **WASAPI**: Output buffers are now zero-filled before the callback runs.
+- **WASAPI**: Fix audio worker thread spawn failure panicking instead of returning an error.
+- **WASAPI**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 

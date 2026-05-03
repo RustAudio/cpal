@@ -16,7 +16,6 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
-    host::emit_error,
     host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
     host::pipewire::utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
@@ -352,27 +351,20 @@ impl DeviceTrait for Device {
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
+
+                // Do not call error_callback from this thread: if the user drops the Stream in
+                // response, Stream::drop joins this thread, causing a deadlock.
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        if let Err(e) = stream.set_active(state) {
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
-                                ),
-                            );
+                        if let Err(_e) = stream.set_active(state) {
+                            #[cfg(feature = "log")]
+                            log::warn!("cpal: PipeWire: set_active({state}) failed: {_e}");
                         }
                     }
                     StreamCommand::Stop => {
-                        if let Err(e) = stream.disconnect() {
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: disconnect failed: {e}"),
-                                ),
-                            );
+                        if let Err(_e) = stream.disconnect() {
+                            #[cfg(feature = "log")]
+                            log::warn!("cpal: PipeWire: disconnect failed: {_e}");
                         }
                         mainloop_rc1.quit();
                     }
@@ -383,7 +375,9 @@ impl DeviceTrait for Device {
                 drop(core_monitor);
                 drop(context);
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+            })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
@@ -460,27 +454,20 @@ impl DeviceTrait for Device {
                 let _ = pw_init_tx.send(true);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
+
+                // Do not call error_callback from this thread: if the user drops the Stream in
+                // response, Stream::drop joins this thread, causing a deadlock.
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        if let Err(e) = stream.set_active(state) {
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
-                                ),
-                            );
+                        if let Err(_e) = stream.set_active(state) {
+                            #[cfg(feature = "log")]
+                            log::warn!("cpal: PipeWire: set_active({state}) failed: {_e}");
                         }
                     }
                     StreamCommand::Stop => {
-                        if let Err(e) = stream.disconnect() {
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: disconnect failed: {e}"),
-                                ),
-                            );
+                        if let Err(_e) = stream.disconnect() {
+                            #[cfg(feature = "log")]
+                            log::warn!("cpal: PipeWire: disconnect failed: {_e}");
                         }
                         mainloop_rc1.quit();
                     }
@@ -491,7 +478,9 @@ impl DeviceTrait for Device {
                 drop(core_monitor);
                 drop(context);
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+            })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),

@@ -13,7 +13,7 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, emit_error_or_warn},
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -227,7 +227,7 @@ impl DefaultOutputMonitor {
                     );
                 } else {
                     // DefaultOutput AudioUnit rerouted automatically; notify the caller.
-                    emit_error_or_warn(
+                    emit_error(
                         &error_callback,
                         Error::with_message(
                             ErrorKind::DeviceChanged,

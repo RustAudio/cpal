@@ -184,7 +184,7 @@ jobs:
           key: pipewire-bookworm
 
       - name: Check PipeWire on Debian Bookworm
-        run: cargo check --no-default-features --features pipewire --workspace --verbose
+        run: cargo check --features pipewire --workspace --verbose
 
   # Windows (x86_64 and i686)
   windows:

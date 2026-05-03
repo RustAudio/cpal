@@ -197,11 +197,12 @@ unpredictable for any other format the device reported. The new ordering is comp
 consistent: floats before integers (F64 > F32 for maximum fidelity), integers by bit-depth
 descending with signed above unsigned at each width, and DSD last.
 
-## 6. `audio_thread_priority` feature renamed to `realtime` and enabled by default
+## 6. `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default
 
-**What changed:** The `audio_thread_priority` feature has been renamed to `realtime` and is now a
-default feature. If you did not previously enable it, real-time scheduling will now be requested
-automatically for audio callback threads.
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus` and is
+now a default feature. If you did not previously enable it, real-time scheduling will now be
+requested automatically for audio callback threads. A new `realtime` feature was also added,
+providing the same scheduling promotion without a D-Bus build dependency.
 
 ```toml
 # Before (v0.17): opt-in required
@@ -211,14 +212,22 @@ cpal = { version = "0.17", features = ["audio_thread_priority"] }
 cpal = { version = "0.18" }
 
 # To opt out explicitly:
-cpal = { version = "0.18", default-features = false, features = ["...other features..."] }
+cpal = { version = "0.18", default-features = false }
 ```
 
-Promotion failures are non-fatal: the stream still starts and an `ErrorKind::RealtimeDenied`
-error is delivered through `error_callback`.
+On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel`
+(Fedora/RHEL), or equivalent at build time. On headless or embedded targets without D-Bus, use
+`realtime` instead:
+
+```toml
+cpal = { version = "0.18", default-features = false, features = ["realtime"] }
+```
+
+For both features, promotion failures are non-fatal: the stream still starts and an 
+`ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
 
 **Impact:** In most cases no action is needed. If your `Cargo.toml` names `audio_thread_priority`
-explicitly, rename it to `realtime`. If you relied on the opt-out behavior, pass
+explicitly, rename it to `realtime-dbus`. If you relied on the opt-out behavior, pass
 `default-features = false`.
 
 **Why:** Real-time scheduling is the correct default for audio applications. The previous opt-in
@@ -247,28 +256,6 @@ let host = cpal::host_from_id(cpal::HostId::WebAudio)?;
 If you must target `wasm32-unknown-emscripten` specifically, consider using OpenAL or another audio approach that supports that target, as cpal no longer provides audio on Emscripten.
 
 **Why:** The old `emscripten` host relied on deprecated Emscripten audio APIs that are no longer functional.
-
-## 8. JACK: `connect_to_system_outputs` and `connect_to_system_inputs` now return `Result`
-
-**What changed:** Both methods now return `Result<(), cpal::Error>` instead of `()`.
-Port-connection failures that were previously silently discarded now surface as
-`ErrorKind::DeviceNotAvailable`.
-
-```rust
-// Before: return value was () — failures were silent
-stream.connect_to_system_outputs();
-
-// After: propagate the error
-stream.connect_to_system_outputs()?;
-
-// Or discard explicitly to restore the previous silent behaviour
-stream.connect_to_system_outputs().ok();
-```
-
-**Impact:** Every call site now produces an unused-`Result` warning unless the value is handled.
-Add `?` to propagate or `.ok()` to explicitly discard.
-
-**Why:** Silent failure prevented callers from knowing when automatic port connection failed.
 
 ---
 

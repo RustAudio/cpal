@@ -2,10 +2,7 @@ use std::{
     mem,
     ops::ControlFlow,
     ptr,
-    sync::{
-        mpsc::{channel, Receiver, SendError, Sender},
-        Arc, Mutex,
-    },
+    sync::mpsc::{channel, Receiver, SendError, Sender},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -53,17 +50,12 @@ impl DefaultDeviceMonitor {
     pub fn new(
         enumerator: Audio::IMMDeviceEnumerator,
         flow: Audio::EDataFlow,
-        error_callback: ErrorCallbackArc,
     ) -> Result<Self, Error> {
         let event =
             unsafe { Threading::CreateEventW(None, false, false, None).map_err(Error::from)? };
 
-        let client: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
-            flow,
-            event,
-            error_callback,
-        }
-        .into();
+        let client: Audio::IMMNotificationClient =
+            DefaultDeviceNotificationImpl { flow, event }.into();
 
         unsafe {
             enumerator
@@ -85,7 +77,11 @@ impl Drop for DefaultDeviceMonitor {
         // any thread (e.g. the audio run thread), which may not have called CoInitialize.
         crate::host::com::com_initialized();
         unsafe {
-            // Synchronous: waits for any in-progress callback to finish before returning.
+            // Synchronous: waits for any in-progress IMMNotificationClient callback to finish
+            // before returning. This means that notification callbacks must not invoke the user
+            // error callback even via try_emit_error: if the user callback dropped the Stream,
+            // drop() would deadlock here waiting for itself.
+            //
             // Only close the event handle on success; if unregister fails the callback may
             // still hold a reference and could later call SetEvent on a closed/reused handle.
             if self
@@ -103,7 +99,6 @@ impl Drop for DefaultDeviceMonitor {
 struct DefaultDeviceNotificationImpl {
     flow: Audio::EDataFlow,
     event: Foundation::HANDLE,
-    error_callback: ErrorCallbackArc,
 }
 
 impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
@@ -114,17 +109,13 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         _pwstrdefaultdeviceid: &windows::core::PCWSTR,
     ) -> windows::core::Result<()> {
         if flow == self.flow && role == Audio::eConsole {
-            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor,
-            // which outlives all uses of this HANDLE copy.
+            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor, which
+            // outlives all uses of this HANDLE copy.
             unsafe {
-                if let Err(e) = Threading::SetEvent(self.event) {
-                    emit_error(
-                        &self.error_callback,
-                        Error::with_message(
-                            ErrorKind::DeviceChanged,
-                            format!("default audio device changed (SetEvent failed: {e})"),
-                        ),
-                    );
+                // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
+                if let Err(_e) = Threading::SetEvent(self.event) {
+                    #[cfg(feature = "log")]
+                    log::warn!("cpal: SetEvent failed in OnDefaultDeviceChanged: {_e}");
                 }
             }
         }
@@ -148,15 +139,11 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
             || dwnewstate == Audio::DEVICE_STATE_UNPLUGGED;
         if is_unavailable && get_current_default(self.flow).is_none() {
             // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
+            // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
             unsafe {
-                if let Err(e) = Threading::SetEvent(self.event) {
-                    emit_error(
-                        &self.error_callback,
-                        Error::with_message(
-                            ErrorKind::DeviceChanged,
-                            format!("audio device state changed (SetEvent failed: {e})"),
-                        ),
-                    );
+                if let Err(_e) = Threading::SetEvent(self.event) {
+                    #[cfg(feature = "log")]
+                    log::warn!("cpal: SetEvent failed in OnDeviceStateChanged: {_e}");
                 }
             }
         }
@@ -172,15 +159,11 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         // will fire instead, avoiding a double wakeup.
         if get_current_default(self.flow).is_none() {
             // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
+            // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
             unsafe {
-                if let Err(e) = Threading::SetEvent(self.event) {
-                    emit_error(
-                        &self.error_callback,
-                        Error::with_message(
-                            ErrorKind::DeviceChanged,
-                            format!("audio device removed (SetEvent failed: {e})"),
-                        ),
-                    );
+                if let Err(_e) = Threading::SetEvent(self.event) {
+                    #[cfg(feature = "log")]
+                    log::warn!("cpal: SetEvent failed in OnDeviceRemoved: {_e}");
                 }
             }
         }
@@ -302,7 +285,7 @@ impl Stream {
         mut data_callback: D,
         error_callback: ErrorCallbackArc,
         default_device_monitor: Option<DefaultDeviceMonitor>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
     {
@@ -343,7 +326,14 @@ impl Stream {
                 ready_worker.wait();
                 run_input(run_context, &mut data_callback, &error_callback)
             })
-            .unwrap();
+            .map_err(|e| {
+                // SAFETY: pending_scheduled_event is valid and solely owned here; Stream::drop
+                // will never run because we are returning Err before constructing Stream.
+                unsafe {
+                    let _ = Foundation::CloseHandle(pending_scheduled_event);
+                }
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+            })?;
 
         let stream = Stream {
             thread: Some(thread),
@@ -355,7 +345,7 @@ impl Stream {
         };
 
         ready.wait();
-        stream
+        Ok(stream)
     }
 
     pub(crate) fn new_output<D>(
@@ -363,7 +353,7 @@ impl Stream {
         mut data_callback: D,
         error_callback: ErrorCallbackArc,
         default_device_monitor: Option<DefaultDeviceMonitor>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
     {
@@ -404,7 +394,14 @@ impl Stream {
                 ready_worker.wait();
                 run_output(run_context, &mut data_callback, &error_callback)
             })
-            .unwrap();
+            .map_err(|e| {
+                // SAFETY: pending_scheduled_event is valid and solely owned here; Stream::drop
+                // will never run because we are returning Err before constructing Stream.
+                unsafe {
+                    let _ = Foundation::CloseHandle(pending_scheduled_event);
+                }
+                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+            })?;
 
         let stream = Stream {
             thread: Some(thread),
@@ -416,7 +413,7 @@ impl Stream {
         };
 
         ready.wait();
-        stream
+        Ok(stream)
     }
 
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {

@@ -222,12 +222,11 @@ impl Stream {
         let stream_clone = stream.clone();
         let error_callback_clone = error_callback.clone();
 
-        // The barrier prevents the worker from firing data callbacks before the caller has
-        // received the Stream handle. Without it, callbacks could arrive before the caller can
-        // pause, stop, or drop the stream.
-        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let ready_worker = ready.clone();
+        // The barrier prevents the worker and latency threads from firing callbacks before the
+        // caller has received the Stream handle.
+        let ready = std::sync::Arc::new(std::sync::Barrier::new(3));
 
+        let ready_worker = ready.clone();
         std::thread::spawn(move || {
             ready_worker.wait();
             if let Err(e) = block_on(stream_clone.play_all()) {
@@ -235,44 +234,48 @@ impl Stream {
             }
         });
 
-        // Spawn a thread to monitor the stream's latency in a loop.
         let cancel_thread = handle.cancel.clone();
         let update_thread = handle.update.clone();
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
-        std::thread::spawn(move || loop {
-            if cancel_thread.load(atomic::Ordering::Relaxed) {
-                break;
-            }
 
-            let timing_info = match block_on(stream_clone.timing_info()) {
-                Ok(timing_info) => timing_info,
-                Err(e) => {
-                    emit_error(&error_callback, Error::from(e));
+        let ready_latency = ready.clone();
+        std::thread::spawn(move || {
+            ready_latency.wait();
+            loop {
+                if cancel_thread.load(atomic::Ordering::Relaxed) {
                     break;
                 }
-            };
 
-            let poll_since_epoch =
-                Instant::now().saturating_duration_since(start).as_micros() as u64;
-            poll_clone.store(poll_since_epoch, atomic::Ordering::Relaxed);
+                let timing_info = match block_on(stream_clone.timing_info()) {
+                    Ok(timing_info) => timing_info,
+                    Err(e) => {
+                        emit_error(&error_callback, Error::from(e));
+                        break;
+                    }
+                };
 
-            store_latency(
-                &latency_clone,
-                sample_spec,
-                timing_info.sink_usec,
-                timing_info.write_offset,
-                timing_info.read_offset,
-            );
+                let poll_since_epoch =
+                    Instant::now().saturating_duration_since(start).as_micros() as u64;
+                poll_clone.store(poll_since_epoch, atomic::Ordering::Relaxed);
 
-            // Wait until woken by a write/play/pause/drop event or until LATENCY_MAX_INTERVAL.
-            let (lock, cvar) = &*update_thread;
-            let Ok(guard) = lock.lock() else { break };
-            let (mut guard, _) = cvar
-                .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
-                .unwrap_or_else(|e| e.into_inner());
-            *guard = false;
+                store_latency(
+                    &latency_clone,
+                    sample_spec,
+                    timing_info.sink_usec,
+                    timing_info.write_offset,
+                    timing_info.read_offset,
+                );
+
+                // Wait until woken by a write/play/pause/drop event or until LATENCY_MAX_INTERVAL.
+                let (lock, cvar) = &*update_thread;
+                let Ok(guard) = lock.lock() else { break };
+                let (mut guard, _) = cvar
+                    .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
+                    .unwrap_or_else(|e| e.into_inner());
+                *guard = false;
+            }
         });
 
         ready.wait();

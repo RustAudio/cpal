@@ -1,8 +1,18 @@
+//! Error delivery helpers for audio callbacks.
+//!
+//! Pick the helper based on what you need:
+//! - Must not block (RT process callback): [`try_emit_error`]
+//! - Caller must not miss the error: [`emit_error`] (blocks until callback available)
+//! - Informational only, OK to drop if callback is busy: [`emit_error_or_warn`]
+//!
+//! Use bare `log::warn!` instead of these helpers when the user callback must not be invoked at
+//! all (e.g., during stream construction before the `Stream` handle has been returned to the
+//! caller). Note that `log::warn!` may allocate, so it is still not safe on an RT thread.
+
 use crate::Error;
 use std::sync::{Mutex, TryLockError};
 
-/// Deliver an error that the app must not miss, blocking if the callback is currently executing on
-/// another thread. Use this for fatal or actionable errors.
+/// Deliver an error, blocking until the callback is available.
 pub(crate) fn emit_error<E>(callback: &Mutex<E>, error: Error)
 where
     E: FnMut(Error) + Send + ?Sized,
@@ -11,13 +21,10 @@ where
     (*cb)(error);
 }
 
-/// Try to deliver an error without blocking the caller.
+/// Try to deliver an error without blocking.
 ///
-/// Returns `Ok(())` if the callback was invoked, or `Err(error)` returning the error if the lock
-/// was contended and the error could not be delivered.
-///
-/// Use this on real-time threads where blocking or heap-allocating (including logging) is not
-/// acceptable.
+/// Returns `Ok(())` if the callback was invoked, or `Err(error)` if the lock was contended and
+/// the error could not be delivered.
 pub(crate) fn try_emit_error<E>(callback: &Mutex<E>, error: Error) -> Result<(), Error>
 where
     E: FnMut(Error) + Send + ?Sized,
@@ -35,13 +42,16 @@ where
     }
 }
 
-/// Best-effort error delivery helper.
-///
-/// Calls [`try_emit_error`]. If the lock is contended and the error cannot be delivered, emits a
-/// warning-level message (when the `log` feature is enabled) and discards the error.
-///
-/// Use this on non-real-time threads for errors where dropping a notification is acceptable but
-/// should be observable.
+/// Try to deliver an error; log and discard it if the callback is busy.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ),
+    feature = "pipewire"
+))]
 pub(crate) fn emit_error_or_warn<E>(callback: &Mutex<E>, error: Error)
 where
     E: FnMut(Error) + Send + ?Sized,

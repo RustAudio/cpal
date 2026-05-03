@@ -91,6 +91,7 @@ pub(crate) mod custom;
 pub(crate) mod null;
 
 /// Shared error-callback type that hands the callback across thread boundaries.
+#[allow(dead_code)]
 pub(crate) type ErrorCallbackArc = std::sync::Arc<std::sync::Mutex<dyn FnMut(crate::Error) + Send>>;
 
 /// Error-delivery helpers shared by backends that hold an `ErrorCallbackArc`.
@@ -164,7 +165,44 @@ pub(crate) mod error_emit;
         )
     ),
 ))]
-pub(crate) use error_emit::{emit_error, emit_error_or_warn, try_emit_error};
+pub(crate) use error_emit::emit_error;
+
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ),
+    feature = "pipewire"
+))]
+pub(crate) use error_emit::emit_error_or_warn;
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "android",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) use error_emit::try_emit_error;
 
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(

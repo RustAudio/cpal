@@ -6,7 +6,7 @@ use std::{
     cmp,
     convert::TryInto,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering},
+        atomic::{AtomicI32, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -27,7 +27,7 @@ extern crate ndk;
 use self::ndk::audio::AudioStream;
 
 #[cfg(feature = "realtime")]
-use crate::host::emit_error_or_warn;
+use crate::host::try_emit_error;
 
 mod convert;
 mod java_interface;
@@ -331,19 +331,25 @@ where
     // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
     // before the Stream handle is returned to the caller.
     #[cfg(feature = "realtime")]
-    let rt_checked = Arc::new(AtomicBool::new(false));
+    let mut rt_checked = false;
     #[cfg(feature = "realtime")]
     let error_callback_for_rt = error_callback.clone();
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             #[cfg(feature = "realtime")]
-            if !rt_checked.swap(true, Ordering::Relaxed) {
+            if !rt_checked {
                 if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
-                    emit_error_or_warn(
+                    if try_emit_error(
                         &error_callback_for_rt,
                         Error::new(ErrorKind::RealtimeDenied),
-                    );
+                    )
+                    .is_ok()
+                    {
+                        rt_checked = true;
+                    }
+                } else {
+                    rt_checked = true;
                 }
             }
 
@@ -406,19 +412,25 @@ where
     // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
     // before the Stream handle is returned to the caller.
     #[cfg(feature = "realtime")]
-    let rt_checked = Arc::new(AtomicBool::new(false));
+    let mut rt_checked = false;
     #[cfg(feature = "realtime")]
     let error_callback_for_rt = error_callback.clone();
 
     let stream = builder
         .data_callback(Box::new(move |stream, data, num_frames| {
             #[cfg(feature = "realtime")]
-            if !rt_checked.swap(true, Ordering::Relaxed) {
+            if !rt_checked {
                 if stream.performance_mode() != ndk::audio::AudioPerformanceMode::LowLatency {
-                    emit_error_or_warn(
+                    if try_emit_error(
                         &error_callback_for_rt,
                         Error::new(ErrorKind::RealtimeDenied),
-                    );
+                    )
+                    .is_ok()
+                    {
+                        rt_checked = true;
+                    }
+                } else {
+                    rt_checked = true;
                 }
             }
 

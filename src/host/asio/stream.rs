@@ -875,14 +875,8 @@ impl Device {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
         let configured_sample_rate = match driver.sample_rate() {
             Ok(r) if r > 0.0 => Some(r),
-            Ok(_) => None,
-            Err(e) => {
-                // Route the failure to the callback immediately. Any future SampleRateChanged
-                // event will be treated as invalidating since we have no baseline to compare
-                // against.
-                error_callback_shared
-                    .lock()
-                    .unwrap_or_else(|g| g.into_inner())(build_stream_err(e));
+            _ => {
+                // Some drivers do not report a sample rate before a stream has started.
                 None
             }
         };

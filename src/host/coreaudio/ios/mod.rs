@@ -20,7 +20,7 @@ use self::enumerate::{
 };
 use super::{asbd_from_config, host_time_to_stream_instant};
 use crate::{
-    host::{emit_error_or_warn, frames_to_duration, ErrorCallbackArc},
+    host::{frames_to_duration, try_emit_error, ErrorCallbackArc},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
@@ -184,7 +184,7 @@ impl DeviceTrait for Device {
             device_buffer_frames,
             data_callback,
             move |e| {
-                emit_error_or_warn(&error_callback, e);
+                let _ = try_emit_error(&error_callback, e);
             },
         )?;
 
@@ -229,7 +229,7 @@ impl DeviceTrait for Device {
             device_buffer_frames,
             data_callback,
             move |e| {
-                emit_error_or_warn(&error_callback, e);
+                let _ = try_emit_error(&error_callback, e);
             },
         )?;
 

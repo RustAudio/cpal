@@ -29,7 +29,7 @@ use pipewire::{
 use crate::{
     host::{
         emit_error, emit_error_or_warn, equilibrium::fill_equilibrium, frames_to_duration,
-        ErrorCallbackArc,
+        try_emit_error, ErrorCallbackArc,
     },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -182,9 +182,6 @@ impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
         }
     }
 }
-
-#[cfg(feature = "realtime")]
-use crate::host::ErrorCallbackArc;
 
 pub struct UserData<D> {
     data_callback: D,
@@ -494,14 +491,10 @@ where
             error_callback.clone(),
             invalidated.clone(),
         )),
-        Err(e) => {
-            emit_error(
-                &error_callback,
-                Error::with_message(
-                    ErrorKind::Other,
-                    format!("PipeWire: could not acquire registry for device monitoring: {e}"),
-                ),
-            );
+        Err(_e) => {
+            // Registry failure just means device-switch monitoring won't work.
+            #[cfg(feature = "log")]
+            log::warn!("PipeWire: could not acquire registry for device monitoring: {_e}");
             None
         }
     });
@@ -565,7 +558,7 @@ where
             // When the format update, we check the format first, in case it does not fit what we
             // set
             match user_data.format.parse(param) {
-                Ok(()) => {
+                Ok(_) => {
                     let current_channels = user_data.format.channels();
                     let current_rate = user_data.format.rate();
                     let expected_fmt =
@@ -615,12 +608,17 @@ where
                 if !user_data.rt_checked {
                     let sched = unsafe { libc::sched_getscheduler(0) };
                     if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                        emit_error_or_warn(
+                        if try_emit_error(
                             &user_data.error_callback,
                             Error::new(ErrorKind::RealtimeDenied),
-                        );
+                        )
+                        .is_ok()
+                        {
+                            user_data.rt_checked = true;
+                        }
+                    } else {
+                        user_data.rt_checked = true;
                     }
-                    user_data.rt_checked = true;
                 }
             }
 
@@ -734,14 +732,10 @@ where
             error_callback.clone(),
             invalidated.clone(),
         )),
-        Err(e) => {
-            emit_error(
-                &error_callback,
-                Error::with_message(
-                    ErrorKind::Other,
-                    format!("PipeWire: could not acquire registry for device monitoring: {e}"),
-                ),
-            );
+        Err(_e) => {
+            // Registry failure just means device-switch monitoring won't work.
+            #[cfg(feature = "log")]
+            log::warn!("PipeWire: could not acquire registry for device monitoring: {_e}");
             None
         }
     });
@@ -808,7 +802,7 @@ where
             // When the format update, we check the format first, in case it does not fit what we
             // set
             match user_data.format.parse(param) {
-                Ok(()) => {
+                Ok(_) => {
                     let current_channels = user_data.format.channels();
                     let current_rate = user_data.format.rate();
                     let expected_fmt =
@@ -858,12 +852,17 @@ where
                 if !user_data.rt_checked {
                     let sched = unsafe { libc::sched_getscheduler(0) };
                     if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                        emit_error_or_warn(
+                        if try_emit_error(
                             &user_data.error_callback,
                             Error::new(ErrorKind::RealtimeDenied),
-                        );
+                        )
+                        .is_ok()
+                        {
+                            user_data.rt_checked = true;
+                        }
+                    } else {
+                        user_data.rt_checked = true;
                     }
-                    user_data.rt_checked = true;
                 }
             }
 

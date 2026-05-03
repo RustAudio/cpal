@@ -24,7 +24,8 @@ realtime = ["dep:audio_thread_priority"]
 
 # D-Bus/rtkit support on top of `realtime` for RT scheduling on Linux/BSD desktop systems
 # Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (no-op on all other platforms)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (D-Bus/rtkit is a no-op elsewhere; thread
+#           priority promotion from `realtime` still applies on Windows and Android)
 realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 
 # ASIO backend for Windows
