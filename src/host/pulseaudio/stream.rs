@@ -10,8 +10,10 @@ use futures::executor::block_on;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
-    host::emit_error, traits::StreamTrait, Data, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
+    host::{emit_error, ErrorCallbackArc},
+    traits::StreamTrait,
+    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
 };
 
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
@@ -213,13 +215,21 @@ impl Stream {
 
         // Share the error callback between the worker and latency threads so
         // both can surface errors to the user.
-        let error_callback = Arc::new(Mutex::new(error_callback));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         // Spawn a thread to drive the stream future. It will exit automatically
         // when the stream is stopped by the user.
         let stream_clone = stream.clone();
         let error_callback_clone = error_callback.clone();
+
+        // The barrier prevents the worker from firing data callbacks before the caller has
+        // received the Stream handle. Without it, callbacks could arrive before the caller can
+        // pause, stop, or drop the stream.
+        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let ready_worker = ready.clone();
+
         std::thread::spawn(move || {
+            ready_worker.wait();
             if let Err(e) = block_on(stream_clone.play_all()) {
                 emit_error(&error_callback_clone, Error::from(e));
             }
@@ -265,6 +275,7 @@ impl Stream {
             *guard = false;
         });
 
+        ready.wait();
         Ok(Self(StreamInner::Playback(stream, start, handle)))
     }
 
