@@ -1,8 +1,10 @@
 use crate::{
-    error::ResultExt, host::com::ComString, BufferSize, Data, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount,
-    InputCallbackInfo, InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
+    error::ResultExt,
+    host::{com::ComString, ErrorCallbackArc},
+    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
+    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 impl From<Audio::EDataFlow> for DeviceDirection {
@@ -138,7 +140,8 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format, timeout)?;
-        let monitor = self.default_device_monitor()?;
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+        let monitor = self.default_device_monitor(error_callback.clone())?;
         Ok(Stream::new_input(
             stream_inner,
             data_callback,
@@ -160,7 +163,8 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
-        let monitor = self.default_device_monitor()?;
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+        let monitor = self.default_device_monitor(error_callback.clone())?;
         Ok(Stream::new_output(
             stream_inner,
             data_callback,
@@ -543,14 +547,17 @@ impl Device {
     }
 
     /// Creates a `DefaultDeviceMonitor` for default-device streams, or `None` for specific devices.
-    fn default_device_monitor(&self) -> Result<Option<DefaultDeviceMonitor>, Error> {
+    fn default_device_monitor(
+        &self,
+        error_callback: ErrorCallbackArc,
+    ) -> Result<Option<DefaultDeviceMonitor>, Error> {
         let flow = match &self.device {
             DeviceHandle::DefaultOutput => Audio::eRender,
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
         };
         let enumerator = get_enumerator().0.clone();
-        DefaultDeviceMonitor::new(enumerator, flow).map(Some)
+        DefaultDeviceMonitor::new(enumerator, flow, error_callback).map(Some)
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
