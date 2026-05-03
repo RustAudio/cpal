@@ -16,6 +16,7 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
+    host::emit_error,
     host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
     host::pipewire::utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
@@ -331,6 +332,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
+                    error_callback,
                 }) = super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
@@ -352,10 +354,26 @@ impl DeviceTrait for Device {
                 let mainloop_rc1 = mainloop.clone();
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        let _ = stream.set_active(state);
+                        if let Err(e) = stream.set_active(state) {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                ),
+                            );
+                        }
                     }
                     StreamCommand::Stop => {
-                        let _ = stream.disconnect();
+                        if let Err(e) = stream.disconnect() {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: disconnect failed: {e}"),
+                                ),
+                            );
+                        }
                         mainloop_rc1.quit();
                     }
                 });
@@ -365,9 +383,7 @@ impl DeviceTrait for Device {
                 drop(core_monitor);
                 drop(context);
             })
-            .map_err(|e| {
-                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
-            })?;
+            .unwrap();
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),
@@ -423,6 +439,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
+                    error_callback,
                 }) = super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,
@@ -445,10 +462,26 @@ impl DeviceTrait for Device {
                 let mainloop_rc1 = mainloop.clone();
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        let _ = stream.set_active(state);
+                        if let Err(e) = stream.set_active(state) {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                ),
+                            );
+                        }
                     }
                     StreamCommand::Stop => {
-                        let _ = stream.disconnect();
+                        if let Err(e) = stream.disconnect() {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: disconnect failed: {e}"),
+                                ),
+                            );
+                        }
                         mainloop_rc1.quit();
                     }
                 });
@@ -458,9 +491,7 @@ impl DeviceTrait for Device {
                 drop(core_monitor);
                 drop(context);
             })
-            .map_err(|e| {
-                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
-            })?;
+            .unwrap();
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => Ok(Stream {
                 handle: Some(handle),

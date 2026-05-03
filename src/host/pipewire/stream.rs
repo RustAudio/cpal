@@ -27,7 +27,10 @@ use pipewire::{
 };
 
 use crate::{
-    host::{emit_error, equilibrium::fill_equilibrium, frames_to_duration, try_emit_error},
+    host::{
+        emit_error, emit_error_or_warn, equilibrium::fill_equilibrium, frames_to_duration,
+        ErrorCallbackArc,
+    },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
@@ -180,11 +183,12 @@ impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
     }
 }
 
-type ErrorCallback = Arc<Mutex<Box<dyn FnMut(Error) + Send + 'static>>>;
+#[cfg(feature = "realtime")]
+use crate::host::ErrorCallbackArc;
 
 pub struct UserData<D> {
     data_callback: D,
-    error_callback: ErrorCallback,
+    error_callback: ErrorCallbackArc,
     sample_format: SampleFormat,
     format: pw::spa::param::audio::AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
@@ -192,6 +196,7 @@ pub struct UserData<D> {
     is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
+    #[cfg(feature = "realtime")]
     rt_checked: bool,
 }
 
@@ -313,6 +318,7 @@ pub struct StreamData<D> {
     pub context: ContextRc,
     pub default_monitor: Option<DefaultDeviceMonitor>,
     pub core_monitor: CoreListener,
+    pub error_callback: ErrorCallbackArc,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -365,7 +371,7 @@ impl DefaultDeviceMonitor {
     fn new(
         registry: RegistryRc,
         key: &'static str,
-        error_callback: ErrorCallback,
+        error_callback: ErrorCallbackArc,
         invalidated: Arc<AtomicBool>,
     ) -> Self {
         let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
@@ -387,7 +393,16 @@ impl DefaultDeviceMonitor {
                 }
                 let metadata: Metadata = match registry_ref.bind(global) {
                     Ok(m) => m,
-                    Err(_) => return,
+                    Err(e) => {
+                        emit_error_or_warn(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::Other,
+                                format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
+                            ),
+                        );
+                        return;
+                    }
                 };
                 let error_callback_cb = error_callback.clone();
                 let invalidated_cb = invalidated.clone();
@@ -401,7 +416,7 @@ impl DefaultDeviceMonitor {
                             if let Some(old) = prev {
                                 if old.as_deref() != value {
                                     if value.is_some() {
-                                        try_emit_error(
+                                        emit_error_or_warn(
                                             &error_callback_cb,
                                             Error::with_message(
                                                 ErrorKind::DeviceChanged,
@@ -469,13 +484,26 @@ where
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
 
-    let error_callback: ErrorCallback = Arc::new(Mutex::new(Box::new(error_callback)));
+    let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
 
-    let default_monitor = default_metadata_key.and_then(|key| {
-        core.get_registry_rc().ok().map(|registry| {
-            DefaultDeviceMonitor::new(registry, key, error_callback.clone(), invalidated.clone())
-        })
+    let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
+        Ok(registry) => Some(DefaultDeviceMonitor::new(
+            registry,
+            key,
+            error_callback.clone(),
+            invalidated.clone(),
+        )),
+        Err(e) => {
+            emit_error(
+                &error_callback,
+                Error::with_message(
+                    ErrorKind::Other,
+                    format!("PipeWire: could not acquire registry for device monitoring: {e}"),
+                ),
+            );
+            None
+        }
     });
     let is_default = default_monitor.is_some();
 
@@ -497,6 +525,7 @@ where
             .register()
     };
 
+    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -507,6 +536,7 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        #[cfg(feature = "realtime")]
         rt_checked: false,
     };
     let channels = config.channels as _;
@@ -534,29 +564,42 @@ where
             // call a helper function to parse the format for us.
             // When the format update, we check the format first, in case it does not fit what we
             // set
-            if user_data.format.parse(param).is_ok() {
-                let current_channels = user_data.format.channels();
-                let current_rate = user_data.format.rate();
-                let expected_fmt =
-                    pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
-                let current_fmt = user_data.format.format();
-                let mismatch = current_channels != channels
-                    || current_rate != rate
-                    || current_fmt != expected_fmt;
-                if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
-                    emit_error(
-                        &user_data.error_callback,
-                        Error::with_message(
-                            ErrorKind::UnsupportedConfig,
-                            format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
-                        ),
-                    );
-                    if let Err(e) = stream.set_active(false) {
+            match user_data.format.parse(param) {
+                Ok(()) => {
+                    let current_channels = user_data.format.channels();
+                    let current_rate = user_data.format.rate();
+                    let expected_fmt =
+                        pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                    let current_fmt = user_data.format.format();
+                    let mismatch = current_channels != channels
+                        || current_rate != rate
+                        || current_fmt != expected_fmt;
+                    if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::UnsupportedConfig,
+                                format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("failed to stop the stream, reason: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    if !user_data.invalidated.swap(true, Ordering::Relaxed) {
                         emit_error(
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("failed to stop the stream, reason: {e}"),
+                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
                             ),
                         );
                     }
@@ -568,14 +611,16 @@ where
         })
         .process(|stream, user_data| {
             #[cfg(feature = "realtime")]
-            if !user_data.rt_checked {
-                user_data.rt_checked = true;
-                let sched = unsafe { libc::sched_getscheduler(0) };
-                if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                    try_emit_error(
-                        &user_data.error_callback,
-                        Error::new(ErrorKind::RealtimeDenied),
-                    );
+            {
+                if !user_data.rt_checked {
+                    let sched = unsafe { libc::sched_getscheduler(0) };
+                    if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
+                        emit_error_or_warn(
+                            &user_data.error_callback,
+                            Error::new(ErrorKind::RealtimeDenied),
+                        );
+                    }
+                    user_data.rt_checked = true;
                 }
             }
 
@@ -653,6 +698,7 @@ where
         context,
         default_monitor,
         core_monitor,
+        error_callback: error_callback_out,
     })
 }
 
@@ -678,13 +724,26 @@ where
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
 
-    let error_callback: ErrorCallback = Arc::new(Mutex::new(Box::new(error_callback)));
+    let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
 
-    let default_monitor = default_metadata_key.and_then(|key| {
-        core.get_registry_rc().ok().map(|registry| {
-            DefaultDeviceMonitor::new(registry, key, error_callback.clone(), invalidated.clone())
-        })
+    let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
+        Ok(registry) => Some(DefaultDeviceMonitor::new(
+            registry,
+            key,
+            error_callback.clone(),
+            invalidated.clone(),
+        )),
+        Err(e) => {
+            emit_error(
+                &error_callback,
+                Error::with_message(
+                    ErrorKind::Other,
+                    format!("PipeWire: could not acquire registry for device monitoring: {e}"),
+                ),
+            );
+            None
+        }
     });
     let is_default = default_monitor.is_some();
 
@@ -706,6 +765,7 @@ where
             .register()
     };
 
+    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -716,6 +776,7 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        #[cfg(feature = "realtime")]
         rt_checked: false,
     };
 
@@ -746,29 +807,42 @@ where
             // call a helper function to parse the format for us.
             // When the format update, we check the format first, in case it does not fit what we
             // set
-            if user_data.format.parse(param).is_ok() {
-                let current_channels = user_data.format.channels();
-                let current_rate = user_data.format.rate();
-                let expected_fmt =
-                    pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
-                let current_fmt = user_data.format.format();
-                let mismatch = current_channels != channels
-                    || current_rate != rate
-                    || current_fmt != expected_fmt;
-                if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
-                    emit_error(
-                        &user_data.error_callback,
-                        Error::with_message(
-                            ErrorKind::UnsupportedConfig,
-                            format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
-                        ),
-                    );
-                    if let Err(e) = stream.set_active(false) {
+            match user_data.format.parse(param) {
+                Ok(()) => {
+                    let current_channels = user_data.format.channels();
+                    let current_rate = user_data.format.rate();
+                    let expected_fmt =
+                        pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                    let current_fmt = user_data.format.format();
+                    let mismatch = current_channels != channels
+                        || current_rate != rate
+                        || current_fmt != expected_fmt;
+                    if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::UnsupportedConfig,
+                                format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("failed to stop the stream, reason: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    if !user_data.invalidated.swap(true, Ordering::Relaxed) {
                         emit_error(
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("failed to stop the stream, reason: {e}"),
+                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
                             ),
                         );
                     }
@@ -780,14 +854,16 @@ where
         })
         .process(|stream, user_data| {
             #[cfg(feature = "realtime")]
-            if !user_data.rt_checked {
-                user_data.rt_checked = true;
-                let sched = unsafe { libc::sched_getscheduler(0) };
-                if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                    try_emit_error(
-                        &user_data.error_callback,
-                        Error::new(ErrorKind::RealtimeDenied),
-                    );
+            {
+                if !user_data.rt_checked {
+                    let sched = unsafe { libc::sched_getscheduler(0) };
+                    if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
+                        emit_error_or_warn(
+                            &user_data.error_callback,
+                            Error::new(ErrorKind::RealtimeDenied),
+                        );
+                    }
+                    user_data.rt_checked = true;
                 }
             }
 
@@ -847,5 +923,6 @@ where
         context,
         default_monitor,
         core_monitor,
+        error_callback: error_callback_out,
     })
 }
