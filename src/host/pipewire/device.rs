@@ -331,7 +331,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
-                    error_callback,
+                    ..
                 }) = super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
@@ -433,7 +433,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
-                    error_callback,
+                    ..
                 }) = super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,

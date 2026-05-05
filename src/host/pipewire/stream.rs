@@ -390,14 +390,12 @@ impl DefaultDeviceMonitor {
                 }
                 let metadata: Metadata = match registry_ref.bind(global) {
                     Ok(m) => m,
-                    Err(e) => {
-                        emit_error_or_warn(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::Other,
-                                format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
-                            ),
-                        );
+                    Err(_e) => {
+                        // Cannot call error_callback here: this runs on the PipeWire mainloop
+                        // thread, and Stream::drop joins that thread, so a callback-triggered
+                        // drop would deadlock.
+                        #[cfg(feature = "log")]
+                        log::warn!("cpal: PipeWire: failed to bind metadata object; device change notifications may be incomplete: {_e}");
                         return;
                     }
                 };
@@ -595,6 +593,15 @@ where
                                 format!("PipeWire: failed to parse negotiated audio format: {e}"),
                             ),
                         );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("failed to stop the stream, reason: {e}"),
+                                ),
+                            );
+                        }
                     }
                 }
             }
@@ -839,6 +846,15 @@ where
                                 format!("PipeWire: failed to parse negotiated audio format: {e}"),
                             ),
                         );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("failed to stop the stream, reason: {e}"),
+                                ),
+                            );
+                        }
                     }
                 }
             }
