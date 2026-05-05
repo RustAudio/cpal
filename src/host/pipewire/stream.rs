@@ -315,7 +315,6 @@ pub struct StreamData<D> {
     pub context: ContextRc,
     pub default_monitor: Option<DefaultDeviceMonitor>,
     pub core_monitor: CoreListener,
-    pub error_callback: ErrorCallbackArc,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -516,7 +515,6 @@ where
             .register()
     };
 
-    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -703,7 +701,6 @@ where
         context,
         default_monitor,
         core_monitor,
-        error_callback: error_callback_out,
     })
 }
 
@@ -766,7 +763,6 @@ where
             .register()
     };
 
-    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -938,6 +934,5 @@ where
         context,
         default_monitor,
         core_monitor,
-        error_callback: error_callback_out,
     })
 }
