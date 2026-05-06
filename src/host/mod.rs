@@ -167,17 +167,6 @@ pub(crate) mod error_emit;
 ))]
 pub(crate) use error_emit::emit_error;
 
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-    ),
-    feature = "pipewire"
-))]
-pub(crate) use error_emit::emit_error_or_warn;
-
 #[cfg(any(
     target_vendor = "apple",
     target_os = "android",

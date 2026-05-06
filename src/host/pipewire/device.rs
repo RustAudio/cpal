@@ -16,8 +16,11 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
-    host::pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
     host::pipewire::utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
+    host::{
+        emit_error,
+        pipewire::stream::{PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS},
+    },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::DeviceTrait,
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -331,7 +334,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
-                    ..
+                    error_callback,
                 }) = super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
@@ -352,19 +355,27 @@ impl DeviceTrait for Device {
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 
-                // Do not call error_callback from this thread: if the user drops the Stream in
-                // response, Stream::drop joins this thread, causing a deadlock.
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        if let Err(_e) = stream.set_active(state) {
-                            #[cfg(feature = "log")]
-                            log::warn!("cpal: PipeWire: set_active({state}) failed: {_e}");
+                        if let Err(e) = stream.set_active(state) {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                ),
+                            );
                         }
                     }
                     StreamCommand::Stop => {
-                        if let Err(_e) = stream.disconnect() {
-                            #[cfg(feature = "log")]
-                            log::warn!("cpal: PipeWire: disconnect failed: {_e}");
+                        if let Err(e) = stream.disconnect() {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                ),
+                            );
                         }
                         mainloop_rc1.quit();
                     }
@@ -433,7 +444,7 @@ impl DeviceTrait for Device {
                     context,
                     default_monitor,
                     core_monitor,
-                    ..
+                    error_callback,
                 }) = super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,
@@ -455,19 +466,27 @@ impl DeviceTrait for Device {
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 
-                // Do not call error_callback from this thread: if the user drops the Stream in
-                // response, Stream::drop joins this thread, causing a deadlock.
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
-                        if let Err(_e) = stream.set_active(state) {
-                            #[cfg(feature = "log")]
-                            log::warn!("cpal: PipeWire: set_active({state}) failed: {_e}");
+                        if let Err(e) = stream.set_active(state) {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                ),
+                            );
                         }
                     }
                     StreamCommand::Stop => {
-                        if let Err(_e) = stream.disconnect() {
-                            #[cfg(feature = "log")]
-                            log::warn!("cpal: PipeWire: disconnect failed: {_e}");
+                        if let Err(e) = stream.disconnect() {
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                ),
+                            );
                         }
                         mainloop_rc1.quit();
                     }

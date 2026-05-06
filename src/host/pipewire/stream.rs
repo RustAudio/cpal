@@ -28,8 +28,8 @@ use pipewire::{
 
 use crate::{
     host::{
-        emit_error, emit_error_or_warn, equilibrium::fill_equilibrium, frames_to_duration,
-        try_emit_error, ErrorCallbackArc,
+        emit_error, equilibrium::fill_equilibrium, frames_to_duration, try_emit_error,
+        ErrorCallbackArc,
     },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -84,7 +84,13 @@ pub struct Stream {
 impl Drop for Stream {
     fn drop(&mut self) {
         let _ = self.controller.send(StreamCommand::Stop);
-        let _ = self.handle.take().map(|handle| handle.join());
+        if let Some(handle) = self.handle.take() {
+            // Prevent self-join: Stop was sent; the handle detaches and the thread exits after
+            // the current callback returns.
+            if handle.thread().id() != std::thread::current().id() {
+                let _ = handle.join();
+            }
+        }
     }
 }
 
@@ -193,6 +199,7 @@ pub struct UserData<D> {
     is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
+    pending_device_changed: Arc<AtomicBool>,
     #[cfg(feature = "realtime")]
     rt_checked: bool,
 }
@@ -315,6 +322,7 @@ pub struct StreamData<D> {
     pub context: ContextRc,
     pub default_monitor: Option<DefaultDeviceMonitor>,
     pub core_monitor: CoreListener,
+    pub error_callback: ErrorCallbackArc,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -369,6 +377,7 @@ impl DefaultDeviceMonitor {
         key: &'static str,
         error_callback: ErrorCallbackArc,
         invalidated: Arc<AtomicBool>,
+        pending_device_changed: Arc<AtomicBool>,
     ) -> Self {
         let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
         let meta_objects_ref = meta_objects.clone();
@@ -389,17 +398,20 @@ impl DefaultDeviceMonitor {
                 }
                 let metadata: Metadata = match registry_ref.bind(global) {
                     Ok(m) => m,
-                    Err(_e) => {
-                        // Cannot call error_callback here: this runs on the PipeWire mainloop
-                        // thread, and Stream::drop joins that thread, so a callback-triggered
-                        // drop would deadlock.
-                        #[cfg(feature = "log")]
-                        log::warn!("cpal: PipeWire: failed to bind metadata object; device change notifications may be incomplete: {_e}");
+                    Err(e) => {
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::Other,
+                                format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
+                            ),
+                        );
                         return;
                     }
                 };
                 let error_callback_cb = error_callback.clone();
                 let invalidated_cb = invalidated.clone();
+                let pending_device_changed_cb = pending_device_changed.clone();
 
                 let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
                 let listener = metadata
@@ -410,13 +422,18 @@ impl DefaultDeviceMonitor {
                             if let Some(old) = prev {
                                 if old.as_deref() != value {
                                     if value.is_some() {
-                                        emit_error_or_warn(
+                                        if try_emit_error(
                                             &error_callback_cb,
                                             Error::with_message(
                                                 ErrorKind::DeviceChanged,
                                                 "default device changed",
                                             ),
-                                        );
+                                        )
+                                        .is_err()
+                                        {
+                                            pending_device_changed_cb
+                                                .store(true, Ordering::Relaxed);
+                                        }
                                     } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
                                         emit_error(
                                             &error_callback_cb,
@@ -481,17 +498,23 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
 
+    let pending_device_changed = Arc::new(AtomicBool::new(false));
     let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
         Ok(registry) => Some(DefaultDeviceMonitor::new(
             registry,
             key,
             error_callback.clone(),
             invalidated.clone(),
+            pending_device_changed.clone(),
         )),
-        Err(_e) => {
-            // Registry failure just means device-switch monitoring won't work.
-            #[cfg(feature = "log")]
-            log::warn!("PipeWire: could not acquire registry for device monitoring: {_e}");
+        Err(e) => {
+            emit_error(
+                &error_callback,
+                Error::with_message(
+                    ErrorKind::Other,
+                    format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
+                ),
+            );
             None
         }
     });
@@ -515,6 +538,7 @@ where
             .register()
     };
 
+    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -525,12 +549,14 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        pending_device_changed,
         #[cfg(feature = "realtime")]
         rt_checked: false,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
     let stream = pw::stream::StreamRc::new(core, "cpal-playback", properties)?;
+
     let listener = stream
         .add_local_listener_with_user_data(data)
         .param_changed(move |stream, user_data, id, param| {
@@ -576,7 +602,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("failed to stop the stream, reason: {e}"),
+                                    format!("PipeWire: failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -596,7 +622,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("failed to stop the stream, reason: {e}"),
+                                    format!("PipeWire: failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -624,6 +650,17 @@ where
                     } else {
                         user_data.rt_checked = true;
                     }
+                }
+            }
+
+            if user_data.pending_device_changed.load(Ordering::Relaxed) {
+                if try_emit_error(
+                    &user_data.error_callback,
+                    Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
+                )
+                .is_ok()
+                {
+                    user_data.pending_device_changed.store(false, Ordering::Relaxed);
                 }
             }
 
@@ -701,6 +738,7 @@ where
         context,
         default_monitor,
         core_monitor,
+        error_callback: error_callback_out,
     })
 }
 
@@ -729,17 +767,23 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
 
+    let pending_device_changed = Arc::new(AtomicBool::new(false));
     let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
         Ok(registry) => Some(DefaultDeviceMonitor::new(
             registry,
             key,
             error_callback.clone(),
             invalidated.clone(),
+            pending_device_changed.clone(),
         )),
-        Err(_e) => {
-            // Registry failure just means device-switch monitoring won't work.
-            #[cfg(feature = "log")]
-            log::warn!("PipeWire: could not acquire registry for device monitoring: {_e}");
+        Err(e) => {
+            emit_error(
+                &error_callback,
+                Error::with_message(
+                    ErrorKind::Other,
+                    format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
+                ),
+            );
             None
         }
     });
@@ -763,6 +807,7 @@ where
             .register()
     };
 
+    let error_callback_out = error_callback.clone();
     let data = UserData {
         data_callback,
         error_callback,
@@ -773,13 +818,13 @@ where
         invalidated,
         is_default_device: is_default,
         has_connected: false,
+        pending_device_changed,
         #[cfg(feature = "realtime")]
         rt_checked: false,
     };
 
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-
     let stream = pw::stream::StreamRc::new(core, "cpal-capture", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
@@ -827,7 +872,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("failed to stop the stream, reason: {e}"),
+                                    format!("PipeWire: failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -847,7 +892,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("failed to stop the stream, reason: {e}"),
+                                    format!("PipeWire: failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -875,6 +920,17 @@ where
                     } else {
                         user_data.rt_checked = true;
                     }
+                }
+            }
+
+            if user_data.pending_device_changed.load(Ordering::Relaxed) {
+                if try_emit_error(
+                    &user_data.error_callback,
+                    Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
+                )
+                .is_ok()
+                {
+                    user_data.pending_device_changed.store(false, Ordering::Relaxed);
                 }
             }
 
@@ -934,5 +990,6 @@ where
         context,
         default_monitor,
         core_monitor,
+        error_callback: error_callback_out,
     })
 }

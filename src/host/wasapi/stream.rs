@@ -2,7 +2,11 @@ use std::{
     mem,
     ops::ControlFlow,
     ptr,
-    sync::mpsc::{channel, Receiver, SendError, Sender},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{channel, Receiver, SendError, Sender},
+        Arc,
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -38,6 +42,7 @@ pub(crate) struct DefaultDeviceMonitor {
     enumerator: Audio::IMMDeviceEnumerator,
     client: Audio::IMMNotificationClient,
     event: Foundation::HANDLE,
+    pub(crate) pending_device_changed: Arc<AtomicBool>,
 }
 
 // SAFETY: `IMMDeviceEnumerator` and `IMMNotificationClient` are COM objects used only for
@@ -54,8 +59,13 @@ impl DefaultDeviceMonitor {
         let event =
             unsafe { Threading::CreateEventW(None, false, false, None).map_err(Error::from)? };
 
-        let client: Audio::IMMNotificationClient =
-            DefaultDeviceNotificationImpl { flow, event }.into();
+        let pending_device_changed = Arc::new(AtomicBool::new(false));
+        let client: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
+            flow,
+            event,
+            pending_device_changed: pending_device_changed.clone(),
+        }
+        .into();
 
         unsafe {
             enumerator
@@ -67,6 +77,7 @@ impl DefaultDeviceMonitor {
             enumerator,
             client,
             event,
+            pending_device_changed,
         })
     }
 }
@@ -78,9 +89,10 @@ impl Drop for DefaultDeviceMonitor {
         crate::host::com::com_initialized();
         unsafe {
             // Synchronous: waits for any in-progress IMMNotificationClient callback to finish
-            // before returning. This means that notification callbacks must not invoke the user
-            // error callback even via try_emit_error: if the user callback dropped the Stream,
-            // drop() would deadlock here waiting for itself.
+            // before returning. Notification callbacks must not invoke the user error callback:
+            // if the user dropped the Stream in response, this call would deadlock waiting for
+            // the in-progress callback. Instead, callbacks set `pending_device_changed` and
+            // the audio thread delivers the error on its next iteration.
             //
             // Only close the event handle on success; if unregister fails the callback may
             // still hold a reference and could later call SetEvent on a closed/reused handle.
@@ -99,6 +111,7 @@ impl Drop for DefaultDeviceMonitor {
 struct DefaultDeviceNotificationImpl {
     flow: Audio::EDataFlow,
     event: Foundation::HANDLE,
+    pending_device_changed: Arc<AtomicBool>,
 }
 
 impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
@@ -112,10 +125,8 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
             // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor, which
             // outlives all uses of this HANDLE copy.
             unsafe {
-                // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
-                if let Err(_e) = Threading::SetEvent(self.event) {
-                    #[cfg(feature = "log")]
-                    log::warn!("cpal: SetEvent failed in OnDefaultDeviceChanged: {_e}");
+                if Threading::SetEvent(self.event).is_err() {
+                    self.pending_device_changed.store(true, Ordering::Relaxed);
                 }
             }
         }
@@ -139,11 +150,9 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
             || dwnewstate == Audio::DEVICE_STATE_UNPLUGGED;
         if is_unavailable && get_current_default(self.flow).is_none() {
             // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
-            // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
             unsafe {
-                if let Err(_e) = Threading::SetEvent(self.event) {
-                    #[cfg(feature = "log")]
-                    log::warn!("cpal: SetEvent failed in OnDeviceStateChanged: {_e}");
+                if Threading::SetEvent(self.event).is_err() {
+                    self.pending_device_changed.store(true, Ordering::Relaxed);
                 }
             }
         }
@@ -159,11 +168,9 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         // will fire instead, avoiding a double wakeup.
         if get_current_default(self.flow).is_none() {
             // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
-            // Can't call the error callback from here; see DefaultDeviceMonitor::drop.
             unsafe {
-                if let Err(_e) = Threading::SetEvent(self.event) {
-                    #[cfg(feature = "log")]
-                    log::warn!("cpal: SetEvent failed in OnDeviceRemoved: {_e}");
+                if Threading::SetEvent(self.event).is_err() {
+                    self.pending_device_changed.store(true, Ordering::Relaxed);
                 }
             }
         }
@@ -237,6 +244,10 @@ struct RunContext {
     handles: Vec<Foundation::HANDLE>,
 
     commands: Receiver<Command>,
+
+    // Set by a device-change notification callback when SetEvent fails. The audio loop delivers
+    // DeviceChanged on its next iteration.
+    pending_device_changed: Option<Arc<AtomicBool>>,
 }
 
 // Once we start running the eventloop, the RunContext will not be moved.
@@ -308,10 +319,14 @@ impl Stream {
             handles.push(monitor.event);
         }
 
+        let pending_device_changed = default_device_monitor
+            .as_ref()
+            .map(|m| m.pending_device_changed.clone());
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
+            pending_device_changed,
         };
 
         // The barrier prevents the worker from firing data callbacks before the caller has
@@ -376,10 +391,14 @@ impl Stream {
             handles.push(monitor.event);
         }
 
+        let pending_device_changed = default_device_monitor
+            .as_ref()
+            .map(|m| m.pending_device_changed.clone());
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
+            pending_device_changed,
         };
 
         // The barrier prevents the worker from firing data callbacks before the caller has
@@ -427,12 +446,17 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        if self.push_command(Command::Terminate).is_ok() {
-            if let Some(handle) = self.thread.take() {
+        let _ = self.push_command(Command::Terminate);
+        if let Some(handle) = self.thread.take() {
+            // Prevent self-join: Terminate was sent; the thread exits after the current callback
+            // returns. The event handle is not closed here because the thread still holds it.
+            if handle.thread().id() != std::thread::current().id() {
                 let _ = handle.join();
-            }
-            unsafe {
-                let _ = Foundation::CloseHandle(self.pending_scheduled_event);
+                // Close only after the thread exits: the thread holds a borrowed copy of
+                // this handle in its WaitForMultipleObjects array.
+                unsafe {
+                    let _ = Foundation::CloseHandle(self.pending_scheduled_event);
+                }
             }
         }
     }
@@ -664,6 +688,15 @@ fn process_commands_and_await_signal(
             return ControlFlow::Break(());
         }
     };
+
+    if let Some(ref flag) = run_context.pending_device_changed {
+        if flag.swap(false, Ordering::Relaxed) {
+            emit_error(
+                error_callback,
+                Error::with_message(ErrorKind::DeviceChanged, "default audio device changed"),
+            );
+        }
+    }
 
     // Wait for any of the handles to be signalled.
     let handle_idx = match wait_for_handle_signal(&run_context.handles) {

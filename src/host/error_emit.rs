@@ -3,11 +3,6 @@
 //! Pick the helper based on what you need:
 //! - Must not block (RT process callback): [`try_emit_error`]
 //! - Caller must not miss the error: [`emit_error`] (blocks until callback available)
-//! - Informational only, OK to drop if callback is busy: [`emit_error_or_warn`]
-//!
-//! Use bare `log::warn!` instead of these helpers when the user callback must not be invoked at
-//! all (e.g., during stream construction before the `Stream` handle has been returned to the
-//! caller). Note that `log::warn!` may allocate, so it is still not safe on an RT thread.
 
 use crate::Error;
 use std::sync::{Mutex, TryLockError};
@@ -39,25 +34,5 @@ where
             Ok(())
         }
         Err(TryLockError::WouldBlock) => Err(error),
-    }
-}
-
-/// Try to deliver an error; log and discard it if the callback is busy.
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-    ),
-    feature = "pipewire"
-))]
-pub(crate) fn emit_error_or_warn<E>(callback: &Mutex<E>, error: Error)
-where
-    E: FnMut(Error) + Send + ?Sized,
-{
-    if let Err(_e) = try_emit_error(callback, error) {
-        #[cfg(feature = "log")]
-        log::warn!("cpal: {} (error callback busy; notification dropped)", _e);
     }
 }

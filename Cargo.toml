@@ -10,11 +10,7 @@ edition = "2021"
 rust-version = "1.78"
 
 [features]
-default = ["log", "realtime-dbus"]
-
-# Fallback sink for non-fatal, informational diagnostics that cannot go through the error callback
-# Without this feature, such notifications are silently discarded
-log = ["dep:log"]
+default = ["realtime-dbus"]
 
 # Real-time audio thread scheduling
 # Promotes audio callback threads to real-time or high-priority scheduling for lower latency
@@ -84,7 +80,6 @@ wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 
 [dependencies]
 dasp_sample = "0.11"
-log = { version = "0.4", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
