@@ -354,11 +354,6 @@ impl Stream {
                 run_input(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
-                // SAFETY: pending_scheduled_event is valid and solely owned here; Stream::drop
-                // will never run because we are returning Err before constructing Stream.
-                unsafe {
-                    let _ = Foundation::CloseHandle(pending_scheduled_event);
-                }
                 Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
             })?;
 
@@ -427,11 +422,6 @@ impl Stream {
                 run_output(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
-                // SAFETY: pending_scheduled_event is valid and solely owned here; Stream::drop
-                // will never run because we are returning Err before constructing Stream.
-                unsafe {
-                    let _ = Foundation::CloseHandle(pending_scheduled_event);
-                }
                 Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
             })?;
 
