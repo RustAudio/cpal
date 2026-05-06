@@ -653,15 +653,14 @@ where
                 }
             }
 
-            if user_data.pending_device_changed.load(Ordering::Relaxed) {
-                if try_emit_error(
+            if user_data.pending_device_changed.load(Ordering::Relaxed)
+                && try_emit_error(
                     &user_data.error_callback,
                     Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
                 )
                 .is_ok()
-                {
-                    user_data.pending_device_changed.store(false, Ordering::Relaxed);
-                }
+            {
+                user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
 
             let n_channels = user_data.format.channels();
@@ -923,15 +922,14 @@ where
                 }
             }
 
-            if user_data.pending_device_changed.load(Ordering::Relaxed) {
-                if try_emit_error(
+            if user_data.pending_device_changed.load(Ordering::Relaxed)
+                && try_emit_error(
                     &user_data.error_callback,
                     Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
                 )
                 .is_ok()
-                {
-                    user_data.pending_device_changed.store(false, Ordering::Relaxed);
-                }
+            {
+                user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
 
             let n_channels = user_data.format.channels();

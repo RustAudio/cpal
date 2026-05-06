@@ -223,7 +223,7 @@ On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbu
 cpal = { version = "0.18", default-features = false, features = ["realtime"] }
 ```
 
-For both features, promotion failures are non-fatal: the stream still starts and an 
+For both features, promotion failures are non-fatal: the stream still starts and an
 `ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
 
 **Impact:** In most cases no action is needed. If your `Cargo.toml` names `audio_thread_priority`

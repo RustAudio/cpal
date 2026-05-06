@@ -248,6 +248,17 @@ struct RunContext {
     // Set by a device-change notification callback when SetEvent fails. The audio loop delivers
     // DeviceChanged on its next iteration.
     pending_device_changed: Option<Arc<AtomicBool>>,
+
+    // Owned here so the worker thread closes it on exit in a self-join case.
+    pending_scheduled_event: Foundation::HANDLE,
+}
+
+impl Drop for RunContext {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Foundation::CloseHandle(self.pending_scheduled_event);
+        }
+    }
 }
 
 // Once we start running the eventloop, the RunContext will not be moved.
@@ -327,6 +338,7 @@ impl Stream {
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            pending_scheduled_event,
         };
 
         // The barrier prevents the worker from firing data callbacks before the caller has
@@ -399,6 +411,7 @@ impl Stream {
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            pending_scheduled_event,
         };
 
         // The barrier prevents the worker from firing data callbacks before the caller has
@@ -449,14 +462,11 @@ impl Drop for Stream {
         let _ = self.push_command(Command::Terminate);
         if let Some(handle) = self.thread.take() {
             // Prevent self-join: Terminate was sent; the thread exits after the current callback
-            // returns. The event handle is not closed here because the thread still holds it.
+            // returns. pending_scheduled_event is closed by RunContext::drop on the worker thread,
+            // covering both the self-join case (where we cannot join here) and the normal case
+            // (where the thread exits and drops RunContext before join() returns).
             if handle.thread().id() != std::thread::current().id() {
                 let _ = handle.join();
-                // Close only after the thread exits: the thread holds a borrowed copy of
-                // this handle in its WaitForMultipleObjects array.
-                unsafe {
-                    let _ = Foundation::CloseHandle(self.pending_scheduled_event);
-                }
             }
         }
     }
