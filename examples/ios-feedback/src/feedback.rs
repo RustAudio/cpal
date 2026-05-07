@@ -12,7 +12,7 @@ extern crate ringbuf;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Error, InputCallbackInfo, OutputCallbackInfo, StreamConfig,
+    Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, StreamConfig,
 };
 use ringbuf::{
     traits::{Consumer, Producer, Split},
@@ -101,5 +101,8 @@ pub fn run_example() -> Result<(), anyhow::Error> {
 }
 
 fn err_fn(err: Error) {
-    eprintln!("an error occurred on stream: {err}");
+    match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => eprintln!("{err}"),
+        _ => eprintln!("Stream error: {err}"),
+    }
 }

@@ -318,7 +318,12 @@ pub fn make_stream(device: &Device, config: StreamConfig) -> Result<Stream, anyh
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };
-    let err_fn = |err| eprintln!("Error building output sound stream: {err}");
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
+    };
 
     let time_at_start = std::time::Instant::now();
     println!("Time at start: {time_at_start:?}");

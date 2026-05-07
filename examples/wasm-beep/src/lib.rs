@@ -2,7 +2,7 @@ use std::{cell::Cell, rc::Rc};
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
+    Device, Error, ErrorKind, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
 };
 use wasm_bindgen::prelude::*;
 use web_sys::console;
@@ -76,7 +76,12 @@ where
         (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
-    let err_fn = |err| console::error_1(&format!("an error occurred on stream: {err}").into());
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            console::log_1(&format!("{err}").into())
+        }
+        _ => console::error_1(&format!("Stream error: {err}").into()),
+    };
 
     let stream = device
         .build_output_stream(

@@ -172,5 +172,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn err_fn(err: Error) {
-    eprintln!("an error occurred on stream: {err}");
+    match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
+    }
 }
