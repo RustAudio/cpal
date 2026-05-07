@@ -241,6 +241,7 @@ impl Stream {
         // when the stream is stopped by the user.
         let stream_clone = stream.clone();
         let error_callback_clone = error_callback.clone();
+        let cancel_driver = handle.cancel.clone();
 
         // The barrier prevents the worker and latency threads from firing callbacks before the
         // caller has received the Stream handle.
@@ -250,7 +251,12 @@ impl Stream {
         let driver_handle = std::thread::spawn(move || {
             ready_worker.wait();
             if let Err(e) = block_on(stream_clone.play_all()) {
-                emit_error(&error_callback_clone, Error::from(e));
+                // A server playback error is expected when the client
+                // closes their stream. No need to report it back to
+                // the client.
+                if !cancel_driver.load(atomic::Ordering::Relaxed) {
+                    emit_error(&error_callback_clone, Error::from(e));
+                }
             }
         });
 
