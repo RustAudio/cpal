@@ -12,7 +12,7 @@ use std::{
 use pipewire::{
     self as pw,
     context::ContextRc,
-    core::Listener as CoreListener,
+    core::{CoreRc, Listener as CoreListener},
     main_loop::MainLoopRc,
     metadata::{Metadata, MetadataListener},
     registry::{Listener as RegistryListener, RegistryRc},
@@ -320,9 +320,11 @@ pub struct StreamData<D> {
     pub listener: StreamListener<UserData<D>>,
     pub stream: StreamRc,
     pub context: ContextRc,
-    pub default_monitor: Option<DefaultDeviceMonitor>,
+    pub core: CoreRc,
     pub core_monitor: CoreListener,
     pub error_callback: ErrorCallbackArc,
+    pub pending_device_changed: Arc<AtomicBool>,
+    pub invalidated: Arc<AtomicBool>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -372,7 +374,7 @@ pub struct DefaultDeviceMonitor {
 impl DefaultDeviceMonitor {
     /// Subscribe to the `"default"` metadata object and fire `error_callback` with
     /// [`ErrorKind::DeviceChanged`] whenever its key changes.
-    fn new(
+    pub(super) fn new(
         registry: RegistryRc,
         key: &'static str,
         error_callback: ErrorCallbackArc,
@@ -499,26 +501,7 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
-        Ok(registry) => Some(DefaultDeviceMonitor::new(
-            registry,
-            key,
-            error_callback.clone(),
-            invalidated.clone(),
-            pending_device_changed.clone(),
-        )),
-        Err(e) => {
-            emit_error(
-                &error_callback,
-                Error::with_message(
-                    ErrorKind::Other,
-                    format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
-                ),
-            );
-            None
-        }
-    });
-    let is_default = default_monitor.is_some();
+    let is_default = default_metadata_key.is_some();
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -546,10 +529,10 @@ where
         format: Default::default(),
         last_quantum,
         start,
-        invalidated,
+        invalidated: invalidated.clone(),
         is_default_device: is_default,
         has_connected: false,
-        pending_device_changed,
+        pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
         rt_checked: false,
     };
@@ -735,9 +718,11 @@ where
         listener,
         stream,
         context,
-        default_monitor,
+        core,
         core_monitor,
         error_callback: error_callback_out,
+        pending_device_changed,
+        invalidated,
     })
 }
 
@@ -767,26 +752,7 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let default_monitor = default_metadata_key.and_then(|key| match core.get_registry_rc() {
-        Ok(registry) => Some(DefaultDeviceMonitor::new(
-            registry,
-            key,
-            error_callback.clone(),
-            invalidated.clone(),
-            pending_device_changed.clone(),
-        )),
-        Err(e) => {
-            emit_error(
-                &error_callback,
-                Error::with_message(
-                    ErrorKind::Other,
-                    format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
-                ),
-            );
-            None
-        }
-    });
-    let is_default = default_monitor.is_some();
+    let is_default = default_metadata_key.is_some();
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -814,10 +780,10 @@ where
         format: Default::default(),
         last_quantum,
         start,
-        invalidated,
+        invalidated: invalidated.clone(),
         is_default_device: is_default,
         has_connected: false,
-        pending_device_changed,
+        pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
         rt_checked: false,
     };
@@ -986,8 +952,10 @@ where
         listener,
         stream,
         context,
-        default_monitor,
+        core,
         core_monitor,
         error_callback: error_callback_out,
+        pending_device_changed,
+        invalidated,
     })
 }
