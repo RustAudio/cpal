@@ -497,7 +497,7 @@ impl Device {
                 Ok(pwstr) => match pwstr.to_string() {
                     Ok(id_str) => Ok(DeviceId(crate::platform::HostId::Wasapi, id_str)),
                     Err(e) => Err(Error::with_message(
-                        ErrorKind::Other,
+                        ErrorKind::BackendError,
                         format!("failed to convert device ID to string: {e}"),
                     )),
                 },

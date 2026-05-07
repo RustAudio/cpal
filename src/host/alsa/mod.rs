@@ -1622,7 +1622,7 @@ impl From<alsa::Error> for Error {
             libc::EINVAL => Error::with_message(ErrorKind::InvalidInput, err.to_string()),
             libc::EPIPE => Error::with_message(ErrorKind::Xrun, err.to_string()),
             libc::ENOSYS => Error::with_message(ErrorKind::UnsupportedOperation, err.to_string()),
-            _ => Error::with_message(ErrorKind::Other, err.to_string()),
+            _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
         }
     }
 }

@@ -131,7 +131,7 @@ impl From<coreaudio::Error> for Error {
                 Error::with_message(ErrorKind::UnsupportedOperation, msg)
             }
 
-            _ => Error::with_message(ErrorKind::Other, msg),
+            _ => Error::with_message(ErrorKind::BackendError, msg),
         }
     }
 }

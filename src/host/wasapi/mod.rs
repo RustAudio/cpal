@@ -79,7 +79,7 @@ impl From<windows::core::Error> for Error {
             | Audio::AUDCLNT_E_NOT_INITIALIZED
             | Audio::AUDCLNT_E_NOT_STOPPED => ErrorKind::UnsupportedOperation,
 
-            _ => ErrorKind::Other,
+            _ => ErrorKind::BackendError,
         };
         Error::with_message(kind, IoError::from(e).to_string())
     }

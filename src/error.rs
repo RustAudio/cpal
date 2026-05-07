@@ -45,6 +45,13 @@ pub enum ErrorKind {
     /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     PermissionDenied,
 
+    /// Real-time scheduling was requested for the audio callback thread but was not granted.
+    /// Audio will still play, but may be subject to increased latency or glitches under load.
+    RealtimeDenied,
+
+    /// An OS resource limit was reached, such as a system or process thread or memory limit.
+    ResourceExhausted,
+
     /// The stream configuration is no longer valid and must be rebuilt.
     StreamInvalidated,
 
@@ -60,9 +67,9 @@ pub enum ErrorKind {
     /// A buffer underrun or overrun occurred, causing a potential audio glitch.
     Xrun,
 
-    /// Real-time scheduling was requested for the audio callback thread but was not granted.
-    /// Audio will still play, but may be subject to increased latency or glitches under load.
-    RealtimeDenied,
+    /// The underlying platform audio API returned an error that CPAL cannot map to a more
+    /// specific error kind.
+    BackendError,
 
     /// A catch-all for errors that do not fall under any other CPAL error kind.
     ///
@@ -77,8 +84,8 @@ pub enum ErrorKind {
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HostUnavailable => f.write_str(
-                "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
+            Self::DeviceBusy => f.write_str(
+                "The requested device is temporarily busy. Another application or stream may be using it.",
             ),
             Self::DeviceChanged => f.write_str(
                 "The audio route changed. The stream was automatically rerouted to a different device.",
@@ -86,24 +93,30 @@ impl Display for ErrorKind {
             Self::DeviceNotAvailable => f.write_str(
                 "The requested audio device is not available. It may have been disconnected.",
             ),
-            Self::DeviceBusy => f.write_str(
-                "The requested device is temporarily busy. Another application or stream may be using it.",
+            Self::HostUnavailable => f.write_str(
+                "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
             ),
-            Self::UnsupportedConfig => f.write_str(
-                "The requested stream configuration is not supported by the device.",
-            ),
-            Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
             Self::InvalidInput => f.write_str("Invalid input or argument."),
-            Self::StreamInvalidated => {
-                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
-            }
-            Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
             Self::PermissionDenied => f.write_str(
                 "Permission denied. Grant the required access and retry.",
             ),
             Self::RealtimeDenied => f.write_str(
                 "Real-time scheduling was requested but not granted for the audio thread. \
                  Audio may be subject to increased latency or glitches under load.",
+            ),
+            Self::ResourceExhausted => f.write_str(
+                "An OS resource limit was reached. Freeing resources and retrying may succeed.",
+            ),
+            Self::StreamInvalidated => {
+                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
+            }
+            Self::UnsupportedConfig => f.write_str(
+                "The requested stream configuration is not supported by the device.",
+            ),
+            Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
+            Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
+            Self::BackendError => f.write_str(
+                "The audio backend returned an unclassified error.",
             ),
             Self::Other => f.write_str("An error occurred."),
         }

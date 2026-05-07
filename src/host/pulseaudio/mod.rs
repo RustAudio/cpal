@@ -87,7 +87,7 @@ impl From<pulseaudio::ClientError> for Error {
                     ErrorKind::StreamInvalidated
                 }
                 NoData => ErrorKind::Xrun,
-                _ => ErrorKind::Other,
+                _ => ErrorKind::BackendError,
             }
         }
 

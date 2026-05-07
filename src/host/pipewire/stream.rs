@@ -403,7 +403,7 @@ impl DefaultDeviceMonitor {
                         emit_error(
                             &error_callback,
                             Error::with_message(
-                                ErrorKind::Other,
+                                ErrorKind::BackendError,
                                 format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
                             ),
                         );

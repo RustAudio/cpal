@@ -1124,7 +1124,7 @@ fn build_stream_err(e: sys::AsioError) -> Error {
             Error::with_message(ErrorKind::UnsupportedConfig, e.to_string())
         }
         sys::AsioError::HardwareStuck => Error::with_message(ErrorKind::DeviceBusy, e.to_string()),
-        err => Error::with_message(ErrorKind::Other, err.to_string()),
+        err => Error::with_message(ErrorKind::BackendError, err.to_string()),
     }
 }
 

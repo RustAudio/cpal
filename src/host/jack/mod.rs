@@ -187,7 +187,7 @@ impl From<jack::Error> for Error {
                 Error::with_message(ErrorKind::InvalidInput, msg)
             }
 
-            _ => Error::with_message(ErrorKind::Other, msg),
+            _ => Error::with_message(ErrorKind::BackendError, msg),
         }
     }
 }

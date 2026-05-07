@@ -385,7 +385,7 @@ impl DeviceTrait for Device {
                                 emit_error(
                                     &error_callback,
                                     Error::with_message(
-                                        ErrorKind::Other,
+                                        ErrorKind::BackendError,
                                         format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
                                     ),
                                 );
@@ -443,7 +443,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .map_err(|e| {
-                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+                Error::with_message(ErrorKind::ResourceExhausted, format!("failed to create thread: {e}"))
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => {
@@ -548,7 +548,7 @@ impl DeviceTrait for Device {
                                 emit_error(
                                     &error_callback,
                                     Error::with_message(
-                                        ErrorKind::Other,
+                                        ErrorKind::BackendError,
                                         format!("PipeWire: could not acquire registry; device change notifications will be unavailable: {e}"),
                                     ),
                                 );
@@ -606,7 +606,7 @@ impl DeviceTrait for Device {
                 drop(context);
             })
             .map_err(|e| {
-                Error::with_message(ErrorKind::Other, format!("failed to create thread: {e}"))
+                Error::with_message(ErrorKind::ResourceExhausted, format!("failed to create thread: {e}"))
             })?;
         match pw_init_rx.recv_timeout(wait_timeout) {
             Ok(true) => {
