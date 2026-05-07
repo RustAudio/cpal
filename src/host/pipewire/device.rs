@@ -368,7 +368,7 @@ impl DeviceTrait for Device {
                 let default_monitor =
                     if let Some(key) = device.default_metadata_key() {
                         match core.get_registry_rc() {
-                            Ok(registry) => Some(super::stream::DefaultDeviceMonitor::new(
+                            Ok(registry) => Some(DefaultDeviceMonitor::new(
                                 registry,
                                 key,
                                 error_callback.clone(),
@@ -519,7 +519,7 @@ impl DeviceTrait for Device {
                 let default_monitor =
                     if let Some(key) = device.default_metadata_key() {
                         match core.get_registry_rc() {
-                            Ok(registry) => Some(super::stream::DefaultDeviceMonitor::new(
+                            Ok(registry) => Some(DefaultDeviceMonitor::new(
                                 registry,
                                 key,
                                 error_callback.clone(),

@@ -538,7 +538,7 @@ where
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = pw::stream::StreamRc::new(core, "cpal-playback", properties)?;
+    let stream = pw::stream::StreamRc::new(core.clone(), "cpal-playback", properties)?;
 
     let listener = stream
         .add_local_listener_with_user_data(data)
@@ -790,7 +790,7 @@ where
 
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = pw::stream::StreamRc::new(core, "cpal-capture", properties)?;
+    let stream = pw::stream::StreamRc::new(core.clone(), "cpal-capture", properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
         .param_changed(move |stream, user_data, id, param| {
