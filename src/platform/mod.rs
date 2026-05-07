@@ -390,16 +390,6 @@ macro_rules! impl_platform_host {
             type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
 
-            #[allow(deprecated)]
-            fn name(&self) -> Result<String, crate::Error> {
-                match self.0 {
-                    $(
-                        $(#[cfg($feat)])?
-                        DeviceInner::$HostVariant(ref d) => d.name(),
-                    )*
-                }
-            }
-
             fn description(&self) -> Result<crate::DeviceDescription, crate::Error> {
                 match self.0 {
                     $(

@@ -725,7 +725,7 @@ impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Device")
             .field("audio_device_id", &self.audio_device_id)
-            .field("name", &self.name())
+            .field("name", &self.description().map(|d| d.name().to_owned()))
             .finish()
     }
 }

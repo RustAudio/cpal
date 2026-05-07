@@ -362,7 +362,7 @@ mod test {
     fn test_record() {
         let host = default_host();
         let device = host.default_input_device().unwrap();
-        println!("Device: {:?}", device.name());
+        println!("Device: {:?}", device.description());
 
         let mut supported_configs_range = device.supported_input_configs().unwrap();
         println!("Supported configs:");

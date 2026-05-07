@@ -354,7 +354,10 @@ impl Stream {
                 run_input(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
-                Error::with_message(ErrorKind::ResourceExhausted, format!("failed to create thread: {e}"))
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to create thread: {e}"),
+                )
             })?;
 
         let stream = Stream {
@@ -422,7 +425,10 @@ impl Stream {
                 run_output(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
-                Error::with_message(ErrorKind::ResourceExhausted, format!("failed to create thread: {e}"))
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to create thread: {e}"),
+                )
             })?;
 
         let stream = Stream {

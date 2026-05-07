@@ -65,9 +65,7 @@ impl From<ndk::audio::AudioError> for Error {
             NoFreeHandles | NoMemory => {
                 Error::with_message(ErrorKind::ResourceExhausted, error.to_string())
             }
-            WouldBlock | Timeout => {
-                Error::with_message(ErrorKind::DeviceBusy, error.to_string())
-            }
+            WouldBlock | Timeout => Error::with_message(ErrorKind::DeviceBusy, error.to_string()),
             InvalidFormat | InvalidRate => {
                 Error::with_message(ErrorKind::UnsupportedConfig, error.to_string())
             }
