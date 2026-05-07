@@ -473,7 +473,6 @@ pub struct ConnectParams {
     pub sample_format: SampleFormat,
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
-    pub default_metadata_key: Option<&'static str>,
 }
 
 pub fn connect_output<D, E>(
@@ -491,7 +490,6 @@ where
         sample_format,
         last_quantum,
         start,
-        default_metadata_key,
     } = params;
 
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -502,9 +500,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    // Starts false; device.rs sets it true after the barrier if the metadata monitor
-    // is successfully created, so state_changed only suppresses DeviceNotAvailable
-    // when a monitor is actually active.
     let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
@@ -746,7 +741,6 @@ where
         sample_format,
         last_quantum,
         start,
-        default_metadata_key,
     } = params;
 
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -757,9 +751,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    // Starts false; device.rs sets it true after the barrier if the metadata monitor
-    // is successfully created, so state_changed only suppresses DeviceNotAvailable
-    // when a monitor is actually active.
     let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {

@@ -21,8 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SupportedStreamConfigRange::contains_rate()` to test whether a sample rate falls within a range.
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
-- `log` feature to forward non-fatal, informational diagnostics that cannot go through the error
-  callback to the `log` facade; enabled by default.
 - `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
@@ -54,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `SupportedBufferSize` now reports `min: 1`.
 - **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
   44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
-- **ALSA**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on device 
+- **ALSA**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on device
   disconnection.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
 - **ALSA**: Try to resume from hardware after a system suspend.
@@ -95,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Default client name now includes the process PID.
 - **JACK**: User timeouts are now respected when building a stream.
 - **JACK**: `Stream::connect_to_system_outputs()` and `Stream::connect_to_system_inputs()` now
-  return `Result<(), Error>` and roll back the graph instead of silently discarding 
+  return `Result<(), Error>` and roll back the graph instead of silently discarding
   port-connection failures.
 - **JACK**: Stream error callback now receives `ErrorKind::RealtimeDenied` once if the process
   callback is not running at real-time scheduling priority.
