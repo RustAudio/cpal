@@ -1,7 +1,10 @@
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     thread,
     time::Duration,
 };
@@ -340,6 +343,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
+                    is_default_device,
                 }) = super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
@@ -389,6 +393,7 @@ impl DeviceTrait for Device {
                     } else {
                         None
                     };
+                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 
@@ -490,6 +495,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
+                    is_default_device,
                 }) = super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,
@@ -540,6 +546,7 @@ impl DeviceTrait for Device {
                     } else {
                         None
                     };
+                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 

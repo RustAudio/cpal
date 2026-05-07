@@ -196,7 +196,7 @@ pub struct UserData<D> {
     format: pw::spa::param::audio::AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
     start: Instant,
-    is_default_device: bool,
+    is_default_device: Arc<AtomicBool>,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
@@ -211,7 +211,7 @@ impl<D> UserData<D> {
             StreamState::Unconnected => {
                 // Let the metadata monitor fire for default-device streams
                 if self.has_connected
-                    && !self.is_default_device
+                    && !self.is_default_device.load(Ordering::Relaxed)
                     && !self.invalidated.swap(true, Ordering::Relaxed)
                 {
                     emit_error(
@@ -325,6 +325,7 @@ pub struct StreamData<D> {
     pub error_callback: ErrorCallbackArc,
     pub pending_device_changed: Arc<AtomicBool>,
     pub invalidated: Arc<AtomicBool>,
+    pub is_default_device: Arc<AtomicBool>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -501,7 +502,10 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default = default_metadata_key.is_some();
+    // Starts false; device.rs sets it true after the barrier if the metadata monitor
+    // is successfully created, so state_changed only suppresses DeviceNotAvailable
+    // when a monitor is actually active.
+    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -530,7 +534,7 @@ where
         last_quantum,
         start,
         invalidated: invalidated.clone(),
-        is_default_device: is_default,
+        is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
@@ -723,6 +727,7 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
+        is_default_device,
     })
 }
 
@@ -752,7 +757,10 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default = default_metadata_key.is_some();
+    // Starts false; device.rs sets it true after the barrier if the metadata monitor
+    // is successfully created, so state_changed only suppresses DeviceNotAvailable
+    // when a monitor is actually active.
+    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -781,7 +789,7 @@ where
         last_quantum,
         start,
         invalidated: invalidated.clone(),
-        is_default_device: is_default,
+        is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
@@ -957,5 +965,6 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
+        is_default_device,
     })
 }
