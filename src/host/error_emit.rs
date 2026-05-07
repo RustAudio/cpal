@@ -20,6 +20,7 @@ where
 ///
 /// Returns `Ok(())` if the callback was invoked, or `Err(error)` if the lock was contended and
 /// the error could not be delivered.
+#[allow(dead_code)]
 pub(crate) fn try_emit_error<E>(callback: &Mutex<E>, error: Error) -> Result<(), Error>
 where
     E: FnMut(Error) + Send + ?Sized,

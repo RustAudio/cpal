@@ -200,8 +200,6 @@ pub struct UserData<D> {
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
-    #[cfg(feature = "realtime")]
-    rt_checked: bool,
 }
 
 impl<D> UserData<D> {
@@ -532,8 +530,6 @@ where
         is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
-        #[cfg(feature = "realtime")]
-        rt_checked: false,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -616,25 +612,6 @@ where
             user_data.state_changed(new);
         })
         .process(|stream, user_data| {
-            #[cfg(feature = "realtime")]
-            {
-                if !user_data.rt_checked {
-                    let sched = unsafe { libc::sched_getscheduler(0) };
-                    if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                        if try_emit_error(
-                            &user_data.error_callback,
-                            Error::new(ErrorKind::RealtimeDenied),
-                        )
-                        .is_ok()
-                        {
-                            user_data.rt_checked = true;
-                        }
-                    } else {
-                        user_data.rt_checked = true;
-                    }
-                }
-            }
-
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
                     &user_data.error_callback,
@@ -706,9 +683,10 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
+    // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
+    // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
+    // The mainloop thread is promoted to RT by the caller (device.rs) before mainloop.run().
     let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
-    #[cfg(feature = "realtime")]
-    let flags = flags | pw::stream::StreamFlags::RT_PROCESS;
 
     stream.connect(pw::spa::utils::Direction::Output, None, flags, &mut params)?;
 
@@ -783,8 +761,6 @@ where
         is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
-        #[cfg(feature = "realtime")]
-        rt_checked: false,
     };
 
     let channels = config.channels as _;
@@ -868,25 +844,6 @@ where
             user_data.state_changed(new);
         })
         .process(|stream, user_data| {
-            #[cfg(feature = "realtime")]
-            {
-                if !user_data.rt_checked {
-                    let sched = unsafe { libc::sched_getscheduler(0) };
-                    if sched != libc::SCHED_FIFO && sched != libc::SCHED_RR {
-                        if try_emit_error(
-                            &user_data.error_callback,
-                            Error::new(ErrorKind::RealtimeDenied),
-                        )
-                        .is_ok()
-                        {
-                            user_data.rt_checked = true;
-                        }
-                    } else {
-                        user_data.rt_checked = true;
-                    }
-                }
-            }
-
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
                     &user_data.error_callback,
@@ -940,9 +897,10 @@ where
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
+    // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
+    // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
+    // The mainloop thread is promoted to RT by the caller (device.rs) before mainloop.run().
     let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
-    #[cfg(feature = "realtime")]
-    let flags = flags | pw::stream::StreamFlags::RT_PROCESS;
 
     stream.connect(pw::spa::utils::Direction::Input, None, flags, &mut params)?;
 

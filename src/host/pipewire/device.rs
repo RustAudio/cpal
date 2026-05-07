@@ -333,6 +333,7 @@ impl DeviceTrait for Device {
             .spawn(move || {
                 let _pw = PwInitGuard::new();
                 let properties = device.pw_properties(DeviceDirection::Input, &config);
+
                 let Ok(StreamData {
                     mainloop,
                     listener,
@@ -396,6 +397,8 @@ impl DeviceTrait for Device {
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 
+                #[cfg(feature = "realtime")]
+                let error_callback_rt = error_callback.clone();
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         if let Err(e) = stream.set_active(state) {
@@ -421,6 +424,15 @@ impl DeviceTrait for Device {
                         mainloop_rc1.quit();
                     }
                 });
+
+                #[cfg(feature = "realtime")]
+                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
+                    device.quantum,
+                    device.rate,
+                ) {
+                    emit_error(&error_callback_rt, Error::from(e));
+                }
+
                 mainloop.run();
                 drop(listener);
                 drop(default_monitor);
@@ -548,6 +560,8 @@ impl DeviceTrait for Device {
                 let stream = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
 
+                #[cfg(feature = "realtime")]
+                let error_callback_rt = error_callback.clone();
                 let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
                     StreamCommand::Toggle(state) => {
                         if let Err(e) = stream.set_active(state) {
@@ -573,6 +587,15 @@ impl DeviceTrait for Device {
                         mainloop_rc1.quit();
                     }
                 });
+
+                #[cfg(feature = "realtime")]
+                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
+                    device.quantum,
+                    device.rate,
+                ) {
+                    emit_error(&error_callback_rt, Error::from(e));
+                }
+
                 mainloop.run();
                 drop(listener);
                 drop(default_monitor);
