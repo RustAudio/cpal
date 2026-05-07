@@ -116,17 +116,6 @@ pub trait DeviceTrait {
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
     type Stream: StreamTrait;
 
-    /// The human-readable name of the device.
-    #[deprecated(
-        since = "0.17.0",
-        note = "Use `description()` for comprehensive device information including name, \
-                manufacturer, and device type. Use `id()` for a unique, stable device identifier \
-                that persists across reboots and reconnections."
-    )]
-    fn name(&self) -> Result<String, Error> {
-        self.description().map(|desc| desc.name().to_string())
-    }
-
     /// Structured description of the device with metadata.
     ///
     /// This returns a [`DeviceDescription`] containing structured information about the device,

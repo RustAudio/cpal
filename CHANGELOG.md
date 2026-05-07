@@ -115,6 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
+- Removed deprecated `DeviceTrait::name()`.
 - **Emscripten**: Removed broken host; use the WebAudio host instead.
 
 ### Fixed
