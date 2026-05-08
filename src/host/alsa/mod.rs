@@ -173,11 +173,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    // ALSA overrides name() to return pcm_id directly instead of from description
-    fn name(&self) -> Result<String, Error> {
-        Self::name(self)
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         Self::description(self)
     }
@@ -446,10 +441,6 @@ impl Device {
         };
 
         Ok(stream_inner)
-    }
-
-    fn name(&self) -> Result<String, Error> {
-        Ok(self.pcm_id.clone())
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {

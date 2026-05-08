@@ -532,23 +532,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, Error> {
-        match &self.0 {
-            None => Ok("default".to_string()),
-            Some(info) => {
-                let name = if info.address.is_empty() {
-                    format!("{}:{:?}", info.product_name, info.device_type)
-                } else {
-                    format!(
-                        "{}:{:?}:{}",
-                        info.product_name, info.device_type, info.address
-                    )
-                };
-                Ok(name)
-            }
-        }
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         match &self.0 {
             None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),

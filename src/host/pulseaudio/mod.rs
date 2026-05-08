@@ -256,15 +256,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = std::vec::IntoIter<SupportedStreamConfigRange>;
     type Stream = Stream;
 
-    fn name(&self) -> Result<String, Error> {
-        let name = match self {
-            Device::Sink { info, .. } => &info.name,
-            Device::Source { info, .. } => &info.name,
-        };
-
-        Ok(String::from_utf8_lossy(name.as_bytes()).into_owned())
-    }
-
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         let Device::Source { .. } = self else {
             return Ok(vec![].into_iter());

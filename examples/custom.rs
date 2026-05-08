@@ -66,10 +66,6 @@ impl DeviceTrait for MyDevice {
     type SupportedOutputConfigs = std::iter::Once<SupportedStreamConfigRange>;
     type Stream = MyStream;
 
-    fn name(&self) -> Result<String, Error> {
-        Ok(String::from("custom"))
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Custom Device").build())
     }

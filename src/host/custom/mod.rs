@@ -145,7 +145,6 @@ type InputCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
 type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
 
 trait DeviceErased: Send + Sync {
-    fn name(&self) -> Result<String, Error>;
     fn description(&self) -> Result<DeviceDescription, Error>;
     fn id(&self) -> Result<DeviceId, Error>;
     fn supports_input(&self) -> bool;
@@ -223,11 +222,6 @@ where
     T::SupportedOutputConfigs: Clone + 'static,
     T::Stream: Send + Sync + 'static,
 {
-    #[allow(deprecated)]
-    fn name(&self) -> Result<String, Error> {
-        <T as DeviceTrait>::name(self)
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         <T as DeviceTrait>::description(self)
     }
@@ -353,10 +347,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedConfigs;
 
     type Stream = Stream;
-
-    fn name(&self) -> Result<String, Error> {
-        self.0.name()
-    }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
         self.0.description()

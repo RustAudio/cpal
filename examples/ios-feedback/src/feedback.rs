@@ -31,8 +31,8 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     let output_device = host
         .default_output_device()
         .expect("failed to get default output device");
-    println!("Using default input device: \"{}\"", input_device.name()?);
-    println!("Using default output device: \"{}\"", output_device.name()?);
+    println!("Using default input device: \"{}\"", input_device.description()?.name());
+    println!("Using default output device: \"{}\"", output_device.description()?.name());
 
     // We'll try and use the same configuration between streams to keep it simple.
     let config: StreamConfig = input_device.default_input_config()?.into();
