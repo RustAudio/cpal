@@ -9,9 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ErrorKind::BackendError` for platform audio API errors that don't map to a specific kind.
 - `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
 - `ErrorKind::DeviceChanged` signals that the audio route changed to another device.
+- `ErrorKind::InvalidInput` for invalid arguments and caller-supplied values.
 - `ErrorKind::PermissionDenied` for OS-level access denials.
+- `ErrorKind::RealtimeDenied` for when real-time scheduling is requested but not granted;
+  previously such failures were only printed to stderr and discarded.
+- `ErrorKind::ResourceExhausted` for OS resource limits such as thread or memory exhaustion.
+- `ErrorKind::UnsupportedOperation` for operations the backend or device does not implement.
 - `StreamConfig` now implements `Copy`.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
@@ -41,7 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [UPGRADING.md](UPGRADING.md) for migration details.
 - `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default.
 - `audio_thread_priority` dependency bumped to 0.35.
-- `ErrorKind::ThreadPriorityUnavailable` renamed to `ErrorKind::RealtimeDenied`.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for

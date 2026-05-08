@@ -56,15 +56,19 @@ The `ErrorKind` variants and their equivalents from v0.17:
 
 | `ErrorKind`            | Former equivalent                                    |
 |------------------------|------------------------------------------------------|
-| `HostUnavailable`      | `HostUnavailable` (struct)                           |
-| `DeviceNotAvailable`   | `DeviceNotAvailable` in most enums                   |
 | `DeviceBusy`           | - (new; previously mapped to `DeviceNotAvailable`)   |
+| `DeviceChanged`        | - (new)                                              |
+| `DeviceNotAvailable`   | `DeviceNotAvailable` in most enums                   |
+| `HostUnavailable`      | `HostUnavailable` (struct)                           |
+| `InvalidInput`         | - (new)                                              |
+| `PermissionDenied`     | - (new)                                              |
+| `RealtimeDenied`       | - (new; previously only printed to stderr)           |
+| `ResourceExhausted`    | - (new)                                              |
+| `StreamInvalidated`    | `StreamError::StreamInvalidated`                     |
 | `UnsupportedConfig`    | `StreamConfigNotSupported`, `StreamTypeNotSupported` |
 | `UnsupportedOperation` | - (new)                                              |
-| `InvalidInput`         | - (new)                                              |
-| `StreamInvalidated`    | `StreamError::StreamInvalidated`                     |
 | `Xrun`                 | `StreamError::BufferUnderrun`                        |
-| `PermissionDenied`     | - (new)                                              |
+| `BackendError`         | - (new; previously folded into `BackendSpecific`)    |
 | `Other`                | `BackendSpecific`                                    |
 
 The `message()` getter on `Error` returns human-readable context (formerly in
