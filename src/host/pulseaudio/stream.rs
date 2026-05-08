@@ -54,11 +54,14 @@ enum StreamInner {
     Record(pulseaudio::RecordStream, Instant, LatencyHandle),
 }
 
-pub struct Stream(StreamInner);
+pub struct Stream {
+    inner: StreamInner,
+    workers: Vec<std::thread::JoinHandle<()>>,
+}
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        match &mut self.0 {
+        match &mut self.inner {
             StreamInner::Playback(stream, _, handle) => {
                 handle.cancel();
                 // Help the play_all driver thread terminate by
@@ -71,12 +74,20 @@ impl Drop for Stream {
                 handle.cancel();
             }
         }
+        for handle in self.workers.drain(..) {
+            // Prevent self-join: a worker thread may surface an error
+            // through the user's error_callback, and that callback may
+            // drop the Stream — in which case we'd be joining ourselves.
+            if handle.thread().id() != std::thread::current().id() {
+                let _ = handle.join();
+            }
+        }
     }
 }
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        match &self.0 {
+        match &self.inner {
             StreamInner::Playback(stream, _, handle) => {
                 block_on(stream.uncork()).map_err(Error::from)?;
                 handle.notify();
@@ -91,12 +102,12 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
-        let res = match &self.0 {
+        let res = match &self.inner {
             StreamInner::Playback(stream, _, _) => block_on(stream.cork()),
             StreamInner::Record(stream, _, _) => block_on(stream.cork()),
         };
         res.map_err(Error::from)?;
-        match &self.0 {
+        match &self.inner {
             StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
                 handle.notify()
             }
@@ -105,7 +116,7 @@ impl StreamTrait for Stream {
     }
 
     fn now(&self) -> StreamInstant {
-        let start = match &self.0 {
+        let start = match &self.inner {
             StreamInner::Playback(_, start, _) | StreamInner::Record(_, start, _) => *start,
         };
         let elapsed = start.elapsed();
@@ -113,7 +124,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        let (spec, bytes) = match &self.0 {
+        let (spec, bytes) = match &self.inner {
             StreamInner::Playback(s, _, _) => (
                 s.sample_spec(),
                 s.buffer_attr().minimum_request_length as usize,
@@ -236,7 +247,7 @@ impl Stream {
         let ready = std::sync::Arc::new(std::sync::Barrier::new(3));
 
         let ready_worker = ready.clone();
-        std::thread::spawn(move || {
+        let driver_handle = std::thread::spawn(move || {
             ready_worker.wait();
             if let Err(e) = block_on(stream_clone.play_all()) {
                 emit_error(&error_callback_clone, Error::from(e));
@@ -250,7 +261,7 @@ impl Stream {
         let poll_clone = last_poll_micros.clone();
 
         let ready_latency = ready.clone();
-        std::thread::spawn(move || {
+        let latency_handle = std::thread::spawn(move || {
             ready_latency.wait();
             loop {
                 if cancel_thread.load(atomic::Ordering::Relaxed) {
@@ -288,7 +299,10 @@ impl Stream {
         });
 
         ready.wait();
-        Ok(Self(StreamInner::Playback(stream, start, handle)))
+        Ok(Self {
+            inner: StreamInner::Playback(stream, start, handle),
+            workers: vec![driver_handle, latency_handle],
+        })
     }
 
     pub fn new_record<D, E>(
@@ -375,7 +389,7 @@ impl Stream {
         let stream_clone = stream.clone();
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
-        std::thread::spawn(move || loop {
+        let latency_handle = std::thread::spawn(move || loop {
             if cancel_thread.load(atomic::Ordering::Relaxed) {
                 break;
             }
@@ -409,7 +423,10 @@ impl Stream {
             *guard = false;
         });
 
-        Ok(Self(StreamInner::Record(stream, start, handle)))
+        Ok(Self {
+            inner: StreamInner::Record(stream, start, handle),
+            workers: vec![latency_handle],
+        })
     }
 }
 
