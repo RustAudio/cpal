@@ -67,7 +67,7 @@ impl Drop for Stream {
                 // Help the play_all driver thread terminate by
                 // queueing a delete, which causes the reactor to drop
                 // the source's eof_tx. We need to do this because
-                // pool_read always reports a non-empty buffer.
+                // poll_read always reports a non-empty buffer.
                 let _ = stream.clone().delete().now_or_never();
             }
             StreamInner::Record(_, _, handle) => {
