@@ -403,6 +403,10 @@ pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
     pub buffer_size: BufferSize,
+    #[cfg_attr(
+        all(target_arch = "wasm32", feature = "wasm-bindgen"),
+        wasm_bindgen(skip)
+    )]
     pub audio_processing: AudioProcessing,
 }
 
