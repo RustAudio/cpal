@@ -173,9 +173,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
-- **PulseAudio**: Poisoned locks now exit the thread gracefully instead of panicking.
-- **PulseAudio**: Fix server-side stream leak when a `Stream` is dropped.
-- **PulseAudio**: Remove spurious "PulseAudio client disconnected" warnings during stream cleanup.
 
 ## [0.17.3] - 2026-02-18
 
