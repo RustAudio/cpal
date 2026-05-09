@@ -116,25 +116,29 @@ jobs:
   docs:
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-gnu]
-    name: docs (${{ matrix.target }})
+        include:
+          - name: Linux
+    name: docs-${{ matrix.name }}
     runs-on: ubuntu-latest
     env:
       DOCS_RS: "1"
-      RUSTDOCFLAGS: --cfg docsrs
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
+
+      - uses: dtolnay/rust-toolchain@nightly
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
           key: docs
 
-      - name: Build docs
-        run: cargo doc --all-features --no-deps
+      - run: cargo doc --all-features --no-deps
 
   lints-nightly:
     strategy:

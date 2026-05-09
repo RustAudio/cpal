@@ -4,8 +4,22 @@
 //! type and its associated [`Device`], [`Stream`] and other associated types. These
 //! types are useful in the case that users require switching between audio host APIs at runtime.
 
-#[doc(inline)]
 pub use self::platform_impl::*;
+
+#[cfg(all(
+    feature = "jack",
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "windows",
+    )
+))]
+#[cfg_attr(docsrs, doc(cfg(feature = "jack")))]
+pub use crate::host::jack::Host as JackHost;
+
 #[cfg(feature = "custom")]
 pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream as CustomStream};
 
@@ -233,36 +247,24 @@ macro_rules! impl_platform_host {
 
         impl Devices {
             /// Returns a reference to the underlying platform-specific [`DevicesInner`].
-            pub fn as_inner(&self) -> &DevicesInner {
-                &self.0
-            }
+            pub fn as_inner(&self) -> &DevicesInner { &self.0 }
 
             /// Returns a mutable reference to the underlying platform-specific [`DevicesInner`].
-            pub fn as_inner_mut(&mut self) -> &mut DevicesInner {
-                &mut self.0
-            }
+            pub fn as_inner_mut(&mut self) -> &mut DevicesInner { &mut self.0 }
 
             /// Consumes this `Devices`, returning the underlying platform-specific [`DevicesInner`].
-            pub fn into_inner(self) -> DevicesInner {
-                self.0
-            }
+            pub fn into_inner(self) -> DevicesInner { self.0 }
         }
 
         impl Device {
             /// Returns a reference to the underlying platform-specific [`DeviceInner`].
-            pub fn as_inner(&self) -> &DeviceInner {
-                &self.0
-            }
+            pub fn as_inner(&self) -> &DeviceInner { &self.0 }
 
             /// Returns a mutable reference to the underlying platform-specific [`DeviceInner`].
-            pub fn as_inner_mut(&mut self) -> &mut DeviceInner {
-                &mut self.0
-            }
+            pub fn as_inner_mut(&mut self) -> &mut DeviceInner { &mut self.0 }
 
             /// Consumes this `Device`, returning the underlying platform-specific [`DeviceInner`].
-            pub fn into_inner(self) -> DeviceInner {
-                self.0
-            }
+            pub fn into_inner(self) -> DeviceInner { self.0 }
         }
 
         impl Host {
@@ -277,36 +279,24 @@ macro_rules! impl_platform_host {
             }
 
             /// Returns a reference to the underlying platform-specific [`HostInner`].
-            pub fn as_inner(&self) -> &HostInner {
-                &self.0
-            }
+            pub fn as_inner(&self) -> &HostInner { &self.0 }
 
             /// Returns a mutable reference to the underlying platform-specific [`HostInner`].
-            pub fn as_inner_mut(&mut self) -> &mut HostInner {
-                &mut self.0
-            }
+            pub fn as_inner_mut(&mut self) -> &mut HostInner { &mut self.0 }
 
             /// Consumes this `Host`, returning the underlying platform-specific [`HostInner`].
-            pub fn into_inner(self) -> HostInner {
-                self.0
-            }
+            pub fn into_inner(self) -> HostInner { self.0 }
         }
 
         impl Stream {
             /// Returns a reference to the underlying platform-specific [`StreamInner`].
-            pub fn as_inner(&self) -> &StreamInner {
-                &self.0
-            }
+            pub fn as_inner(&self) -> &StreamInner { &self.0 }
 
             /// Returns a mutable reference to the underlying platform-specific [`StreamInner`].
-            pub fn as_inner_mut(&mut self) -> &mut StreamInner {
-                &mut self.0
-            }
+            pub fn as_inner_mut(&mut self) -> &mut StreamInner { &mut self.0 }
 
             /// Consumes this `Stream`, returning the underlying platform-specific [`StreamInner`].
-            pub fn into_inner(self) -> StreamInner {
-                self.0
-            }
+            pub fn into_inner(self) -> StreamInner { self.0 }
         }
 
         impl Iterator for Devices {
@@ -624,28 +614,24 @@ macro_rules! impl_platform_host {
             }
         }
 
-        #[doc(hidden)]
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
                 Device(d)
             }
         }
 
-        #[doc(hidden)]
         impl From<DevicesInner> for Devices {
             fn from(d: DevicesInner) -> Self {
                 Devices(d)
             }
         }
 
-        #[doc(hidden)]
         impl From<HostInner> for Host {
             fn from(h: HostInner) -> Self {
                 Host(h)
             }
         }
 
-        #[doc(hidden)]
         impl From<StreamInner> for Stream {
             fn from(s: StreamInner) -> Self {
                 Stream(s)
@@ -741,17 +727,13 @@ macro_rules! __cpal_select_host_name {
     target_os = "netbsd"
 ))]
 mod platform_impl {
-    #[doc(hidden)]
-    pub use crate::host::alsa::Host as AlsaHost;
     #[cfg(feature = "jack")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jack")))]
-    pub use crate::host::jack::Host as JackHost;
-    #[doc(hidden)]
+    use super::JackHost;
+    use crate::host::alsa::Host as AlsaHost;
     #[cfg(feature = "pipewire")]
-    pub use crate::host::pipewire::Host as PipeWireHost;
-    #[doc(hidden)]
+    use crate::host::pipewire::Host as PipeWireHost;
     #[cfg(feature = "pulseaudio")]
-    pub use crate::host::pulseaudio::Host as PulseAudioHost;
+    use crate::host::pulseaudio::Host as PulseAudioHost;
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
@@ -782,11 +764,9 @@ mod platform_impl {
 
 #[cfg(target_vendor = "apple")]
 mod platform_impl {
-    #[doc(hidden)]
-    pub use crate::host::coreaudio::Host as CoreAudioHost;
     #[cfg(all(feature = "jack", target_os = "macos"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jack")))]
-    pub use crate::host::jack::Host as JackHost;
+    use super::JackHost;
+    use crate::host::coreaudio::Host as CoreAudioHost;
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
@@ -804,11 +784,9 @@ mod platform_impl {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
-    #[doc(hidden)]
     #[cfg(feature = "audioworklet")]
-    pub use crate::host::audioworklet::Host as AudioWorkletHost;
-    #[doc(hidden)]
-    pub use crate::host::webaudio::Host as WebAudioHost;
+    use crate::host::audioworklet::Host as AudioWorkletHost;
+    use crate::host::webaudio::Host as WebAudioHost;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
@@ -826,14 +804,11 @@ mod platform_impl {
 
 #[cfg(windows)]
 mod platform_impl {
-    #[doc(hidden)]
-    #[cfg(feature = "asio")]
-    pub use crate::host::asio::Host as AsioHost;
     #[cfg(feature = "jack")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jack")))]
-    pub use crate::host::jack::Host as JackHost;
-    #[doc(hidden)]
-    pub use crate::host::wasapi::Host as WasapiHost;
+    use super::JackHost;
+    #[cfg(feature = "asio")]
+    use crate::host::asio::Host as AsioHost;
+    use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
@@ -852,8 +827,7 @@ mod platform_impl {
 
 #[cfg(target_os = "android")]
 mod platform_impl {
-    #[doc(hidden)]
-    pub use crate::host::aaudio::Host as AAudioHost;
+    use crate::host::aaudio::Host as AAudioHost;
     impl_platform_host!(
         AAudio => AAudioHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
@@ -878,8 +852,7 @@ mod platform_impl {
     all(target_arch = "wasm32", feature = "wasm-bindgen"),
 )))]
 mod platform_impl {
-    #[doc(hidden)]
-    pub use crate::host::null::Host as NullHost;
+    use crate::host::null::Host as NullHost;
 
     impl_platform_host!(
         Null => NullHost,

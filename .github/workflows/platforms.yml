@@ -576,54 +576,59 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            features: --all-features
-          - target: aarch64-apple-darwin
-            features: --all-features
-          - target: x86_64-pc-windows-msvc
-            features: --all-features
-          - target: wasm32-unknown-unknown
-            features: --features wasm-bindgen,custom
-          - target: aarch64-linux-android
-            features: --all-features
-    name: docs (${{ matrix.target }})
+          - name: Linux
+            target: x86_64-unknown-linux-gnu
+          - name: macOS
+            target: aarch64-apple-darwin
+          - name: Windows
+            target: x86_64-pc-windows-msvc
+          - name: WASM
+            target: wasm32-unknown-unknown
+          - name: Android
+            target: aarch64-linux-android
+    name: docs-${{ matrix.name }}
     runs-on: ubuntu-latest
     env:
-      DOCS_RS: "1"
-      RUSTDOCFLAGS: --cfg docsrs
+      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Cache Linux audio packages
+        if: matrix.name == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ${{ env.PACKAGES_LINUX }}
+
+      - uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.target }}
+
+      - uses: dtolnay/install@cargo-docs-rs
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
           key: docs-${{ matrix.target }}
 
-      - name: Build docs
-        run: cargo doc --target ${{ matrix.target }} ${{ matrix.features }} --no-deps
+      - run: cargo docs-rs --target ${{ matrix.target }}
 
   docs-asio-sys:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
     name: docs (asio-sys)
     runs-on: ubuntu-latest
     env:
-      DOCS_RS: "1"
-      RUSTDOCFLAGS: --cfg docsrs
+      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@nightly
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Build docs
-        run: cargo doc --target x86_64-pc-windows-msvc --manifest-path asio-sys/Cargo.toml --no-deps
+      - uses: dtolnay/install@cargo-docs-rs
+
+      - run: cargo docs-rs
+        working-directory: asio-sys
 
   publish-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
