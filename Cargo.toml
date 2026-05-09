@@ -115,6 +115,7 @@ jack = { version = "0.13", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.11"
+alsa-sys = "0.4"
 libc = "0.2"
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 jack = { version = "0.13", optional = true }

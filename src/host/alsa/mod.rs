@@ -3,6 +3,7 @@
 //! Default backend on Linux and BSD systems.
 
 extern crate alsa;
+extern crate alsa_sys;
 extern crate libc;
 
 use std::{
@@ -995,6 +996,45 @@ fn output_stream_worker(
 fn boost_current_thread_priority(
     stream: &StreamInner,
 ) -> Result<audio_thread_priority::RtPriorityHandle, Error> {
+    use alsa_sys::*;
+    let raw = unsafe {
+        (&stream.handle as *const alsa::pcm::PCM)
+            .cast::<*mut snd_pcm_t>()
+            .read()
+    };
+    let pcm_type = unsafe { snd_pcm_type(raw) };
+
+    // Only promote to RT for kernel-backed and pure-computation plugins. Others can exhaust
+    // RLIMIT_RTTIME when they block or coordinate with non-RT servers and trigger SIGXCPU
+    // on an RT thread.
+    if !matches!(
+        pcm_type,
+        SND_PCM_TYPE_HW
+            | SND_PCM_TYPE_HOOKS
+            | SND_PCM_TYPE_NULL
+            | SND_PCM_TYPE_COPY
+            | SND_PCM_TYPE_LINEAR
+            | SND_PCM_TYPE_ALAW
+            | SND_PCM_TYPE_MULAW
+            | SND_PCM_TYPE_ADPCM
+            | SND_PCM_TYPE_RATE
+            | SND_PCM_TYPE_ROUTE
+            | SND_PCM_TYPE_PLUG
+            | SND_PCM_TYPE_LINEAR_FLOAT
+            | SND_PCM_TYPE_IEC958
+            | SND_PCM_TYPE_SOFTVOL
+    ) {
+        let type_name = unsafe {
+            std::ffi::CStr::from_ptr(snd_pcm_type_name(pcm_type))
+                .to_str()
+                .unwrap_or("unknown")
+        };
+        return Err(Error::new(
+            ErrorKind::RealtimeDenied,
+            format!("PCM type '{type_name}' is not safe for RT promotion"),
+        ));
+    }
+
     let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
     audio_thread_priority::promote_current_thread_to_real_time(period_frames, stream.sample_rate)
         .map_err(Error::from)
