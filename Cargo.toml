@@ -16,7 +16,7 @@ default = ["realtime-dbus"]
 # Promotes audio callback threads to real-time or high-priority scheduling for lower latency
 # Requires: (Linux/BSD) `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`)
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android
-realtime = ["dep:audio_thread_priority"]
+realtime = ["dep:audio_thread_priority", "dep:alsa-sys"]
 
 # D-Bus/rtkit support on top of `realtime` for RT scheduling on Linux/BSD desktop systems
 # Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
@@ -115,7 +115,7 @@ jack = { version = "0.13", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.11"
-alsa-sys = "0.4"
+alsa-sys = { version = "0.4", optional = true }
 libc = "0.2"
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 jack = { version = "0.13", optional = true }

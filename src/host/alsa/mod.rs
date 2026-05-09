@@ -3,6 +3,7 @@
 //! Default backend on Linux and BSD systems.
 
 extern crate alsa;
+#[cfg(feature = "realtime")]
 extern crate alsa_sys;
 extern crate libc;
 
@@ -997,6 +998,9 @@ fn boost_current_thread_priority(
     stream: &StreamInner,
 ) -> Result<audio_thread_priority::RtPriorityHandle, Error> {
     use alsa_sys::*;
+    // SAFETY: `alsa::pcm::PCM` is `pub struct PCM(*mut snd_pcm_t, Cell<bool>)`. The crate
+    // does not expose a public `as_ptr()`, but we can cast and read from it.
+    // TODO: replace with `stream.handle.as_ptr()` once alsa-rs exposes it publicly.
     let raw = unsafe {
         (&stream.handle as *const alsa::pcm::PCM)
             .cast::<*mut snd_pcm_t>()
@@ -1029,9 +1033,9 @@ fn boost_current_thread_priority(
                 .to_str()
                 .unwrap_or("unknown")
         };
-        return Err(Error::new(
+        return Err(Error::with_message(
             ErrorKind::RealtimeDenied,
-            format!("PCM type '{type_name}' is not safe for RT promotion"),
+            format!("PCM type '{type_name}' is not eligible for real-time promotion"),
         ));
     }
 
