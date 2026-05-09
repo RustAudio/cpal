@@ -344,6 +344,22 @@ pub enum BufferSize {
     Fixed(FrameCount),
 }
 
+/// Specifies whether audio signal processing should be applied to the stream.
+///
+/// On Windows, the audio stack applies default signal processing (e.g. echo cancellation,
+/// noise suppression, automatic gain control) to audio streams. Using the [`AudioProcessing::PreferRaw`]
+/// option allows applications to request that such processing be bypassed.
+///
+/// If raw streams are not supported (e.g. on older Windows versions), the default behavior
+/// will be used. This option has no effect on platforms that do not apply system audio processing
+/// or do not provide a way to bypass it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AudioProcessing {
+    #[default]
+    Default,
+    PreferRaw,
+}
+
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
     fn describe() {
@@ -387,6 +403,7 @@ pub struct StreamConfig {
     pub channels: ChannelCount,
     pub sample_rate: SampleRate,
     pub buffer_size: BufferSize,
+    pub audio_processing: AudioProcessing,
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
@@ -498,6 +515,7 @@ impl SupportedStreamConfig {
             channels: self.channels,
             sample_rate: self.sample_rate,
             buffer_size: BufferSize::Default,
+            audio_processing: AudioProcessing::Default,
         }
     }
 }
