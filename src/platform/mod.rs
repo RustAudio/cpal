@@ -147,6 +147,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform-specific [`Device`] implementation.
         #[doc(hidden)]
         #[derive(Clone)]
         #[allow(clippy::large_enum_variant)]
@@ -157,6 +158,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform-specific [`Devices`] implementation.
         #[doc(hidden)]
         pub enum DevicesInner {
             $(
@@ -165,6 +167,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform-specific [`Host`] implementation.
         #[doc(hidden)]
         pub enum HostInner {
             $(
@@ -173,6 +176,7 @@ macro_rules! impl_platform_host {
             )*
         }
 
+        /// Contains a platform-specific [`Stream`] implementation.
         #[doc(hidden)]
         pub enum StreamInner {
             $(
