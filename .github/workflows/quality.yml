@@ -113,6 +113,29 @@ jobs:
           CPAL_ASIO_DIR: ${{ runner.os == 'Windows' && format('{0}/asio', github.workspace) || '' }}
         run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
 
+  docs:
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu]
+    name: docs (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: --cfg docsrs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+
+      - name: Build docs
+        run: cargo doc --all-features --no-deps
+
   lints-nightly:
     strategy:
       fail-fast: false
