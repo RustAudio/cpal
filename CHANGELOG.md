@@ -121,6 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
 - Removed deprecated `DeviceTrait::name()`.
+- **ALSA**: `AlsaHost` is no longer re-exported from `cpal::platform`.
 - **Emscripten**: Removed broken host; use the WebAudio host instead.
 
 ### Fixed

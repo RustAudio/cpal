@@ -589,7 +589,8 @@ jobs:
     name: docs-${{ matrix.name }}
     runs-on: ubuntu-latest
     env:
-      RUSTDOCFLAGS: -D warnings
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
     steps:
       - uses: actions/checkout@v5
 
@@ -617,7 +618,8 @@ jobs:
     name: docs (asio-sys)
     runs-on: ubuntu-latest
     env:
-      RUSTDOCFLAGS: -D warnings
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
     steps:
       - uses: actions/checkout@v5
 
