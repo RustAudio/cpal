@@ -47,7 +47,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let playing = Arc::new(AtomicBool::new(true));
+        let playing = Arc::new(AtomicBool::new(false));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let input_process_handler = LocalProcessHandler::new(
@@ -98,7 +98,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let playing = Arc::new(AtomicBool::new(true));
+        let playing = Arc::new(AtomicBool::new(false));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let output_process_handler = LocalProcessHandler::new(
@@ -139,11 +139,8 @@ impl Stream {
     /// On error, connections that were made before the failure are rolled back on a best-effort
     /// basis so the JACK graph is left unchanged.
     pub fn connect_to_system_outputs(&mut self) -> Result<(), Error> {
-        let system_ports = self.async_client.as_client().ports(
-            Some("system:playback_.*"),
-            None,
-            jack::PortFlags::empty(),
-        );
+        let client = self.async_client.as_client();
+        let system_ports = client.ports(Some("system:playback_.*"), None, jack::PortFlags::empty());
 
         let n_our = self.output_port_names.len();
         let n_sys = system_ports.len();
@@ -160,18 +157,11 @@ impl Stream {
         for (i, (our_port, system_port)) in
             self.output_port_names.iter().zip(&system_ports).enumerate()
         {
-            if let Err(e) = self
-                .async_client
-                .as_client()
-                .connect_ports_by_name(our_port, system_port)
-            {
+            if let Err(e) = client.connect_ports_by_name(our_port, system_port) {
                 for (prev_our, prev_sys) in
                     self.output_port_names[..i].iter().zip(&system_ports[..i])
                 {
-                    let _ = self
-                        .async_client
-                        .as_client()
-                        .disconnect_ports_by_name(prev_our, prev_sys);
+                    let _ = client.disconnect_ports_by_name(prev_our, prev_sys);
                 }
 
                 return Err(Error::with_message(
@@ -195,11 +185,8 @@ impl Stream {
     /// On error, connections that were made before the failure are rolled back on a best-effort
     /// basis so the JACK graph is left unchanged.
     pub fn connect_to_system_inputs(&mut self) -> Result<(), Error> {
-        let system_ports = self.async_client.as_client().ports(
-            Some("system:capture_.*"),
-            None,
-            jack::PortFlags::empty(),
-        );
+        let client = self.async_client.as_client();
+        let system_ports = client.ports(Some("system:capture_.*"), None, jack::PortFlags::empty());
 
         let n_our = self.input_port_names.len();
         let n_sys = system_ports.len();
@@ -216,18 +203,11 @@ impl Stream {
         for (i, (system_port, our_port)) in
             system_ports.iter().zip(&self.input_port_names).enumerate()
         {
-            if let Err(e) = self
-                .async_client
-                .as_client()
-                .connect_ports_by_name(system_port, our_port)
-            {
+            if let Err(e) = client.connect_ports_by_name(system_port, our_port) {
                 for (prev_sys, prev_our) in
                     system_ports[..i].iter().zip(&self.input_port_names[..i])
                 {
-                    let _ = self
-                        .async_client
-                        .as_client()
-                        .disconnect_ports_by_name(prev_sys, prev_our);
+                    let _ = client.disconnect_ports_by_name(prev_sys, prev_our);
                 }
 
                 return Err(Error::with_message(
@@ -329,6 +309,10 @@ impl jack::ProcessHandler for LocalProcessHandler {
         client: &jack::Client,
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
+        if !self.playing.load(Ordering::Relaxed) {
+            return jack::Control::Continue;
+        }
+
         #[cfg(feature = "realtime")]
         {
             if !self.rt_checked {
@@ -394,10 +378,6 @@ impl jack::ProcessHandler for LocalProcessHandler {
                     self.rt_checked = true;
                 }
             }
-        }
-
-        if !self.playing.load(Ordering::Relaxed) {
-            return jack::Control::Continue;
         }
 
         // This should be equal to self.buffer_size, but the implementation will

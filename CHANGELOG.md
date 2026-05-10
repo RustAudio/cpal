@@ -90,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` on iOS when
   headphones are unplugged.
 - **CoreAudio**: User timeouts are now respected when building a stream.
+- **CoreAudio**: Streams no longer start automatically on creation; call `play()` manually.
 - **CoreAudio (iOS)**: `default_input_config()` and `default_output_config()` now prefer 48 kHz,
   then 44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
 - **JACK**: Timestamps now use the precise hardware deadline.
@@ -103,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   port-connection failures.
 - **JACK**: Stream error callback now receives `ErrorKind::RealtimeDenied` once if the process
   callback is not running at real-time scheduling priority.
+- **JACK**: Streams no longer start automatically on creation; call `play()` manually.
 - **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
   ALSA.
 - **WASAPI**: Raise `windows` dependency lower bound to 0.61.

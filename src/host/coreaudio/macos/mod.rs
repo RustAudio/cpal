@@ -247,14 +247,9 @@ impl DefaultOutputMonitor {
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
-    // Track the device with which the audio unit was spawned.
-    //
-    // We must do this so that we can avoid changing the device sample rate if there is already
-    // a stream associated with the device.
-    #[allow(dead_code)]
-    device_id: AudioDeviceID,
-    /// Manage the lifetime of the aggregate device used
-    /// for loopback recording
+    // Track the device with which the audio unit was spawned
+    _device_id: AudioDeviceID,
+    /// Manage the lifetime of the aggregate device used for loopback recording
     _loopback_device: Option<LoopbackDevice>,
 }
 

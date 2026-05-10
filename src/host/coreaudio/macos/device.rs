@@ -825,9 +825,9 @@ impl Device {
         audio_unit.initialize()?;
 
         let inner_arc = Arc::new(Mutex::new(StreamInner {
-            playing: true,
+            playing: false,
             audio_unit,
-            device_id: self.audio_device_id,
+            _device_id: self.audio_device_id,
             _loopback_device: loopback_aggregate,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
@@ -836,16 +836,7 @@ impl Device {
             weak_inner,
             error_callback_disconnect,
         )?);
-        let stream = Stream::new(inner_arc, monitor);
-
-        stream
-            .inner
-            .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
-            .audio_unit
-            .start()?;
-
-        Ok(stream)
+        Ok(Stream::new(inner_arc, monitor))
     }
 
     fn build_output_stream_raw<D, E>(
@@ -936,9 +927,9 @@ impl Device {
         audio_unit.initialize()?;
 
         let inner_arc = Arc::new(Mutex::new(StreamInner {
-            playing: true,
+            playing: false,
             audio_unit,
-            device_id: self.audio_device_id,
+            _device_id: self.audio_device_id,
             _loopback_device: None,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
@@ -951,16 +942,7 @@ impl Device {
                 error_callback,
             )?)
         };
-        let stream = Stream::new(inner_arc, monitor);
-
-        stream
-            .inner
-            .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
-            .audio_unit
-            .start()?;
-
-        Ok(stream)
+        Ok(Stream::new(inner_arc, monitor))
     }
 }
 
