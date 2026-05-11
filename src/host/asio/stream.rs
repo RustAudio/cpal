@@ -4,7 +4,7 @@ extern crate num_traits;
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     time::Duration,
 };
@@ -54,9 +54,7 @@ impl TimeBase {
 
 pub struct Stream {
     playing: Arc<AtomicBool>,
-    // Ensure the `Driver` does not terminate until the last stream is dropped.
     driver: Arc<sys::Driver>,
-    #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::BufferCallbackId,
     driver_event_callback_id: sys::DriverEventCallbackId,
@@ -159,14 +157,20 @@ impl Device {
                 .unwrap_or(0),
         ));
 
+        // `stream_ready` is signalled just before `Ok(stream)` so that any driver events fired
+        // during `driver.start()` are not delivered until the caller holds the handle.
+        let stream_ready: Arc<(Mutex<bool>, Condvar)> =
+            Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_playing = Arc::new(AtomicBool::new(false));
+
         let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_input_latency),
             true,
+            Arc::clone(&stream_ready),
         );
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
@@ -178,7 +182,7 @@ impl Device {
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
-            // If not playing return early.
+            // If not playing, return early.
             if !playing.load(Ordering::Acquire) {
                 return;
             }
@@ -403,6 +407,15 @@ impl Device {
 
         driver.start().map_err(build_stream_err)?;
 
+        // Signal the event callback that the Stream handle is about to be returned. Any driver
+        // events that fired during `driver.start()` will unblock and be delivered to the caller
+        // after this point.
+        {
+            let (lock, cvar) = &*stream_ready;
+            *lock.lock().unwrap() = true;
+            cvar.notify_all();
+        }
+
         Ok(Stream {
             playing: stream_playing,
             driver,
@@ -473,14 +486,20 @@ impl Device {
                 .unwrap_or(0),
         ));
 
+        // `stream_ready` is signalled just before `Ok(stream)` so that any driver events fired
+        // during `driver.start()` are not delivered until the caller holds the handle.
+        let stream_ready: Arc<(Mutex<bool>, Condvar)> =
+            Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_playing = Arc::new(AtomicBool::new(false));
+
         let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_output_latency),
             false,
+            Arc::clone(&stream_ready),
         );
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
         let playing = Arc::clone(&stream_playing);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
@@ -766,6 +785,15 @@ impl Device {
 
         driver.start().map_err(build_stream_err)?;
 
+        // Signal the event callback that the Stream handle is about to be returned. Any driver
+        // events that fired during `driver.start()` will unblock and be delivered to the caller
+        // after this point.
+        {
+            let (lock, cvar) = &*stream_ready;
+            *lock.lock().unwrap() = true;
+            cvar.notify_all();
+        }
+
         Ok(Stream {
             playing: stream_playing,
             driver,
@@ -868,6 +896,7 @@ impl Device {
         error_callback: E,
         hardware_latency: Arc<AtomicU32>,
         is_input: bool,
+        stream_ready: Arc<(Mutex<bool>, Condvar)>,
     ) -> sys::DriverEventCallbackId
     where
         E: FnMut(Error) + Send + 'static,
@@ -897,6 +926,13 @@ impl Device {
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
+                        // Block until the Stream handle has been returned to the caller.
+                        {
+                            let (lock, cvar) = &*stream_ready;
+                            let _guard = cvar
+                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                                .unwrap();
+                        }
                         error_callback_shared
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())(
@@ -908,6 +944,13 @@ impl Device {
                         false
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
+                        // Block until the Stream handle has been returned to the caller.
+                        {
+                            let (lock, cvar) = &*stream_ready;
+                            let _guard = cvar
+                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                                .unwrap();
+                        }
                         error_callback_shared
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())(
@@ -956,6 +999,13 @@ impl Device {
                         }
                     };
                     if should_notify {
+                        // Block until the Stream handle has been returned to the caller.
+                        {
+                            let (lock, cvar) = &*stream_ready;
+                            let _guard = cvar
+                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                                .unwrap();
+                        }
                         error_callback_shared
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())(

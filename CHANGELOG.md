@@ -158,6 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **ASIO**: Output buffers are now zero-filled before the callback runs.
 - **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
+- **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
