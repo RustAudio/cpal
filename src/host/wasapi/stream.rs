@@ -5,7 +5,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{channel, Receiver, SendError, Sender},
-        Arc,
+        Arc, Condvar, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -341,16 +341,20 @@ impl Stream {
             pending_scheduled_event,
         };
 
-        // The barrier prevents the worker from firing data callbacks before the caller has
-        // received the Stream handle. Without it, callbacks could arrive before the caller can
-        // pause, stop, or drop the stream.
-        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let ready_worker = ready.clone();
+        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
+        // fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_in".to_owned())
             .spawn(move || {
-                ready_worker.wait();
+                {
+                    let (lock, cvar) = &*stream_ready_worker;
+                    let _guard = cvar
+                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                        .unwrap();
+                }
                 run_input(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
@@ -369,7 +373,9 @@ impl Stream {
             _default_device_monitor: default_device_monitor,
         };
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
         Ok(stream)
     }
 
@@ -412,16 +418,20 @@ impl Stream {
             pending_scheduled_event,
         };
 
-        // The barrier prevents the worker from firing data callbacks before the caller has
-        // received the Stream handle. Without it, callbacks could arrive before the caller can
-        // pause, stop, or drop the stream.
-        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let ready_worker = ready.clone();
+        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
+        // fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_out".to_owned())
             .spawn(move || {
-                ready_worker.wait();
+                {
+                    let (lock, cvar) = &*stream_ready_worker;
+                    let _guard = cvar
+                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                        .unwrap();
+                }
                 run_output(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
@@ -440,7 +450,9 @@ impl Stream {
             _default_device_monitor: default_device_monitor,
         };
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
         Ok(stream)
     }
 

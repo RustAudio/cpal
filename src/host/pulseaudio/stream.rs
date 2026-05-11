@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{self, AtomicBool, AtomicU64},
-        Arc, Barrier, Condvar, Mutex, Ordering,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -243,13 +243,18 @@ impl Stream {
         let error_callback_clone = error_callback.clone();
         let cancel_driver = handle.cancel.clone();
 
-        // The barrier prevents the worker and latency threads from firing callbacks before the
-        // caller has received the Stream handle.
-        let ready = Arc::new(Barrier::new(3));
+        // `stream_ready` is signalled just before the `Stream` is returned so the driver and
+        // latency threads cannot fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
 
-        let ready_worker = ready.clone();
+        let stream_ready_driver = stream_ready.clone();
         let driver_handle = std::thread::spawn(move || {
-            ready_worker.wait();
+            {
+                let (lock, cvar) = &*stream_ready_driver;
+                let _guard = cvar
+                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                    .unwrap();
+            }
             if let Err(e) = block_on(stream_clone.play_all()) {
                 // A server playback error is expected when the client
                 // closes their stream. No need to report it back to
@@ -266,9 +271,14 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
 
-        let ready_latency = ready.clone();
+        let stream_ready_latency = stream_ready.clone();
         let latency_handle = std::thread::spawn(move || {
-            ready_latency.wait();
+            {
+                let (lock, cvar) = &*stream_ready_latency;
+                let _guard = cvar
+                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                    .unwrap();
+            }
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
                     break;
@@ -304,7 +314,9 @@ impl Stream {
             }
         });
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_all();
         Ok(Self {
             inner: StreamInner::Playback(stream, start, handle),
             workers: vec![driver_handle, latency_handle],
@@ -396,13 +408,18 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
 
-        // The barrier prevents the worker and latency threads from firing callbacks before the
-        // caller has received the Stream handle.
-        let ready = Arc::new(Barrier::new(2));
-        let ready_latency = ready.clone();
+        // `stream_ready` is signalled just before the `Stream` is returned so the latency thread
+        // cannot fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready_latency = stream_ready.clone();
 
         let latency_handle = std::thread::spawn(move || {
-            ready_latency.wait();
+            {
+                let (lock, cvar) = &*stream_ready_latency;
+                let _guard = cvar
+                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                    .unwrap();
+            }
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
                     break;
@@ -438,7 +455,9 @@ impl Stream {
             }
         });
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
         Ok(Self {
             inner: StreamInner::Record(stream, start, handle),
             workers: vec![latency_handle],

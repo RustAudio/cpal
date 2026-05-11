@@ -9,7 +9,7 @@ use std::{
     cmp,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -1265,16 +1265,20 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // The barrier prevents the worker from firing data callbacks before the caller has
-        // received the Stream handle. Without it, callbacks could arrive before the caller can
-        // pause, stop, or drop the stream.
-        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let ready_worker = ready.clone();
+        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
+        // fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                ready_worker.wait();
+                {
+                    let (lock, cvar) = &*stream_ready_worker;
+                    let _guard = cvar
+                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                        .unwrap();
+                }
                 input_stream_worker(
                     rx_thread,
                     &stream,
@@ -1291,7 +1295,9 @@ impl Stream {
             _rx: rx,
         };
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
         stream
     }
 
@@ -1309,16 +1315,20 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // The barrier prevents the worker from firing data callbacks before the caller has
-        // received the Stream handle. Without it, callbacks could arrive before the caller can
-        // pause, stop, or drop the stream.
-        let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let ready_worker = ready.clone();
+        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
+        // fire any callbacks before the caller has the handle.
+        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                ready_worker.wait();
+                {
+                    let (lock, cvar) = &*stream_ready_worker;
+                    let _guard = cvar
+                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                        .unwrap();
+                }
                 output_stream_worker(
                     rx_thread,
                     &stream,
@@ -1336,7 +1346,9 @@ impl Stream {
             _rx: rx,
         };
 
-        ready.wait();
+        let (lock, cvar) = &*stream_ready;
+        *lock.lock().unwrap() = true;
+        cvar.notify_one();
         stream
     }
 }
