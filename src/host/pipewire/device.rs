@@ -437,7 +437,7 @@ impl DeviceTrait for Device {
 
                 #[cfg(feature = "realtime")]
                 if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum as u32,
+                    device.quantum,
                     device.rate,
                 ) {
                     emit_error(&error_callback, Error::from(e));
@@ -608,7 +608,7 @@ impl DeviceTrait for Device {
 
                 #[cfg(feature = "realtime")]
                 if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum as u32,
+                    device.quantum,
                     device.rate,
                 ) {
                     emit_error(&error_callback, Error::from(e));
