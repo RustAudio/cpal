@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Condvar, Mutex,
     },
     thread,
     time::Duration,
@@ -320,6 +320,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
+        let ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let ready_worker = ready.clone();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -349,7 +351,7 @@ impl DeviceTrait for Device {
                     Ok(d) => d,
                     Err(e) => {
                         let _ = init_tx.send(Err(Error::with_message(
-                            ErrorKind::DeviceNotAvailable,
+                            ErrorKind::UnsupportedConfig,
                             format!("PipeWire stream connection failed: {e}"),
                         )));
                         return;
@@ -419,13 +421,20 @@ impl DeviceTrait for Device {
                     }
                 });
 
-                // All synchronous setup is complete. Signal the main thread.
                 if init_tx.send(Ok(())).is_err() {
-                    // Main thread timed out and dropped init_rx; exit cleanly.
                     return;
                 }
 
-                // RT priority promotion runs after the signal so it doesn't block stream creation.
+                // Wait until the caller has received the Stream handle before running the mainloop
+                // or invoking any callbacks.
+                {
+                    let (lock, cvar) = &*ready_worker;
+                    let mut started = lock.lock().unwrap();
+                    while !*started {
+                        started = cvar.wait(started).unwrap();
+                    }
+                }
+
                 #[cfg(feature = "realtime")]
                 if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
                     device.quantum as u32,
@@ -456,12 +465,15 @@ impl DeviceTrait for Device {
             ))
         })?;
 
-        Ok(Stream {
+        let stream = Stream {
             handle: Some(handle),
             controller: pw_play_tx,
             last_quantum,
             start,
-        })
+        };
+        *ready.0.lock().unwrap() = true;
+        ready.1.notify_one();
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -479,6 +491,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
+        let ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let ready_worker = ready.clone();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -508,7 +522,7 @@ impl DeviceTrait for Device {
                     Ok(d) => d,
                     Err(e) => {
                         let _ = init_tx.send(Err(Error::with_message(
-                            ErrorKind::DeviceNotAvailable,
+                            ErrorKind::UnsupportedConfig,
                             format!("PipeWire stream connection failed: {e}"),
                         )));
                         return;
@@ -578,13 +592,20 @@ impl DeviceTrait for Device {
                     }
                 });
 
-                // All synchronous setup is complete. Signal the main thread.
                 if init_tx.send(Ok(())).is_err() {
-                    // Main thread timed out and dropped init_rx; exit cleanly.
                     return;
                 }
 
-                // RT priority promotion runs after the signal so it doesn't block stream creation.
+                // Wait until the caller has received the Stream handle before running the mainloop
+                // or invoking any callbacks.
+                {
+                    let (lock, cvar) = &*ready_worker;
+                    let mut started = lock.lock().unwrap();
+                    while !*started {
+                        started = cvar.wait(started).unwrap();
+                    }
+                }
+
                 #[cfg(feature = "realtime")]
                 if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
                     device.quantum as u32,
@@ -606,6 +627,7 @@ impl DeviceTrait for Device {
                     format!("failed to create thread: {e}"),
                 )
             })?;
+
         init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
             Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
@@ -613,12 +635,15 @@ impl DeviceTrait for Device {
             ))
         })?;
 
-        Ok(Stream {
+        let stream = Stream {
             handle: Some(handle),
             controller: pw_play_tx,
             last_quantum,
             start,
-        })
+        };
+        *ready.0.lock().unwrap() = true;
+        ready.1.notify_one();
+        Ok(stream)
     }
 }
 
