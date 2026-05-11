@@ -160,6 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
 - **CoreAudio**: Fix loopback aggregate device UID collisions between concurrent instances and after crashes.
+- **CoreAudio**: Fix loopback capture returning silence due to disabled tap auto-start.
 - **CoreAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of 
   panicking.
 - **CoreAudio**: Fix crashes on certain drivers due to early initialization.

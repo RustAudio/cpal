@@ -180,9 +180,7 @@ fn to_cfstring(cstr: &'static CStr) -> CFRetained<CFString> {
 ///     @kAudioAggregateDeviceUIDKey :
 ///         @"com.josephlyncheski.MiniMetersAggregateDevice",
 ///     @kAudioAggregateDeviceTapListKey : taps,
-///     @kAudioAggregateDeviceTapAutoStartKey : @NO,
-///     // If we set this to NO then I believe we need to make the Tap public as
-///     // well.
+///     @kAudioAggregateDeviceTapAutoStartKey : @YES,
 ///     @kAudioAggregateDeviceIsPrivateKey : @YES,
 /// };
 /// ```
@@ -250,7 +248,7 @@ pub fn create_audio_aggregate_device_properties(
         CFMutableDictionary::set_value(
             Some(dict.as_ref()),
             &*to_cfstring(kAudioAggregateDeviceTapAutoStartKey) as *const _ as *const c_void,
-            &*NSNumber::initWithBool(NSNumber::alloc(), false) as *const _ as *const c_void,
+            &*NSNumber::initWithBool(NSNumber::alloc(), true) as *const _ as *const c_void,
         );
         CFMutableDictionary::set_value(
             Some(dict.as_ref()),
