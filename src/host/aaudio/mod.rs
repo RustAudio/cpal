@@ -327,8 +327,7 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
 
-    // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
-    // before the Stream handle is returned to the caller.
+    // RT check: performed on the audio thread once per stream.
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
     #[cfg(feature = "realtime")]
@@ -408,8 +407,7 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
 
-    // RT check: run once on the first callback invocation to avoid delivering RealtimeDenied
-    // before the Stream handle is returned to the caller.
+    // RT check: performed on the audio thread once per stream.
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
     #[cfg(feature = "realtime")]

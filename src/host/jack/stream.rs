@@ -12,7 +12,6 @@ use crate::{
 };
 
 pub struct Stream {
-    // TODO: It might be faster to send a message when playing/pausing than to check this every iteration
     playing: Arc<AtomicBool>,
     async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
