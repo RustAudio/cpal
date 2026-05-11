@@ -626,6 +626,7 @@ where
             if n_channels == 0 {
                 return; // format not yet negotiated by param_changed
             }
+
             if let Some(mut buffer) = stream.dequeue_buffer() {
                 // Read the requested frame count before mutably borrowing datas_mut().
                 let requested = buffer.requested() as usize;
@@ -685,7 +686,7 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The mainloop thread is promoted to RT by the caller (device.rs) before mainloop.run().
+    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
     let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
 
     stream.connect(pw::spa::utils::Direction::Output, None, flags, &mut params)?;
@@ -858,6 +859,7 @@ where
             if n_channels == 0 {
                 return; // format not yet negotiated by param_changed
             }
+
             if let Some(mut buffer) = stream.dequeue_buffer() {
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
@@ -899,7 +901,7 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The mainloop thread is promoted to RT by the caller (device.rs) before mainloop.run().
+    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
     let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
 
     stream.connect(pw::spa::utils::Direction::Input, None, flags, &mut params)?;
