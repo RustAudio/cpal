@@ -405,7 +405,12 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        driver.start().map_err(build_stream_err)?;
+        if let Err(e) = driver.start() {
+            // Remove the callbacks to avoid leaking them.
+            driver.remove_event_callback(driver_event_callback_id);
+            driver.remove_callback(callback_id);
+            return Err(build_stream_err(e));
+        }
 
         // Signal the event callback that the Stream handle is about to be returned. Any driver
         // events that fired during `driver.start()` will unblock and be delivered to the caller
@@ -783,7 +788,12 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        driver.start().map_err(build_stream_err)?;
+        if let Err(e) = driver.start() {
+            // Remove the callbacks to avoid leaking them.
+            driver.remove_event_callback(driver_event_callback_id);
+            driver.remove_callback(callback_id);
+            return Err(build_stream_err(e));
+        }
 
         // Signal the event callback that the Stream handle is about to be returned. Any driver
         // events that fired during `driver.start()` will unblock and be delivered to the caller

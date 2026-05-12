@@ -188,11 +188,9 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        audio_unit.start()?;
-
         Ok(Stream::new(
             StreamInner {
-                playing: true,
+                playing: false,
                 audio_unit,
             },
             session_manager,
@@ -233,11 +231,9 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        audio_unit.start()?;
-
         Ok(Stream::new(
             StreamInner {
-                playing: true,
+                playing: false,
                 audio_unit,
             },
             session_manager,
