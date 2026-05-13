@@ -309,6 +309,10 @@ impl jack::ProcessHandler for LocalProcessHandler {
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
         if !self.playing.load(Ordering::Relaxed) {
+            // JACK does not zero-fill output port buffers before calling the process handler
+            for port in &mut self.out_ports {
+                port.as_mut_slice(process_scope).fill(f32::EQUILIBRIUM);
+            }
             return jack::Control::Continue;
         }
 

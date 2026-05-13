@@ -190,7 +190,7 @@ impl Device {
             Arc::clone(&hardware_input_latency),
             true,
             Arc::clone(&state),
-        );
+        )?;
 
         let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
@@ -427,8 +427,6 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
 
         if let Err(e) = driver.start() {
-            // `started` was never set, so the timer thread has received nothing and will
-            // exit cleanly once the event callback closure is dropped below.
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
             return Err(build_stream_err(e));
@@ -512,7 +510,7 @@ impl Device {
             Arc::clone(&hardware_output_latency),
             false,
             Arc::clone(&state),
-        );
+        )?;
 
         let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
@@ -798,8 +796,6 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
 
         if let Err(e) = driver.start() {
-            // `started` was never set, so the timer thread has received nothing and will
-            // exit cleanly once the event callback closure is dropped below.
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
             return Err(build_stream_err(e));
@@ -909,7 +905,7 @@ impl Device {
         hardware_latency: Arc<AtomicU32>,
         is_input: bool,
         state: Arc<AtomicU8>,
-    ) -> sys::DriverEventCallbackId
+    ) -> Result<sys::DriverEventCallbackId, Error>
     where
         E: FnMut(Error) + Send + 'static,
     {
@@ -929,7 +925,7 @@ impl Device {
         // event callback closure is removed during stream teardown.
         let (timer_tx, timer_rx) = mpsc::channel::<Error>();
         let error_cb_for_timer = Arc::clone(&error_callback_shared);
-        let _ = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("cpal-asio-event-timer".into())
             .spawn(move || {
                 let mut pending: Option<Error> = None;
@@ -956,9 +952,15 @@ impl Device {
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
-            });
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to spawn ASIO event timer thread: {e}"),
+                )
+            })?;
 
-        driver.add_event_callback(move |event| {
+        Ok(driver.add_event_callback(move |event| {
             match event {
                 sys::AsioDriverEvent::Message {
                     selector: msg,
@@ -994,7 +996,7 @@ impl Device {
                         true
                     }
                     sys::AsioMessageSelectors::kAsioOverload => {
-                        if StreamState::load(&state) != StreamState::Idle {
+                        if StreamState::load(&state) == StreamState::Playing {
                             error_callback_shared
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())(
@@ -1040,18 +1042,16 @@ impl Device {
                             true
                         }
                     };
-                    if should_notify {
-                        if StreamState::load(&state) != StreamState::Idle {
-                            let _ = timer_tx.send(Error::with_message(
-                                ErrorKind::StreamInvalidated,
-                                format!("ASIO driver changed sample rate to {new_rate} Hz"),
-                            ));
-                        }
+                    if should_notify && StreamState::load(&state) != StreamState::Idle {
+                        let _ = timer_tx.send(Error::with_message(
+                            ErrorKind::StreamInvalidated,
+                            format!("ASIO driver changed sample rate to {new_rate} Hz"),
+                        ));
                     }
                     false
                 }
             }
-        })
+        }))
     }
 }
 

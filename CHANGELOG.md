@@ -73,7 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
 - **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` on
   `kAsioResyncRequest`.
-  per the ASIO spec this event requires a full device reinitialisation, not merely an xrun.
 - **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` when the driver
   reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.

@@ -426,12 +426,15 @@ impl DeviceTrait for Device {
                 }
 
                 // Wait until the caller has received the Stream handle before running the mainloop
-                // or invoking any callbacks.
+                // or invoking any callbacks. Use a timeout so that if the caller's recv_timeout
+                // races and returns early (without signalling us), this thread does not block forever.
                 {
                     let (lock, cvar) = &*ready_worker;
-                    let mut started = lock.lock().unwrap();
-                    while !*started {
-                        started = cvar.wait(started).unwrap();
+                    let (started, _) = cvar
+                        .wait_timeout_while(lock.lock().unwrap(), wait_timeout, |s| !*s)
+                        .unwrap();
+                    if !*started {
+                        return;
                     }
                 }
 
@@ -597,12 +600,15 @@ impl DeviceTrait for Device {
                 }
 
                 // Wait until the caller has received the Stream handle before running the mainloop
-                // or invoking any callbacks.
+                // or invoking any callbacks. Use a timeout so that if the caller's recv_timeout
+                // races and returns early, this thread does not block forever.
                 {
                     let (lock, cvar) = &*ready_worker;
-                    let mut started = lock.lock().unwrap();
-                    while !*started {
-                        started = cvar.wait(started).unwrap();
+                    let (started, _) = cvar
+                        .wait_timeout_while(lock.lock().unwrap(), wait_timeout, |s| !*s)
+                        .unwrap();
+                    if !*started {
+                        return;
                     }
                 }
 
