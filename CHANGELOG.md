@@ -71,7 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
-- **ASIO**: Stream error callback now receives `ErrorKind::Xrun` on `kAsioResyncRequest`.
+- **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` on
+  `kAsioResyncRequest`.
+  per the ASIO spec this event requires a full device reinitialisation, not merely an xrun.
 - **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` when the driver
   reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
@@ -159,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Output buffers are now zero-filled before the callback runs.
 - **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
 - **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
+- **ASIO**: Fix overrun not being reported when the driver reports `kAsioOverload`.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.

@@ -3,8 +3,8 @@ extern crate num_traits;
 
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-        Arc, Condvar, Mutex,
+        atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering},
+        mpsc, Arc, Mutex,
     },
     time::Duration,
 };
@@ -52,8 +52,34 @@ impl TimeBase {
     }
 }
 
+/// Matches the `startTimer(500)` call JUCE uses for debouncing ASIO driver event notifications.
+const ASIO_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+enum StreamState {
+    #[default]
+    Idle = 0,
+    Paused = 1,
+    Playing = 2,
+}
+
+impl StreamState {
+    fn load(atom: &AtomicU8) -> Self {
+        match atom.load(Ordering::Acquire) {
+            1 => StreamState::Paused,
+            2 => StreamState::Playing,
+            _ => StreamState::Idle,
+        }
+    }
+
+    fn store(atom: &AtomicU8, state: StreamState) {
+        atom.store(state as u8, Ordering::Release);
+    }
+}
+
 pub struct Stream {
-    playing: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
     driver: Arc<sys::Driver>,
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::BufferCallbackId,
@@ -75,12 +101,12 @@ impl Stream {
     }
 
     pub fn play(&self) -> Result<(), Error> {
-        self.playing.store(true, Ordering::Release);
+        StreamState::store(&self.state, StreamState::Playing);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), Error> {
-        self.playing.store(false, Ordering::Release);
+        StreamState::store(&self.state, StreamState::Paused);
         Ok(())
     }
 
@@ -157,21 +183,16 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        // `stream_ready` is signalled just before `Ok(stream)` so that any driver events fired
-        // during `driver.start()` are not delivered until the caller holds the handle.
-        let stream_ready: Arc<(Mutex<bool>, Condvar)> =
-            Arc::new((Mutex::new(false), Condvar::new()));
-        let stream_playing = Arc::new(AtomicBool::new(false));
-
+        let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
         let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_input_latency),
             true,
-            Arc::clone(&stream_ready),
+            Arc::clone(&state),
         );
 
-        let playing = Arc::clone(&stream_playing);
+        let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
@@ -183,7 +204,7 @@ impl Device {
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if !playing.load(Ordering::Acquire) {
+            if StreamState::load(&state_cb) != StreamState::Playing {
                 return;
             }
 
@@ -406,23 +427,16 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
 
         if let Err(e) = driver.start() {
-            // Remove the callbacks to avoid leaking them.
+            // `started` was never set, so the timer thread has received nothing and will
+            // exit cleanly once the event callback closure is dropped below.
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
             return Err(build_stream_err(e));
         }
 
-        // Signal the event callback that the Stream handle is about to be returned. Any driver
-        // events that fired during `driver.start()` will unblock and be delivered to the caller
-        // after this point.
-        {
-            let (lock, cvar) = &*stream_ready;
-            *lock.lock().unwrap() = true;
-            cvar.notify_all();
-        }
-
+        StreamState::store(&state, StreamState::Paused);
         Ok(Stream {
-            playing: stream_playing,
+            state,
             driver,
             asio_streams,
             callback_id,
@@ -491,21 +505,16 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        // `stream_ready` is signalled just before `Ok(stream)` so that any driver events fired
-        // during `driver.start()` are not delivered until the caller holds the handle.
-        let stream_ready: Arc<(Mutex<bool>, Condvar)> =
-            Arc::new((Mutex::new(false), Condvar::new()));
-        let stream_playing = Arc::new(AtomicBool::new(false));
-
+        let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
         let driver_event_callback_id = self.add_event_callback(
             &driver,
             error_callback,
             Arc::clone(&hardware_output_latency),
             false,
-            Arc::clone(&stream_ready),
+            Arc::clone(&state),
         );
 
-        let playing = Arc::clone(&stream_playing);
+        let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
@@ -515,7 +524,7 @@ impl Device {
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if !playing.load(Ordering::Acquire) {
+            if StreamState::load(&state_cb) != StreamState::Playing {
                 return;
             }
 
@@ -789,23 +798,16 @@ impl Device {
         let asio_streams = self.asio_streams.clone();
 
         if let Err(e) = driver.start() {
-            // Remove the callbacks to avoid leaking them.
+            // `started` was never set, so the timer thread has received nothing and will
+            // exit cleanly once the event callback closure is dropped below.
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
             return Err(build_stream_err(e));
         }
 
-        // Signal the event callback that the Stream handle is about to be returned. Any driver
-        // events that fired during `driver.start()` will unblock and be delivered to the caller
-        // after this point.
-        {
-            let (lock, cvar) = &*stream_ready;
-            *lock.lock().unwrap() = true;
-            cvar.notify_all();
-        }
-
+        StreamState::store(&state, StreamState::Paused);
         Ok(Stream {
-            playing: stream_playing,
+            state,
             driver,
             asio_streams,
             callback_id,
@@ -906,7 +908,7 @@ impl Device {
         error_callback: E,
         hardware_latency: Arc<AtomicU32>,
         is_input: bool,
-        stream_ready: Arc<(Mutex<bool>, Condvar)>,
+        state: Arc<AtomicU8>,
     ) -> sys::DriverEventCallbackId
     where
         E: FnMut(Error) + Send + 'static,
@@ -922,6 +924,40 @@ impl Device {
         let driver_for_latency = driver.clone();
         let asio_streams_for_event = self.asio_streams.clone();
 
+        // Debounce timer: wait for ASIO_EVENT_DEBOUNCE of silence after the most recent event
+        // before delivering to the user. Exits when `timer_tx` is dropped, which happens when the
+        // event callback closure is removed during stream teardown.
+        let (timer_tx, timer_rx) = mpsc::channel::<Error>();
+        let error_cb_for_timer = Arc::clone(&error_callback_shared);
+        let _ = std::thread::Builder::new()
+            .name("cpal-asio-event-timer".into())
+            .spawn(move || {
+                let mut pending: Option<Error> = None;
+                loop {
+                    // Use recv() when idle (no timeout needed) so we don't spin.
+                    let result = if pending.is_some() {
+                        timer_rx.recv_timeout(ASIO_EVENT_DEBOUNCE)
+                    } else {
+                        timer_rx
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                    };
+                    match result {
+                        Ok(err) => {
+                            // New event; restart the grace window.
+                            pending = Some(err);
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // Grace period elapsed with no new events: now deliver.
+                            if let Some(err) = pending.take() {
+                                error_cb_for_timer.lock().unwrap_or_else(|e| e.into_inner())(err);
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+            });
+
         driver.add_event_callback(move |event| {
             match event {
                 sys::AsioDriverEvent::Message {
@@ -933,43 +969,39 @@ impl Device {
                         matches!(
                             sys::AsioMessageSelectors::from_i64(value as i64),
                             Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
+                                | Some(sys::AsioMessageSelectors::kAsioOverload)
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
-                        // Block until the Stream handle has been returned to the caller.
-                        {
-                            let (lock, cvar) = &*stream_ready;
-                            let _guard = cvar
-                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                                .unwrap();
-                        }
-                        error_callback_shared
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            Error::with_message(
+                        if StreamState::load(&state) != StreamState::Idle {
+                            let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "ASIO driver requested stream reset",
-                            ),
-                        );
-                        false
+                            ));
+                        }
+                        true
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
-                        // Block until the Stream handle has been returned to the caller.
-                        {
-                            let (lock, cvar) = &*stream_ready;
-                            let _guard = cvar
-                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                                .unwrap();
+                        // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
+                        // means the driver needs a full stop/reinit/start. It is *not* a simple
+                        // xrun notification.
+                        if StreamState::load(&state) != StreamState::Idle {
+                            let _ = timer_tx.send(Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "ASIO driver requested stream resynchronization",
+                            ));
                         }
-                        error_callback_shared
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            Error::with_message(
-                                ErrorKind::Xrun,
-                                "ASIO driver requested resynchronization",
-                            ),
-                        );
-                        false
+                        true
+                    }
+                    sys::AsioMessageSelectors::kAsioOverload => {
+                        if StreamState::load(&state) != StreamState::Idle {
+                            error_callback_shared
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())(
+                                Error::new(ErrorKind::Xrun)
+                            );
+                        }
+                        true
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
                         if let Ok(latencies) = driver_for_latency.latencies() {
@@ -1009,21 +1041,12 @@ impl Device {
                         }
                     };
                     if should_notify {
-                        // Block until the Stream handle has been returned to the caller.
-                        {
-                            let (lock, cvar) = &*stream_ready;
-                            let _guard = cvar
-                                .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                                .unwrap();
-                        }
-                        error_callback_shared
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            Error::with_message(
+                        if StreamState::load(&state) != StreamState::Idle {
+                            let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 format!("ASIO driver changed sample rate to {new_rate} Hz"),
-                            ),
-                        );
+                            ));
+                        }
                     }
                     false
                 }
