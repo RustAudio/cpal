@@ -57,6 +57,7 @@ enum StreamInner {
 pub struct Stream {
     inner: StreamInner,
     workers: Vec<std::thread::JoinHandle<()>>,
+    ready: Arc<AtomicBool>,
 }
 
 impl Drop for Stream {
@@ -74,6 +75,10 @@ impl Drop for Stream {
                 handle.cancel();
             }
         }
+
+        // Unpark the threads in case they're sleeping.
+        self.wake_workers();
+
         for handle in self.workers.drain(..) {
             // Prevent self-join: a worker thread may surface an error
             // through the user's error_callback, and that callback may
@@ -245,15 +250,12 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the driver and
         // latency threads cannot fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
-
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_driver = stream_ready.clone();
+
         let driver_handle = std::thread::spawn(move || {
-            {
-                let (lock, cvar) = &*stream_ready_driver;
-                let _guard = cvar
-                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                    .unwrap();
+            while !stream_ready_driver.load(Ordering::Acquire) {
+                std::thread::park();
             }
             if let Err(e) = block_on(stream_clone.play_all()) {
                 // A server playback error is expected when the client
@@ -273,11 +275,8 @@ impl Stream {
 
         let stream_ready_latency = stream_ready.clone();
         let latency_handle = std::thread::spawn(move || {
-            {
-                let (lock, cvar) = &*stream_ready_latency;
-                let _guard = cvar
-                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                    .unwrap();
+            while !stream_ready_latency.load(Ordering::Acquire) {
+                std::thread::park();
             }
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
@@ -314,12 +313,10 @@ impl Stream {
             }
         });
 
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_all();
         Ok(Self {
             inner: StreamInner::Playback(stream, start, handle),
             workers: vec![driver_handle, latency_handle],
+            ready: stream_ready,
         })
     }
 
@@ -410,15 +407,12 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the latency thread
         // cannot fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_latency = stream_ready.clone();
 
         let latency_handle = std::thread::spawn(move || {
-            {
-                let (lock, cvar) = &*stream_ready_latency;
-                let _guard = cvar
-                    .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                    .unwrap();
+            while !stream_ready_latency.load(Ordering::Acquire) {
+                std::thread::park();
             }
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
@@ -455,13 +449,18 @@ impl Stream {
             }
         });
 
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
         Ok(Self {
             inner: StreamInner::Record(stream, start, handle),
             workers: vec![latency_handle],
+            ready: stream_ready,
         })
+    }
+
+    pub(crate) fn wake_workers(&self) {
+        self.ready.store(true, Ordering::Release);
+        for handle in &self.workers {
+            handle.thread().unpark();
+        }
     }
 }
 

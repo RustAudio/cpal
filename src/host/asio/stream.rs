@@ -975,6 +975,8 @@ impl Device {
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
+                        // Guard on Idle: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.) fire
+                        // spurious reset/resync requests during as driver.start().
                         if StreamState::load(&state) != StreamState::Idle {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,

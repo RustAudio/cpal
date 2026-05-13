@@ -338,7 +338,7 @@ impl DeviceTrait for Device {
         };
 
         let client = client.clone();
-        if let Some(dur) = timeout {
+        let stream = if let Some(dur) = timeout {
             // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
             // is hung, `create_record_stream` would block forever.
             let (tx, rx) = std::sync::mpsc::channel();
@@ -360,7 +360,9 @@ impl DeviceTrait for Device {
             }
         } else {
             stream::Stream::new_record(client, params, data_callback, error_callback)
-        }
+        }?;
+        stream.wake_workers();
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -411,7 +413,7 @@ impl DeviceTrait for Device {
         };
 
         let client = client.clone();
-        if let Some(dur) = timeout {
+        let stream = if let Some(dur) = timeout {
             // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
             // is hung, `create_playback_stream` would block forever.
             let (tx, rx) = std::sync::mpsc::channel();
@@ -433,7 +435,9 @@ impl DeviceTrait for Device {
             }
         } else {
             stream::Stream::new_playback(client, params, data_callback, error_callback)
-        }
+        }?;
+        stream.wake_workers();
+        Ok(stream)
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
