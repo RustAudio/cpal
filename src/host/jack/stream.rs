@@ -84,7 +84,11 @@ impl Stream {
             error_callback_ptr.clone(),
         );
 
-        let notification_handler = JackNotificationHandler::new(error_callback_ptr, state.clone());
+        let notification_handler = JackNotificationHandler::new(
+            error_callback_ptr,
+            state.clone(),
+            client.sample_rate() as jack::Frames,
+        );
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
@@ -136,7 +140,11 @@ impl Stream {
             error_callback_ptr.clone(),
         );
 
-        let notification_handler = JackNotificationHandler::new(error_callback_ptr, state.clone());
+        let notification_handler = JackNotificationHandler::new(
+            error_callback_ptr,
+            state.clone(),
+            client.sample_rate() as jack::Frames,
+        );
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
@@ -515,16 +523,20 @@ fn micros_to_stream_instant(micros: u64) -> StreamInstant {
 /// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
 struct JackNotificationHandler {
     error_callback_ptr: ErrorCallbackArc,
-    /// Shared with `Stream` and `LocalProcessHandler`. Errors are suppressed while
-    /// the state is `Initializing` (i.e. before the constructor has returned).
     state: Arc<AtomicU8>,
+    configured_sample_rate: jack::Frames,
 }
 
 impl JackNotificationHandler {
-    pub fn new(error_callback_ptr: ErrorCallbackArc, state: Arc<AtomicU8>) -> Self {
+    pub fn new(
+        error_callback_ptr: ErrorCallbackArc,
+        state: Arc<AtomicU8>,
+        configured_sample_rate: jack::Frames,
+    ) -> Self {
         JackNotificationHandler {
             error_callback_ptr,
             state,
+            configured_sample_rate,
         }
     }
 }
@@ -544,12 +556,10 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Initializing {
+        if srate == self.configured_sample_rate {
             // One of these notifications is sent every time a client is started.
             return jack::Control::Continue;
         }
-        // The JACK server has changed the sample rate, invalidating this stream.
-        // The stream configuration must be rebuilt with the new sample rate.
         emit_error(
             &self.error_callback_ptr,
             Error::with_message(

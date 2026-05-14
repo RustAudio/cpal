@@ -184,13 +184,21 @@ impl Device {
         ));
 
         let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
-        let driver_event_callback_id = self.add_event_callback(
-            &driver,
-            error_callback,
-            Arc::clone(&hardware_input_latency),
-            true,
-            Arc::clone(&state),
-        )?;
+        let driver_event_callback_id = self
+            .add_event_callback(
+                &driver,
+                error_callback,
+                Arc::clone(&hardware_input_latency),
+                true,
+                Arc::clone(&state),
+            )
+            .map_err(|e| {
+                // Roll back the input stream stored by get_or_create_input_stream.
+                if let Ok(mut streams) = self.asio_streams.lock() {
+                    streams.input = None;
+                }
+                e
+            })?;
 
         let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
@@ -504,13 +512,21 @@ impl Device {
         ));
 
         let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
-        let driver_event_callback_id = self.add_event_callback(
-            &driver,
-            error_callback,
-            Arc::clone(&hardware_output_latency),
-            false,
-            Arc::clone(&state),
-        )?;
+        let driver_event_callback_id = self
+            .add_event_callback(
+                &driver,
+                error_callback,
+                Arc::clone(&hardware_output_latency),
+                false,
+                Arc::clone(&state),
+            )
+            .map_err(|e| {
+                // Roll back the output stream stored by get_or_create_output_stream.
+                if let Ok(mut streams) = self.asio_streams.lock() {
+                    streams.output = None;
+                }
+                e
+            })?;
 
         let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
