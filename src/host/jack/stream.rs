@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicU8, Ordering},
     Arc, Mutex,
 };
 
@@ -11,8 +11,31 @@ use crate::{
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, Sample, SampleRate, StreamInstant,
 };
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+enum StreamState {
+    #[default]
+    Initializing = 0,
+    Paused = 1,
+    Playing = 2,
+}
+
+impl StreamState {
+    fn load(atom: &AtomicU8, order: Ordering) -> Self {
+        match atom.load(order) {
+            1 => Self::Paused,
+            2 => Self::Playing,
+            _ => Self::Initializing,
+        }
+    }
+
+    fn store(self, atom: &AtomicU8, order: Ordering) {
+        atom.store(self as u8, order);
+    }
+}
+
 pub struct Stream {
-    playing: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
     async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
     input_port_names: Vec<String>,
@@ -46,7 +69,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let playing = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(AtomicU8::new(StreamState::Initializing as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let input_process_handler = LocalProcessHandler::new(
@@ -56,19 +79,20 @@ impl Stream {
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
-            playing.clone(),
+            state.clone(),
             #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
-        let notification_handler = JackNotificationHandler::new(error_callback_ptr);
+        let notification_handler = JackNotificationHandler::new(error_callback_ptr, state.clone());
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
             .context("failed to activate JACK client")?;
 
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Self {
-            playing,
+            state,
             async_client,
             input_port_names: port_names,
             output_port_names: vec![],
@@ -97,7 +121,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let playing = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(AtomicU8::new(StreamState::Initializing as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let output_process_handler = LocalProcessHandler::new(
@@ -107,19 +131,20 @@ impl Stream {
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),
-            playing.clone(),
+            state.clone(),
             #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
-        let notification_handler = JackNotificationHandler::new(error_callback_ptr);
+        let notification_handler = JackNotificationHandler::new(error_callback_ptr, state.clone());
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
             .context("failed to activate JACK client")?;
 
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Self {
-            playing,
+            state,
             async_client,
             input_port_names: vec![],
             output_port_names: port_names,
@@ -221,12 +246,12 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        self.playing.store(true, Ordering::Relaxed);
+        StreamState::Playing.store(&self.state, Ordering::Relaxed);
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        self.playing.store(false, Ordering::Relaxed);
+        StreamState::Paused.store(&self.state, Ordering::Relaxed);
         Ok(())
     }
 
@@ -255,7 +280,7 @@ struct LocalProcessHandler {
     // JACK audio samples are 32-bit float (unless you do some custom dark magic)
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
-    playing: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
     #[cfg(feature = "realtime")]
     error_callback: ErrorCallbackArc,
     #[cfg(feature = "realtime")]
@@ -271,7 +296,7 @@ impl LocalProcessHandler {
         buffer_size: usize,
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
-        playing: Arc<AtomicBool>,
+        state: Arc<AtomicU8>,
         #[cfg(feature = "realtime")] error_callback: ErrorCallbackArc,
     ) -> Self {
         let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
@@ -286,7 +311,7 @@ impl LocalProcessHandler {
             output_data_callback,
             temp_input_buffer,
             temp_output_buffer,
-            playing,
+            state,
             #[cfg(feature = "realtime")]
             error_callback,
             #[cfg(feature = "realtime")]
@@ -308,7 +333,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
         client: &jack::Client,
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
-        if !self.playing.load(Ordering::Relaxed) {
+        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Playing {
             // JACK does not zero-fill output port buffers before calling the process handler
             for port in &mut self.out_ports {
                 port.as_mut_slice(process_scope).fill(f32::EQUILIBRIUM);
@@ -490,20 +515,25 @@ fn micros_to_stream_instant(micros: u64) -> StreamInstant {
 /// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
 struct JackNotificationHandler {
     error_callback_ptr: ErrorCallbackArc,
-    init_sample_rate_flag: bool,
+    /// Shared with `Stream` and `LocalProcessHandler`. Errors are suppressed while
+    /// the state is `Initializing` (i.e. before the constructor has returned).
+    state: Arc<AtomicU8>,
 }
 
 impl JackNotificationHandler {
-    pub fn new(error_callback_ptr: ErrorCallbackArc) -> Self {
+    pub fn new(error_callback_ptr: ErrorCallbackArc, state: Arc<AtomicU8>) -> Self {
         JackNotificationHandler {
             error_callback_ptr,
-            init_sample_rate_flag: false,
+            state,
         }
     }
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
     unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
+        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Initializing {
+            return;
+        }
         emit_error(
             &self.error_callback_ptr,
             Error::with_message(
@@ -514,32 +544,29 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        match self.init_sample_rate_flag {
-            false => {
-                // One of these notifications is sent every time a client is started.
-                self.init_sample_rate_flag = true;
-                jack::Control::Continue
-            }
-            true => {
-                // The JACK server has changed the sample rate, invalidating this stream.
-                // The stream configuration must be rebuilt with the new sample rate.
-                emit_error(
-                    &self.error_callback_ptr,
-                    Error::with_message(
-                        ErrorKind::StreamInvalidated,
-                        format!("JACK server changed sample rate to {srate} Hz"),
-                    ),
-                );
-                jack::Control::Quit
-            }
+        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Initializing {
+            // One of these notifications is sent every time a client is started.
+            return jack::Control::Continue;
         }
+        // The JACK server has changed the sample rate, invalidating this stream.
+        // The stream configuration must be rebuilt with the new sample rate.
+        emit_error(
+            &self.error_callback_ptr,
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                format!("JACK server changed sample rate to {srate} Hz"),
+            ),
+        );
+        jack::Control::Quit
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        let _ = try_emit_error(
-            &self.error_callback_ptr,
-            Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
-        );
+        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Initializing {
+            let _ = try_emit_error(
+                &self.error_callback_ptr,
+                Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
+            );
+        }
         jack::Control::Continue
     }
 }
