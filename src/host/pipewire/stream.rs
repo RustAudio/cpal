@@ -74,7 +74,7 @@ pub enum StreamCommand {
     Stop,
 }
 
-pub(super) struct Stream {
+pub struct Stream {
     handle: Option<JoinHandle<()>>,
     controller: pw::channel::Sender<StreamCommand>,
     last_quantum: Arc<AtomicU64>,
@@ -83,7 +83,7 @@ pub(super) struct Stream {
 }
 
 impl Stream {
-    pub(super) fn new(
+    pub fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
         last_quantum: Arc<AtomicU64>,
@@ -101,7 +101,7 @@ impl Stream {
 
     /// Unblocks the worker thread so it can begin processing audio callbacks.
     /// Idempotent; does nothing if the worker is already running.
-    pub(super) fn signal_ready(&self) {
+    pub fn signal_ready(&self) {
         self.stream_ready.store(true, Ordering::Release);
         if let Some(handle) = &self.handle {
             handle.thread().unpark();
