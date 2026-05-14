@@ -91,7 +91,6 @@ pub(crate) mod custom;
 pub(crate) mod null;
 
 #[cfg(any(
-    target_os = "android",
     target_vendor = "apple",
     target_os = "windows",
     target_os = "linux",

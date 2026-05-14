@@ -43,6 +43,7 @@ impl Latch {
     }
 
     /// Registers a thread to be unparked when [`release`](Self::release) is called.
+    #[allow(dead_code)]
     pub(crate) fn add_thread(&mut self, thread: Thread) {
         self.threads.push(thread);
     }
@@ -73,6 +74,7 @@ impl LatchWaiter {
     /// Parks the calling thread until the latch is released or dropped without releasing.
     ///
     /// Returns `true` if the stream is ready, `false` if the [`Latch`] was dropped before release.
+    #[allow(dead_code)]
     pub(crate) fn wait(&self) -> bool {
         loop {
             match self.0.upgrade() {

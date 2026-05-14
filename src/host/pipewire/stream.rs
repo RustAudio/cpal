@@ -83,7 +83,7 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub fn new(
+    pub(crate) fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
         last_quantum: Arc<AtomicU64>,
