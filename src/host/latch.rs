@@ -12,6 +12,7 @@ use std::{
 };
 
 /// Signals worker threads that the stream handle has been given to the caller.
+#[derive(Debug)]
 pub(crate) struct Latch {
     /// `Option` so `Drop` can move it out before unparking, closing the window where a thread
     /// could wake, see the Arc still alive (flag=false), re-park, then be orphaned.
@@ -20,7 +21,7 @@ pub(crate) struct Latch {
 }
 
 /// Held by a worker thread. Parks until the matching [`Latch`] is released.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct LatchWaiter(Weak<AtomicBool>);
 
 impl Latch {
@@ -88,8 +89,6 @@ impl LatchWaiter {
     /// Returns `true` if the latch has already been released.
     #[allow(dead_code)]
     pub(crate) fn is_released(&self) -> bool {
-        self.0
-            .upgrade()
-            .map_or(false, |f| f.load(Ordering::Acquire))
+        self.0.upgrade().is_some_and(|f| f.load(Ordering::Acquire))
     }
 }
