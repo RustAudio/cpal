@@ -9,7 +9,7 @@ use std::{
     cmp,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -236,6 +236,7 @@ impl DeviceTrait for Device {
             error_callback,
             timeout,
         );
+        stream.signal_ready();
         Ok(stream)
     }
 
@@ -259,6 +260,7 @@ impl DeviceTrait for Device {
             error_callback,
             timeout,
         );
+        stream.signal_ready();
         Ok(stream)
     }
 }
@@ -773,6 +775,10 @@ pub struct Stream {
     /// Keeps the read end of the self-pipe alive for the lifetime of the Stream, so that
     /// `trigger.wakeup()` never writes to a closed pipe, even if the worker exited early.
     _rx: Arc<TriggerReceiver>,
+
+    /// Gate that prevents the worker thread from firing callbacks until the caller has received
+    /// the `Stream` handle.
+    stream_ready: Arc<AtomicBool>,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -1251,6 +1257,14 @@ fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> Stream
 }
 
 impl Stream {
+    /// Unblocks the worker thread so it can begin processing audio callbacks.
+    pub(crate) fn signal_ready(&self) {
+        self.stream_ready.store(true, Ordering::Release);
+        if let Some(handle) = &self.thread {
+            handle.thread().unpark();
+        }
+    }
+
     fn new_input<D, E>(
         inner: Arc<StreamInner>,
         mut data_callback: D,
@@ -1267,17 +1281,14 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
         // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                {
-                    let (lock, cvar) = &*stream_ready_worker;
-                    let _guard = cvar
-                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                        .unwrap();
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
                 input_stream_worker(
                     rx_thread,
@@ -1288,17 +1299,13 @@ impl Stream {
                 );
             })
             .unwrap();
-        let stream = Self {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-        };
-
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
-        stream
+            stream_ready,
+        }
     }
 
     fn new_output<D, E>(
@@ -1317,17 +1324,14 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
         // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                {
-                    let (lock, cvar) = &*stream_ready_worker;
-                    let _guard = cvar
-                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                        .unwrap();
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
                 output_stream_worker(
                     rx_thread,
@@ -1339,22 +1343,21 @@ impl Stream {
             })
             .unwrap();
 
-        let stream = Self {
+        Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-        };
-
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
-        stream
+            stream_ready,
+        }
     }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        // Unblock the worker in case the stream is dropped before signal_ready() was
+        // called. Idempotent: no effect if the worker is already running.
+        self.signal_ready();
         self.inner.dropping.store(true, Ordering::Release);
         self.trigger.wakeup();
         if let Some(handle) = self.thread.take() {

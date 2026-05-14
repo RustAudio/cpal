@@ -77,7 +77,7 @@ impl Drop for Stream {
         }
 
         // Unpark the threads in case they're sleeping.
-        self.wake_workers();
+        self.signal_ready();
 
         for handle in self.workers.drain(..) {
             // Prevent self-join: a worker thread may surface an error
@@ -456,7 +456,7 @@ impl Stream {
         })
     }
 
-    pub(crate) fn wake_workers(&self) {
+    pub(crate) fn signal_ready(&self) {
         self.ready.store(true, Ordering::Release);
         for handle in &self.workers {
             handle.thread().unpark();

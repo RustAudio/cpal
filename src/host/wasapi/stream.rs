@@ -5,7 +5,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{channel, Receiver, SendError, Sender},
-        Arc, Condvar, Mutex,
+        Arc,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -212,6 +212,9 @@ pub struct Stream {
     // default changes. Dropped after the run thread joins, ensuring the HANDLE is not
     // waited on when it is closed.
     _default_device_monitor: Option<DefaultDeviceMonitor>,
+
+    // Gate that ensures no callbacks fire before the caller receives the `Stream` handle.
+    stream_ready: Arc<AtomicBool>,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -219,6 +222,7 @@ pub struct Stream {
 // - JoinHandle<()> is Send
 // - Sender<Command> is Send
 // - Foundation::HANDLE is Send (Windows synchronization primitive)
+// - Arc<AtomicBool> is Send
 // See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
 unsafe impl Send for Stream {}
 
@@ -228,6 +232,7 @@ unsafe impl Send for Stream {}
 // - JoinHandle<()> is Sync
 // - Sender<Command> is Sync (uses internal synchronization)
 // - Foundation::HANDLE for event objects supports concurrent access
+// - Arc<AtomicBool> is Sync
 // The audio thread owns all COM objects, so no cross-thread COM access occurs.
 unsafe impl Sync for Stream {}
 
@@ -343,17 +348,14 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
         // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_in".to_owned())
             .spawn(move || {
-                {
-                    let (lock, cvar) = &*stream_ready_worker;
-                    let _guard = cvar
-                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                        .unwrap();
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
                 run_input(run_context, &mut data_callback, &error_callback)
             })
@@ -371,11 +373,8 @@ impl Stream {
             period_frames,
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
+            stream_ready,
         };
-
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
         Ok(stream)
     }
 
@@ -420,17 +419,14 @@ impl Stream {
 
         // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
         // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let stream_ready = Arc::new(AtomicBool::new(false));
         let stream_ready_worker = stream_ready.clone();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_out".to_owned())
             .spawn(move || {
-                {
-                    let (lock, cvar) = &*stream_ready_worker;
-                    let _guard = cvar
-                        .wait_while(lock.lock().unwrap(), |ready| !*ready)
-                        .unwrap();
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
                 run_output(run_context, &mut data_callback, &error_callback)
             })
@@ -448,12 +444,17 @@ impl Stream {
             period_frames,
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
+            stream_ready,
         };
-
-        let (lock, cvar) = &*stream_ready;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
         Ok(stream)
+    }
+
+    /// Unblocks the worker thread so it can begin processing audio callbacks.
+    pub(crate) fn signal_ready(&self) {
+        self.stream_ready.store(true, Ordering::Release);
+        if let Some(handle) = &self.thread {
+            handle.thread().unpark();
+        }
     }
 
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
@@ -467,6 +468,9 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        // Unblock the worker in case the stream is dropped before signal_ready() was called.
+        self.signal_ready();
+
         let _ = self.push_command(Command::Terminate);
         if let Some(handle) = self.thread.take() {
             // Prevent self-join: Terminate was sent; the thread exits after the current callback

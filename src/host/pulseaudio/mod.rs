@@ -361,7 +361,7 @@ impl DeviceTrait for Device {
         } else {
             stream::Stream::new_record(client, params, data_callback, error_callback)
         }?;
-        stream.wake_workers();
+        stream.signal_ready();
         Ok(stream)
     }
 
@@ -436,7 +436,7 @@ impl DeviceTrait for Device {
         } else {
             stream::Stream::new_playback(client, params, data_callback, error_callback)
         }?;
-        stream.wake_workers();
+        stream.signal_ready();
         Ok(stream)
     }
 

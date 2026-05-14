@@ -2,8 +2,8 @@ use std::{
     cell::RefCell,
     rc::Rc,
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
     },
     thread,
     time::Duration,
@@ -320,8 +320,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
-        let ready = Arc::new((Mutex::new(false), Condvar::new()));
-        let ready_worker = ready.clone();
+        let stream_ready = Arc::new(AtomicBool::new(false));
+        let stream_ready_worker = stream_ready.clone();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -425,17 +425,9 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                // Wait until the caller has received the Stream handle before running the mainloop
-                // or invoking any callbacks. Use a timeout so that if the caller's recv_timeout
-                // races and returns early (without signalling us), this thread does not block forever.
-                {
-                    let (lock, cvar) = &*ready_worker;
-                    let (started, _) = cvar
-                        .wait_timeout_while(lock.lock().unwrap(), wait_timeout, |s| !*s)
-                        .unwrap();
-                    if !*started {
-                        return;
-                    }
+                // Park until the builder calls signal_ready() after constructing the Stream.
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
 
                 #[cfg(feature = "realtime")]
@@ -468,14 +460,8 @@ impl DeviceTrait for Device {
             ))
         })?;
 
-        let stream = Stream {
-            handle: Some(handle),
-            controller: pw_play_tx,
-            last_quantum,
-            start,
-        };
-        *ready.0.lock().unwrap() = true;
-        ready.1.notify_one();
+        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, stream_ready);
+        stream.signal_ready();
         Ok(stream)
     }
 
@@ -494,8 +480,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
-        let ready = Arc::new((Mutex::new(false), Condvar::new()));
-        let ready_worker = ready.clone();
+        let stream_ready = Arc::new(AtomicBool::new(false));
+        let stream_ready_worker = stream_ready.clone();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -599,17 +585,9 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                // Wait until the caller has received the Stream handle before running the mainloop
-                // or invoking any callbacks. Use a timeout so that if the caller's recv_timeout
-                // races and returns early, this thread does not block forever.
-                {
-                    let (lock, cvar) = &*ready_worker;
-                    let (started, _) = cvar
-                        .wait_timeout_while(lock.lock().unwrap(), wait_timeout, |s| !*s)
-                        .unwrap();
-                    if !*started {
-                        return;
-                    }
+                // Park until the builder calls signal_ready() after constructing the Stream.
+                while !stream_ready_worker.load(Ordering::Acquire) {
+                    std::thread::park();
                 }
 
                 #[cfg(feature = "realtime")]
@@ -641,14 +619,8 @@ impl DeviceTrait for Device {
             ))
         })?;
 
-        let stream = Stream {
-            handle: Some(handle),
-            controller: pw_play_tx,
-            last_quantum,
-            start,
-        };
-        *ready.0.lock().unwrap() = true;
-        ready.1.notify_one();
+        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, stream_ready);
+        stream.signal_ready();
         Ok(stream)
     }
 }

@@ -142,7 +142,9 @@ impl DeviceTrait for Device {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let monitor = self.default_device_monitor()?;
-        Stream::new_input(stream_inner, data_callback, error_callback, monitor)
+        let stream = Stream::new_input(stream_inner, data_callback, error_callback, monitor)?;
+        stream.signal_ready();
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -160,7 +162,9 @@ impl DeviceTrait for Device {
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let monitor = self.default_device_monitor()?;
-        Stream::new_output(stream_inner, data_callback, error_callback, monitor)
+        let stream = Stream::new_output(stream_inner, data_callback, error_callback, monitor)?;
+        stream.signal_ready();
+        Ok(stream)
     }
 }
 

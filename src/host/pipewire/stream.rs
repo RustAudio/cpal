@@ -74,15 +74,45 @@ pub enum StreamCommand {
     Stop,
 }
 
-pub struct Stream {
-    pub(crate) handle: Option<JoinHandle<()>>,
-    pub(crate) controller: pw::channel::Sender<StreamCommand>,
-    pub(crate) last_quantum: Arc<AtomicU64>,
-    pub(crate) start: Instant,
+pub(super) struct Stream {
+    handle: Option<JoinHandle<()>>,
+    controller: pw::channel::Sender<StreamCommand>,
+    last_quantum: Arc<AtomicU64>,
+    start: Instant,
+    stream_ready: Arc<AtomicBool>,
+}
+
+impl Stream {
+    pub(super) fn new(
+        handle: JoinHandle<()>,
+        controller: pw::channel::Sender<StreamCommand>,
+        last_quantum: Arc<AtomicU64>,
+        start: Instant,
+        stream_ready: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            handle: Some(handle),
+            controller,
+            last_quantum,
+            start,
+            stream_ready,
+        }
+    }
+
+    /// Unblocks the worker thread so it can begin processing audio callbacks.
+    /// Idempotent; does nothing if the worker is already running.
+    pub(super) fn signal_ready(&self) {
+        self.stream_ready.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+    }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
+        // Unblock the worker in case the stream is dropped before signal_ready() was called.
+        self.signal_ready();
         let _ = self.controller.send(StreamCommand::Stop);
         if let Some(handle) = self.handle.take() {
             // Prevent self-join: Stop was sent; the handle detaches and the thread exits after
