@@ -28,8 +28,8 @@ use pipewire::{
 
 use crate::{
     host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, try_emit_error,
-        ErrorCallbackArc,
+        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
+        try_emit_error, ErrorCallbackArc,
     },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -79,7 +79,7 @@ pub struct Stream {
     controller: pw::channel::Sender<StreamCommand>,
     last_quantum: Arc<AtomicU64>,
     start: Instant,
-    stream_ready: Arc<AtomicBool>,
+    latch: Latch,
 }
 
 impl Stream {
@@ -88,24 +88,20 @@ impl Stream {
         controller: pw::channel::Sender<StreamCommand>,
         last_quantum: Arc<AtomicU64>,
         start: Instant,
-        stream_ready: Arc<AtomicBool>,
+        latch: Latch,
     ) -> Self {
         Self {
             handle: Some(handle),
             controller,
             last_quantum,
             start,
-            stream_ready,
+            latch,
         }
     }
 
-    /// Unblocks the worker thread so it can begin processing audio callbacks.
-    /// Idempotent; does nothing if the worker is already running.
+    /// Releases the latch so the worker thread can begin processing audio callbacks.
     pub fn signal_ready(&self) {
-        self.stream_ready.store(true, Ordering::Release);
-        if let Some(handle) = &self.handle {
-            handle.thread().unpark();
-        }
+        self.latch.release();
     }
 }
 

@@ -90,6 +90,28 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
+#[cfg(any(
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+))]
+pub(crate) mod latch;
+
 /// Shared error-callback type that hands the callback across thread boundaries.
 #[allow(dead_code)]
 pub(crate) type ErrorCallbackArc = std::sync::Arc<std::sync::Mutex<dyn FnMut(crate::Error) + Send>>;

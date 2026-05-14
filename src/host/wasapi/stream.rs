@@ -18,7 +18,10 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{emit_error, equilibrium::fill_equilibrium, frames_to_duration, ErrorCallbackArc},
+    host::{
+        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
+        ErrorCallbackArc,
+    },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
@@ -213,8 +216,8 @@ pub struct Stream {
     // waited on when it is closed.
     _default_device_monitor: Option<DefaultDeviceMonitor>,
 
-    // Gate that ensures no callbacks fire before the caller receives the `Stream` handle.
-    stream_ready: Arc<AtomicBool>,
+    // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
+    latch: Latch,
 }
 
 // SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
@@ -222,7 +225,7 @@ pub struct Stream {
 // - JoinHandle<()> is Send
 // - Sender<Command> is Send
 // - Foundation::HANDLE is Send (Windows synchronization primitive)
-// - Arc<AtomicBool> is Send
+// - Latch is Send
 // See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
 unsafe impl Send for Stream {}
 
@@ -232,7 +235,7 @@ unsafe impl Send for Stream {}
 // - JoinHandle<()> is Sync
 // - Sender<Command> is Sync (uses internal synchronization)
 // - Foundation::HANDLE for event objects supports concurrent access
-// - Arc<AtomicBool> is Sync
+// - Latch is Sync
 // The audio thread owns all COM objects, so no cross-thread COM access occurs.
 unsafe impl Sync for Stream {}
 
@@ -346,17 +349,15 @@ impl Stream {
             pending_scheduled_event,
         };
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
-        // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the worker cannot fire any
+        // callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_in".to_owned())
             .spawn(move || {
-                while !stream_ready_worker.load(Ordering::Acquire) {
-                    std::thread::park();
-                }
+                waiter.wait();
                 run_input(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
@@ -366,6 +367,7 @@ impl Stream {
                 )
             })?;
 
+        latch.add_thread(thread.thread().clone());
         let stream = Stream {
             thread: Some(thread),
             commands: tx,
@@ -373,7 +375,7 @@ impl Stream {
             period_frames,
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
-            stream_ready,
+            latch,
         };
         Ok(stream)
     }
@@ -417,17 +419,15 @@ impl Stream {
             pending_scheduled_event,
         };
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
-        // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the worker cannot fire any
+        // callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
             .name("cpal_wasapi_out".to_owned())
             .spawn(move || {
-                while !stream_ready_worker.load(Ordering::Acquire) {
-                    std::thread::park();
-                }
+                waiter.wait();
                 run_output(run_context, &mut data_callback, &error_callback)
             })
             .map_err(|e| {
@@ -437,6 +437,7 @@ impl Stream {
                 )
             })?;
 
+        latch.add_thread(thread.thread().clone());
         let stream = Stream {
             thread: Some(thread),
             commands: tx,
@@ -444,17 +445,14 @@ impl Stream {
             period_frames,
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
-            stream_ready,
+            latch,
         };
         Ok(stream)
     }
 
-    /// Unblocks the worker thread so it can begin processing audio callbacks.
+    /// Releases the latch so the worker thread can begin processing audio callbacks.
     pub(crate) fn signal_ready(&self) {
-        self.stream_ready.store(true, Ordering::Release);
-        if let Some(handle) = &self.thread {
-            handle.thread().unpark();
-        }
+        self.latch.release();
     }
 
     fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
@@ -468,7 +466,7 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        // Unblock the worker in case the stream is dropped before signal_ready() was called.
+        // Release the latch in case the stream is dropped before signal_ready() was called.
         self.signal_ready();
 
         let _ = self.push_command(Command::Terminate);

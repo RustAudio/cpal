@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc,
     },
     thread,
@@ -21,6 +21,7 @@ use super::stream::Stream;
 use crate::{
     host::{
         emit_error,
+        latch::Latch,
         pipewire::{
             stream::{
                 DefaultDeviceMonitor, PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS,
@@ -320,8 +321,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = Arc::downgrade(&stream_ready);
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -425,16 +426,9 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                // Park until the builder signals readiness, or it drops the stream_ready Arc.
-                loop {
-                    match stream_ready_worker.upgrade() {
-                        None => return,
-                        Some(flag) if flag.load(Ordering::Acquire) => break,
-                        Some(flag) => {
-                            drop(flag); // release strong ref before parking
-                            std::thread::park();
-                        }
-                    }
+                // If the Latch is dropped without being released (error path), exit cleanly.
+                if !waiter.wait() {
+                    return;
                 }
 
                 #[cfg(feature = "realtime")]
@@ -459,7 +453,6 @@ impl DeviceTrait for Device {
                     format!("failed to create thread: {e}"),
                 )
             })?;
-        let worker_thread = handle.thread().clone();
 
         let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
             Err(Error::with_message(
@@ -469,14 +462,12 @@ impl DeviceTrait for Device {
         });
 
         if let Err(e) = init_result {
-            // Drop stream_ready first so the Weak on the worker side becomes invalid, then unpark
-            // the worker so it can observe the invalidation and exit cleanly.
-            drop(stream_ready);
-            worker_thread.unpark();
+            drop(latch);
             return Err(e);
         }
 
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, stream_ready);
+        latch.add_thread(handle.thread().clone());
+        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
         stream.signal_ready();
         Ok(stream)
     }
@@ -496,8 +487,8 @@ impl DeviceTrait for Device {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = Arc::downgrade(&stream_ready);
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
@@ -601,16 +592,9 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                // Park until the builder signals readiness, or it drops the stream_ready Arc.
-                loop {
-                    match stream_ready_worker.upgrade() {
-                        None => return,
-                        Some(flag) if flag.load(Ordering::Acquire) => break,
-                        Some(flag) => {
-                            drop(flag); // release strong ref before parking
-                            std::thread::park();
-                        }
-                    }
+                // If the Latch is dropped without being released (error path), exit cleanly.
+                if !waiter.wait() {
+                    return;
                 }
 
                 #[cfg(feature = "realtime")]
@@ -634,7 +618,6 @@ impl DeviceTrait for Device {
                     format!("failed to create thread: {e}"),
                 )
             })?;
-        let worker_thread = handle.thread().clone();
 
         let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
             Err(Error::with_message(
@@ -644,14 +627,12 @@ impl DeviceTrait for Device {
         });
 
         if let Err(e) = init_result {
-            // Drop stream_ready first so the Weak on the worker side becomes invalid, then unpark
-            // the worker so it can observe the invalidation and exit cleanly.
-            drop(stream_ready);
-            worker_thread.unpark();
+            drop(latch);
             return Err(e);
         }
 
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, stream_ready);
+        latch.add_thread(handle.thread().clone());
+        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
         stream.signal_ready();
         Ok(stream)
     }

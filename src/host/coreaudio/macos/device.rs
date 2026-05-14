@@ -41,7 +41,7 @@ use objc2_core_foundation::{CFString, Type};
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
     asbd_from_config, check_os_status, host_time_to_stream_instant, DefaultOutputMonitor,
-    DisconnectManager, Stream,
+    DisconnectManager, Monitor, Stream,
 };
 use crate::{
     host::{
@@ -831,12 +831,14 @@ impl Device {
             _loopback_device: loopback_aggregate,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
-        let monitor: Box<dyn Send + Sync> = Box::new(DisconnectManager::new(
+        let monitor: Box<dyn Monitor> = Box::new(DisconnectManager::new(
             self.audio_device_id,
             weak_inner,
             error_callback_disconnect,
         )?);
-        Ok(Stream::new(inner_arc, monitor))
+        let stream = Stream::new(inner_arc, monitor);
+        stream.signal_ready();
+        Ok(stream)
     }
 
     fn build_output_stream_raw<D, E>(
@@ -933,7 +935,7 @@ impl Device {
             _loopback_device: None,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
-        let monitor: Box<dyn Send + Sync> = if matches!(mode, AudioUnitMode::DefaultOutput) {
+        let monitor: Box<dyn Monitor> = if matches!(mode, AudioUnitMode::DefaultOutput) {
             Box::new(DefaultOutputMonitor::new(weak_inner, error_callback)?)
         } else {
             Box::new(DisconnectManager::new(
@@ -942,7 +944,9 @@ impl Device {
                 error_callback,
             )?)
         };
-        Ok(Stream::new(inner_arc, monitor))
+        let stream = Stream::new(inner_arc, monitor);
+        stream.signal_ready();
+        Ok(stream)
     }
 }
 

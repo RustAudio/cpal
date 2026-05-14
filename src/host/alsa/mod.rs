@@ -22,6 +22,7 @@ use crate::{
     host::{
         equilibrium::{fill_equilibrium, DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE},
         frames_to_duration,
+        latch::Latch,
     },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -776,9 +777,9 @@ pub struct Stream {
     /// `trigger.wakeup()` never writes to a closed pipe, even if the worker exited early.
     _rx: Arc<TriggerReceiver>,
 
-    /// Gate that prevents the worker thread from firing callbacks until the caller has received
+    /// Latch that prevents the worker thread from firing callbacks until the caller has received
     /// the `Stream` handle.
-    stream_ready: Arc<AtomicBool>,
+    latch: Latch,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -1257,12 +1258,9 @@ fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> Stream
 }
 
 impl Stream {
-    /// Unblocks the worker thread so it can begin processing audio callbacks.
+    /// Releases the latch so the worker thread can begin processing audio callbacks.
     pub(crate) fn signal_ready(&self) {
-        self.stream_ready.store(true, Ordering::Release);
-        if let Some(handle) = &self.thread {
-            handle.thread().unpark();
-        }
+        self.latch.release();
     }
 
     fn new_input<D, E>(
@@ -1279,17 +1277,15 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
-        // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the worker cannot fire any
+        // callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_in".to_owned())
             .spawn(move || {
-                while !stream_ready_worker.load(Ordering::Acquire) {
-                    std::thread::park();
-                }
+                waiter.wait();
                 input_stream_worker(
                     rx_thread,
                     &stream,
@@ -1299,12 +1295,14 @@ impl Stream {
                 );
             })
             .unwrap();
+        latch.add_thread(thread.thread().clone());
+
         Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-            stream_ready,
+            latch,
         }
     }
 
@@ -1322,17 +1320,15 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the worker cannot
-        // fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_worker = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the worker cannot fire any
+        // callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
             .name("cpal_alsa_out".to_owned())
             .spawn(move || {
-                while !stream_ready_worker.load(Ordering::Acquire) {
-                    std::thread::park();
-                }
+                waiter.wait();
                 output_stream_worker(
                     rx_thread,
                     &stream,
@@ -1342,13 +1338,14 @@ impl Stream {
                 );
             })
             .unwrap();
+        latch.add_thread(thread.thread().clone());
 
         Self {
             thread: Some(thread),
             inner,
             trigger: tx,
             _rx: rx,
-            stream_ready,
+            latch,
         }
     }
 }

@@ -12,7 +12,7 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    host::{com, frames_to_duration},
+    host::{com, error_emit::try_emit_error, frames_to_duration},
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
     StreamInstant, I24,
@@ -192,12 +192,11 @@ impl Device {
                 true,
                 Arc::clone(&state),
             )
-            .map_err(|e| {
+            .inspect_err(|_| {
                 // Roll back the input stream stored by get_or_create_input_stream.
                 if let Ok(mut streams) = self.asio_streams.lock() {
                     streams.input = None;
                 }
-                e
             })?;
 
         let state_cb = Arc::clone(&state);
@@ -437,6 +436,9 @@ impl Device {
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
+            if let Ok(mut streams) = asio_streams.lock() {
+                streams.input = None;
+            }
             return Err(build_stream_err(e));
         }
 
@@ -520,12 +522,11 @@ impl Device {
                 false,
                 Arc::clone(&state),
             )
-            .map_err(|e| {
+            .inspect_err(|_| {
                 // Roll back the output stream stored by get_or_create_output_stream.
                 if let Ok(mut streams) = self.asio_streams.lock() {
                     streams.output = None;
                 }
-                e
             })?;
 
         let state_cb = Arc::clone(&state);
@@ -814,6 +815,9 @@ impl Device {
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
+            if let Ok(mut streams) = asio_streams.lock() {
+                streams.output = None;
+            }
             return Err(build_stream_err(e));
         }
 
@@ -1015,11 +1019,8 @@ impl Device {
                     }
                     sys::AsioMessageSelectors::kAsioOverload => {
                         if StreamState::load(&state) == StreamState::Playing {
-                            error_callback_shared
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())(
-                                Error::new(ErrorKind::Xrun)
-                            );
+                            let _ =
+                                try_emit_error(&error_callback_shared, Error::new(ErrorKind::Xrun));
                         }
                         true
                     }

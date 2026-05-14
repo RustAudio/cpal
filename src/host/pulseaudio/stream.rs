@@ -11,7 +11,7 @@ use futures::FutureExt as _;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
-    host::{emit_error, ErrorCallbackArc},
+    host::{emit_error, latch::Latch, ErrorCallbackArc},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
@@ -57,7 +57,7 @@ enum StreamInner {
 pub struct Stream {
     inner: StreamInner,
     workers: Vec<std::thread::JoinHandle<()>>,
-    ready: Arc<AtomicBool>,
+    latch: Latch,
 }
 
 impl Drop for Stream {
@@ -248,15 +248,13 @@ impl Stream {
         let error_callback_clone = error_callback.clone();
         let cancel_driver = handle.cancel.clone();
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the driver and
-        // latency threads cannot fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_driver = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the driver and latency
+        // threads cannot fire any callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter_driver = latch.waiter();
 
         let driver_handle = std::thread::spawn(move || {
-            while !stream_ready_driver.load(Ordering::Acquire) {
-                std::thread::park();
-            }
+            waiter_driver.wait();
             if let Err(e) = block_on(stream_clone.play_all()) {
                 // A server playback error is expected when the client
                 // closes their stream. No need to report it back to
@@ -273,11 +271,9 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
 
-        let stream_ready_latency = stream_ready.clone();
+        let waiter_latency = latch.waiter();
         let latency_handle = std::thread::spawn(move || {
-            while !stream_ready_latency.load(Ordering::Acquire) {
-                std::thread::park();
-            }
+            waiter_latency.wait();
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
                     break;
@@ -313,10 +309,12 @@ impl Stream {
             }
         });
 
+        latch.add_thread(driver_handle.thread().clone());
+        latch.add_thread(latency_handle.thread().clone());
         Ok(Self {
             inner: StreamInner::Playback(stream, start, handle),
             workers: vec![driver_handle, latency_handle],
-            ready: stream_ready,
+            latch,
         })
     }
 
@@ -405,15 +403,13 @@ impl Stream {
         let latency_clone = current_latency_micros.clone();
         let poll_clone = last_poll_micros.clone();
 
-        // `stream_ready` is signalled just before the `Stream` is returned so the latency thread
-        // cannot fire any callbacks before the caller has the handle.
-        let stream_ready = Arc::new(AtomicBool::new(false));
-        let stream_ready_latency = stream_ready.clone();
+        // The latch is released just before the `Stream` is returned so the latency thread cannot
+        // fire any callbacks before the caller has the handle.
+        let mut latch = Latch::new();
+        let waiter_latency = latch.waiter();
 
         let latency_handle = std::thread::spawn(move || {
-            while !stream_ready_latency.load(Ordering::Acquire) {
-                std::thread::park();
-            }
+            waiter_latency.wait();
             loop {
                 if cancel_thread.load(Ordering::Relaxed) {
                     break;
@@ -449,18 +445,17 @@ impl Stream {
             }
         });
 
+        latch.add_thread(latency_handle.thread().clone());
         Ok(Self {
             inner: StreamInner::Record(stream, start, handle),
             workers: vec![latency_handle],
-            ready: stream_ready,
+            latch,
         })
     }
 
+    /// Releases the latch so the worker thread can begin processing audio callbacks.
     pub(crate) fn signal_ready(&self) {
-        self.ready.store(true, Ordering::Release);
-        for handle in &self.workers {
-            handle.thread().unpark();
-        }
+        self.latch.release();
     }
 }
 

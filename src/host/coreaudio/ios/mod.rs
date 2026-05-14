@@ -174,7 +174,7 @@ impl DeviceTrait for Device {
         let device_buffer_frames = Some(get_device_buffer_frames());
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(error_callback.clone());
+        let session_manager = SessionEventManager::new(error_callback.clone(), Latch::new());
 
         // Set up input callback
         setup_input_callback(
@@ -188,13 +188,15 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        Ok(Stream::new(
+        let stream = Stream::new(
             StreamInner {
                 playing: false,
                 audio_unit,
             },
             session_manager,
-        ))
+        );
+        stream.signal_ready();
+        Ok(stream)
     }
 
     /// Create an output stream.
@@ -217,7 +219,7 @@ impl DeviceTrait for Device {
         let device_buffer_frames = Some(get_device_buffer_frames());
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(error_callback.clone());
+        let session_manager = SessionEventManager::new(error_callback.clone(), Latch::new());
 
         // Set up output callback
         setup_output_callback(
@@ -231,27 +233,40 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        Ok(Stream::new(
+        let stream = Stream::new(
             StreamInner {
                 playing: false,
                 audio_unit,
             },
             session_manager,
-        ))
+        );
+        stream.signal_ready();
+        Ok(stream)
     }
 }
 
 pub struct Stream {
     inner: Mutex<StreamInner>,
-    _session_manager: SessionEventManager,
+    session_manager: SessionEventManager,
 }
 
 impl Stream {
     fn new(inner: StreamInner, session_manager: SessionEventManager) -> Self {
         Self {
             inner: Mutex::new(inner),
-            _session_manager: session_manager,
+            session_manager,
         }
+    }
+
+    fn signal_ready(&self) {
+        self.session_manager.signal_ready();
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // Ensure the latch is released even if signal_ready() was never called (error path).
+        self.session_manager.signal_ready();
     }
 }
 

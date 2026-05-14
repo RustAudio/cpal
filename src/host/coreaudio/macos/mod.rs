@@ -13,7 +13,7 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error},
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -94,6 +94,13 @@ fn spawn_property_listener_thread(
     Ok((change_rx, shutdown_tx))
 }
 
+/// A device monitor that can signal when the owning `Stream` handle has been returned to the
+/// caller, allowing the delivery thread to start processing events.
+pub(super) trait Monitor: Send + Sync {
+    /// Unblocks the delivery thread. Called after `Stream::new()` and from `Stream::drop()`.
+    fn signal_ready(&self);
+}
+
 /// Manages device disconnection listener on a dedicated thread to ensure the
 /// AudioObjectPropertyListener is always created and dropped on the same thread.
 /// This avoids potential threading issues with CoreAudio APIs.
@@ -104,6 +111,7 @@ fn spawn_property_listener_thread(
 ///
 /// The dedicated thread architecture ensures `Stream` can implement `Send`.
 struct DisconnectManager {
+    latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
 }
 
@@ -167,22 +175,45 @@ impl DisconnectManager {
             )
         })??;
 
-        std::thread::spawn(move || {
-            while let Ok(err) = disconnect_rx.recv() {
-                if let Some(stream_arc) = stream_weak.upgrade() {
-                    if let Ok(mut stream_inner) = stream_arc.try_lock() {
-                        let _ = stream_inner.pause();
-                    }
-                    emit_error(&error_callback, err);
-                } else {
-                    break;
-                }
-            }
-        });
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
+        let handle = std::thread::Builder::new()
+            .name("cpal-coreaudio-disconnect".into())
+            .spawn(move || {
+                // If the Latch is dropped without being released (error path), exit cleanly.
+                if !waiter.wait() {
+                    return;
+                }
+                while let Ok(err) = disconnect_rx.recv() {
+                    if let Some(stream_arc) = stream_weak.upgrade() {
+                        if let Ok(mut stream_inner) = stream_arc.try_lock() {
+                            let _ = stream_inner.pause();
+                        }
+                        emit_error(&error_callback, err);
+                    } else {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to spawn disconnect delivery thread: {e}"),
+                )
+            })?;
+
+        latch.add_thread(handle.thread().clone());
         Ok(DisconnectManager {
+            latch,
             _shutdown_tx: shutdown_tx,
         })
+    }
+}
+
+impl Monitor for DisconnectManager {
+    fn signal_ready(&self) {
+        self.latch.release();
     }
 }
 
@@ -192,6 +223,7 @@ impl DisconnectManager {
 /// - If a new valid default exists, AudioUnit reroutes and `DeviceChanged` is reported.
 /// - If there is no new default, the stream is paused and `DeviceNotAvailable` is reported.
 struct DefaultOutputMonitor {
+    latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
 }
 
@@ -209,38 +241,60 @@ impl DefaultOutputMonitor {
             },
         )?;
 
-        std::thread::spawn(move || {
-            while let Ok(()) = change_rx.recv() {
-                let Some(arc) = stream_weak.upgrade() else {
-                    break;
-                };
-                if default_output_device().is_none() {
-                    if let Ok(mut inner) = arc.try_lock() {
-                        let _ = inner.pause();
-                    }
-                    emit_error(
-                        &error_callback,
-                        Error::with_message(
-                            ErrorKind::DeviceNotAvailable,
-                            "no default output device",
-                        ),
-                    );
-                } else {
-                    // DefaultOutput AudioUnit rerouted automatically; notify the caller.
-                    emit_error(
-                        &error_callback,
-                        Error::with_message(
-                            ErrorKind::DeviceChanged,
-                            "default output device changed",
-                        ),
-                    );
-                }
-            }
-        });
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
+        let handle = std::thread::Builder::new()
+            .name("cpal-coreaudio-default-output".into())
+            .spawn(move || {
+                if !waiter.wait() {
+                    return;
+                }
+                while let Ok(()) = change_rx.recv() {
+                    let Some(arc) = stream_weak.upgrade() else {
+                        break;
+                    };
+                    if default_output_device().is_none() {
+                        if let Ok(mut inner) = arc.try_lock() {
+                            let _ = inner.pause();
+                        }
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "no default output device",
+                            ),
+                        );
+                    } else {
+                        // DefaultOutput AudioUnit rerouted automatically; notify the caller.
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceChanged,
+                                "default output device changed",
+                            ),
+                        );
+                    }
+                }
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to spawn default-output monitor thread: {e}"),
+                )
+            })?;
+
+        latch.add_thread(handle.thread().clone());
         Ok(DefaultOutputMonitor {
+            latch,
             _shutdown_tx: shutdown_tx,
         })
+    }
+}
+
+impl Monitor for DefaultOutputMonitor {
+    fn signal_ready(&self) {
+        self.latch.release();
     }
 }
 
@@ -277,17 +331,23 @@ impl StreamInner {
 
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
-    // Holds the device monitor (either DisconnectManager or DefaultOutputMonitor) to keep it
-    // alive for the lifetime of the stream.
-    _monitor: Box<dyn Send + Sync>,
+    monitor: Box<dyn Monitor>,
 }
 
 impl Stream {
-    fn new(inner: Arc<Mutex<StreamInner>>, monitor: Box<dyn Send + Sync>) -> Self {
-        Self {
-            inner,
-            _monitor: monitor,
-        }
+    fn new(inner: Arc<Mutex<StreamInner>>, monitor: Box<dyn Monitor>) -> Self {
+        Self { inner, monitor }
+    }
+
+    fn signal_ready(&self) {
+        self.monitor.signal_ready();
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // Unblock monitor delivery threads if the stream is dropped early.
+        self.monitor.signal_ready();
     }
 }
 

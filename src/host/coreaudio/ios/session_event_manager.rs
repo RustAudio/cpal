@@ -12,7 +12,7 @@ use objc2_avf_audio::{
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
 use crate::{
-    host::{emit_error, ErrorCallbackArc},
+    host::{emit_error, latch::Latch, ErrorCallbackArc},
     Error, ErrorKind,
 };
 
@@ -46,6 +46,7 @@ unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
 }
 
 pub(super) struct SessionEventManager {
+    latch: Latch,
     observers: Vec<
         objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2::runtime::NSObjectProtocol>>,
     >,
@@ -57,15 +58,19 @@ unsafe impl Send for SessionEventManager {}
 unsafe impl Sync for SessionEventManager {}
 
 impl SessionEventManager {
-    pub(super) fn new(error_callback: ErrorCallbackArc) -> Self {
+    pub(super) fn new(error_callback: ErrorCallbackArc, latch: Latch) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
         let mut observers = Vec::new();
+        let waiter = latch.waiter();
 
         {
             let cb = error_callback.clone();
+            let w = waiter.clone();
             let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
-                if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
-                    emit_error(&cb, err);
+                if w.is_released() {
+                    if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
+                        emit_error(&cb, err);
+                    }
                 }
             });
             if let Some(name) = unsafe { AVAudioSessionRouteChangeNotification } {
@@ -78,14 +83,17 @@ impl SessionEventManager {
 
         {
             let cb = error_callback.clone();
+            let w = waiter.clone();
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-                emit_error(
-                    &cb,
-                    Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
-                        "audio media services were lost",
-                    ),
-                );
+                if w.is_released() {
+                    emit_error(
+                        &cb,
+                        Error::with_message(
+                            ErrorKind::DeviceNotAvailable,
+                            "audio media services were lost",
+                        ),
+                    );
+                }
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereLostNotification } {
                 let observer = unsafe {
@@ -97,14 +105,17 @@ impl SessionEventManager {
 
         {
             let cb = error_callback.clone();
+            let w = waiter;
             let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-                emit_error(
-                    &cb,
-                    Error::with_message(
-                        ErrorKind::StreamInvalidated,
-                        "audio media services were reset",
-                    ),
-                );
+                if w.is_released() {
+                    emit_error(
+                        &cb,
+                        Error::with_message(
+                            ErrorKind::StreamInvalidated,
+                            "audio media services were reset",
+                        ),
+                    );
+                }
             });
             if let Some(name) = unsafe { AVAudioSessionMediaServicesWereResetNotification } {
                 let observer = unsafe {
@@ -114,7 +125,11 @@ impl SessionEventManager {
             }
         }
 
-        Self { observers }
+        Self { latch, observers }
+    }
+
+    pub(super) fn signal_ready(&self) {
+        self.latch.release();
     }
 }
 

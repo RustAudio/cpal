@@ -560,13 +560,15 @@ impl jack::NotificationHandler for JackNotificationHandler {
             // One of these notifications is sent every time a client is started.
             return jack::Control::Continue;
         }
-        emit_error(
-            &self.error_callback_ptr,
-            Error::with_message(
-                ErrorKind::StreamInvalidated,
-                format!("JACK server changed sample rate to {srate} Hz"),
-            ),
-        );
+        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Initializing {
+            emit_error(
+                &self.error_callback_ptr,
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    format!("JACK server changed sample rate to {srate} Hz"),
+                ),
+            );
+        }
         jack::Control::Quit
     }
 
