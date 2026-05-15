@@ -409,8 +409,8 @@ pub trait DeviceTrait {
 pub trait StreamTrait {
     /// Run the stream.
     ///
-    /// Note: Not all platforms automatically run the stream upon creation, so it is important to
-    /// call `play` after creation if it is expected that the stream should run immediately.
+    /// Streams returned by `build_*_stream` are always paused, so `play` must be called before the
+    /// data callback will fire.
     ///
     /// # Errors
     ///

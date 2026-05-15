@@ -20,6 +20,8 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] If you relied on the default config returning `F32`, pin the sample format explicitly.
 - [ ] **JACK**: Handle or discard the new `Result` from `Stream::connect_to_system_outputs()` and
   `Stream::connect_to_system_inputs()`.
+- [ ] **CoreAudio, JACK**: Add an explicit `stream.play()` call after `build_*_stream()` if you
+  were relying these backends to auto-start streams.
 
 ## 1. Unified `Error` and `ErrorKind` type
 
@@ -237,7 +239,28 @@ explicitly, rename it to `realtime-dbus`. If you relied on the opt-out behavior,
 **Why:** Real-time scheduling is the correct default for audio applications. The previous opt-in
 made it easy to accidentally ship without it.
 
-## 7. `wasm32-unknown-emscripten` target removed
+## 7. Streams are returned paused on every backend
+
+**What changed:** `build_input_stream` and `build_output_stream` now return a paused `Stream` on
+every backend. Previously, CoreAudio and JACK started the stream automatically.
+
+```rust
+// Before (v0.17): on CoreAudio/JACK the stream was already running
+let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
+
+// After (v0.18): every backend requires play()
+let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
+stream.play()?;
+```
+
+**Impact:** If you were targeting CoreAudio or JACK and never called `play()`, your callback will
+never fire after upgrading. Add the `play()` call.
+
+**Why:** Auto-starting before the caller has the `Stream` handle creates a window where data and
+error callbacks can fire before the application can pause, stop, or drop the stream. Other hosts 
+already required `play()`. The behavior is now uniform.
+
+## 8. `wasm32-unknown-emscripten` target removed
 
 **What changed:** The `emscripten` audio host and the `wasm32-unknown-emscripten` build target are no longer supported.
 

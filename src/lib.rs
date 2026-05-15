@@ -78,10 +78,11 @@
 //! );
 //! ```
 //!
-//! While the stream is running, the selected audio device will periodically call the data callback
-//! that was passed to the function. For input streams, the callback receives `&`[`Data`] containing
-//! captured audio samples. For output streams, the callback receives `&mut`[`Data`] to be filled
-//! with audio samples for playback.
+//! Streams are returned in a paused state. Once the stream has been started with
+//! [`Stream::play`](traits::StreamTrait::play), the selected audio device will periodically call
+//! the data callback that was passed to the function. For input streams, the callback receives
+//! `&`[`Data`] containing captured audio samples. For output streams, the callback receives
+//! `&mut`[`Data`] to be filled with audio samples for playback.
 //!
 //! > **Note**: Creating and running a stream will *not* block the thread. On modern platforms, the
 //! > given callback is called by a dedicated, high-priority thread responsible for delivering
@@ -117,8 +118,8 @@
 //! }
 //! ```
 //!
-//! Not all platforms automatically run the stream upon creation. To ensure the stream has started,
-//! we can use [`Stream::play`](traits::StreamTrait::play).
+//! Streams are always returned in a paused state, so we must call
+//! [`Stream::play`](traits::StreamTrait::play) to start running the data callback.
 //!
 //! ```no_run
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
