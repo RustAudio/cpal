@@ -180,6 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Output buffers are now zero-filled before the callback runs.
 - **WASAPI**: Fix audio worker thread spawn failure panicking instead of returning an error.
 - **WASAPI**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
+- **WASAPI**: Fix Communications-class inputs to return silence.
+- **WASAPI**: Fix `supported_input_configs()` advertising unsupported sample rates on input 
+  devices.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 

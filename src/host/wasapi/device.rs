@@ -64,8 +64,7 @@ const PKEY_AUDIOENDPOINT_JACKSUBTYPE: PROPERTYKEY = PROPERTYKEY {
 };
 
 const DEFAULT_FLAGS: u32 = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-    | Audio::AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
-    | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+    | Audio::AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
 
 /// Wrapper because of that stupid decision to remove `Send` and `Sync` from raw pointers.
 #[derive(Clone)]
@@ -195,15 +194,25 @@ unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::ED
         .expect("could not get endpoint data_flow")
 }
 
-// Given the audio client and format, returns whether or not the format is supported.
+// Given the audio client and format, returns whether the audio engine supports it natively in
+// shared mode without format conversion.
 pub unsafe fn is_format_supported(
-    _client: &Audio::IAudioClient,
-    _waveformatex_ptr: *const Audio::WAVEFORMATEX,
+    client: &Audio::IAudioClient,
+    waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, Error> {
-    // Checking formats is not needed for shared mode with auto-conversion, therefore this check has been removed until someone implements WASAPI exclusive mode support
-    // I used an NAudio issue as reference: https://github.com/naudio/NAudio/issues/819
+    let mut closest_match: *mut Audio::WAVEFORMATEX = ptr::null_mut();
+    let hr = client.IsFormatSupported(
+        Audio::AUDCLNT_SHAREMODE_SHARED,
+        waveformatex_ptr,
+        Some(&mut closest_match),
+    );
+    if !closest_match.is_null() {
+        let _free = WaveFormatExPtr(closest_match);
+    }
 
-    Ok(true)
+    // S_OK (hr.0 == 0): format is natively supported, Initialize will accept it without conversion.
+    // S_FALSE (hr.0 == 1): only usable when AUTOCONVERTPCM is set (output).
+    Ok(hr.0 == 0)
 }
 
 // Get a cpal Format from a WAVEFORMATEX.
@@ -654,6 +663,11 @@ impl Device {
 
             let mut supported_formats = Vec::new();
 
+            // Output streams use AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM so Initialize accepts any
+            // PCM format regardless of what IsFormatSupported returns. Capture streams do not;
+            // only native formats will work.
+            let is_output = self.data_flow() == Audio::eRender;
+
             for sample_rate in sample_rates {
                 for sample_format in [
                     SampleFormat::U8,
@@ -672,10 +686,12 @@ impl Device {
                         },
                         sample_format,
                     ) {
-                        if is_format_supported(
-                            client,
-                            &waveformat.Format as *const Audio::WAVEFORMATEX,
-                        )? {
+                        let usable = is_output
+                            || is_format_supported(
+                                client,
+                                &waveformat.Format as *const Audio::WAVEFORMATEX,
+                            )?;
+                        if usable {
                             supported_formats.push(SupportedStreamConfigRange {
                                 channels: format.channels,
                                 min_sample_rate: sample_rate,
@@ -933,7 +949,7 @@ impl Device {
                 audio_client
                     .Initialize(
                         share_mode,
-                        DEFAULT_FLAGS,
+                        DEFAULT_FLAGS | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
                         buffer_duration,
                         0,
                         &format_attempt.Format,
