@@ -399,7 +399,7 @@ impl Device {
             return Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
                 format!(
-                    "PCM '{}': initialization resulted in a null buffer",
+                    "device '{}': initialization resulted in a null buffer",
                     self.pcm_id
                 ),
             ));
@@ -410,7 +410,7 @@ impl Device {
         if handle.count() == 0 {
             return Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
-                format!("PCM '{}': poll descriptor count is 0", self.pcm_id),
+                format!("device '{}': poll descriptor count is 0", self.pcm_id),
             ));
         }
 
@@ -629,7 +629,7 @@ impl Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         format!(
-                            "PCM '{}' does not support the requested direction",
+                            "device '{}' does not support the requested direction",
                             self.pcm_id
                         ),
                     ));
@@ -647,7 +647,7 @@ impl Device {
                 .unwrap_or_else(|| f.with_max_sample_rate())),
             None => Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("PCM '{}': no supported configuration", self.pcm_id),
+                format!("device '{}': no supported configuration", self.pcm_id),
             )),
         }
     }
@@ -1047,7 +1047,7 @@ fn boost_current_thread_priority(
         return Err(Error::with_message(
             ErrorKind::RealtimeDenied,
             format!(
-                "PCM '{}' ({type_name}) cannot be promoted to real-time priority",
+                "device '{}' ({type_name}) cannot be promoted to real-time priority",
                 stream.pcm_id,
             ),
         ));
@@ -1138,7 +1138,7 @@ fn poll_for_period(
     if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
         return Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            format!("PCM '{}' disconnected", stream.pcm_id),
+            format!("device '{}' disconnected", stream.pcm_id),
         ));
     }
     // POLLERR signals an xrun or suspend; avail_delay() below returns EPIPE/ESTRPIPE accordingly.
@@ -1434,7 +1434,7 @@ impl StreamTrait for Stream {
         if !hw_params.can_pause() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                format!("PCM '{}' does not support pausing", self.inner.pcm_id),
+                format!("device '{}' does not support pausing", self.inner.pcm_id),
             ));
         }
         if self.inner.handle.state() != alsa::pcm::State::Paused {
