@@ -15,7 +15,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 enum StreamState {
     #[default]
-    Initializing = 0,
+    Starting = 0,
     Paused = 1,
     Playing = 2,
 }
@@ -25,7 +25,7 @@ impl StreamState {
         match atom.load(order) {
             1 => Self::Paused,
             2 => Self::Playing,
-            _ => Self::Initializing,
+            _ => Self::Starting,
         }
     }
 
@@ -69,7 +69,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let state = Arc::new(AtomicU8::new(StreamState::Initializing as u8));
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let input_process_handler = LocalProcessHandler::new(
@@ -125,7 +125,7 @@ impl Stream {
             ports.push(port);
         }
 
-        let state = Arc::new(AtomicU8::new(StreamState::Initializing as u8));
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let output_process_handler = LocalProcessHandler::new(
@@ -543,7 +543,7 @@ impl JackNotificationHandler {
 
 impl jack::NotificationHandler for JackNotificationHandler {
     unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
-        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Initializing {
+        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Starting {
             return;
         }
         emit_error(
@@ -560,7 +560,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
             // One of these notifications is sent every time a client is started.
             return jack::Control::Continue;
         }
-        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Initializing {
+        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
             emit_error(
                 &self.error_callback_ptr,
                 Error::with_message(
@@ -573,7 +573,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Initializing {
+        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
             let _ = try_emit_error(
                 &self.error_callback_ptr,
                 Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),

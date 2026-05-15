@@ -12,7 +12,11 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    host::{com, error_emit::try_emit_error, frames_to_duration},
+    host::{
+        com,
+        error_emit::{emit_error, try_emit_error},
+        frames_to_duration,
+    },
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
     StreamInstant, I24,
@@ -59,7 +63,7 @@ const ASIO_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 enum StreamState {
     #[default]
-    Idle = 0,
+    Starting = 0,
     Paused = 1,
     Playing = 2,
 }
@@ -69,7 +73,7 @@ impl StreamState {
         match atom.load(Ordering::Acquire) {
             1 => StreamState::Paused,
             2 => StreamState::Playing,
-            _ => StreamState::Idle,
+            _ => StreamState::Starting,
         }
     }
 
@@ -183,7 +187,7 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
@@ -513,7 +517,7 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let state = Arc::new(AtomicU8::new(StreamState::Idle as u8));
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
@@ -966,7 +970,7 @@ impl Device {
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             // Grace period elapsed with no new events: now deliver.
                             if let Some(err) = pending.take() {
-                                error_cb_for_timer.lock().unwrap_or_else(|e| e.into_inner())(err);
+                                emit_error(&error_cb_for_timer, err);
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
@@ -995,9 +999,9 @@ impl Device {
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
-                        // Guard on Idle: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.) fire
-                        // spurious reset/resync requests during driver.start().
-                        if StreamState::load(&state) != StreamState::Idle {
+                        // Guard on Starting: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.)
+                        // fire spurious reset/resync requests during driver.start().
+                        if StreamState::load(&state) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "ASIO driver requested stream reset",
@@ -1009,7 +1013,7 @@ impl Device {
                         // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
                         // means the driver needs a full stop/reinit/start. It is *not* a simple
                         // xrun notification.
-                        if StreamState::load(&state) != StreamState::Idle {
+                        if StreamState::load(&state) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "ASIO driver requested stream resynchronization",
@@ -1061,7 +1065,7 @@ impl Device {
                             true
                         }
                     };
-                    if should_notify && StreamState::load(&state) != StreamState::Idle {
+                    if should_notify && StreamState::load(&state) != StreamState::Starting {
                         let _ = timer_tx.send(Error::with_message(
                             ErrorKind::StreamInvalidated,
                             format!("ASIO driver changed sample rate to {new_rate} Hz"),
