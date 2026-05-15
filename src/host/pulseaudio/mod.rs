@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::mpsc, time::Duration};
 
 use futures::executor::block_on;
 use pulseaudio::protocol;
@@ -15,6 +15,8 @@ use crate::{
     SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
 };
+
+const INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 const MIN_SAMPLE_RATE: SampleRate = 8000;
 
@@ -124,12 +126,25 @@ pub struct Host {
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
-        let client = pulseaudio::Client::from_env(c"cpal-pulseaudio").map_err(|e| {
-            Error::with_message(
-                ErrorKind::HostUnavailable,
-                format!("PulseAudio unavailable: {e}"),
-            )
-        })?;
+        // `Client::from_env` does a blocking auth handshake with no socket timeout. If this never
+        // returns, fall through to the next host with no other option than to leak the thread.
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(pulseaudio::Client::from_env(c"cpal-pulseaudio"));
+        });
+        let client = rx
+            .recv_timeout(INIT_TIMEOUT)
+            .map_err(|err| match err {
+                mpsc::RecvTimeoutError::Timeout => Error::with_message(
+                    ErrorKind::HostUnavailable,
+                    "timed out waiting for PulseAudio",
+                ),
+                mpsc::RecvTimeoutError::Disconnected => Error::with_message(
+                    ErrorKind::HostUnavailable,
+                    "PulseAudio initialization thread disconnected before sending a result",
+                ),
+            })
+            .and_then(|r| r.map_err(Error::from))?;
 
         Ok(Self { client })
     }
