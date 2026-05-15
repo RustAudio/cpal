@@ -24,7 +24,17 @@ Low-level library for audio input and output in pure Rust.
 - WebAssembly (via Web Audio API or Audio Worklet)
 - Windows (via WASAPI by default, ASIO or JACK optionally)
 
-Note that on Linux, the ALSA development files are required for building (even when using JACK, PipeWire or PulseAudio). These are provided as part of the `libasound2-dev` package on Debian and Ubuntu distributions and `alsa-lib-devel` on Fedora.
+## Linux Build Dependencies
+
+On Linux, building cpal requires the ALSA and D-Bus development files: `libasound2-dev` and 
+`libdbus-1-dev` on Debian and Ubuntu, `alsa-lib-devel` and `dbus-devel` on Fedora.
+
+ALSA is needed even when using JACK, PipeWire, or PulseAudio.
+
+D-Bus is pulled in by the default `realtime-dbus` feature for `rtkit`-based RT scheduling, typical
+for desktop systems. For systems without D-Bus, disable default features and enable the plain
+`realtime` feature instead. See [Real-Time Priority Promotion](#real-time-priority-promotion).
+Disable both features to disable RT scheduling entirely.
 
 ## Minimum Supported Rust Version (MSRV)
 
@@ -51,7 +61,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 |---------|----------|-------------|
 | `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio). |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
-| `custom` | All | User-defined host implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
+| `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
@@ -59,7 +69,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 | `realtime-dbus` | Linux, BSD, Windows, Android | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Enabled by default. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
-See the [beep example](examples/beep.rs) for selecting the host at runtime.
+See the [beep example](examples/beep.rs) for selecting the backend at runtime.
 
 ## ASIO
 
@@ -99,7 +109,7 @@ In an ideal situation you don't need to worry about this step.
    cpal = { version = "*", features = ["asio"] }
    ```
 
-2. **Select the ASIO host** in your code:
+2. **Select the ASIO backend** in your code:
    ```rust
    let host = cpal::host_from_id(cpal::HostId::Asio)
        .expect("failed to initialise ASIO host");
@@ -141,9 +151,12 @@ If you receive errors about no default input or output device:
 
 ## ALSA, PipeWire, and PulseAudio
 
-When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second stream attempting to open it via the ALSA backend will fail with a `DeviceBusy` error. To route audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of `default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
+When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second
+stream attempting to open it via the ALSA host will fail with a `DeviceBusy` error. To route
+audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of
+`default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
 
-Reserve `hw:` and `plughw:` device names for targets that have no sound server. On those targets, ensure the user is a member of the `audio` group if the system does not grant audio device access automatically via `logind`.
+On targets without a sound server, address devices directly as `hw:` or `plughw:`.
 
 ### Buffer Size Issues
 
@@ -162,6 +175,30 @@ config.buffer_size = cpal::BufferSize::Fixed(1024);
 ```
 
 Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller buffers reduce latency but increase CPU load and the risk of glitches.
+
+### ALSA Real-Time Priority Promotion
+
+The ALSA backend refuses to promote the audio thread to RT priority for plugins such as `pcm.pulse`
+and `pcm.pipewire`, notifying `RealtimeDenied` after stream creation on the error callback.
+Consider using the `pulseaudio` or `pipewire` cpal features to open the device through the native
+backend instead. While RT priority is desirable for low latency, the stream will continue to play 
+at the default scheduling priority.
+
+Kernel-backed PCMs (`hw`, `plughw`) and pure-computation plugins are unaffected.
+
+`RealtimeDenied` is also received when the process lacks the resource limits to acquire
+`SCHED_FIFO`. With the default `realtime-dbus` feature, `rtkit` arranges this over D-Bus on 
+typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is 
+granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the 
+`audio` group:
+
+```
+@audio - rtprio 95
+```
+
+then add the user to the `audio` group (`usermod -aG audio "$USER"`) and re-login. The same group
+may anyway be needed to grant access to ALSA device files via `udev` on systems that do not
+arrange this automatically via `logind`.
 
 ### Build Errors
 
