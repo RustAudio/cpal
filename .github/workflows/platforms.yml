@@ -586,7 +586,6 @@ jobs:
             target: wasm32-unknown-unknown
           - name: Android
             target: aarch64-linux-android
-    name: docs-${{ matrix.name }}
     runs-on: ubuntu-latest
     env:
       DOCS_RS: "1"
