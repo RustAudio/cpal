@@ -239,7 +239,6 @@ impl DeviceTrait for Device {
             error_callback,
             timeout,
         );
-        stream.signal_ready();
         Ok(stream)
     }
 
@@ -263,7 +262,6 @@ impl DeviceTrait for Device {
             error_callback,
             timeout,
         );
-        stream.signal_ready();
         Ok(stream)
     }
 }
@@ -412,15 +410,12 @@ impl Device {
         };
         drop(hw_params);
 
-        if let alsa::Direction::Capture = stream_type {
-            handle.start()?;
-        }
-
         let period_size = period_size as usize;
         let frame_size = sample_format.sample_size() * conf.channels as usize;
 
         let stream_inner = StreamInner {
             dropping: AtomicBool::new(false),
+            direction: stream_type.into(),
             handle,
             pcm_id: self.pcm_id.clone(),
             sample_format,
@@ -744,6 +739,9 @@ struct StreamInner {
     // (e.g. broken due to a disconnected device).
     dropping: AtomicBool,
 
+    // Stream direction.
+    direction: DeviceDirection,
+
     // The ALSA handle.
     handle: alsa::pcm::PCM,
 
@@ -796,8 +794,7 @@ pub struct Stream {
     /// `trigger.wakeup()` never writes to a closed pipe, even if the worker exited early.
     _rx: Arc<TriggerReceiver>,
 
-    /// Latch that prevents the worker thread from firing callbacks until the caller has received
-    /// the `Stream` handle.
+    /// Latch that blocks the worker thread until `play()` is called for the first time.
     latch: Latch,
 }
 
@@ -1295,7 +1292,6 @@ fn process_output(
             Err(err) => return Err(err.into()),
         }
     }
-
     Ok(())
 }
 
@@ -1324,7 +1320,7 @@ fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> Stream
 
 impl Stream {
     /// Releases the latch so the worker thread can begin processing audio callbacks.
-    pub(crate) fn signal_ready(&self) {
+    fn signal_ready(&self) {
         self.latch.release();
     }
 
@@ -1342,8 +1338,8 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // The latch is released just before the `Stream` is returned so the worker cannot fire any
-        // callbacks before the caller has the handle.
+        // The latch is released by play(); the worker blocks here until then, keeping the PCM
+        // in PREPARED state with no DMA activity.
         let mut latch = Latch::new();
         let waiter = latch.waiter();
 
@@ -1385,8 +1381,8 @@ impl Stream {
         let rx_thread = rx.clone();
         let stream = inner.clone();
 
-        // The latch is released just before the `Stream` is returned so the worker cannot fire any
-        // callbacks before the caller has the handle.
+        // The latch is released by play(); the worker blocks here until then, keeping the PCM
+        // in PREPARED state with no DMA activity.
         let mut latch = Latch::new();
         let waiter = latch.waiter();
 
@@ -1417,8 +1413,8 @@ impl Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        // Unblock the worker in case the stream is dropped before signal_ready() was
-        // called. Idempotent: no effect if the worker is already running.
+        // Unblock the worker in case the stream is dropped before play() was called.
+        // Idempotent: no effect if the worker is already running.
         self.signal_ready();
         self.inner.dropping.store(true, Ordering::Release);
         self.trigger.wakeup();
@@ -1430,8 +1426,16 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        if self.inner.handle.state() == alsa::pcm::State::Paused {
-            self.inner.handle.pause(false)?;
+        self.signal_ready(); // idempotent: no-op after first call
+        match self.inner.handle.state() {
+            // Calling start() on an empty output buffer would trigger an immediate XRUN.
+            alsa::pcm::State::Prepared if self.inner.direction == DeviceDirection::Input => {
+                self.inner.handle.start()?;
+            }
+            alsa::pcm::State::Paused => {
+                self.inner.handle.pause(false)?;
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -1447,6 +1451,7 @@ impl StreamTrait for Stream {
         if self.inner.handle.state() != alsa::pcm::State::Paused {
             self.inner.handle.pause(true)?;
         }
+        // TODO: when can_pause() is false, considering implementing a software fallback
         Ok(())
     }
 
