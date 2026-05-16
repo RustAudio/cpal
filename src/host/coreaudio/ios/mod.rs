@@ -1,6 +1,7 @@
 //! CoreAudio implementation for iOS using AVAudioSession and RemoteIO Audio Units.
 
 use std::{
+    fmt,
     ptr::NonNull,
     sync::{Arc, Mutex},
     time::Duration,
@@ -37,6 +38,13 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 pub struct Host;
 

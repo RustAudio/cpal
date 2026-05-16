@@ -8,7 +8,7 @@ extern crate alsa_sys;
 extern crate libc;
 
 use std::{
-    cmp,
+    cmp, fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -342,20 +342,6 @@ pub struct Device {
     _context: Arc<AlsaContext>,
 }
 
-impl PartialEq for Device {
-    fn eq(&self, other: &Self) -> bool {
-        self.pcm_id == other.pcm_id
-    }
-}
-
-impl Eq for Device {}
-
-impl std::hash::Hash for Device {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.pcm_id.hash(state);
-    }
-}
-
 impl Device {
     fn build_stream_inner(
         &self,
@@ -658,6 +644,27 @@ impl Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(alsa::Direction::Playback)
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.pcm_id == other.pcm_id
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.pcm_id.hash(state);
     }
 }
 

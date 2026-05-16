@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -18,10 +19,10 @@ use cpal::{
 #[derive(Clone)] // Clone, Send+Sync are required
 struct MyHost;
 
-#[derive(Clone)] // Clone, Send+Sync are required
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct MyDevice;
 
-// Only Send+Sync is needed
+// Needs to be Send+Sync
 struct MyStream {
     controls: Arc<StreamControls>,
     // The instant the audio thread was started; shared with now() so that
@@ -182,6 +183,13 @@ impl DeviceTrait for MyDevice {
             start,
             handle: Some(handle),
         })
+    }
+}
+
+impl fmt::Display for MyDevice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
     }
 }
 

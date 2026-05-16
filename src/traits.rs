@@ -5,7 +5,11 @@
 //! When implementing custom hosts with the `custom` feature, use the [`assert_stream_send!`](crate::assert_stream_send)
 //! and [`assert_stream_sync!`](crate::assert_stream_sync) macros to verify your `Stream` type meets CPAL's requirements.
 
-use std::time::Duration;
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    time::Duration,
+};
 
 use crate::{
     Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, InputDevices, OutputCallbackInfo,
@@ -105,7 +109,7 @@ pub trait HostTrait {
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
-pub trait DeviceTrait {
+pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
     /// The iterator type yielding supported input stream formats.
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
@@ -122,8 +126,8 @@ pub trait DeviceTrait {
     /// including name, manufacturer (if available), device type, bus type, and other
     /// platform-specific metadata.
     ///
-    /// For simple string representation, use `device.description().to_string()` or
-    /// `device.description().name()`.
+    /// For the device name as a string, use `device.to_string()` or format it with `{}`. For the
+    /// full structured description, call `device.description()?` and format or inspect that.
     ///
     /// # Errors
     ///

@@ -1,5 +1,7 @@
 use std::{
     cell::RefCell,
+    fmt,
+    hash::{Hash, Hasher},
     rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -176,6 +178,28 @@ impl Device {
         properties
     }
 }
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_name == other.node_name
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node_name.hash(state);
+    }
+}
+
 impl DeviceTrait for Device {
     type Stream = Stream;
     type SupportedInputConfigs = SupportedInputConfigs;

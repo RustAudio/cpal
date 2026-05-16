@@ -4,6 +4,7 @@
 //! See `examples/custom.rs` for usage.
 
 use core::time::Duration;
+use std::fmt;
 
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -83,6 +84,35 @@ impl Device {
 impl Clone for Device {
     fn clone(&self) -> Self {
         self.0.clone()
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        DeviceTrait::id(self).ok() == DeviceTrait::id(other).ok()
+    }
+}
+
+impl Eq for Device {}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        DeviceTrait::id(self).ok().hash(state);
+    }
+}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = DeviceTrait::description(self).map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Device")
+            .field(&DeviceTrait::description(self).map(|d| d.name().to_owned()))
+            .finish()
     }
 }
 

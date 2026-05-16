@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     hash::{Hash, Hasher},
     time::Duration,
 };
@@ -334,6 +335,13 @@ impl PartialEq for Device {
 }
 
 impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {

@@ -5,6 +5,8 @@
 use std::{
     cmp,
     convert::TryInto,
+    fmt,
+    hash::{Hash, Hasher},
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc, Mutex,
@@ -120,7 +122,7 @@ const SAMPLE_RATES: [i32; 15] = [
 const DEFAULT_TIMEOUT_NANOS: i64 = 2_000_000_000;
 
 pub struct Host;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Device(Option<AudioDeviceInfo>);
 
 /// Stream wraps AudioStream in Arc<Mutex<>> to provide Send + Sync semantics.
@@ -716,6 +718,31 @@ impl DeviceTrait for Device {
             builder,
             sample_format,
         )
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a.id == b.id,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ref().map(|i| i.id).hash(state);
     }
 }
 

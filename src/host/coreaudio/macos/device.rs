@@ -362,20 +362,6 @@ pub struct Device {
     pub(crate) is_default_output: bool,
 }
 
-impl PartialEq for Device {
-    fn eq(&self, other: &Self) -> bool {
-        self.audio_device_id == other.audio_device_id
-    }
-}
-
-impl Eq for Device {}
-
-impl std::hash::Hash for Device {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.audio_device_id.hash(state);
-    }
-}
-
 impl Device {
     /// Construct a new device given its ID.
     /// Useful for constructing hidden devices.
@@ -721,15 +707,6 @@ impl Device {
     }
 }
 
-impl fmt::Debug for Device {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Device")
-            .field("audio_device_id", &self.audio_device_id)
-            .field("name", &self.description().map(|d| d.name().to_owned()))
-            .finish()
-    }
-}
-
 impl Device {
     #[allow(clippy::cast_ptr_alignment)]
     #[allow(clippy::while_immutable_condition)]
@@ -947,6 +924,36 @@ impl Device {
         let stream = Stream::new(inner_arc, monitor);
         stream.signal_ready();
         Ok(stream)
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.audio_device_id == other.audio_device_id
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.audio_device_id.hash(state);
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Device")
+            .field("audio_device_id", &self.audio_device_id)
+            .field("name", &self.description().map(|d| d.name().to_owned()))
+            .finish()
     }
 }
 

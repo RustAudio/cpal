@@ -1,4 +1,10 @@
-use std::{sync::mpsc, time::Duration};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+    mem::discriminant,
+    sync::mpsc,
+    time::Duration,
+};
 
 use futures::executor::block_on;
 use pulseaudio::protocol;
@@ -606,6 +612,35 @@ fn make_record_buffer_attr(
                 fragment_size: len,
                 ..Default::default()
             }
+        }
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Device::Sink { info: a, .. }, Device::Sink { info: b, .. }) => a.index == b.index,
+            (Device::Source { info: a, .. }, Device::Source { info: b, .. }) => a.index == b.index,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
+        match self {
+            Device::Sink { info, .. } => info.index.hash(state),
+            Device::Source { info, .. } => info.index.hash(state),
         }
     }
 }
