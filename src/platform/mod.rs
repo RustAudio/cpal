@@ -618,6 +618,77 @@ macro_rules! impl_platform_host {
             }
         }
 
+        use std::fmt;
+        use std::hash::{Hash, Hasher};
+
+        impl PartialEq for DeviceInner {
+            #[allow(unreachable_patterns)]
+            fn eq(&self, other: &DeviceInner) -> bool {
+                match (self, other) {
+                    $(
+                        $(#[cfg($feat)])?
+                        (DeviceInner::$HostVariant(a), DeviceInner::$HostVariant(b)) => a == b,
+                    )*
+                    _ => false,
+                }
+            }
+        }
+
+        impl Eq for DeviceInner {}
+
+        impl Hash for DeviceInner {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                match self {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(d) => d.hash(state),
+                    )*
+                }
+            }
+        }
+
+        impl fmt::Debug for DeviceInner {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(d) => d.fmt(f),
+                    )*
+                }
+            }
+        }
+
+        impl PartialEq for Device {
+            fn eq(&self, other: &Device) -> bool {
+                self.0 == other.0
+            }
+        }
+
+        impl Eq for Device {}
+
+        impl Hash for Device {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.0.hash(state);
+            }
+        }
+
+        impl fmt::Debug for Device {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+
+        impl fmt::Display for Device {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => fmt::Display::fmt(d, f),
+                    )*
+                }
+            }
+        }
+
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
                 Device(d)

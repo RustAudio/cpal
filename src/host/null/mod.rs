@@ -2,6 +2,7 @@
 //!
 //! Fallback no-op backend for unsupported platforms.
 
+use std::fmt;
 use std::time::Duration;
 
 use crate::{
@@ -16,6 +17,13 @@ pub struct Devices;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 pub struct Host;
 

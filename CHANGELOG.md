@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Device` now implements `PartialEq`, `Eq`, `Hash`, `Display`, and `Debug`.
 - `ErrorKind::BackendError` for platform audio API errors that don't map to a specific kind.
 - `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
 - `ErrorKind::DeviceChanged` signals that the audio route changed to another device.
@@ -31,10 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md`.
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
+- **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
+- **ASIO**: `Device` now implements `Debug`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
+- **CoreAudio**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
+- **JACK**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
+- **WASAPI**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
 
 ### Changed
 
@@ -48,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [UPGRADING.md](UPGRADING.md) for migration details.
 - `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default.
 - `audio_thread_priority` dependency bumped to 0.35.
+- `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for

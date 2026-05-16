@@ -7,6 +7,7 @@ extern crate wasm_bindgen;
 extern crate web_sys;
 
 use std::{
+    fmt,
     ops::DerefMut,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -38,6 +39,13 @@ pub struct Devices(bool);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 pub struct Host;
 

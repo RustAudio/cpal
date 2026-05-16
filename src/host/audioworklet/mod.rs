@@ -4,6 +4,7 @@
 //! See the `audioworklet-beep` example for setup instructions.
 
 use std::{
+    fmt,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -31,6 +32,13 @@ pub struct Devices(bool);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 pub struct Host;
 
@@ -417,11 +425,8 @@ type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
 /// WasmAudioProcessor provides an interface for the Javascript code
 /// running in the AudioWorklet to interact with Rust.
 #[wasm_bindgen]
-#[allow(unused_variables)]
 pub struct WasmAudioProcessor {
-    #[wasm_bindgen(skip)]
     interleaved_buffer: Vec<f32>,
-    #[wasm_bindgen(skip)]
     // Passes in an interleaved scratch buffer, frame size, sample rate, and current time.
     callback: AudioProcessorCallback,
 }

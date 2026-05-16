@@ -586,7 +586,6 @@ jobs:
             target: wasm32-unknown-unknown
           - name: Android
             target: aarch64-linux-android
-    name: docs-${{ matrix.name }}
     runs-on: ubuntu-latest
     env:
       DOCS_RS: "1"
@@ -615,7 +614,7 @@ jobs:
 
   docs-asio-sys:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
-    name: docs (asio-sys)
+    name: docs-asio-sys
     runs-on: ubuntu-latest
     env:
       DOCS_RS: "1"

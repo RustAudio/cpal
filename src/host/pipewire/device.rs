@@ -1,9 +1,11 @@
 use std::{
     cell::RefCell,
+    fmt,
+    hash::{Hash, Hasher},
     rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        mpsc, Arc,
     },
     thread,
     time::Duration,
@@ -38,6 +40,8 @@ use crate::{
 };
 
 pub type Devices = std::vec::IntoIter<Device>;
+
+const INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 // This enum record whether it is created by human or just default device
 #[derive(Clone, Debug, Default, Copy)]
@@ -174,6 +178,28 @@ impl Device {
         properties
     }
 }
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_name == other.node_name
+    }
+}
+
+impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node_name.hash(state);
+    }
+}
+
 impl DeviceTrait for Device {
     type Stream = Stream;
     type SupportedInputConfigs = SupportedInputConfigs;
@@ -320,7 +346,7 @@ impl DeviceTrait for Device {
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
-        let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
+        let (init_tx, init_rx) = mpsc::channel::<Result<(), Error>>();
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
@@ -486,7 +512,7 @@ impl DeviceTrait for Device {
     {
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
-        let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), Error>>();
+        let (init_tx, init_rx) = mpsc::channel::<Result<(), Error>>();
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
@@ -967,7 +993,21 @@ pub fn init_devices() -> Option<Vec<Device>> {
         })
         .register();
 
+    // Guard against PipeWire daemons that accept a connection but never send `done` events.
+    let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
+    let (timeout_tx, timeout_rx) = pw::channel::channel::<()>();
+    let loop_quit = mainloop.clone();
+    let _timeout_watcher = timeout_rx.attach(mainloop.loop_(), move |_| {
+        loop_quit.quit();
+    });
+    thread::spawn(move || {
+        if cancel_rx.recv_timeout(INIT_TIMEOUT).is_err() {
+            let _ = timeout_tx.send(());
+        }
+    });
+
     mainloop.run();
+    let _ = cancel_tx.send(());
 
     // If PipeWire connected but discovered no real audio nodes, it cannot route any streams. Treat
     // this as unavailable so the caller can fall back to PulseAudio or ALSA.
