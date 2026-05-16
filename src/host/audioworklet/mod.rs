@@ -425,10 +425,11 @@ type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
 /// WasmAudioProcessor provides an interface for the Javascript code
 /// running in the AudioWorklet to interact with Rust.
 #[wasm_bindgen]
-#[allow(unused_variables)]
 pub struct WasmAudioProcessor {
+    #[allow(unused_variables)]
     #[wasm_bindgen(skip)]
     interleaved_buffer: Vec<f32>,
+    #[allow(unused_variables)]
     #[wasm_bindgen(skip)]
     // Passes in an interleaved scratch buffer, frame size, sample rate, and current time.
     callback: AudioProcessorCallback,
