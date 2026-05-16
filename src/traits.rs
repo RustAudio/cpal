@@ -409,12 +409,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
         E: FnMut(Error) + Send + 'static;
 }
 
-/// A stream created from [`Device`](DeviceTrait), with methods to control playback.
+/// A stream created from [`Device`](DeviceTrait), with methods to control it.
 pub trait StreamTrait {
-    /// Run the stream.
+    /// Start the stream.
     ///
-    /// Streams returned by `build_*_stream` are always paused, so `play` must be called before the
-    /// data callback will fire.
+    /// Streams returned by `build_*_stream` are always stopped, so `play` must be called before the
+    /// data callback will fire. Despite the name, this applies equally to input (capture) streams.
     ///
     /// # Errors
     ///
@@ -426,8 +426,8 @@ pub trait StreamTrait {
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn play(&self) -> Result<(), Error>;
 
-    /// Some devices support pausing the audio stream. This can be useful for saving energy in
-    /// moments of silence.
+    /// Pause the stream. Some devices support suspending at the hardware level (saving energy);
+    /// others stop only the data callback while the hardware keeps running.
     ///
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
