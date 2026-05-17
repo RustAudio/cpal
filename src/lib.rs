@@ -727,9 +727,10 @@ impl SupportedStreamConfigRange {
     ///
     /// **Sample format** (most preferred first):
     ///
-    /// Float formats are preferred over integers. Within each category, formats are ranked by
-    /// bit-depth descending (higher is better), with signed integers ranked above unsigned at
-    /// the same width. DSD formats are ranked last as non-PCM.
+    /// F32 is ranked highest as the universal realtime audio format, followed by F64. Standard
+    /// integer widths descend by bit depth (I32 > I24 > I16); 64-bit integers are deprioritised
+    /// below I16 as accumulator types rather than native stream formats. Signed beats unsigned
+    /// at the same width. DSD ranks last as non-PCM.
     ///
     /// **Sample rate**:
     ///
@@ -754,22 +755,25 @@ impl SupportedStreamConfigRange {
             return cmp_channels;
         }
 
-        // Returns a (category, depth, signed) rank for a sample format.
-        fn format_rank(fmt: SampleFormat) -> (u8, u32, u8) {
-            let category = if fmt.is_float() {
-                2
-            } else if fmt.is_int() || fmt.is_uint() {
-                1
-            } else {
-                0
-            };
-            let depth = if fmt.is_dsd() {
-                fmt.sample_size() as u32
-            } else {
-                fmt.bits_per_sample()
-            };
-            let signed = u8::from(fmt.is_float() || fmt.is_int());
-            (category, depth, signed)
+        fn format_rank(fmt: SampleFormat) -> u8 {
+            match fmt {
+                SampleFormat::DsdU8 => 0,
+                SampleFormat::DsdU16 => 1,
+                SampleFormat::DsdU32 => 2,
+                SampleFormat::U8 => 3,
+                SampleFormat::I8 => 4,
+                // 64-bit integers: deprioritised below standard audio widths.
+                SampleFormat::U64 => 5,
+                SampleFormat::I64 => 6,
+                SampleFormat::U16 => 7,
+                SampleFormat::I16 => 8,
+                SampleFormat::U24 => 9,
+                SampleFormat::I24 => 10,
+                SampleFormat::U32 => 11,
+                SampleFormat::I32 => 12,
+                SampleFormat::F64 => 13,
+                SampleFormat::F32 => 14,
+            }
         }
 
         let cmp_format = format_rank(self.sample_format).cmp(&format_rank(other.sample_format));
@@ -875,7 +879,7 @@ fn test_cmp_default_heuristics_format_order() {
     // Expected order from lowest to highest priority:
     assert_eq!(
         sorted_formats,
-        vec![DsdU8, DsdU16, DsdU32, U8, I8, U16, I16, U24, I24, U32, I32, U64, I64, F32, F64,]
+        vec![DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,]
     );
 }
 
@@ -892,7 +896,7 @@ fn test_cmp_default_heuristics() {
         make_range(2, SampleFormat::F32, 1, 44_100), // 44.1 kHz only
         make_range(2, SampleFormat::F32, 48_000, 96_000), // 48 kHz only
         make_range(2, SampleFormat::F32, 1, 96_000), // both standard rates
-        make_range(2, SampleFormat::F64, 1, 96_000), // F64; highest format priority
+        make_range(2, SampleFormat::F64, 1, 96_000),
     ];
 
     configs.sort_by(|a, b| a.cmp_default_heuristics(b));
@@ -910,24 +914,24 @@ fn test_cmp_default_heuristics() {
     assert_eq!(configs[4].sample_format(), SampleFormat::U16);
     assert_eq!(configs[5].sample_format(), SampleFormat::I16);
 
-    // [6]–[9] Stereo F32 entries ranked by rate coverage (F32 < F64).
-    assert_eq!(configs[6].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[6].max_sample_rate(), 22_050); // neither standard rate
+    // [6] F64 is outranked by F32.
+    assert_eq!(configs[6].sample_format(), SampleFormat::F64);
+    assert_eq!(configs[6].channels(), 2);
 
+    // [7]–[10] Stereo F32 entries ranked by rate coverage.
     assert_eq!(configs[7].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[7].max_sample_rate(), 44_100); // 44.1 kHz only
+    assert_eq!(configs[7].max_sample_rate(), 22_050); // neither standard rate
 
     assert_eq!(configs[8].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[8].min_sample_rate(), 48_000); // 48 kHz only (no 44.1 kHz)
-    assert_eq!(configs[8].max_sample_rate(), 96_000);
+    assert_eq!(configs[8].max_sample_rate(), 44_100); // 44.1 kHz only
 
     assert_eq!(configs[9].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[9].min_sample_rate(), 1);
-    assert_eq!(configs[9].max_sample_rate(), 96_000); // both standard rates
+    assert_eq!(configs[9].min_sample_rate(), 48_000); // 48 kHz only (no 44.1 kHz)
+    assert_eq!(configs[9].max_sample_rate(), 96_000);
 
-    // [10] F64 outranks all F32 entries regardless of rate coverage.
-    assert_eq!(configs[10].sample_format(), SampleFormat::F64);
-    assert_eq!(configs[10].channels(), 2);
+    assert_eq!(configs[10].sample_format(), SampleFormat::F32);
+    assert_eq!(configs[10].min_sample_rate(), 1);
+    assert_eq!(configs[10].max_sample_rate(), 96_000); // both standard rates
 }
 
 impl From<SupportedStreamConfig> for StreamConfig {
