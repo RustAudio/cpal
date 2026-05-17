@@ -172,7 +172,7 @@ let config = device
 
 **What changed:** `default_input_config()` and `default_output_config()` now use a fully-ranked format ordering across all `SampleFormat` variants.
 
-Previously only `F32`, `I16`, and `U16` were explicitly ranked; all other formats compared as equal. On hosts that expose higher-precision formats, the default config may now return a different format than before. Likely candidates are `I32`, `I24`, or even `F64` if the device or plugin supports it.
+Previously only `F32`, `I16`, and `U16` were explicitly ranked; all other formats compared as equal. On hosts that expose higher-precision formats, the default config may now return a different format than before. Likely candidates are `I32` or `I24`.
 
 If your code assumes the default format is `F32`, request the format explicitly:
 
@@ -183,7 +183,7 @@ let configs = device
     .filter(|r| r.sample_format() == SampleFormat::F32);
 ```
 
-**Why:** The previous heuristic only explicitly ranked three formats, making selection unpredictable for any other format the device reported. The new ordering is complete and consistent: floats before integers (F64 > F32 for maximum fidelity), integers by bit-depth descending with signed above unsigned at each width, and DSD last.
+**Why:** The previous heuristic only explicitly ranked three formats, making selection unpredictable for any other format the device reported. The new ordering is complete and consistent: F32 first, then F64, integers by bit-depth descending with signed above unsigned at each width (I64 is deprioritised below I16 as an accumulator type), and DSD last.
 
 ## 6. `audio_thread_priority` feature renamed to `realtime-dbus`
 
