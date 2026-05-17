@@ -654,29 +654,26 @@ impl Device {
                 }
             };
 
-            let mut sample_rates: Vec<SampleRate> = COMMON_SAMPLE_RATES.to_vec();
-
-            if !sample_rates.contains(&format.sample_rate) {
-                sample_rates.push(format.sample_rate)
-            }
-
-            let mut supported_formats = Vec::new();
-
             // Output streams use AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM so Initialize accepts any
-            // PCM format regardless of what IsFormatSupported returns. Capture streams do not;
+            // format regardless of what IsFormatSupported returns. Capture streams do not;
             // only native formats will work.
             let is_output = self.data_flow() == Audio::eRender;
 
+            // For output, restrict to rates the MF Resampler can handle; for capture, probe all.
+            let mut sample_rates: Vec<SampleRate> = COMMON_SAMPLE_RATES
+                .iter()
+                .copied()
+                .filter(|&r| {
+                    !is_output || (OUTPUT_MIN_SAMPLE_RATE..=OUTPUT_MAX_SAMPLE_RATE).contains(&r)
+                })
+                .collect();
+            if !sample_rates.contains(&format.sample_rate) {
+                sample_rates.push(format.sample_rate);
+            }
+
+            let mut supported_formats = Vec::new();
             for sample_rate in sample_rates {
-                for sample_format in [
-                    SampleFormat::U8,
-                    SampleFormat::I16,
-                    SampleFormat::I24,
-                    SampleFormat::U24,
-                    SampleFormat::I32,
-                    SampleFormat::I64,
-                    SampleFormat::F32,
-                ] {
+                for sample_format in WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS {
                     if let Some(waveformat) = config_to_waveformatextensible(
                         StreamConfig {
                             channels: format.channels,
@@ -697,7 +694,7 @@ impl Device {
                                 max_sample_rate: sample_rate,
                                 buffer_size: format.buffer_size,
                                 sample_format,
-                            })
+                            });
                         }
                     }
                 }
@@ -1294,6 +1291,22 @@ unsafe fn get_audio_clock(audio_client: &Audio::IAudioClient) -> Result<Audio::I
         .context("failed to get audio clock")
 }
 
+// Sample rate range supported by the Media Foundation Resampler MFT used by AUTOCONVERTPCM.
+const OUTPUT_MIN_SAMPLE_RATE: SampleRate = 8_000;
+const OUTPUT_MAX_SAMPLE_RATE: SampleRate = 384_000;
+
+// Formats encodable as WAVEFORMATEXTENSIBLE. U8/I16 map to WAVE_FORMAT_PCM; the rest use
+// WAVE_FORMAT_EXTENSIBLE. Unsigned formats wider than 8 bits are omitted: KSDATAFORMAT_SUBTYPE_PCM
+// is always signed for 16-bit and wider, so submitting unsigned data would produce a DC offset.
+const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 6] = [
+    SampleFormat::U8,
+    SampleFormat::I16,
+    SampleFormat::I24,
+    SampleFormat::I32,
+    SampleFormat::I64,
+    SampleFormat::F32,
+];
+
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 //
 // Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
@@ -1304,11 +1317,9 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
 
-        SampleFormat::I24
-        | SampleFormat::U24
-        | SampleFormat::I32
-        | SampleFormat::I64
-        | SampleFormat::F32 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
+        SampleFormat::I24 | SampleFormat::I32 | SampleFormat::I64 | SampleFormat::F32 => {
+            KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+        }
 
         _ => return None,
     };
@@ -1318,8 +1329,7 @@ fn config_to_waveformatextensible(
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = match sample_format {
-        // 24-bit formats use 32-bit storage but only 24 valid bits
-        SampleFormat::I24 | SampleFormat::U24 => 24,
+        SampleFormat::I24 => 24,
         _ => 8 * sample_bytes,
     };
 
@@ -1348,7 +1358,6 @@ fn config_to_waveformatextensible(
         SampleFormat::U8
         | SampleFormat::I16
         | SampleFormat::I24
-        | SampleFormat::U24
         | SampleFormat::I32
         | SampleFormat::I64 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
 
