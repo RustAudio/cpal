@@ -847,6 +847,36 @@ impl StreamInner {
             }
         }
     }
+
+    #[cfg(feature = "realtime")]
+    fn is_rt_eligible(&self) -> bool {
+        use alsa_sys::*;
+        // SAFETY: `alsa::pcm::PCM` is `pub struct PCM(*mut snd_pcm_t, Cell<bool>)`. The crate
+        // does not expose a public `as_ptr()`, but we can cast and read from it.
+        // TODO: replace with `self.handle.as_ptr()` once alsa-rs exposes it publicly.
+        let raw = unsafe {
+            (&self.handle as *const alsa::pcm::PCM)
+                .cast::<*mut snd_pcm_t>()
+                .read()
+        };
+        let pcm_type = unsafe { snd_pcm_type(raw) };
+
+        // Only attempt RT promotion for types known not to spin and not to chain to a
+        // server-backed backend. Therefore, we exclude:
+        // - NULL: always-ready poll() spins and exhausts RLIMIT_RTTIME, causing SIGXCPU.
+        // - IOPLUG/EXTPLUG: may route to PulseAudio, causing priority inversion and SIGXCPU.
+        // - HOOKS, SOFTVOL, PLUG, RATE, ROUTE, COPY: that can chain to either of the above.
+        matches!(
+            pcm_type,
+            SND_PCM_TYPE_HW
+                | SND_PCM_TYPE_LINEAR
+                | SND_PCM_TYPE_ALAW
+                | SND_PCM_TYPE_MULAW
+                | SND_PCM_TYPE_ADPCM
+                | SND_PCM_TYPE_LINEAR_FLOAT
+                | SND_PCM_TYPE_IEC958
+        )
+    }
 }
 
 struct StreamWorkerContext {
@@ -911,8 +941,14 @@ fn input_stream_worker(
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(stream) {
-        error_callback(err);
+    if stream.is_rt_eligible() {
+        let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
+        if let Err(err) = audio_thread_priority::promote_current_thread_to_real_time(
+            period_frames,
+            stream.sample_rate,
+        ) {
+            error_callback(err.into());
+        }
     }
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
@@ -962,8 +998,14 @@ fn output_stream_worker(
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(stream) {
-        error_callback(err);
+    if stream.is_rt_eligible() {
+        let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
+        if let Err(err) = audio_thread_priority::promote_current_thread_to_real_time(
+            period_frames,
+            stream.sample_rate,
+        ) {
+            error_callback(err.into());
+        }
     }
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
@@ -1005,61 +1047,6 @@ fn output_stream_worker(
             }
         }
     }
-}
-
-#[cfg(feature = "realtime")]
-fn boost_current_thread_priority(
-    stream: &StreamInner,
-) -> Result<audio_thread_priority::RtPriorityHandle, Error> {
-    use alsa_sys::*;
-    // SAFETY: `alsa::pcm::PCM` is `pub struct PCM(*mut snd_pcm_t, Cell<bool>)`. The crate
-    // does not expose a public `as_ptr()`, but we can cast and read from it.
-    // TODO: replace with `stream.handle.as_ptr()` once alsa-rs exposes it publicly.
-    let raw = unsafe {
-        (&stream.handle as *const alsa::pcm::PCM)
-            .cast::<*mut snd_pcm_t>()
-            .read()
-    };
-    let pcm_type = unsafe { snd_pcm_type(raw) };
-
-    // Only promote to RT for kernel-backed and pure-computation plugins. Others can exhaust
-    // RLIMIT_RTTIME when they block or coordinate with non-RT servers and trigger SIGXCPU
-    // on an RT thread. IOPLUG and EXTPLUG are excluded: no reliable way to distinguish
-    // RT-safe drivers (e.g. pipewire-alsa) from server-backed ones (e.g. pcm_pulse).
-    if !matches!(
-        pcm_type,
-        SND_PCM_TYPE_HW
-            | SND_PCM_TYPE_HOOKS
-            | SND_PCM_TYPE_NULL
-            | SND_PCM_TYPE_COPY
-            | SND_PCM_TYPE_LINEAR
-            | SND_PCM_TYPE_ALAW
-            | SND_PCM_TYPE_MULAW
-            | SND_PCM_TYPE_ADPCM
-            | SND_PCM_TYPE_RATE
-            | SND_PCM_TYPE_ROUTE
-            | SND_PCM_TYPE_PLUG
-            | SND_PCM_TYPE_LINEAR_FLOAT
-            | SND_PCM_TYPE_IEC958
-            | SND_PCM_TYPE_SOFTVOL
-    ) {
-        let type_name = unsafe {
-            std::ffi::CStr::from_ptr(snd_pcm_type_name(pcm_type))
-                .to_str()
-                .unwrap_or("unknown")
-        };
-        return Err(Error::with_message(
-            ErrorKind::RealtimeDenied,
-            format!(
-                "device '{}' ({type_name}) cannot be promoted to real-time priority",
-                stream.pcm_id,
-            ),
-        ));
-    }
-
-    let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
-    audio_thread_priority::promote_current_thread_to_real_time(period_frames, stream.sample_rate)
-        .map_err(Error::from)
 }
 
 /// Attempt hardware resume from a suspend event (`ESTRPIPE`).
