@@ -571,39 +571,19 @@ impl Device {
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;
 
-            // Collect the supported formats for the device.
-
-            let contains_different_sample_rates = ranges.iter().any(|r| r.mMinimum != r.mMaximum);
-            if ranges.is_empty() {
-                Ok(vec![].into_iter())
-            } else if contains_different_sample_rates {
-                let res = ranges.iter().map(|range| SupportedStreamConfigRange {
+            // Most hardware reports discrete rates (mMinimum == mMaximum); some aggregate or
+            // virtual devices report continuous ranges.
+            let fmts: Vec<_> = ranges
+                .iter()
+                .map(|range| SupportedStreamConfigRange {
                     channels: n_channels as ChannelCount,
                     min_sample_rate: range.mMinimum as u32,
                     max_sample_rate: range.mMaximum as u32,
                     buffer_size,
                     sample_format,
-                });
-                Ok(res.collect::<Vec<_>>().into_iter())
-            } else {
-                let fmt = SupportedStreamConfigRange {
-                    channels: n_channels as ChannelCount,
-                    min_sample_rate: ranges
-                        .iter()
-                        .map(|v| v.mMinimum as u32)
-                        .min()
-                        .expect("the list must not be empty"),
-                    max_sample_rate: ranges
-                        .iter()
-                        .map(|v| v.mMaximum as u32)
-                        .max()
-                        .expect("the list must not be empty"),
-                    buffer_size,
-                    sample_format,
-                };
-
-                Ok(vec![fmt].into_iter())
-            }
+                })
+                .collect();
+            Ok(fmts.into_iter())
         }
     }
 
