@@ -10,7 +10,7 @@ edition = "2021"
 rust-version = "1.78"
 
 [features]
-default = ["realtime-dbus"]
+default = []
 
 # Real-time audio thread scheduling
 # Promotes audio callback threads to real-time or high-priority scheduling for lower latency
