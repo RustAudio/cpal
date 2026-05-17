@@ -24,7 +24,7 @@ use crate::{
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
-const MIN_SAMPLE_RATE: SampleRate = 8000;
+const MIN_SAMPLE_RATE: SampleRate = 1; // per `pa_sample_spec_valid()`
 
 const PULSE_FORMATS: &[SampleFormat] = &[
     SampleFormat::U8,
