@@ -137,6 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed deprecated `DeviceTrait::name()`.
 - **ALSA**: `AlsaHost` is no longer re-exported from `cpal::platform`.
 - **Emscripten**: Removed broken host; use the WebAudio host instead.
+- **WASAPI**: Removed `U24` incorrectly listed as a supported sample format.
 
 ### Fixed
 
@@ -179,6 +180,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of 
   panicking.
 - **CoreAudio**: Fix crashes on certain drivers due to early initialization.
+- **CoreAudio**: Fix `supported_output_configs()` and `supported_input_configs()` collapsing
+  non-continuous hardware rates into a continuous range of sample rates (regression since v0.17.0).
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.
