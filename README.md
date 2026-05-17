@@ -37,28 +37,28 @@ The optional `realtime-dbus` feature additionally requires `libdbus-1-dev` (Debi
 
 ## Minimum Supported Rust Version (MSRV)
 
-The minimum Rust version required depends on which audio backend and features you're using, as eachplatform has different dependencies:
+The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
 
-- **AAudio (Android):** Rust **1.85**
-- **ALSA (Linux/BSD):** Rust **1.82**
-- **CoreAudio (macOS/iOS/tvOS):** Rust **1.85**
-- **JACK (Linux/BSD/macOS/Windows):** Rust **1.82**
-- **PipeWire (Linux/BSD):** Rust **1.85**
-- **PulseAudio (Linux/BSD):** Rust **1.88**
-- **WASAPI/ASIO (Windows):** Rust **1.82**
-- **WASM (`wasm32-unknown`):** Rust **1.85**
-- **WASM (`wasm32-wasip1`):** Rust **1.78**
-- **WASM (`audioworklet`):** Rust **nightly** (requires `-Zbuild-std` for atomics support)
+| Backend | Platforms | MSRV |
+| ------- | --------- | ---- |
+| AAudio | Android | 1.85 |
+| ALSA | Linux, BSD | 1.82 |
+| CoreAudio | macOS, iOS, tvOS | 1.85 |
+| JACK | Linux, BSD, macOS, Windows | 1.82 |
+| PipeWire | Linux, BSD | 1.85 |
+| PulseAudio | Linux, BSD | 1.88 |
+| WASAPI / ASIO | Windows | 1.82 |
+| WASM (`wasm32-unknown`) | WebAssembly | 1.85 |
+| WASM (`wasm32-wasip1`) | WebAssembly | 1.78 |
+| WASM (`audioworklet`) | WebAssembly | nightly |
 
-## Compiling for WebAssembly
-
-If you are interested in using CPAL with WebAssembly, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. Some of the examples in this repository also provide working configurations that you can use as reference.
+The `audioworklet` backend requires nightly Rust and `-Zbuild-std` with atomics support enabled.
 
 ## Optional Features
 
 | Feature | Platform | Description |
 | ------- | -------- | ----------- |
-| `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio). |
+| `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#compiling-for-asio). |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
 | `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
@@ -70,7 +70,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
 
-## ASIO
+## Compiling for ASIO
 
 ### Locating the ASIO SDK
 
@@ -136,6 +136,10 @@ It is also possible to compile Windows applications with ASIO support on Linux a
 export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11.0.1/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```
 
+## Compiling for WebAssembly
+
+If you are interested in using CPAL with WebAssembly, please see [this guide](https://github.com/RustAudio/cpal/wiki/Setting-up-a-new-CPAL-WASM-project) in our Wiki which walks through setting up a new project from scratch. Some of the examples in this repository also provide working configurations that you can use as reference.
+
 ## Troubleshooting
 
 ### No Default Device Available
@@ -174,11 +178,11 @@ Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller 
 
 ### ALSA Real-Time Priority Promotion
 
-The ALSA backend refuses to promote the audio thread to RT priority for plugins such as `pcm.pulse` and `pcm.pipewire`, notifying `RealtimeDenied` after stream creation on the error callback. Consider using the `pulseaudio` or `pipewire` cpal features to open the device through the native backend instead. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
+RT promotion is only attempted for a whitelist of PCM types: direct hardware PCMs (`hw:`) and pure format-conversion plugins (linear, A-law, mu-law, ADPCM, float, IEC 958).
 
-Kernel-backed PCMs (`hw`, `plughw`) and pure-computation plugins are unaffected.
+`RealtimeDenied` is emitted on the error callback only when promotion is attempted but fails, which happens when the process lacks the resource limits to acquire `SCHED_FIFO`. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
-`RealtimeDenied` is also received when the process lacks the resource limits to acquire `SCHED_FIFO`. With the `realtime-dbus` feature, `rtkit` arranges this over D-Bus on typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the `audio` group:
+With the `realtime-dbus` feature, `rtkit` arranges the necessary limits over D-Bus on typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the `audio` group:
 
 ```text
 @audio - rtprio 95
