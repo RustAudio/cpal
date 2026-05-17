@@ -1,7 +1,6 @@
 # CPAL - Cross-Platform Audio Library
 
-[![Actions Status](https://github.com/RustAudio/cpal/workflows/cpal/badge.svg)](https://github.com/RustAudio/cpal/actions)
-[![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
+[![Actions Status](https://github.com/RustAudio/cpal/workflows/cpal/badge.svg)](https://github.com/RustAudio/cpal/actions) [![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
 
 Low-level library for audio input and output in pure Rust.
 
@@ -9,7 +8,7 @@ Low-level library for audio input and output in pure Rust.
 
 - Enumerate audio hosts, devices, and their supported stream configurations.
 - Look up devices by stable ID or by default input/output role.
-- Inspect device metadata: name, manufacturer, type, and bus type.       
+- Inspect device metadata: name, manufacturer, type, and bus type.
 - Build input and output streams with compile-time or runtime sample formats.
 - Play, pause, and query the buffer size and clock of a stream.
 
@@ -26,19 +25,15 @@ Low-level library for audio input and output in pure Rust.
 
 ## Linux Build Dependencies
 
-On Linux, building cpal requires the ALSA and D-Bus development files: `libasound2-dev` and 
-`libdbus-1-dev` on Debian and Ubuntu, `alsa-lib-devel` and `dbus-devel` on Fedora.
+On Linux, building cpal requires the ALSA development files: `libasound2-dev` on Debian and Ubuntu, `alsa-lib-devel` on Fedora.
 
 ALSA is needed even when using JACK, PipeWire, or PulseAudio.
 
-D-Bus is pulled in by the default `realtime-dbus` feature for `rtkit`-based RT scheduling, typical
-for desktop systems. For systems without D-Bus, disable default features and enable the plain
-`realtime` feature instead. See [Real-Time Priority Promotion](#real-time-priority-promotion).
-Disable both features to disable RT scheduling entirely.
+The optional `realtime-dbus` feature additionally requires `libdbus-1-dev` (Debian/Ubuntu) or `dbus-devel` (Fedora). See [ALSA Real-Time Priority Promotion](#alsa-real-time-priority-promotion).
 
 ## Minimum Supported Rust Version (MSRV)
 
-The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
+The minimum Rust version required depends on which audio backend and features you're using, as eachplatform has different dependencies:
 
 - **AAudio (Android):** Rust **1.85**
 - **ALSA (Linux/BSD):** Rust **1.82**
@@ -58,7 +53,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 ## Optional Features
 
 | Feature | Platform | Description |
-|---------|----------|-------------|
+| ------- | -------- | ----------- |
 | `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#asio). |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
 | `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
@@ -66,7 +61,7 @@ If you are interested in using CPAL with WebAssembly, please see [this guide](ht
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
 | `realtime` | Linux, BSD, Windows, Android | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux/BSD, requires `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`) unless `realtime-dbus` is also enabled. |
-| `realtime-dbus` | Linux, BSD, Windows, Android | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Enabled by default. |
+| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
@@ -90,37 +85,35 @@ In an ideal situation you don't need to worry about this step.
 1. **Install LLVM/Clang**: `bindgen`, the library used to generate bindings to the C++ SDK, requires clang. Download and install LLVM from <http://releases.llvm.org/download.html> under the "Pre-Built Binaries" section.
 
 2. **Set LIBCLANG_PATH**: Add the LLVM `bin` directory to a `LIBCLANG_PATH` environment variable. If you installed LLVM to the default directory, this should work in the command prompt:
-   ```
+
+   ```bat
    setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"
    ```
 
 3. **Install ASIO Drivers** (optional for testing): If you don't have any ASIO devices or drivers available, you can download and install ASIO4ALL from <http://www.asio4all.org/>. Be sure to enable the "offline" feature during installation.
 
 4. **Visual Studio**: The build script assumes Microsoft Visual Studio is installed. It will try to find `vcvarsall.bat` and execute it with the right host and target architecture. If needed, you can manually execute it:
-   ```
+
+   ```bat
    "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" amd64
    ```
+
    For more information see the [vcvarsall.bat documentation](https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line).
 
 ### Using ASIO in Your Application
 
 1. **Enable the feature** in your `Cargo.toml`:
+
    ```toml
    cpal = { version = "*", features = ["asio"] }
    ```
 
 2. **Select the ASIO backend** in your code:
+
    ```rust
    let host = cpal::host_from_id(cpal::HostId::Asio)
        .expect("failed to initialise ASIO host");
    ```
-
-### Troubleshooting
-
-If you encounter compilation errors from `asio-sys` or `bindgen`:
-- Verify `CPAL_ASIO_DIR` is set correctly
-- Try running `cargo clean`
-- Ensure LLVM/Clang is properly installed and `LIBCLANG_PATH` is set
 
 ### Cross-Compilation
 
@@ -129,10 +122,12 @@ When Windows is the host and target OS, the build script supports all cross-comp
 It is also possible to compile Windows applications with ASIO support on Linux and macOS using the MinGW-w64 toolchain.
 
 **Requirements:**
+
 - Include the MinGW-w64 include directory in your `CPLUS_INCLUDE_PATH` environment variable
 - Include the LLVM include directory in your `CPLUS_INCLUDE_PATH` environment variable
 
 **Example for macOS** (targeting `x86_64-pc-windows-gnu` with `mingw-w64` installed via brew):
+
 ```sh
 export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/opt/homebrew/Cellar/mingw-w64/11.0.1/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```
@@ -151,10 +146,7 @@ If you receive errors about no default input or output device:
 
 ## ALSA, PipeWire, and PulseAudio
 
-When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second
-stream attempting to open it via the ALSA host will fail with a `DeviceBusy` error. To route
-audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of
-`default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
+When PipeWire or PulseAudio is running, it holds the ALSA `default` device exclusively. A second stream attempting to open it via the ALSA host will fail with a `DeviceBusy` error. To route audio through the sound server via ALSA, use the bridge devices `pipewire` or `pulse` instead of `default`. Better yet, use the `pipewire` or `pulseaudio` cpal features for native integration.
 
 On targets without a sound server, address devices directly as `hw:` or `plughw:`.
 
@@ -165,7 +157,7 @@ On targets without a sound server, address devices directly as `hw:` or `plughw:
 Configure the system and/or request a fixed size in your application:
 
 | System | File | Setting |
-|--------|------|---------|
+| ------ | ---- | ------- |
 | ALSA | `~/.asoundrc` or `/etc/asound.conf` | `buffer_size`, `periods` * `period_size` |
 | PipeWire | `~/.config/pipewire/pipewire.conf.d/` | `default.clock.quantum` |
 | PulseAudio | `~/.config/pulse/daemon.conf` | `default-fragments` * `default-fragment-size-msec` |
@@ -178,45 +170,37 @@ Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller 
 
 ### ALSA Real-Time Priority Promotion
 
-The ALSA backend refuses to promote the audio thread to RT priority for plugins such as `pcm.pulse`
-and `pcm.pipewire`, notifying `RealtimeDenied` after stream creation on the error callback.
-Consider using the `pulseaudio` or `pipewire` cpal features to open the device through the native
-backend instead. While RT priority is desirable for low latency, the stream will continue to play 
-at the default scheduling priority.
+The ALSA backend refuses to promote the audio thread to RT priority for plugins such as `pcm.pulse` and `pcm.pipewire`, notifying `RealtimeDenied` after stream creation on the error callback. Consider using the `pulseaudio` or `pipewire` cpal features to open the device through the native backend instead. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
 Kernel-backed PCMs (`hw`, `plughw`) and pure-computation plugins are unaffected.
 
-`RealtimeDenied` is also received when the process lacks the resource limits to acquire
-`SCHED_FIFO`. With the default `realtime-dbus` feature, `rtkit` arranges this over D-Bus on 
-typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is 
-granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the 
-`audio` group:
+`RealtimeDenied` is also received when the process lacks the resource limits to acquire `SCHED_FIFO`. With the `realtime-dbus` feature, `rtkit` arranges this over D-Bus on typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the `audio` group:
 
-```
+```text
 @audio - rtprio 95
 ```
 
-then add the user to the `audio` group (`usermod -aG audio "$USER"`) and re-login. The same group
-may anyway be needed to grant access to ALSA device files via `udev` on systems that do not
-arrange this automatically via `logind`.
+then add the user to the `audio` group (`usermod -aG audio "$USER"`) and re-login. The same group may anyway be needed to grant access to ALSA device files via `udev` on systems that do not arrange this automatically via `logind`.
 
 ### Build Errors
 
 If you are unable to build the library:
 
 - Verify you have installed the required development libraries, as documented above
-- **ASIO on Windows:** Verify `LIBCLANG_PATH` is set and LLVM is installed
+- **ASIO on Windows:** Verify `CPAL_ASIO_DIR` and `LIBCLANG_PATH` are set and LLVM is installed
 
 ## Examples
 
 CPAL comes with several examples in `examples/`.
 
 Run an example with:
+
 ```sh
 cargo run --example beep
 ```
 
 For platform-specific features, enable the relevant features:
+
 ```sh
 cargo run --example beep --features asio        # Windows ASIO backend
 cargo run --example beep --features jack        # JACK backend

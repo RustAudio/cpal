@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [UPGRADING.md](UPGRADING.md) for migration details.
 - `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
   See [UPGRADING.md](UPGRADING.md) for migration details.
-- `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default.
+- `audio_thread_priority` feature renamed to `realtime-dbus`.
 - `audio_thread_priority` dependency bumped to 0.35.
 - `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
@@ -76,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
   44.1 kHz, then the maximum supported sample rate, instead of preferring 44.1 kHz.
 - **ALSA**: Streams no longer start automatically on creation; call `play()` manually.
+- **ALSA**: The `realtime` feature now skips RT promotion for ineligible PCM types (null,
+  I/O plugins, wrapper types); `audio_thread_priority` promoted unconditionally.
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.

@@ -25,10 +25,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 
 ## 1. Unified `Error` and `ErrorKind` type
 
-**What changed:** All per-operation error types (`DevicesError`, `SupportedStreamConfigsError`,
-`DefaultStreamConfigError`, `BuildStreamError`, `StreamError`, `PlayStreamError`,
-`PauseStreamError`) and the `HostUnavailable` struct are replaced by a single `cpal::Error` struct
-with getters for its `kind()` and optional `message()`.
+**What changed:** All per-operation error types (`DevicesError`, `SupportedStreamConfigsError`, `DefaultStreamConfigError`, `BuildStreamError`, `StreamError`, `PlayStreamError`, `PauseStreamError`) and the `HostUnavailable` struct are replaced by a single `cpal::Error` struct with getters for its `kind()` and optional `message()`.
 
 ```rust
 // Before (v0.17): each operation returned its own error type
@@ -73,11 +70,9 @@ The `ErrorKind` variants and their equivalents from v0.17:
 | `BackendError`         | - (new; previously folded into `BackendSpecific`)    |
 | `Other`                | `BackendSpecific`                                    |
 
-The `message()` getter on `Error` returns human-readable context (formerly in
-`BackendSpecific::err`).
+The `message()` getter on `Error` returns human-readable context (formerly in `BackendSpecific::err`).
 
-**Why:** A single type simplifies error handling across all cpal operations and allows new
-`ErrorKind` variants to be added without changing any return types.
+**Why:** A single type simplifies error handling across all cpal operations and allows new `ErrorKind` variants to be added without changing any return types.
 
 ## 2. `StreamConfig` is now passed by value
 
@@ -101,8 +96,7 @@ The `StreamInstant` API has been aligned with `std::time::Instant` and `std::tim
 
 ### `duration_since` now returns `Duration` (saturating)
 
-**What changed:** `duration_since` now returns `Duration` directly, saturating to `Duration::ZERO`
-when the argument is later than `self`, instead of returning `Option<Duration>`.
+**What changed:** `duration_since` now returns `Duration` directly, saturating to `Duration::ZERO` when the argument is later than `self`, instead of returning `Option<Duration>`.
 
 ```rust
 // Before (v0.17): returned Option<Duration>, argument by reference
@@ -124,9 +118,7 @@ if let Some(d) = callback.checked_duration_since(start) {
 
 ### `add` / `sub` renamed to `checked_add` / `checked_sub`; operator impls added
 
-**What changed:** The `add` and `sub` methods (which returned `Option`) are replaced by
-`checked_add` / `checked_sub` with the same semantics. `+`, `-`, `+=`, and `-=` operator impls
-are also added.
+**What changed:** The `add` and `sub` methods (which returned `Option`) are replaced by `checked_add` / `checked_sub` with the same semantics. `+`, `-`, `+=`, and `-=` operator impls are also added.
 
 ```rust
 // Before (v0.17)
@@ -149,8 +141,7 @@ let elapsed: Duration = later - earlier;
 
 ### `new` and `from_nanos` take unsigned integers
 
-**What changed:** The `secs` parameter of `StreamInstant::new` and the `nanos` parameter of
-`StreamInstant::from_nanos` are now `u64` instead of `i64`.
+**What changed:** The `secs` parameter of `StreamInstant::new` and the `nanos` parameter of `StreamInstant::from_nanos` are now `u64` instead of `i64`.
 
 ```rust
 // Before (v0.17): negative seconds were accepted
@@ -164,8 +155,7 @@ StreamInstant::new(0_u64, 0);
 
 ## 4. Default sample rate changed to 48 kHz
 
-**What changed:** `default_input_config()` and `default_output_config()` now prefer 48 kHz over
-44.1 kHz on backends that apply a heuristic. The new selection order is 48 kHz, then 44.1 kHz, then the device maximum.
+**What changed:** `default_input_config()` and `default_output_config()` now prefer 48 kHz over 44.1 kHz on backends that apply a heuristic. The new selection order is 48 kHz, then 44.1 kHz, then the device maximum.
 
 If your pipeline requires 44.1 kHz, request it explicitly:
 
@@ -176,18 +166,13 @@ let config = device
     .expect("device does not support 44.1 kHz");
 ```
 
-**Why:** 48 kHz is the native rate of virtually all modern hardware; the old default caused
-unnecessary resampling on such devices.
+**Why:** 48 kHz is the native rate of virtually all modern hardware; the old default caused unnecessary resampling on such devices.
 
 ## 5. Default sample format selection changed
 
-**What changed:** `default_input_config()` and `default_output_config()` now use a fully-ranked
-format ordering across all `SampleFormat` variants.
+**What changed:** `default_input_config()` and `default_output_config()` now use a fully-ranked format ordering across all `SampleFormat` variants.
 
-Previously only `F32`, `I16`, and `U16` were explicitly ranked; all other formats compared as
-equal. On hosts that expose higher-precision formats, the default config may now return a
-different format than before. Likely candidates are `I32`, `I24`, or even `F64` if the device 
-or plugin supports it.
+Previously only `F32`, `I16`, and `U16` were explicitly ranked; all other formats compared as equal. On hosts that expose higher-precision formats, the default config may now return a different format than before. Likely candidates are `I32`, `I24`, or even `F64` if the device or plugin supports it.
 
 If your code assumes the default format is `F32`, request the format explicitly:
 
@@ -198,51 +183,32 @@ let configs = device
     .filter(|r| r.sample_format() == SampleFormat::F32);
 ```
 
-**Why:** The previous heuristic only explicitly ranked three formats, making selection
-unpredictable for any other format the device reported. The new ordering is complete and
-consistent: floats before integers (F64 > F32 for maximum fidelity), integers by bit-depth
-descending with signed above unsigned at each width, and DSD last.
+**Why:** The previous heuristic only explicitly ranked three formats, making selection unpredictable for any other format the device reported. The new ordering is complete and consistent: floats before integers (F64 > F32 for maximum fidelity), integers by bit-depth descending with signed above unsigned at each width, and DSD last.
 
-## 6. `audio_thread_priority` feature renamed to `realtime-dbus` and enabled by default
+## 6. `audio_thread_priority` feature renamed to `realtime-dbus`
 
-**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus` and is
-now a default feature. If you did not previously enable it, real-time scheduling will now be
-requested automatically for audio callback threads. A new `realtime` feature was also added,
-providing the same scheduling promotion without a D-Bus build dependency.
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, providing the same scheduling promotion without a D-Bus build dependency (suitable for headless or embedded targets).
 
 ```toml
-# Before (v0.17): opt-in required
+# Before (v0.17)
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
-# After (v0.18): on by default; rename the feature if you were opting in
-cpal = { version = "0.18" }
+# After (v0.18): rename the feature
+cpal = { version = "0.18", features = ["realtime-dbus"] }
 
-# To opt out explicitly:
-cpal = { version = "0.18", default-features = false }
+# For systems without D-Bus (embedded, headless, containers):
+cpal = { version = "0.18", features = ["realtime"] }
 ```
 
-On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel`
-(Fedora/RHEL), or equivalent at build time. On headless or embedded targets without D-Bus, use
-`realtime` instead:
+On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel` (Fedora/RHEL), or equivalent at build time.
 
-```toml
-cpal = { version = "0.18", default-features = false, features = ["realtime"] }
-```
+For both features, promotion failures are non-fatal: the stream still starts and an `ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
 
-For both features, promotion failures are non-fatal: the stream still starts and an
-`ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
-
-**Impact:** In most cases no action is needed. If your `Cargo.toml` names `audio_thread_priority`
-explicitly, rename it to `realtime-dbus`. If you relied on the opt-out behavior, pass
-`default-features = false`.
-
-**Why:** Real-time scheduling is the correct default for audio applications. The previous opt-in
-made it easy to accidentally ship without it.
+**Impact:** Rename `audio_thread_priority` to `realtime-dbus` in your `Cargo.toml`. No other action is needed.
 
 ## 7. Streams are returned paused on every backend
 
-**What changed:** `build_input_stream` and `build_output_stream` now return a paused `Stream` on
-every backend. Previously, ALSA, CoreAudio, and JACK started the stream automatically.
+**What changed:** `build_input_stream` and `build_output_stream` now return a paused `Stream` on every backend. Previously, ALSA, CoreAudio, and JACK started the stream automatically.
 
 ```rust
 // Before (v0.17): on ALSA/CoreAudio/JACK the stream was already running
@@ -253,12 +219,9 @@ let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
 stream.play()?;
 ```
 
-**Impact:** If you were targeting ALSA, CoreAudio, or JACK and never called `play()`, your
-callback will never fire after upgrading. Add the `play()` call.
+**Impact:** If you were targeting ALSA, CoreAudio, or JACK and never called `play()`, your callback will never fire after upgrading. Add the `play()` call.
 
-**Why:** Auto-starting before the caller has the `Stream` handle creates a window where data and
-error callbacks can fire before the application can pause, stop, or drop the stream. The behavior
-is now uniform across all backends.
+**Why:** Auto-starting before the caller has the `Stream` handle creates a window where data and error callbacks can fire before the application can pause, stop, or drop the stream. The behavior is now uniform across all backends.
 
 ## 8. `wasm32-unknown-emscripten` target removed
 
