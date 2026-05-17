@@ -45,8 +45,12 @@ pub enum ErrorKind {
     /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     PermissionDenied,
 
-    /// Real-time scheduling was requested for the audio callback thread but was not granted.
+    /// A real-time scheduling promotion attempt was explicitly refused.
     /// Audio will still play, but may be subject to increased latency or glitches under load.
+    ///
+    /// Absence of this error does **not** mean real-time scheduling is active: promotion may
+    /// not have been attempted (feature flag disabled, device ineligible, or the host manages
+    /// scheduling internally).
     RealtimeDenied,
 
     /// An OS resource limit was reached, such as a system or process thread or memory limit.
@@ -101,7 +105,7 @@ impl Display for ErrorKind {
                 "Permission denied. Grant the required access and retry.",
             ),
             Self::RealtimeDenied => f.write_str(
-                "Real-time scheduling was requested but not granted for the audio thread. \
+                "Real-time scheduling was refused for the audio thread. \
                  Audio may be subject to increased latency or glitches under load.",
             ),
             Self::ResourceExhausted => f.write_str(
