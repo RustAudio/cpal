@@ -2,7 +2,9 @@
 
 [![Actions Status](https://github.com/RustAudio/cpal/workflows/cpal/badge.svg)](https://github.com/RustAudio/cpal/actions) [![Crates.io](https://img.shields.io/crates/v/cpal.svg)](https://crates.io/crates/cpal) [![docs.rs](https://docs.rs/cpal/badge.svg)](https://docs.rs/cpal/)
 
-Low-level library for audio input and output in pure Rust.
+Low-level library for audio input and output, written in Rust.
+
+For higher-level audio playback and capture, consider [Rodio](https://github.com/RustAudio/rodio) or similar libraries.
 
 ## Supported Functionality
 
@@ -14,14 +16,16 @@ Low-level library for audio input and output in pure Rust.
 
 ## Supported Platforms
 
-- Android (via AAudio)
-- BSD (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
-- iOS (via CoreAudio)
-- Linux (via ALSA by default, JACK, PipeWire or PulseAudio optionally)
-- macOS (via CoreAudio by default, JACK optionally)
-- tvOS (via CoreAudio)
-- WebAssembly (via Web Audio API or Audio Worklet)
-- Windows (via WASAPI by default, ASIO or JACK optionally)
+| Platform | Default Backend | Optional Backends |
+| -------- | --------------- | ----------------- |
+| Android | AAudio | - |
+| BSD | ALSA | JACK, PipeWire, PulseAudio |
+| iOS | CoreAudio | - |
+| Linux | ALSA | JACK, PipeWire, PulseAudio |
+| macOS | CoreAudio | JACK |
+| tvOS | CoreAudio | - |
+| WebAssembly | Web Audio API | Audio Worklet |
+| Windows | WASAPI | ASIO, JACK |
 
 ## Linux Build Dependencies
 
@@ -216,6 +220,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 - **Documentation:** [docs.rs/cpal](https://docs.rs/cpal)
 - **Examples:** [examples/](examples/) directory in this repository
+- **Higher-level playback and capture:** [Rodio](https://github.com/RustAudio/rodio) or similar libraries
 - **Discord:** Join the [#cpal channel](https://discord.gg/vPmmSgJSPV) for questions and discussion
 - **GitHub:** [Report issues](https://github.com/RustAudio/cpal/issues) and [view source code](https://github.com/RustAudio/cpal)
 - **RustAudio:** Part of the [RustAudio organization](https://github.com/RustAudio)

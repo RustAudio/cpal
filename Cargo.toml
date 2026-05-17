@@ -1,13 +1,16 @@
 [package]
 name = "cpal"
 version = "0.18.0"
-description = "Low-level cross-platform audio I/O library in pure Rust."
+description = "Low-level cross-platform audio I/O library."
 repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
 edition = "2021"
 rust-version = "1.78"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [features]
 default = []

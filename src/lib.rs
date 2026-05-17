@@ -1,3 +1,8 @@
+//! Low-level library for audio input and output, written in Rust.
+//!
+//! For higher-level audio playback and capture, consider
+//! [Rodio](https://github.com/RustAudio/rodio) or similar libraries.
+//!
 //! # How to use cpal
 //!
 //! Here are some concepts cpal exposes:
