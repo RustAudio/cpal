@@ -101,12 +101,11 @@ impl From<pulseaudio::ClientError> for Error {
 
         match err {
             ServerUnavailable => {
-                Error::with_message(ErrorKind::HostUnavailable, "PulseAudio server unavailable")
+                Error::with_message(ErrorKind::HostUnavailable, "PulseAudio is not available")
             }
-            UnexpectedSequenceNumber | Disconnected => Error::with_message(
-                ErrorKind::StreamInvalidated,
-                "PulseAudio client disconnected",
-            ),
+            UnexpectedSequenceNumber | Disconnected => {
+                Error::with_message(ErrorKind::StreamInvalidated, "PulseAudio disconnected")
+            }
             Io(e) => Error::with_message(ErrorKind::StreamInvalidated, format!("I/O error: {e}")),
             ServerError(e) => Error::with_message(pulse_error_kind(e), format!("{e}")),
             Protocol(e) => {
@@ -143,11 +142,11 @@ impl Host {
             .map_err(|err| match err {
                 mpsc::RecvTimeoutError::Timeout => Error::with_message(
                     ErrorKind::HostUnavailable,
-                    "timed out waiting for PulseAudio",
+                    "PulseAudio is not available: connection timed out",
                 ),
                 mpsc::RecvTimeoutError::Disconnected => Error::with_message(
                     ErrorKind::HostUnavailable,
-                    "PulseAudio initialization thread disconnected before sending a result",
+                    "PulseAudio is not available: initialization failed",
                 ),
             })
             .and_then(|r| r.map_err(Error::from))?;
@@ -165,11 +164,9 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        let sinks =
-            block_on(self.client.list_sinks()).context("failed to list PulseAudio sinks")?;
+        let sinks = block_on(self.client.list_sinks()).context("Failed to list sinks")?;
 
-        let sources =
-            block_on(self.client.list_sources()).context("failed to list PulseAudio sources")?;
+        let sources = block_on(self.client.list_sources()).context("Failed to list sources")?;
 
         Ok(sinks
             .into_iter()
@@ -253,10 +250,7 @@ fn default_config_from_spec(
     let sample_format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
         Error::with_message(
             ErrorKind::UnsupportedConfig,
-            format!(
-                "PulseAudio sample format {:?} is not supported",
-                sample_spec.format
-            ),
+            "Sample format is not supported",
         )
     })?;
     let bytes_per_frame = channel_map.num_channels() as usize * sample_format.sample_size();
@@ -295,7 +289,7 @@ impl DeviceTrait for Device {
         let Device::Source { info, .. } = self else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support input",
+                "Device does not support input",
             ));
         };
         default_config_from_spec(&info.sample_spec, &info.channel_map)
@@ -305,7 +299,7 @@ impl DeviceTrait for Device {
         let Device::Sink { info, .. } = self else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support output",
+                "Device does not support output",
             ));
         };
         default_config_from_spec(&info.sample_spec, &info.channel_map)
@@ -326,14 +320,14 @@ impl DeviceTrait for Device {
         let Device::Source { client, info } = self else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support input",
+                "Device does not support input",
             ));
         };
 
         let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported by PulseAudio"),
+                format!("Sample format {sample_format} is not supported"),
             )
         })?;
 
@@ -376,7 +370,7 @@ impl DeviceTrait for Device {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
                     ErrorKind::DeviceNotAvailable,
-                    "timed out waiting for PulseAudio server",
+                    "Stream creation timed out",
                 )),
             }
         } else {
@@ -401,14 +395,14 @@ impl DeviceTrait for Device {
         let Device::Sink { client, info } = self else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support output",
+                "Device does not support output",
             ));
         };
 
         let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported by PulseAudio"),
+                format!("Sample format {sample_format} is not supported"),
             )
         })?;
 
@@ -451,7 +445,7 @@ impl DeviceTrait for Device {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
                     ErrorKind::DeviceNotAvailable,
-                    "timed out waiting for PulseAudio server",
+                    "Stream creation timed out",
                 )),
             }
         } else {

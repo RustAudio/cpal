@@ -240,7 +240,7 @@ impl<D> UserData<D> {
                 {
                     emit_error(
                         &self.error_callback,
-                        Error::with_message(ErrorKind::DeviceNotAvailable, "device disconnected"),
+                        Error::with_message(ErrorKind::DeviceNotAvailable, "Device disconnected"),
                     );
                 }
             }
@@ -598,7 +598,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::UnsupportedConfig,
-                                format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -641,7 +641,7 @@ where
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
                     &user_data.error_callback,
-                    Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
+                    Error::with_message(ErrorKind::DeviceChanged, "Default device changed"),
                 )
                 .is_ok()
             {
@@ -831,7 +831,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::UnsupportedConfig,
-                                format!("negotiated format mismatch: expected channels={channels} rate={rate} format={expected_fmt:?}, got channels={current_channels} rate={current_rate} format={current_fmt:?}"),
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -874,7 +874,7 @@ where
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
                     &user_data.error_callback,
-                    Error::with_message(ErrorKind::DeviceChanged, "default device changed"),
+                    Error::with_message(ErrorKind::DeviceChanged, "Default device changed"),
                 )
                 .is_ok()
             {

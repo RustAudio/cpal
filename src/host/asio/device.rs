@@ -92,13 +92,13 @@ impl Device {
         if channels == 0 {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "ASIO device reports no channels for this direction",
+                "Device reports no channels for this direction",
             ));
         }
         let sample_format = sample_format.ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "no supported sample format for this ASIO device",
+                "No supported sample format",
             )
         })?;
         Ok(SupportedStreamConfig {

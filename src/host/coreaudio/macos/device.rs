@@ -153,7 +153,7 @@ fn set_sample_rate(
         {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample rate {sample_rate} Hz is not supported by this device"),
+                format!("Sample rate {sample_rate} Hz is not supported"),
             ));
         }
 
@@ -195,13 +195,13 @@ fn set_sample_rate(
                 Err(RecvTimeoutError::Timeout) => {
                     return Err(Error::with_message(
                         ErrorKind::DeviceNotAvailable,
-                        "timeout waiting for sample rate update for device",
+                        "Sample rate update timed out",
                     ));
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     return Err(Error::with_message(
                         ErrorKind::StreamInvalidated,
-                        "sample rate listener channel disconnected unexpectedly",
+                        "Sample rate listener disconnected unexpectedly",
                     ));
                 }
             }
@@ -403,7 +403,7 @@ impl Device {
     }
 
     fn description(&self) -> Result<crate::DeviceDescription, Error> {
-        let name = get_device_name(self.audio_device_id).context("failed to get device name")?;
+        let name = get_device_name(self.audio_device_id).context("Failed to get device name")?;
 
         let input_configs = self
             .supported_input_configs()
@@ -458,10 +458,7 @@ impl Device {
             let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
             Ok(DeviceId(crate::platform::HostId::CoreAudio, uid_string))
         } else {
-            Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "device UID is null",
-            ))
+            Err(ErrorKind::DeviceNotAvailable.into())
         }
     }
 
@@ -565,7 +562,7 @@ impl Device {
                 _ => {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
-                        format!("unexpected scope (neither input nor output): {scope:?}"),
+                        "Unexpected audio property scope",
                     ))
                 }
             }
@@ -618,35 +615,36 @@ impl Device {
             );
             check_os_status(status)?;
 
-            let sample_format =
-                {
-                    let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
-                        asbd.mFormatID,
-                        Some(asbd.mFormatFlags),
-                    );
-                    let flags = match audio_format {
-                        Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
-                        _ => {
-                            return Err(Error::with_message(
-                                ErrorKind::UnsupportedConfig,
-                                "device audio format is not linear PCM",
-                            ))
-                        }
-                    };
-                    let maybe_sample_format =
-                        coreaudio::audio_unit::SampleFormat::from_flags_and_bits_per_sample(
-                            flags,
-                            asbd.mBitsPerChannel,
-                        );
-                    match maybe_sample_format {
-                        Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
-                        Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
-                        _ => return Err(Error::with_message(
+            let sample_format = {
+                let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(
+                    asbd.mFormatID,
+                    Some(asbd.mFormatFlags),
+                );
+                let flags = match audio_format {
+                    Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) => flags,
+                    _ => {
+                        return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
-                            "device sample format is not supported; only F32 and I16 are supported",
-                        )),
+                            "Audio format is not linear PCM",
+                        ))
                     }
                 };
+                let maybe_sample_format =
+                    coreaudio::audio_unit::SampleFormat::from_flags_and_bits_per_sample(
+                        flags,
+                        asbd.mBitsPerChannel,
+                    );
+                match maybe_sample_format {
+                    Some(coreaudio::audio_unit::SampleFormat::F32) => SampleFormat::F32,
+                    Some(coreaudio::audio_unit::SampleFormat::I16) => SampleFormat::I16,
+                    _ => {
+                        return Err(Error::with_message(
+                            ErrorKind::UnsupportedConfig,
+                            "Sample format is not supported; supported formats are F32 and I16",
+                        ))
+                    }
+                }
+            };
 
             #[allow(non_upper_case_globals)]
             match scope {
@@ -654,7 +652,7 @@ impl Device {
                 _ => {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
-                        format!("unexpected scope (neither input nor output): {scope:?}"),
+                        "Unexpected audio property scope",
                     ))
                 }
             }

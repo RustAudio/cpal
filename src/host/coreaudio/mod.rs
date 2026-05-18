@@ -72,7 +72,7 @@ fn host_time_to_stream_instant(m_host_time: u64) -> Result<StreamInstant, Error>
     check_os_status(res)?;
     let nanos = m_host_time as u128 * info.numer as u128 / info.denom as u128;
     let secs = u64::try_from(nanos / 1_000_000_000)
-        .map_err(|_| Error::with_message(ErrorKind::Other, "mach absolute time overflow"))?;
+        .map_err(|_| Error::with_message(ErrorKind::Other, "Timestamp conversion overflowed"))?;
     let subsec_nanos = (nanos % 1_000_000_000) as u32;
     Ok(StreamInstant::new(secs, subsec_nanos))
 }

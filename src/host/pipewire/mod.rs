@@ -18,10 +18,7 @@ impl Host {
     pub fn new() -> Result<Self, Error> {
         let _pw = PwInitGuard::new();
         let devices = init_devices().ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::HostUnavailable,
-                "PipeWire host initialization failed",
-            )
+            Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
         })?;
         Ok(Self { _pw, devices })
     }

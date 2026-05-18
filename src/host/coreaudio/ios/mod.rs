@@ -112,7 +112,7 @@ impl Device {
         let range = get_supported_stream_configs(true).next().ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                "no supported input configuration",
+                "No supported input configuration",
             )
         })?;
         Ok(range
@@ -125,7 +125,7 @@ impl Device {
         let range = get_supported_stream_configs(false).last().ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                "no supported output configuration",
+                "No supported output configuration",
             )
         })?;
         Ok(range
@@ -281,13 +281,13 @@ impl Drop for Stream {
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
         let mut stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         if !stream.playing {
             stream
                 .audio_unit
                 .start()
-                .context("failed to start audio unit")?;
+                .context("Failed to start audio unit")?;
             stream.playing = true;
         }
         Ok(())
@@ -295,13 +295,13 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), Error> {
         let mut stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         if stream.playing {
             stream
                 .audio_unit
                 .stop()
-                .context("failed to stop audio unit")?;
+                .context("Failed to stop audio unit")?;
             stream.playing = false;
         }
         Ok(())
@@ -369,7 +369,7 @@ fn set_audio_session_buffer_size(
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("failed to set preferred I/O buffer duration: {e}"),
+                    format!("Failed to set preferred I/O buffer duration: {e}"),
                 )
             })?;
     }

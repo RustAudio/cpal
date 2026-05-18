@@ -363,7 +363,7 @@ impl Stream {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to create thread: {e}"),
+                    format!("Failed to create audio thread: {e}"),
                 )
             })?;
 
@@ -433,7 +433,7 @@ impl Stream {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to create thread: {e}"),
+                    format!("Failed to create audio thread: {e}"),
                 )
             })?;
 
@@ -487,7 +487,7 @@ impl StreamTrait for Stream {
         self.push_command(Command::PlayStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
-                "stream command channel closed",
+                "Stream command channel closed",
             )
         })?;
         Ok(())
@@ -497,7 +497,7 @@ impl StreamTrait for Stream {
         self.push_command(Command::PauseStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
-                "stream command channel closed",
+                "Stream command channel closed",
             )
         })?;
         Ok(())
@@ -545,7 +545,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .stream
                         .audio_client
                         .Start()
-                        .context("failed to start audio client")?;
+                        .context("Failed to start audio client")?;
                     run_context.stream.playing = true;
                 }
             },
@@ -555,7 +555,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .stream
                         .audio_client
                         .Stop()
-                        .context("failed to stop audio client")?;
+                        .context("Failed to stop audio client")?;
                     run_context.stream.playing = false;
                 }
             },
@@ -589,7 +589,7 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Error
         let err = unsafe { Foundation::GetLastError() };
         return Err(Error::with_message(
             ErrorKind::StreamInvalidated,
-            format!("WaitForMultipleObjectsEx failed: {err:?}"),
+            "Failed to wait for audio event",
         ));
     }
     // Notifying the corresponding task handler.
@@ -604,7 +604,7 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
         let padding = stream
             .audio_client
             .GetCurrentPadding()
-            .context("failed to get current padding")?;
+            .context("Failed to get current padding")?;
         Ok(stream.max_frames_in_buffer - padding)
     }
 }
@@ -713,7 +713,7 @@ fn process_commands_and_await_signal(
         if flag.swap(false, Ordering::Relaxed) {
             emit_error(
                 error_callback,
-                Error::with_message(ErrorKind::DeviceChanged, "default audio device changed"),
+                Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
             );
         }
     }
@@ -734,7 +734,7 @@ fn process_commands_and_await_signal(
     if handle_idx >= 2 {
         emit_error(
             error_callback,
-            Error::with_message(ErrorKind::DeviceChanged, "default audio device changed"),
+            Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
         );
         return ControlFlow::Continue(false);
     }
@@ -801,7 +801,7 @@ fn process_input(
             // Release the buffer.
             let result = capture_client
                 .ReleaseBuffer(frames_available)
-                .context("failed to release capture buffer");
+                .context("Failed to release capture buffer");
             if let Err(err) = result {
                 emit_error(error_callback, err);
                 return ControlFlow::Break(());
@@ -876,7 +876,7 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
         stream
             .audio_clock
             .GetPosition(&mut position, Some(&mut qpc_position))
-            .context("failed to get clock position")?;
+            .context("Failed to get clock position")?;
     };
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = qpc_position as u128 * 100;

@@ -300,7 +300,7 @@ impl DeviceTrait for Device {
         if !self.supports_input() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support input",
+                "Device does not support input",
             ));
         }
         Ok(SupportedStreamConfig {
@@ -318,7 +318,7 @@ impl DeviceTrait for Device {
         if !self.supports_output() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support output",
+                "Device does not support output",
             ));
         }
         Ok(SupportedStreamConfig {
@@ -476,7 +476,7 @@ impl DeviceTrait for Device {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to create thread: {e}"),
+                    format!("Failed to create thread: {e}"),
                 )
             })?;
 
@@ -641,7 +641,7 @@ impl DeviceTrait for Device {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to create thread: {e}"),
+                    format!("Failed to create thread: {e}"),
                 )
             })?;
 
