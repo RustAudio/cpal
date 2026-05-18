@@ -631,14 +631,9 @@ fn run_input(
             AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
-        match process_input(
-            &run_ctxt.stream,
-            capture_client,
-            data_callback,
-            error_callback,
-        ) {
-            ControlFlow::Break(_) => break,
-            ControlFlow::Continue(_) => continue,
+        if let Err(err) = process_input(&run_ctxt.stream, capture_client, data_callback) {
+            emit_error(error_callback, err);
+            break;
         }
     }
 }
@@ -666,14 +661,9 @@ fn run_output(
             AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
-        match process_output(
-            &run_ctxt.stream,
-            render_client,
-            data_callback,
-            error_callback,
-        ) {
-            ControlFlow::Break(_) => break,
-            ControlFlow::Continue(_) => continue,
+        if let Err(err) = process_output(&run_ctxt.stream, render_client, data_callback) {
+            emit_error(error_callback, err);
+            break;
         }
     }
 }
@@ -745,20 +735,16 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
-    error_callback: &ErrorCallbackArc,
-) -> ControlFlow<()> {
+) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
         let mut buffer: *mut u8 = ptr::null_mut();
         let mut flags = mem::MaybeUninit::uninit();
         loop {
             let mut frames_available = match capture_client.GetNextPacketSize() {
-                Ok(0) => return ControlFlow::Continue(()),
+                Ok(0) => return Ok(()),
                 Ok(f) => f,
-                Err(err) => {
-                    emit_error(error_callback, Error::from(err));
-                    return ControlFlow::Break(());
-                }
+                Err(err) => return Err(Error::from(err)),
             };
             let mut qpc_position: u64 = 0;
             let result = capture_client.GetBuffer(
@@ -772,10 +758,7 @@ fn process_input(
             match result {
                 // TODO: Can this happen?
                 Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
-                Err(e) => {
-                    emit_error(error_callback, Error::from(e));
-                    return ControlFlow::Break(());
-                }
+                Err(e) => return Err(Error::from(e)),
                 Ok(_) => (),
             }
 
@@ -787,24 +770,14 @@ fn process_input(
             let data = Data::from_parts(data, len, stream.sample_format);
 
             // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-            let timestamp = match input_timestamp(stream, qpc_position) {
-                Ok(ts) => ts,
-                Err(err) => {
-                    emit_error(error_callback, err);
-                    return ControlFlow::Break(());
-                }
-            };
+            let timestamp = input_timestamp(stream, qpc_position)?;
             let info = InputCallbackInfo { timestamp };
             data_callback(&data, &info);
 
             // Release the buffer.
-            let result = capture_client
+            capture_client
                 .ReleaseBuffer(frames_available)
-                .context("Failed to release capture buffer");
-            if let Err(err) = result {
-                emit_error(error_callback, err);
-                return ControlFlow::Break(());
-            }
+                .context("Failed to release capture buffer")?;
         }
     }
 }
@@ -814,26 +787,17 @@ fn process_output(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
-    error_callback: &ErrorCallbackArc,
-) -> ControlFlow<()> {
+) -> Result<(), Error> {
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(stream) {
-        Ok(0) => return ControlFlow::Continue(()), // TODO: Can this happen?
-        Ok(n) => n,
-        Err(err) => {
-            emit_error(error_callback, err);
-            return ControlFlow::Break(());
-        }
+    let frames_available = match get_available_frames(stream)? {
+        0 => return Ok(()), // TODO: Can this happen?
+        n => n,
     };
 
     unsafe {
-        let buffer = match render_client.GetBuffer(frames_available) {
-            Ok(b) => b,
-            Err(e) => {
-                emit_error(error_callback, Error::from(e));
-                return ControlFlow::Break(());
-            }
-        };
+        let buffer = render_client
+            .GetBuffer(frames_available)
+            .map_err(Error::from)?;
 
         debug_assert!(!buffer.is_null());
 
@@ -845,23 +809,16 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = match output_timestamp(stream, frames_available, sample_rate) {
-            Ok(ts) => ts,
-            Err(err) => {
-                emit_error(error_callback, err);
-                return ControlFlow::Break(());
-            }
-        };
+        let timestamp = output_timestamp(stream, frames_available, sample_rate)?;
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
-        if let Err(err) = render_client.ReleaseBuffer(frames_available, 0) {
-            emit_error(error_callback, err.into());
-            return ControlFlow::Break(());
-        }
+        render_client
+            .ReleaseBuffer(frames_available, 0)
+            .map_err(Error::from)?;
     }
 
-    ControlFlow::Continue(())
+    Ok(())
 }
 
 /// Use the stream's `IAudioClock` to produce the current stream instant.
