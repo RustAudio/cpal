@@ -45,7 +45,8 @@ impl Host {
     ///
     /// When enabled (default), PipeWire's session manager links the stream to the appropriate sink
     /// or source automatically. When disabled, the stream node is registered in the graph but left
-    /// unlinked; users must then manually connect ports using JACK tools or APIs.
+    /// unlinked; users must then manually connect ports using PipeWire tools or session manager
+    /// APIs.
     ///
     /// Default: `true`
     pub fn set_connect_automatically(&mut self, connect: bool) {
