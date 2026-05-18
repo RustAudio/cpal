@@ -20,6 +20,18 @@ pub use self::platform_impl::*;
 #[cfg_attr(docsrs, doc(cfg(feature = "jack")))]
 pub use crate::host::jack::Host as JackHost;
 
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ),
+    feature = "pipewire",
+))]
+#[cfg_attr(docsrs, doc(cfg(feature = "pipewire")))]
+pub use crate::host::pipewire::Host as PipeWireHost;
+
 #[cfg(feature = "custom")]
 pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream as CustomStream};
 

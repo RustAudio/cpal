@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use device::{init_devices, Class, Device, Devices};
 use stream::PwInitGuard;
 
@@ -7,20 +12,45 @@ mod device;
 mod stream;
 mod utils;
 
+/// The PipeWire host, providing access to PipeWire audio devices.
+///
+/// # PipeWire-Specific Configuration
+///
+/// PipeWire provides a configuration option to control graph connection behavior:
+/// - Port auto-connection via [`set_connect_automatically`](Host::set_connect_automatically)
 pub struct Host {
     // Keeps PipeWire initialized for the lifetime of the host, preventing
     // pw_deinit() from running between device enumeration and stream creation.
     _pw: PwInitGuard,
     devices: Vec<Device>,
+    connect_automatically: Arc<AtomicBool>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
         let _pw = PwInitGuard::new();
-        let devices = init_devices().ok_or_else(|| {
+        let connect_automatically = Arc::new(AtomicBool::new(true));
+        let devices = init_devices(connect_automatically.clone()).ok_or_else(|| {
             Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
         })?;
-        Ok(Self { _pw, devices })
+        Ok(Self {
+            _pw,
+            devices,
+            connect_automatically,
+        })
+    }
+
+    /// Configures whether created streams should automatically connect to system playback/capture
+    /// nodes via the session manager.
+    ///
+    /// When enabled (default), PipeWire's session manager links the stream to the appropriate sink
+    /// or source automatically. When disabled, the stream node is registered in the graph but left
+    /// unlinked; users must then manually connect ports using PipeWire tools or session manager
+    /// APIs.
+    ///
+    /// Default: `true`
+    pub fn set_connect_automatically(&mut self, connect: bool) {
+        self.connect_automatically.store(connect, Ordering::Relaxed);
     }
 }
 

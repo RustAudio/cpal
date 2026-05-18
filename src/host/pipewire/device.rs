@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc,
     },
     thread,
@@ -82,12 +82,14 @@ pub struct Device {
     interface_type: InterfaceType,
     address: Option<String>,
     driver: Option<String>,
+    connect_automatically: Arc<AtomicBool>,
 }
 
 impl Device {
     pub(crate) fn class(&self) -> Class {
         self.class
     }
+
     fn sink_default() -> Self {
         Self {
             node_name: "sink_default".to_owned(),
@@ -371,6 +373,7 @@ impl DeviceTrait for Device {
                         sample_format,
                         last_quantum: last_quantum_clone,
                         start,
+                        connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
                     },
                     data_callback,
                     error_callback,
@@ -537,6 +540,7 @@ impl DeviceTrait for Device {
                         sample_format,
                         last_quantum: last_quantum_clone,
                         start,
+                        connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
                     },
                     data_callback,
                     error_callback,
@@ -713,7 +717,7 @@ fn remote_props() -> Option<pw::properties::PropertiesBox> {
     Some(props)
 }
 
-pub fn init_devices() -> Option<Vec<Device>> {
+pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
     let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
     let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
@@ -1029,6 +1033,7 @@ pub fn init_devices() -> Option<Vec<Device>> {
         device.quantum = settings.quantum;
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
+        device.connect_automatically = connect_automatically.clone();
     }
 
     // Resolve each discovered hardware node: global settings apply unless the node
@@ -1043,6 +1048,7 @@ pub fn init_devices() -> Option<Vec<Device>> {
                 device.quantum = overrides.quantum.unwrap_or(settings.quantum);
                 device.min_quantum = settings.min_quantum;
                 device.max_quantum = settings.max_quantum;
+                device.connect_automatically = connect_automatically.clone();
                 device
             }),
     );
