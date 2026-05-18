@@ -23,8 +23,7 @@ pub type Devices = std::vec::IntoIter<Device>;
 ///
 /// # JACK-Specific Configuration
 ///
-/// Unlike other backends, JACK provides configuration options to control connection and server
-/// behavior:
+/// JACK provides configuration options to control connection and server behavior:
 /// - Port auto-connection via [`set_connect_automatically`](Host::set_connect_automatically)
 /// - Server auto-start via [`set_start_server_automatically`](Host::set_start_server_automatically)
 #[derive(Debug)]
@@ -57,8 +56,8 @@ impl Host {
     /// ports.
     ///
     /// When enabled (default), output streams connect to system playback ports and input streams
-    /// connect to system capture ports automatically. When disabled, applications must manually
-    /// connect ports using JACK tools or APIs.
+    /// connect to system capture ports automatically. When disabled, users must manually connect
+    /// ports using JACK tools or APIs.
     ///
     /// Default: `true`
     pub fn set_connect_automatically(&mut self, do_connect: bool) {

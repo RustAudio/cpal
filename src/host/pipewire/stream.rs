@@ -497,6 +497,7 @@ pub struct ConnectParams {
     pub sample_format: SampleFormat,
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
+    pub connect_automatically: bool,
 }
 
 pub fn connect_output<D, E>(
@@ -514,6 +515,7 @@ where
         sample_format,
         last_quantum,
         start,
+        connect_automatically,
     } = params;
 
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -718,7 +720,10 @@ where
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
+    let mut flags = pw::stream::StreamFlags::MAP_BUFFERS;
+    if connect_automatically {
+        flags |= pw::stream::StreamFlags::AUTOCONNECT;
+    }
 
     stream.connect(pw::spa::utils::Direction::Output, None, flags, &mut params)?;
 
@@ -751,6 +756,7 @@ where
         sample_format,
         last_quantum,
         start,
+        connect_automatically,
     } = params;
 
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -938,7 +944,10 @@ where
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let flags = pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;
+    let mut flags = pw::stream::StreamFlags::MAP_BUFFERS;
+    if connect_automatically {
+        flags |= pw::stream::StreamFlags::AUTOCONNECT;
+    }
 
     stream.connect(pw::spa::utils::Direction::Input, None, flags, &mut params)?;
 
