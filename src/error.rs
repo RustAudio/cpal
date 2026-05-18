@@ -45,11 +45,11 @@ pub enum ErrorKind {
     /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     PermissionDenied,
 
-    /// A real-time scheduling promotion attempt was explicitly refused.
+    /// A real-time scheduling promotion or equivalent platform performance mode was refused.
     /// Audio will still play, but may be subject to increased latency or glitches under load.
     ///
-    /// Absence of this error does **not** mean real-time scheduling is active: promotion may
-    /// not have been attempted (feature flag disabled, device ineligible, or the host manages
+    /// Absence of this error does **not** mean real-time quality is active: the check may not
+    /// have been attempted (feature flag disabled, device ineligible, or the host manages
     /// scheduling internally).
     RealtimeDenied,
 

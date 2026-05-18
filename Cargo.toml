@@ -16,15 +16,15 @@ maintenance = { status = "actively-developed" }
 default = []
 
 # Real-time audio thread scheduling
-# Promotes audio callback threads to real-time or high-priority scheduling for lower latency
+# Applies platform-specific real-time scheduling and performance modes to audio threads.
 # Requires: (Linux/BSD) `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`)
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android
 realtime = ["dep:audio_thread_priority", "dep:alsa-sys"]
 
 # D-Bus/rtkit support on top of `realtime` for RT scheduling on Linux/BSD desktop systems
 # Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (D-Bus/rtkit is a no-op elsewhere; thread
-#           priority promotion from `realtime` still applies on Windows and Android)
+# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (D-Bus/rtkit is a no-op elsewhere;
+#           `realtime` still applies on Windows and Android)
 realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 
 # ASIO backend for Windows
