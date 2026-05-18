@@ -26,19 +26,19 @@ unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     match reason {
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable => Some(Error::with_message(
             ErrorKind::DeviceChanged,
-            "audio route changed",
+            "Audio route changed",
         )),
 
         AVAudioSessionRouteChangeReason::CategoryChange
         | AVAudioSessionRouteChangeReason::Override
         | AVAudioSessionRouteChangeReason::RouteConfigurationChange => Some(Error::with_message(
             ErrorKind::StreamInvalidated,
-            "audio route changed",
+            "Audio route changed",
         )),
 
         AVAudioSessionRouteChangeReason::NoSuitableRouteForCategory => Some(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "no suitable audio route for the session category",
+            "No suitable audio route for the session category",
         )),
 
         _ => None,
@@ -90,7 +90,7 @@ impl SessionEventManager {
                         &cb,
                         Error::with_message(
                             ErrorKind::DeviceNotAvailable,
-                            "audio media services were lost",
+                            "Audio media services were lost",
                         ),
                     );
                 }
@@ -112,7 +112,7 @@ impl SessionEventManager {
                         &cb,
                         Error::with_message(
                             ErrorKind::StreamInvalidated,
-                            "audio media services were reset",
+                            "Audio media services were reset",
                         ),
                     );
                 }

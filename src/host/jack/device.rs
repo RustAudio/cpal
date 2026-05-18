@@ -184,13 +184,13 @@ impl DeviceTrait for Device {
         if self.is_output() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support input",
+                "Device does not support input",
             ));
         }
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported; JACK requires {JACK_SAMPLE_FORMAT}"),
+                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
             ));
         }
 
@@ -205,7 +205,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
-                        "sample rate {} Hz does not match JACK server rate {} Hz",
+                        "Sample rate {} Hz does not match the server rate {} Hz",
                         conf.sample_rate,
                         client.sample_rate()
                     ),
@@ -216,7 +216,7 @@ impl DeviceTrait for Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "buffer size {size} does not match JACK server buffer size {}",
+                            "Buffer size {size} does not match the server buffer size {}",
                             client.buffer_size()
                         ),
                     ));
@@ -262,13 +262,13 @@ impl DeviceTrait for Device {
         if self.is_input() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support output",
+                "Device does not support output",
             ));
         }
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported; JACK requires {JACK_SAMPLE_FORMAT}"),
+                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
             ));
         }
 
@@ -284,7 +284,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
-                        "sample rate {} Hz does not match JACK server rate {} Hz",
+                        "Sample rate {} Hz does not match the server rate {} Hz",
                         conf.sample_rate,
                         client.sample_rate()
                     ),
@@ -295,7 +295,7 @@ impl DeviceTrait for Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "buffer size {size} does not match JACK server buffer size {}",
+                            "Buffer size {size} does not match the server buffer size {}",
                             client.buffer_size()
                         ),
                     ));

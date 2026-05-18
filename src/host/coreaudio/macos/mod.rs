@@ -139,7 +139,7 @@ impl DisconnectManager {
                 AudioObjectPropertyListener::new(device_id, alive_address, move || {
                     let _ = disconnect_tx_alive.send(Error::with_message(
                         ErrorKind::DeviceNotAvailable,
-                        "device disconnected",
+                        "Device disconnected",
                     ));
                 });
 
@@ -152,7 +152,7 @@ impl DisconnectManager {
                 AudioObjectPropertyListener::new(device_id, rate_address, move || {
                     let _ = disconnect_tx_rate.send(Error::with_message(
                         ErrorKind::StreamInvalidated,
-                        "device sample rate changed",
+                        "Device sample rate changed",
                     ));
                 });
 
@@ -171,7 +171,7 @@ impl DisconnectManager {
         ready_rx.recv().map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
-                "disconnect listener thread terminated unexpectedly",
+                "Stream monitor terminated unexpectedly",
             )
         })??;
 
@@ -199,7 +199,7 @@ impl DisconnectManager {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to spawn disconnect delivery thread: {e}"),
+                    format!("Failed to spawn disconnect thread: {e}"),
                 )
             })?;
 
@@ -312,7 +312,7 @@ impl StreamInner {
         if !self.playing {
             self.audio_unit
                 .start()
-                .context("failed to start audio unit")?;
+                .context("Failed to start audio unit")?;
             self.playing = true;
         }
         Ok(())
@@ -322,7 +322,7 @@ impl StreamInner {
         if self.playing {
             self.audio_unit
                 .stop()
-                .context("failed to stop audio unit")?;
+                .context("Failed to stop audio unit")?;
             self.playing = false;
         }
         Ok(())
@@ -355,14 +355,14 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
         self.inner
             .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
             .play()
     }
 
     fn pause(&self) -> Result<(), Error> {
         self.inner
             .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
             .pause()
     }
 
@@ -373,11 +373,11 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         let stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         device::get_device_buffer_frame_size(&stream.audio_unit)
             .map(|size| size as FrameCount)
-            .context("failed to get buffer frame size")
+            .context("Failed to get buffer frame size")
     }
 }
 

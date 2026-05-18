@@ -106,7 +106,10 @@ pub struct Host {
 impl Host {
     pub fn new() -> Result<Self, Error> {
         let inner = AlsaContext::new().map_err(|e| {
-            Error::with_message(ErrorKind::HostUnavailable, format!("ALSA unavailable: {e}"))
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                format!("ALSA is not available: {e}"),
+            )
         })?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -365,7 +368,7 @@ impl Device {
                     if !(min..=max).contains(&requested_size) {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
-                            format!("buffer size {requested_size} is not in the supported range {min}..={max}"),
+                            format!("Buffer size {requested_size} is not in the supported range {min}..={max}"),
                         ));
                     }
                 }
@@ -380,22 +383,13 @@ impl Device {
         let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
         let (buffer_size, period_size) = set_sw_params_from_format(&handle, stream_type)?;
         if buffer_size == 0 {
-            return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                format!(
-                    "device '{}': initialization resulted in a null buffer",
-                    self.pcm_id
-                ),
-            ));
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         handle.prepare()?;
 
         if handle.count() == 0 {
-            return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                format!("device '{}': poll descriptor count is 0", self.pcm_id),
-            ));
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         // A zero get_htstamp() at prepare time indicates the device does not support hardware timestamps (e.g. PulseAudio ALSA plugin).
@@ -417,7 +411,6 @@ impl Device {
             dropping: AtomicBool::new(false),
             direction: stream_type.into(),
             handle,
-            pcm_id: self.pcm_id.clone(),
             sample_format,
             sample_rate: conf.sample_rate,
             frame_size,
@@ -607,12 +600,13 @@ impl Device {
             match self.supported_configs(stream_t) {
                 // EINVAL when querying direction the device does not support (input-only or output-only)
                 Err(err) if err.kind() == ErrorKind::InvalidInput => {
+                    let dir = match stream_t {
+                        alsa::Direction::Capture => "input",
+                        alsa::Direction::Playback => "output",
+                    };
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
-                        format!(
-                            "device '{}' does not support the requested direction",
-                            self.pcm_id
-                        ),
+                        format!("Device does not support {dir}"),
                     ));
                 }
                 Err(err) => return Err(err),
@@ -628,7 +622,7 @@ impl Device {
                 .unwrap_or_else(|| f.with_max_sample_rate())),
             None => Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("device '{}': no supported configuration", self.pcm_id),
+                "No supported configuration",
             )),
         }
     }
@@ -744,9 +738,6 @@ struct StreamInner {
 
     // The ALSA handle.
     handle: alsa::pcm::PCM,
-
-    // ALSA PCM identifier used to open this stream.
-    pcm_id: String,
 
     // Format of the samples.
     sample_format: SampleFormat,
@@ -1055,7 +1046,7 @@ fn try_resume(handle: &alsa::PCM) -> Result<Poll, Error> {
     if !hw_params.can_resume() {
         return Err(Error::with_message(
             ErrorKind::Xrun, // treat as xrun so the worker calls prepare()
-            "hardware suspend/resume not supported",
+            "Device does not support suspend/resume",
         ));
     }
 
@@ -1129,7 +1120,7 @@ fn poll_for_period(
     if revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL) {
         return Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            format!("device '{}' disconnected", stream.pcm_id),
+            "Device disconnected",
         ));
     }
     // POLLERR signals an xrun or suspend; avail_delay() below returns EPIPE/ESTRPIPE accordingly.
@@ -1432,7 +1423,7 @@ impl StreamTrait for Stream {
         if !hw_params.can_pause() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                format!("device '{}' does not support pausing", self.inner.pcm_id),
+                "Device does not support pausing",
             ));
         }
         if self.inner.handle.state() != alsa::pcm::State::Paused {
@@ -1558,7 +1549,7 @@ fn sample_format_to_alsa_format(
         _ => {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format '{sample_format}' is not supported"),
+                format!("Sample format {sample_format} is not supported"),
             ))
         }
     };
@@ -1575,7 +1566,7 @@ fn sample_format_to_alsa_format(
 
     Err(Error::with_message(
         ErrorKind::UnsupportedConfig,
-        format!("sample format '{sample_format}' is not supported by hardware in any endianness"),
+        format!("Sample format {sample_format} is not supported in any byte order"),
     ))
 }
 

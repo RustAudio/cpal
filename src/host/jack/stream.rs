@@ -62,7 +62,7 @@ impl Stream {
         for i in 0..channels {
             let port = client
                 .register_port(&format!("in_{}", i), jack::AudioIn::default())
-                .context(format!("failed to register input port {i}"))?;
+                .context(format!("Failed to register input port {i}"))?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
             }
@@ -92,7 +92,7 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
-            .context("failed to activate JACK client")?;
+            .context("Failed to activate client")?;
 
         StreamState::Paused.store(&state, Ordering::Release);
         Ok(Self {
@@ -118,7 +118,7 @@ impl Stream {
         for i in 0..channels {
             let port = client
                 .register_port(&format!("out_{}", i), jack::AudioOut::default())
-                .context(format!("failed to register output port {i}"))?;
+                .context(format!("Failed to register output port {i}"))?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
             }
@@ -148,7 +148,7 @@ impl Stream {
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
-            .context("failed to activate JACK client")?;
+            .context("Failed to activate client")?;
 
         StreamState::Paused.store(&state, Ordering::Release);
         Ok(Self {
@@ -180,7 +180,7 @@ impl Stream {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "JACK: only {n_sys} system playback port(s) available, but the stream has {n_our} output channel(s)"
+                    "Only {n_sys} system playback port(s) available, but the stream has {n_our} output channel(s)"
                 ),
             ));
         }
@@ -226,7 +226,7 @@ impl Stream {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "JACK: only {n_sys} system capture port(s) available, but the stream has {n_our} input channel(s)"
+                    "Only {n_sys} system capture port(s) available, but the stream has {n_our} input channel(s)"
                 ),
             ));
         }
@@ -574,10 +574,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
         if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
-            let _ = try_emit_error(
-                &self.error_callback_ptr,
-                Error::with_message(ErrorKind::Xrun, "JACK xrun detected"),
-            );
+            let _ = try_emit_error(&self.error_callback_ptr, ErrorKind::Xrun.into());
         }
         jack::Control::Continue
     }

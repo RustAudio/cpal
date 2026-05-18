@@ -197,7 +197,7 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
     if status.intersects(jack::ClientStatus::VERSION_ERROR) {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "client protocol version does not match the JACK server",
+            "Client protocol version does not match the JACK server",
         ))
     } else if status.intersects(jack::ClientStatus::INVALID_OPTION) {
         Err(Error::with_message(
@@ -207,27 +207,27 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
     } else if status.intersects(jack::ClientStatus::SERVER_ERROR) {
         Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "error communicating with the JACK server",
+            "Error communicating with the JACK server",
         ))
     } else if status.intersects(jack::ClientStatus::SERVER_FAILED) {
         Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "could not connect to the JACK server",
+            "Could not connect to the JACK server",
         ))
     } else if status.intersects(jack::ClientStatus::INIT_FAILURE) {
         Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "unable to initialize JACK client",
+            "Unable to initialize JACK client",
         ))
     } else if status.intersects(jack::ClientStatus::SHM_FAILURE) {
         Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "unable to access JACK shared memory",
+            "Unable to access JACK shared memory",
         ))
     } else if status.intersects(jack::ClientStatus::NO_SUCH_CLIENT) {
         Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
-            "requested JACK client does not exist",
+            "Requested JACK client does not exist",
         ))
     } else {
         Ok(client)

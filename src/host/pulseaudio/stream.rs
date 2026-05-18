@@ -168,7 +168,7 @@ impl Stream {
         let format: SampleFormat = pa_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("PulseAudio sample format {pa_format:?} is not supported"),
+                "Sample format is not supported",
             )
         })?;
 
@@ -342,7 +342,7 @@ impl Stream {
         let format: SampleFormat = pa_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("PulseAudio sample format {pa_format:?} is not supported"),
+                "Sample format is not supported",
             )
         })?;
 

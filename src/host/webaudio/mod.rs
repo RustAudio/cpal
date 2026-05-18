@@ -150,7 +150,7 @@ impl Device {
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "WebAudio does not support audio input",
+            "Device does not support input",
         ))
     }
 
@@ -161,7 +161,7 @@ impl Device {
             .ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    "WebAudio has no supported output configurations",
+                    "No supported output configuration",
                 )
             })?;
         let config = range
@@ -215,7 +215,7 @@ impl DeviceTrait for Device {
     {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "WebAudio does not support audio input",
+            "Device does not support input",
         ))
     }
 
@@ -236,7 +236,7 @@ impl DeviceTrait for Device {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} or channel count {} is not supported by WebAudio",
+                    "Sample format {sample_format} or channel count {} is not supported",
                     config.channels
                 ),
             ));
@@ -250,7 +250,7 @@ impl DeviceTrait for Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "buffer size {v} is out of the supported range {MIN_BUFFER_SIZE}..={MAX_BUFFER_SIZE}"
+                            "Buffer size {v} is not in the supported range {MIN_BUFFER_SIZE}..={MAX_BUFFER_SIZE}"
                         ),
                     ));
                 }
@@ -268,8 +268,12 @@ impl DeviceTrait for Device {
         // Create the WebAudio stream.
         let stream_opts = AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
-        let ctx = AudioContext::new_with_context_options(&stream_opts)
-            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
+        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?;
 
         let destination = ctx.destination();
 
@@ -326,8 +330,11 @@ impl DeviceTrait for Device {
                     buffer_size_frames as u32,
                     config.sample_rate as f32,
                 )
-                .map_err(|err| {
-                    Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}"))
+                .map_err(|_| {
+                    Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        "Failed to create audio buffer",
+                    )
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
@@ -394,7 +401,7 @@ impl DeviceTrait for Device {
                                     .unwrap_or_else(|e| e.into_inner()))(
                                     Error::with_message(
                                         ErrorKind::StreamInvalidated,
-                                        "data callback lock poisoned",
+                                        "Stream lock poisoned",
                                     ),
                                 );
                                 return;
@@ -413,15 +420,16 @@ impl DeviceTrait for Device {
 
                         #[cfg(not(target_feature = "atomics"))]
                         {
-                            if let Err(err) = ctx_buffer
+                            if ctx_buffer
                                 .copy_to_channel(&temporary_channel_buffer, channel as i32)
+                                .is_err()
                             {
                                 (error_callback_handle
                                     .lock()
                                     .unwrap_or_else(|e| e.into_inner()))(
                                     Error::with_message(
                                         ErrorKind::StreamInvalidated,
-                                        format!("{err:?}"),
+                                        "Failed to copy audio data",
                                     ),
                                 );
                                 return;
@@ -436,16 +444,17 @@ impl DeviceTrait for Device {
                         #[cfg(target_feature = "atomics")]
                         {
                             temporary_channel_array_view.copy_from(&temporary_channel_buffer);
-                            if let Err(err) = ctx_buffer
+                            if ctx_buffer
                                 .unchecked_ref::<ExternalArrayAudioBuffer>()
                                 .copy_to_channel(&temporary_channel_array_view, channel as i32)
+                                .is_err()
                             {
                                 (error_callback_handle
                                     .lock()
                                     .unwrap_or_else(|e| e.into_inner()))(
                                     Error::with_message(
                                         ErrorKind::StreamInvalidated,
-                                        format!("{err:?}"),
+                                        "Failed to copy audio data",
                                     ),
                                 );
                                 return;
@@ -457,52 +466,67 @@ impl DeviceTrait for Device {
                     // in the future.
                     let source = match ctx_handle.create_buffer_source() {
                         Ok(s) => s,
-                        Err(err) => {
+                        Err(_) => {
                             // create_buffer_source is documented not to throw; defensive only.
                             (error_callback_handle
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner()))(
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("{err:?}"),
+                                    "Failed to create audio buffer source",
                                 ),
                             );
                             return;
                         }
                     };
                     source.set_buffer(Some(&ctx_buffer));
-                    if let Err(err) = source.connect_with_audio_node(&ctx_handle.destination()) {
+                    if source
+                        .connect_with_audio_node(&ctx_handle.destination())
+                        .is_err()
+                    {
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Failed to connect audio node",
+                            ),
                         );
                         return;
                     }
-                    if let Err(err) = source.add_event_listener_with_callback(
-                        "ended",
-                        on_ended_closure_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .unwrap()
-                            .as_ref()
-                            .unchecked_ref(),
-                    ) {
+                    if source
+                        .add_event_listener_with_callback(
+                            "ended",
+                            on_ended_closure_handle
+                                .read()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
+                                .unchecked_ref(),
+                        )
+                        .is_err()
+                    {
                         // addEventListener is documented not to throw; defensive only.
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Failed to register audio event listener",
+                            ),
                         );
                         return;
                     }
-                    if let Err(err) = source.start_with_when(time_at_start_of_buffer) {
+                    if source.start_with_when(time_at_start_of_buffer).is_err() {
                         // InvalidStateError (already started) is the expected failure mode.
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
-                            Error::with_message(ErrorKind::StreamInvalidated, format!("{err:?}")),
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Failed to start audio buffer source",
+                            ),
                         );
                         return;
                     }
@@ -568,9 +592,9 @@ impl StreamTrait for Stream {
                 }
                 Ok(())
             }
-            Err(err) => Err(Error::with_message(
+            Err(_) => Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
-                format!("{err:?}"),
+                "Failed to resume audio context",
             )),
         }
     }
@@ -578,9 +602,9 @@ impl StreamTrait for Stream {
     fn pause(&self) -> Result<(), Error> {
         match self.ctx.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => Err(Error::with_message(
+            Err(_) => Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
-                format!("{err:?}"),
+                "Failed to suspend audio context",
             )),
         }
     }

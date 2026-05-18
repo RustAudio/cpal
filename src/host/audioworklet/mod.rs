@@ -66,7 +66,7 @@ impl Host {
         } else {
             Err(Error::with_message(
                 ErrorKind::HostUnavailable,
-                "AudioWorklet API is not available",
+                "AudioWorklet is not available",
             ))
         }
     }
@@ -157,7 +157,7 @@ impl DeviceTrait for Device {
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "AudioWorklet does not support audio input",
+            "Device does not support input",
         ))
     }
 
@@ -168,7 +168,7 @@ impl DeviceTrait for Device {
             .ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    "AudioWorklet has no supported output configurations",
+                    "No supported output configuration",
                 )
             })?;
         let config = range
@@ -192,7 +192,7 @@ impl DeviceTrait for Device {
     {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "AudioWorklet does not support audio input",
+            "Device does not support input",
         ))
     }
 
@@ -225,7 +225,7 @@ impl DeviceTrait for Device {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "{} channels is not supported; AudioWorklet supports {} to {}",
+                    "Channel count {} is not in the supported range {} to {}",
                     config.channels, MIN_CHANNELS, MAX_CHANNELS
                 ),
             ));
@@ -234,7 +234,7 @@ impl DeviceTrait for Device {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "{} Hz is not supported; AudioWorklet supports {} to {} Hz",
+                    "Sample rate {} Hz is not in the supported range {} to {} Hz",
                     config.sample_rate, MIN_SAMPLE_RATE, MAX_SAMPLE_RATE
                 ),
             ));
@@ -243,7 +243,7 @@ impl DeviceTrait for Device {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} is not supported; AudioWorklet requires {SUPPORTED_SAMPLE_FORMAT}"
+                    "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
                 ),
             ));
         }
@@ -258,8 +258,13 @@ impl DeviceTrait for Device {
             );
         }
 
-        let audio_context = web_sys::AudioContext::new_with_context_options(&stream_opts)
-            .map_err(|err| Error::with_message(ErrorKind::UnsupportedConfig, format!("{err:?}")))?;
+        let audio_context =
+            web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "Failed to create audio context",
+                )
+            })?;
 
         let destination = audio_context.destination();
 
@@ -350,7 +355,7 @@ impl DeviceTrait for Device {
             if let Err(err) = result {
                 let message = err
                     .as_string()
-                    .unwrap_or_else(|| format!("Browser error initializing stream: {err:?}"));
+                    .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
                 error_callback(Error::with_message(
                     ErrorKind::UnsupportedOperation,
                     message,
@@ -373,9 +378,9 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
         match self.audio_context.resume() {
             Ok(_) => Ok(()),
-            Err(err) => Err(Error::with_message(
+            Err(_) => Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
-                format!("{err:?}"),
+                "Failed to resume audio context",
             )),
         }
     }
@@ -383,9 +388,9 @@ impl StreamTrait for Stream {
     fn pause(&self) -> Result<(), Error> {
         match self.audio_context.suspend() {
             Ok(_) => Ok(()),
-            Err(err) => Err(Error::with_message(
+            Err(_) => Err(Error::with_message(
                 ErrorKind::DeviceNotAvailable,
-                format!("{err:?}"),
+                "Failed to suspend audio context",
             )),
         }
     }

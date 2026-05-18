@@ -568,7 +568,7 @@ impl DeviceTrait for Device {
             if matches!(info.direction, DeviceDirection::Output) {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedOperation,
-                    "output-only device does not support input",
+                    "Device does not support input",
                 ));
             }
             Ok(device_supported_configs(info))
@@ -583,7 +583,7 @@ impl DeviceTrait for Device {
             if matches!(info.direction, DeviceDirection::Input) {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedOperation,
-                    "input-only device does not support output",
+                    "Device does not support output",
                 ));
             }
             Ok(device_supported_configs(info))
@@ -598,7 +598,7 @@ impl DeviceTrait for Device {
         let range = configs.into_iter().next().ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                "no supported input configuration",
+                "No supported input configuration",
             )
         })?;
         let config = range
@@ -613,7 +613,7 @@ impl DeviceTrait for Device {
         let range = configs.into_iter().next().ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                "no supported output configuration",
+                "No supported output configuration",
             )
         })?;
         let config = range
@@ -640,7 +640,7 @@ impl DeviceTrait for Device {
             sample_format => {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("{sample_format} format is not supported on Android"),
+                    format!("Sample format {sample_format} is not supported"),
                 ))
             }
         };
@@ -651,7 +651,7 @@ impl DeviceTrait for Device {
                 // TODO: more channels available in native AAudio
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("{channels} channels are not supported yet (only 1 or 2)"),
+                    format!("Channel count {channels} is not supported"),
                 ));
             }
         };
@@ -689,7 +689,7 @@ impl DeviceTrait for Device {
             sample_format => {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("{sample_format} format is not supported on Android"),
+                    format!("Sample format {sample_format} is not supported"),
                 ))
             }
         };
@@ -700,7 +700,7 @@ impl DeviceTrait for Device {
                 // TODO: more channels available in native AAudio
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("{channels} channels are not supported yet (only 1 or 2)"),
+                    format!("Channel count {channels} is not supported"),
                 ));
             }
         };
@@ -749,42 +749,38 @@ impl Hash for Device {
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
         let stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
-        stream
-            .request_start()
-            .context("failed to start AAudio stream")?;
+        stream.request_start().context("Failed to start stream")?;
         stream
             .wait_for_state_change(
                 ndk::audio::AudioStreamState::Starting,
                 DEFAULT_TIMEOUT_NANOS,
             )
             .map(|_| ())
-            .context("failed to wait for AAudio stream to start")
+            .context("Failed to wait for stream to start")
     }
 
     fn pause(&self) -> Result<(), Error> {
         match self.direction {
             DeviceDirection::Output => {
                 let stream = self.inner.lock().map_err(|_| {
-                    Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+                    Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
                 })?;
 
-                stream
-                    .request_pause()
-                    .context("failed to pause AAudio stream")?;
+                stream.request_pause().context("Failed to pause stream")?;
                 stream
                     .wait_for_state_change(
                         ndk::audio::AudioStreamState::Pausing,
                         DEFAULT_TIMEOUT_NANOS,
                     )
                     .map(|_| ())
-                    .context("failed to wait for AAudio stream to pause")
+                    .context("Failed to wait for stream to pause")
             }
             _ => Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "pause only supported on output streams",
+                "Pause is not supported on input streams",
             )),
         }
     }
@@ -795,7 +791,7 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         let stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
         // frames_per_data_callback is only set for BufferSize::Fixed; for Default AAudio

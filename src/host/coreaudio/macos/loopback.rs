@@ -55,10 +55,7 @@ impl Device {
         check_os_status(status)?;
 
         if cfstring.is_null() {
-            return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "device UID is null",
-            ));
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         let ns_string: Retained<NSString> = unsafe {

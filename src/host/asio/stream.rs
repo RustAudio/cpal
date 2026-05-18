@@ -116,7 +116,7 @@ impl Stream {
 
     pub fn buffer_size(&self) -> Result<FrameCount, Error> {
         let streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         Ok(streams
             .output
@@ -145,7 +145,10 @@ impl Device {
         let driver = super::GLOBAL_ASIO
             .get()
             .ok_or_else(|| {
-                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "ASIO driver is not initialized",
+                )
             })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
@@ -157,14 +160,14 @@ impl Device {
             super::device::convert_data_type(&stream_type).ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("ASIO input data type {stream_type:?} is not supported"),
+                    "Input sample format is not supported",
                 )
             })?;
         if sample_format != expected_sample_format {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} does not match ASIO input format {expected_sample_format}"
+                    "Sample format {sample_format} is not supported; expected {expected_sample_format}"
                 ),
             ));
         }
@@ -474,7 +477,10 @@ impl Device {
         let driver = super::GLOBAL_ASIO
             .get()
             .ok_or_else(|| {
-                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "ASIO driver is not initialized",
+                )
             })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
@@ -486,14 +492,14 @@ impl Device {
             super::device::convert_data_type(&stream_type).ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("ASIO output data type {stream_type:?} is not supported"),
+                    "Output sample format is not supported",
                 )
             })?;
         if sample_format != expected_sample_format {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} does not match ASIO output format {expected_sample_format}"
+                    "Sample format {sample_format} is not supported; expected {expected_sample_format}"
                 ),
             ));
         }
@@ -851,7 +857,7 @@ impl Device {
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
         let mut streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
         let buffer_size = match config.buffer_size {
@@ -893,7 +899,7 @@ impl Device {
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
         let mut streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
         let buffer_size = match config.buffer_size {
@@ -980,7 +986,7 @@ impl Device {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("failed to spawn ASIO event timer thread: {e}"),
+                    format!("Failed to spawn event timer thread: {e}"),
                 )
             })?;
 
@@ -1004,7 +1010,7 @@ impl Device {
                         if StreamState::load(&state) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                "ASIO driver requested stream reset",
+                                "Stream reset was requested by the ASIO driver",
                             ));
                         }
                         true
@@ -1016,7 +1022,7 @@ impl Device {
                         if StreamState::load(&state) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                "ASIO driver requested stream resynchronization",
+                                "Stream resynchronization was requested by the ASIO driver",
                             ));
                         }
                         true
@@ -1068,7 +1074,7 @@ impl Device {
                     if should_notify && StreamState::load(&state) != StreamState::Starting {
                         let _ = timer_tx.send(Error::with_message(
                             ErrorKind::StreamInvalidated,
-                            format!("ASIO driver changed sample rate to {new_rate} Hz"),
+                            format!("Sample rate changed to {new_rate} Hz by the ASIO driver"),
                         ));
                     }
                     false
@@ -1112,8 +1118,9 @@ fn check_config(
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "buffer size {requested_size} is not in the supported range {}..={}",
-                    range.min, range.max
+                    "Buffer size {requested_size} is not in the supported range {min}..={max}",
+                    min = range.min,
+                    max = range.max
                 ),
             ));
         }
@@ -1132,7 +1139,7 @@ fn check_config(
         } else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample rate {sample_rate} Hz is not supported by the ASIO driver"),
+                format!("Sample rate {sample_rate} Hz is not supported"),
             ));
         }
     }
@@ -1142,14 +1149,14 @@ fn check_config(
         _ => {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported by ASIO"),
+                format!("Sample format {sample_format} is not supported"),
             ))
         }
     }
     if channels > num_asio_channels {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
-            format!("{channels} channels exceeds the ASIO device maximum of {num_asio_channels}"),
+            format!("Channel count {channels} exceeds the maximum of {num_asio_channels}"),
         ));
     }
     Ok(())

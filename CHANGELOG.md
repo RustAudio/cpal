@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `audio_thread_priority` feature renamed to `realtime-dbus`.
 - `audio_thread_priority` dependency bumped to 0.35.
 - `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
+- Error messages are now consistent across all hosts.
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
