@@ -420,8 +420,9 @@ impl DeviceTrait for Device {
 
                         #[cfg(not(target_feature = "atomics"))]
                         {
-                            if let Err(_) = ctx_buffer
+                            if ctx_buffer
                                 .copy_to_channel(&temporary_channel_buffer, channel as i32)
+                                .is_err()
                             {
                                 (error_callback_handle
                                     .lock()
@@ -443,9 +444,10 @@ impl DeviceTrait for Device {
                         #[cfg(target_feature = "atomics")]
                         {
                             temporary_channel_array_view.copy_from(&temporary_channel_buffer);
-                            if let Err(_) = ctx_buffer
+                            if ctx_buffer
                                 .unchecked_ref::<ExternalArrayAudioBuffer>()
                                 .copy_to_channel(&temporary_channel_array_view, channel as i32)
+                                .is_err()
                             {
                                 (error_callback_handle
                                     .lock()
@@ -478,7 +480,10 @@ impl DeviceTrait for Device {
                         }
                     };
                     source.set_buffer(Some(&ctx_buffer));
-                    if let Err(_) = source.connect_with_audio_node(&ctx_handle.destination()) {
+                    if source
+                        .connect_with_audio_node(&ctx_handle.destination())
+                        .is_err()
+                    {
                         (error_callback_handle
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()))(
@@ -489,16 +494,19 @@ impl DeviceTrait for Device {
                         );
                         return;
                     }
-                    if let Err(_) = source.add_event_listener_with_callback(
-                        "ended",
-                        on_ended_closure_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .unwrap()
-                            .as_ref()
-                            .unchecked_ref(),
-                    ) {
+                    if source
+                        .add_event_listener_with_callback(
+                            "ended",
+                            on_ended_closure_handle
+                                .read()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
+                                .unchecked_ref(),
+                        )
+                        .is_err()
+                    {
                         // addEventListener is documented not to throw; defensive only.
                         (error_callback_handle
                             .lock()
@@ -510,7 +518,7 @@ impl DeviceTrait for Device {
                         );
                         return;
                     }
-                    if let Err(_) = source.start_with_when(time_at_start_of_buffer) {
+                    if source.start_with_when(time_at_start_of_buffer).is_err() {
                         // InvalidStateError (already started) is the expected failure mode.
                         (error_callback_handle
                             .lock()

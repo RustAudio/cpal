@@ -594,11 +594,16 @@ where
                         || current_rate != rate
                         || current_fmt != expected_fmt;
                     if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        let fmt_note = if current_fmt != expected_fmt {
+                            "; sample format differs"
+                        } else {
+                            ""
+                        };
                         emit_error(
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::UnsupportedConfig,
-                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz"),
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz{fmt_note}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -827,11 +832,16 @@ where
                         || current_rate != rate
                         || current_fmt != expected_fmt;
                     if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        let fmt_note = if current_fmt != expected_fmt {
+                            "; sample format differs"
+                        } else {
+                            ""
+                        };
                         emit_error(
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::UnsupportedConfig,
-                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz"),
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz{fmt_note}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {

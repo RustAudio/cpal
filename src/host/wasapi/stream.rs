@@ -586,7 +586,6 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Error
         )
     };
     if result == Foundation::WAIT_FAILED {
-        let err = unsafe { Foundation::GetLastError() };
         return Err(Error::with_message(
             ErrorKind::StreamInvalidated,
             "Failed to wait for audio event",
