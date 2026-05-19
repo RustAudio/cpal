@@ -271,7 +271,7 @@ impl DeviceId {
 
     /// Returns the backend-specific device identifier string.
     pub fn id(&self) -> &str {
-        &*self.1
+        &self.1
     }
 }
 

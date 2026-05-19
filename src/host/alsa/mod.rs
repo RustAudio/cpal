@@ -131,7 +131,7 @@ impl HostTrait for Host {
     }
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
-        let canonical_id = DeviceId::new(id.host(), &canonical_pcm_id(id.id()));
+        let canonical_id = DeviceId::new(id.host(), canonical_pcm_id(id.id()));
         self.devices()
             .ok()?
             .find(|d| d.id().ok().as_ref() == Some(&canonical_id))

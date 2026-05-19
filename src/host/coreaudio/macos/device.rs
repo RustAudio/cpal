@@ -458,7 +458,7 @@ impl Device {
             let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
             Ok(DeviceId::new(
                 crate::platform::HostId::CoreAudio,
-                &uid_string,
+                uid_string,
             ))
         } else {
             Err(ErrorKind::DeviceNotAvailable.into())

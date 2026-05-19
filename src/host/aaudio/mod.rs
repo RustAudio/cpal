@@ -234,22 +234,22 @@ fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
 }
 
 fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedStreamConfigRange> {
-    let sample_rates = if !device.sample_rates.is_empty() {
-        device.sample_rates.as_slice()
+    let sample_rates: &[i32] = if !device.sample_rates.is_empty() {
+        &device.sample_rates
     } else {
         &SAMPLE_RATES
     };
 
     const ALL_CHANNELS: [i32; 2] = [1, 2];
-    let channel_counts = if !device.channel_counts.is_empty() {
-        device.channel_counts.as_slice()
+    let channel_counts: &[i32] = if !device.channel_counts.is_empty() {
+        &device.channel_counts
     } else {
         &ALL_CHANNELS
     };
 
     const ALL_FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
-    let formats = if !device.formats.is_empty() {
-        device.formats.as_slice()
+    let formats: &[SampleFormat] = if !device.formats.is_empty() {
+        &device.formats
     } else {
         &ALL_FORMATS
     };
@@ -559,7 +559,7 @@ impl DeviceTrait for Device {
             None => "-1".to_string(), // Default device
             Some(info) => info.id.to_string(),
         };
-        Ok(DeviceId::new(crate::platform::HostId::AAudio, &device_str))
+        Ok(DeviceId::new(crate::platform::HostId::AAudio, device_str))
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {

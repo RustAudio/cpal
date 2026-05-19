@@ -507,7 +507,7 @@ impl Device {
         unsafe {
             match device.GetId() {
                 Ok(pwstr) => match pwstr.to_string() {
-                    Ok(id_str) => Ok(DeviceId::new(crate::platform::HostId::Wasapi, &id_str)),
+                    Ok(id_str) => Ok(DeviceId::new(crate::platform::HostId::Wasapi, id_str)),
                     Err(e) => Err(Error::with_message(
                         ErrorKind::BackendError,
                         format!("Failed to convert device ID to string: {e}"),

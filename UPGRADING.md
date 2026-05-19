@@ -278,8 +278,7 @@ let id: DeviceId = id_string.parse()?;
 let device = host.device_by_id(&id);
 ```
 
-**Why:** Sealing the type prevents of unrecognisable identifiers, and makes `Display`/`FromStr`
-the single documented contract for persistence.
+**Why:** The internal representation can change without breaking callers.
 
 ## 10. `DeviceDescription::extended()` returns an iterator
 
