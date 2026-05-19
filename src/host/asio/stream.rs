@@ -54,7 +54,7 @@ impl TimeBase {
 const ASIO_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum StreamState {
     Starting = 0,
     Paused = 1,

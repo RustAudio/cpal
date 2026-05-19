@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
 - Add `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md`.
 - `BufferSize` now implements `Default` (returns `BufferSize::Default`).
+- `SupportedStreamConfig` now implements `Copy`.
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
 - **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.

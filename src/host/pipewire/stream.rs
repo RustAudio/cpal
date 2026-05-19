@@ -68,8 +68,7 @@ impl Drop for PwInitGuard {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum StreamCommand {
+pub(super) enum StreamCommand {
     Toggle(bool),
     Stop,
 }

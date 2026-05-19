@@ -471,7 +471,7 @@ pub(crate) mod iter {
 /// Describes a single supported stream configuration, retrieved via either a
 /// [`SupportedStreamConfigRange`] instance or one of the
 /// [`Device::default_input/output_config`](traits::DeviceTrait#required-methods) methods.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedStreamConfig {
     channels: ChannelCount,
     sample_rate: SampleRate,
