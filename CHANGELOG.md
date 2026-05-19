@@ -30,17 +30,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to select 48 kHz or 44.1 kHz from a range.
 - `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
 - Add `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md`.
+- `BufferSize` now implements `Default` (returns `BufferSize::Default`).
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
 - **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
+- **AAudio**: `Host` and `Device` now implement `Default`; added `Device::new()`.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **ASIO**: `Device` now implements `Debug`.
+- **AudioWorklet**: `Device` and `Host` now implement `Default`; added `Device::new()`.
+- **CoreAudio**: `Host` now implements `Default`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **CoreAudio**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
+- **CoreAudio (iOS)**: `Device` now implements `Default`; added `Device::new()`.
+- **Custom**: `SupportedBufferSize` now implements `Default` (returns
+  `SupportedBufferSize::Unknown`).
 - **JACK**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
+- **Null**: `Device`, `Host`, `Stream`, `SupportedInputConfigs`, and `SupportedOutputConfigs` now
+  implement `Default`, added `new()` on each.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 - **WASAPI**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
+- **WASAPI**: `Host` now implements `Default`.
+- **WebAudio**: `Device` and `Host` now implement `Default`; added `Device::new()`.
 
 ### Changed
 
@@ -178,6 +189,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
 - **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **ASIO**: Fix overrun not being reported when the driver reports `kAsioOverload`.
+- **AudioWorklet**: Fix `Devices::default()` to enumerate only if `Host::is_available()`.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.

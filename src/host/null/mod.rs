@@ -15,7 +15,7 @@ use crate::{
 #[derive(Default)]
 pub struct Devices;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Device;
 
 impl fmt::Display for Device {
@@ -25,24 +25,49 @@ impl fmt::Display for Device {
     }
 }
 
+#[derive(Default)]
 pub struct Host;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Stream;
 
 // Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SupportedInputConfigs;
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SupportedOutputConfigs;
+
+impl Device {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl Host {
     #[allow(dead_code)]
     pub fn new() -> Result<Self, Error> {
         Ok(Self)
+    }
+}
+
+impl Stream {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SupportedInputConfigs {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SupportedOutputConfigs {
+    pub fn new() -> Self {
+        Self
     }
 }
 

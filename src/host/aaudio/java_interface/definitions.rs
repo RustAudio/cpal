@@ -75,10 +75,11 @@ pub struct AudioDeviceInfo {
 /**
  * The type of audio device
  */
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, Default, FromPrimitive)]
 #[non_exhaustive]
 #[repr(i32)]
 pub enum AudioDeviceType {
+    #[default]
     Unknown = 0,
     AuxLine = 19,
     BleBroadcast = 30,

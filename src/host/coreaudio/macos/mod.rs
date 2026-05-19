@@ -25,7 +25,7 @@ mod property_listener;
 pub use device::Device;
 
 /// Coreaudio host, the default host on macOS.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Host;
 
 impl Host {

@@ -14,7 +14,7 @@ impl Devices {
 
 impl Default for Devices {
     fn default() -> Self {
-        Self(vec![Device].into_iter())
+        Self(vec![Device::new()].into_iter())
     }
 }
 
@@ -27,9 +27,9 @@ impl Iterator for Devices {
 }
 
 pub fn default_input_device() -> Option<Device> {
-    Some(Device)
+    Some(Device::default())
 }
 
 pub fn default_output_device() -> Option<Device> {
-    Some(Device)
+    Some(Device::default())
 }

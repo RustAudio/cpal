@@ -24,6 +24,7 @@ use crate::{
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.
+#[derive(Default)]
 struct TimeBase {
     last_ns: AtomicU64,
     epoch_ns: AtomicU64,
@@ -34,10 +35,7 @@ const TIMEGETIME_WRAP_NS: u64 = (u32::MAX as u64 + 1) * 1_000_000;
 
 impl TimeBase {
     fn new() -> Self {
-        Self {
-            last_ns: AtomicU64::new(0),
-            epoch_ns: AtomicU64::new(0),
-        }
+        Self::default()
     }
 
     /// Convert a nanosecond timestamp to a monotonic `StreamInstant`.

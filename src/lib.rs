@@ -368,8 +368,9 @@ impl std::str::FromStr for DeviceId {
 /// [`BufferSize::Fixed(x)`]: BufferSize::Fixed
 /// [`SupportedBufferSize`]: SupportedStreamConfig::buffer_size
 /// [`SupportedStreamConfig`]: SupportedStreamConfig
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BufferSize {
+    #[default]
     Default,
     Fixed(FrameCount),
 }
@@ -420,7 +421,7 @@ pub struct StreamConfig {
 }
 
 /// Describes the minimum and maximum supported buffer size for the device
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SupportedBufferSize {
     Range {
         min: FrameCount,
@@ -428,6 +429,7 @@ pub enum SupportedBufferSize {
     },
     /// In the case that the platform provides no way of getting the default
     /// buffer size before starting a stream.
+    #[default]
     Unknown,
 }
 

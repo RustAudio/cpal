@@ -37,7 +37,7 @@ type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Device;
 
 impl fmt::Display for Device {
@@ -47,6 +47,7 @@ impl fmt::Display for Device {
     }
 }
 
+#[derive(Default)]
 pub struct Host;
 
 pub struct Stream {
@@ -112,6 +113,10 @@ impl Devices {
 }
 
 impl Device {
+    pub fn new() -> Self {
+        Self
+    }
+
     fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device")
             .direction(DeviceDirection::Output)
@@ -634,7 +639,7 @@ impl Iterator for Devices {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Device)
+            Some(Device::new())
         } else {
             None
         }
@@ -648,7 +653,7 @@ fn default_input_device() -> Option<Device> {
 
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
-        Some(Device)
+        Some(Device::default())
     } else {
         None
     }
