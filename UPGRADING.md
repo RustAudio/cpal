@@ -22,6 +22,11 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
   `Stream::connect_to_system_inputs()`.
 - [ ] **ALSA, CoreAudio, JACK**: Add an explicit `stream.play()` call after `build_*_stream()` if
   you were relying on these backends to auto-start streams.
+- [ ] Replace `DeviceId(host, string)` tuple construction with `DeviceId::new(host, id)`
+- [ ] Replace `device_id.0` / `device_id.1` field access with `device_id.host()` / `device_id.id()`
+- [ ] Update `DeviceDescription::extended()` call sites to iterate `&str` instead of `&[String]`
+- [ ] If you implement a custom host, update `DeviceDescriptionBuilder` setter arguments from
+  `impl Into<String>` to `impl AsRef<str>`
 
 ## 1. Unified `Error` and `ErrorKind` type
 
@@ -246,6 +251,62 @@ let host = cpal::host_from_id(cpal::HostId::WebAudio)?;
 If you must target `wasm32-unknown-emscripten` specifically, consider using OpenAL or another audio approach that supports that target, as cpal no longer provides audio on Emscripten.
 
 **Why:** The old `emscripten` host relied on deprecated Emscripten audio APIs that are no longer functional.
+
+## 9. `DeviceId` is now opaque
+
+**What changed:** The tuple fields of `DeviceId` are no longer `pub`. Direct struct construction
+and field access are replaced by a typed API.
+
+```rust
+// Before (v0.17): direct tuple construction and field access
+let id = DeviceId(HostId::Alsa, "hw:CARD=PCH,DEV=0".to_string());
+let host = id.0;
+let device_str = &id.1;
+
+// After (v0.18): typed constructor and accessors
+let id = DeviceId::new(HostId::Alsa, "hw:CARD=PCH,DEV=0");
+let host = id.host();
+let device_str = id.id();
+```
+
+The `Display` / `FromStr` round-trip for config persistence is **unchanged**:
+
+```rust
+// Serialize to a config file and restore on next launch — unchanged in v0.18
+let id_string = device.id()?.to_string();
+let id: DeviceId = id_string.parse()?;
+let device = host.device_by_id(&id);
+```
+
+**Why:** Sealing the type prevents of unrecognisable identifiers, and makes `Display`/`FromStr`
+the single documented contract for persistence.
+
+## 10. `DeviceDescription::extended()` returns an iterator
+
+**What changed:** `extended()` now returns `impl Iterator<Item = &str>` instead of `&[String]`.
+
+```rust
+// Before (v0.17)
+for line in desc.extended() {   // &[String]
+    println!("{}", line);       // line: &String
+}
+
+// After (v0.18)
+for line in desc.extended() {   // impl Iterator<Item = &str>
+    println!("{}", line);       // line: &str — Display, write!, format! all unchanged
+}
+```
+
+If you need random access or a collected copy, call `.collect()`:
+
+```rust
+let lines: Vec<&str> = desc.extended().collect();
+println!("{}", lines[0]);
+```
+
+**Why:** Decouples the return type from the backing store, making future storage changes
+non-breaking. The iterator yields `&str` directly, which is simpler than `&String` at every
+call site.
 
 ---
 

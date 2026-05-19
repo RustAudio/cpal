@@ -62,7 +62,7 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Null, String::new()))
+        Ok(DeviceId::new(crate::platform::HostId::Null, ""))
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {

@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `audio_thread_priority` dependency bumped to 0.35.
 - `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
 - Error messages are now consistent across all hosts.
+- `DeviceId` fields are now private; construct with `DeviceId::new(host, id)` and access with
+  `.host()` / `.id()`. See [UPGRADING.md](UPGRADING.md) for migration details.
+- `DeviceDescription::extended()` now returns `impl Iterator<Item = &str>` instead of `&[String]`. 
+  See [UPGRADING.md](UPGRADING.md) for migration details.
+- `DeviceDescriptionBuilder` setters now accept `impl AsRef<str>` instead of `impl Into<String>`. 
 - **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
   for easier identification when enumerating devices.
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for

@@ -38,8 +38,8 @@ pub struct Stream {
     state: Arc<AtomicU8>,
     async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
-    input_port_names: Vec<String>,
-    output_port_names: Vec<String>,
+    input_port_names: Box<[String]>,
+    output_port_names: Box<[String]>,
 }
 
 // Compile-time assertion that Stream is Send and Sync
@@ -98,8 +98,8 @@ impl Stream {
         Ok(Self {
             state,
             async_client,
-            input_port_names: port_names,
-            output_port_names: vec![],
+            input_port_names: port_names.into_boxed_slice(),
+            output_port_names: Default::default(),
         })
     }
 
@@ -154,8 +154,8 @@ impl Stream {
         Ok(Self {
             state,
             async_client,
-            input_port_names: vec![],
-            output_port_names: port_names,
+            input_port_names: Box::default(),
+            output_port_names: port_names.into_boxed_slice(),
         })
     }
 

@@ -65,12 +65,14 @@ fn try_request_devices_info<'j>(
             let is_sink = call_method_no_args_ret_bool(env, &device, "isSink")?;
             let direction = crate::device_description::direction_from_caps(is_source, is_sink);
             let channel_counts =
-                call_method_no_args_ret_int_array(env, &device, "getChannelCounts")?;
-            let sample_rates = call_method_no_args_ret_int_array(env, &device, "getSampleRates")?;
+                call_method_no_args_ret_int_array(env, &device, "getChannelCounts")?
+                    .into_boxed_slice();
+            let sample_rates = call_method_no_args_ret_int_array(env, &device, "getSampleRates")?
+                .into_boxed_slice();
             let formats = call_method_no_args_ret_int_array(env, &device, "getEncodings")?
                 .into_iter()
                 .filter_map(SampleFormat::from_encoding)
-                .collect::<Vec<_>>();
+                .collect::<Box<[_]>>();
 
             Ok(AudioDeviceInfo {
                 id,

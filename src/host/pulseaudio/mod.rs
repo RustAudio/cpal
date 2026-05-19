@@ -476,7 +476,7 @@ impl DeviceTrait for Device {
             Device::Source { info, .. } => info.index,
         };
 
-        Ok(DeviceId(HostId::PulseAudio, id.to_string()))
+        Ok(DeviceId::new(HostId::PulseAudio, &id.to_string()))
     }
 }
 

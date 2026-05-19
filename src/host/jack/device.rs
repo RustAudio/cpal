@@ -43,7 +43,7 @@ impl Device {
         Ok(Self {
             // The name given to the client by JACK, could potentially be different from the name
             // supplied e.g. if there is a name collision
-            name: client.name().to_string(),
+            name: client.name().to_owned(),
             sample_rate: client.sample_rate(),
             buffer_size: SupportedBufferSize::Range {
                 min: client.buffer_size(),
@@ -56,7 +56,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Jack, self.name.clone()))
+        Ok(DeviceId::new(crate::platform::HostId::Jack, &self.name))
     }
 
     pub fn default_output_device(

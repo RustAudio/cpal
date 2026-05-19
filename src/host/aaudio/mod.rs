@@ -532,7 +532,7 @@ impl DeviceTrait for Device {
 
     fn description(&self) -> Result<DeviceDescription, Error> {
         match &self.0 {
-            None => Ok(DeviceDescriptionBuilder::new("Default Device".to_string()).build()),
+            None => Ok(DeviceDescriptionBuilder::new("Default Device").build()),
             Some(info) => {
                 let device_type: DeviceType = info.device_type.into();
                 let name = match device_type {
@@ -546,7 +546,7 @@ impl DeviceTrait for Device {
 
                 // Add address if not empty
                 if !info.address.is_empty() {
-                    builder = builder.address(info.address.clone());
+                    builder = builder.address(&info.address);
                 }
 
                 Ok(builder.build())
@@ -559,7 +559,7 @@ impl DeviceTrait for Device {
             None => "-1".to_string(), // Default device
             Some(info) => info.id.to_string(),
         };
-        Ok(DeviceId(crate::platform::HostId::AAudio, device_str))
+        Ok(DeviceId::new(crate::platform::HostId::AAudio, &device_str))
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
