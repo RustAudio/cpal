@@ -214,7 +214,7 @@ fn set_sample_rate(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy)]
 enum AudioUnitMode {
     /// HAL Output AudioUnit with input enabled, pinned to a specific device.
     Input,

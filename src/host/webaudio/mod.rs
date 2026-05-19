@@ -37,7 +37,7 @@ type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Device;
 
 impl fmt::Display for Device {
@@ -47,6 +47,7 @@ impl fmt::Display for Device {
     }
 }
 
+#[derive(Default)]
 pub struct Host;
 
 pub struct Stream {
@@ -112,6 +113,10 @@ impl Devices {
 }
 
 impl Device {
+    pub fn new() -> Self {
+        Self
+    }
+
     fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Default Device")
             .direction(DeviceDirection::Output)

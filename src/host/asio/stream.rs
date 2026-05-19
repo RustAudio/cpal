@@ -24,6 +24,7 @@ use crate::{
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.
+#[derive(Default)]
 struct TimeBase {
     last_ns: AtomicU64,
     epoch_ns: AtomicU64,
@@ -33,13 +34,6 @@ struct TimeBase {
 const TIMEGETIME_WRAP_NS: u64 = (u32::MAX as u64 + 1) * 1_000_000;
 
 impl TimeBase {
-    fn new() -> Self {
-        Self {
-            last_ns: AtomicU64::new(0),
-            epoch_ns: AtomicU64::new(0),
-        }
-    }
-
     /// Convert a nanosecond timestamp to a monotonic `StreamInstant`.
     fn to_stream_instant(&self, ns: u64) -> StreamInstant {
         // `Relaxed` is sufficient: callbacks run on a single ASIO thread. The only
@@ -60,9 +54,8 @@ impl TimeBase {
 const ASIO_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum StreamState {
-    #[default]
     Starting = 0,
     Paused = 1,
     Playing = 2,
@@ -211,7 +204,7 @@ impl Device {
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
-        let time_base = Arc::new(TimeBase::new());
+        let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
         // Set the input callback.
@@ -544,7 +537,7 @@ impl Device {
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
-        let time_base = Arc::new(TimeBase::new());
+        let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {

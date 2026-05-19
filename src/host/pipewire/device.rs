@@ -54,9 +54,9 @@ pub(crate) enum Class {
 }
 
 #[derive(Clone, Debug, Default, Copy)]
-pub enum Role {
-    Sink,
+enum Role {
     #[default]
+    Sink,
     Source,
     Duplex,
     StreamOutput,
@@ -668,7 +668,7 @@ impl DeviceTrait for Device {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 struct Settings {
     rate: SampleRate,
     allow_rates: Box<[SampleRate]>,

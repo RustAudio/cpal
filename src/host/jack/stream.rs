@@ -12,9 +12,8 @@ use crate::{
 };
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum StreamState {
-    #[default]
     Starting = 0,
     Paused = 1,
     Playing = 2,

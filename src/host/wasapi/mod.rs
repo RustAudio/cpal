@@ -23,7 +23,7 @@ mod stream;
 /// Note: If you use a WASAPI output device as an input device it will
 /// transparently enable loopback mode (see
 /// https://docs.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Host;
 
 impl Host {

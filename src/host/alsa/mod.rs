@@ -667,7 +667,7 @@ impl Default for Device {
 }
 
 /// Strategy for pre-filling an output buffer with the equilibrium value.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 enum EquilibriumFill {
     /// Equilibrium is represented as a single repeating byte value.
     Byte(u8),
@@ -704,7 +704,7 @@ impl EquilibriumFill {
 }
 
 // How callback timestamps are produced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TimestampMode {
     // Hardware timestamps are unavailable (e.g. PulseAudio ALSA plugin returns zero htstamp).
     // Timestamps are monotonic elapsed time since stream creation, sourced from Instant::now().

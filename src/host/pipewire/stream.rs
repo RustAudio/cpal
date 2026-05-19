@@ -68,8 +68,7 @@ impl Drop for PwInitGuard {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum StreamCommand {
+pub(super) enum StreamCommand {
     Toggle(bool),
     Stop,
 }
@@ -83,7 +82,7 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub(crate) fn new(
+    pub(super) fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
         last_quantum: Arc<AtomicU64>,
