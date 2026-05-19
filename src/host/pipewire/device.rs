@@ -697,16 +697,9 @@ impl From<MetadataListener> for Request {
 }
 
 /// Per-node rate and quantum discovered during device enumeration.
-#[derive(Default)]
 struct NodeOverrides {
     rate: Option<SampleRate>,
     quantum: Option<FrameCount>,
-}
-
-impl NodeOverrides {
-    fn new() -> Self {
-        Self::default()
-    }
 }
 
 /// Parses a PipeWire fraction string like "1/48000" or "256/48000" into its parts.
