@@ -110,7 +110,11 @@ impl HostTrait for Host {
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Device)
+        if Self::is_available() {
+            Some(Device)
+        } else {
+            None
+        }
     }
 }
 
