@@ -639,7 +639,7 @@ impl Iterator for Devices {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Device::new())
+            Some(Device)
         } else {
             None
         }
@@ -653,7 +653,7 @@ fn default_input_device() -> Option<Device> {
 
 fn default_output_device() -> Option<Device> {
     if is_webaudio_available() {
-        Some(Device::default())
+        Some(Device)
     } else {
         None
     }

@@ -110,7 +110,7 @@ impl HostTrait for Host {
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(Device)
     }
 }
 
@@ -425,7 +425,7 @@ impl Iterator for Devices {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0 {
             self.0 = false;
-            Some(Device::new())
+            Some(Device)
         } else {
             None
         }

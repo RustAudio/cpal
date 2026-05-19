@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
 - Add `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md`.
 - `BufferSize` now implements `Default` (returns `BufferSize::Default`).
+- `SupportedBufferSize` now implements `Default` (returns `SupportedBufferSize::Unknown`).
 - `SupportedStreamConfig` now implements `Copy`.
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
@@ -43,8 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **CoreAudio**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
 - **CoreAudio (iOS)**: `Device` now implements `Default`; added `Device::new()`.
-- **Custom**: `SupportedBufferSize` now implements `Default` (returns
-  `SupportedBufferSize::Unknown`).
 - **JACK**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
 - **Null**: `Device`, `Host`, `Stream`, `SupportedInputConfigs`, and `SupportedOutputConfigs` now
   implement `Default`, added `new()` on each.
