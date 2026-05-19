@@ -25,7 +25,7 @@ pub struct Device {
     buffer_size_max: FrameCount,
     input_sample_format: Option<SampleFormat>,
     output_sample_format: Option<SampleFormat>,
-    supported_sample_rates: Vec<SampleRate>,
+    supported_sample_rates: Box<[SampleRate]>,
 
     // Input and/or Output stream.
     // A driver can only have one of each.
@@ -48,14 +48,14 @@ impl Device {
             Some(self.channels_out),
         );
 
-        Ok(DeviceDescriptionBuilder::new(self.name.clone())
-            .driver(self.name.clone())
+        Ok(DeviceDescriptionBuilder::new(&self.name)
+            .driver(&self.name)
             .direction(direction)
             .build())
     }
 
     pub fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Asio, self.name.clone()))
+        Ok(DeviceId::new(crate::platform::HostId::Asio, &self.name))
     }
 
     /// Gets the supported input configs.
@@ -207,7 +207,7 @@ impl Iterator for Devices {
                             .ok()
                             .and_then(|t| convert_data_type(&t));
 
-                        let supported_sample_rates: Vec<SampleRate> = crate::COMMON_SAMPLE_RATES
+                        let supported_sample_rates: Box<[SampleRate]> = crate::COMMON_SAMPLE_RATES
                             .iter()
                             .copied()
                             .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))

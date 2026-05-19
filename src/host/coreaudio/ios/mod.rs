@@ -87,16 +87,13 @@ impl Device {
             crate::device_description::direction_from_counts(input_channels, output_channels)
         };
 
-        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+        Ok(DeviceDescriptionBuilder::new("Default Device")
             .direction(direction)
             .build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(
-            crate::platform::HostId::CoreAudio,
-            "default".to_string(),
-        ))
+        Ok(DeviceId::new(crate::platform::HostId::CoreAudio, "default"))
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {

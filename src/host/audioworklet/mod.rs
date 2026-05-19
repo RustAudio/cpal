@@ -119,15 +119,15 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+        Ok(DeviceDescriptionBuilder::new("Default Device")
             .direction(DeviceDirection::Output)
             .build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(
+        Ok(DeviceId::new(
             crate::platform::HostId::AudioWorklet,
-            "default".to_string(),
+            "default",
         ))
     }
 

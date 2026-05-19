@@ -36,7 +36,7 @@ pub struct DeviceDescription {
     address: Option<String>,
 
     /// Additional description lines with non-structured, detailed information.
-    extended: Vec<String>,
+    extended: Box<[String]>,
 }
 
 /// Categorization of audio device types.
@@ -155,7 +155,7 @@ impl DeviceDescription {
     ///
     /// This is always available and is the primary user-facing identifier.
     pub fn name(&self) -> &str {
-        &self.name
+        self.name.as_str()
     }
 
     /// Returns the manufacturer/vendor name if available.
@@ -209,8 +209,8 @@ impl DeviceDescription {
     }
 
     /// Returns additional description lines with detailed information.
-    pub fn extended(&self) -> &[String] {
-        &self.extended
+    pub fn extended(&self) -> impl Iterator<Item = &str> {
+        self.extended.iter().map(String::as_str)
     }
 }
 
@@ -302,9 +302,9 @@ pub struct DeviceDescriptionBuilder {
 
 impl DeviceDescriptionBuilder {
     /// Creates a new builder with the device name (required).
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl AsRef<str>) -> Self {
         Self {
-            name: name.into(),
+            name: name.as_ref().to_owned(),
             manufacturer: None,
             driver: None,
             device_type: DeviceType::default(),
@@ -316,14 +316,14 @@ impl DeviceDescriptionBuilder {
     }
 
     /// Sets the manufacturer name.
-    pub fn manufacturer(mut self, manufacturer: impl Into<String>) -> Self {
-        self.manufacturer = Some(manufacturer.into());
+    pub fn manufacturer(mut self, manufacturer: impl AsRef<str>) -> Self {
+        self.manufacturer = Some(manufacturer.as_ref().to_owned());
         self
     }
 
     /// Sets the driver name.
-    pub fn driver(mut self, driver: impl Into<String>) -> Self {
-        self.driver = Some(driver.into());
+    pub fn driver(mut self, driver: impl AsRef<str>) -> Self {
+        self.driver = Some(driver.as_ref().to_owned());
         self
     }
 
@@ -346,20 +346,20 @@ impl DeviceDescriptionBuilder {
     }
 
     /// Sets the physical address.
-    pub fn address(mut self, address: impl Into<String>) -> Self {
-        self.address = Some(address.into());
+    pub fn address(mut self, address: impl AsRef<str>) -> Self {
+        self.address = Some(address.as_ref().to_owned());
         self
     }
 
-    /// Sets the description lines.
-    pub fn extended(mut self, lines: Vec<String>) -> Self {
-        self.extended = lines;
+    /// Sets the description lines, replacing any previously added lines.
+    pub fn extended<S: AsRef<str>>(mut self, lines: impl IntoIterator<Item = S>) -> Self {
+        self.extended = lines.into_iter().map(|s| s.as_ref().to_owned()).collect();
         self
     }
 
     /// Adds a single description line.
-    pub fn add_extended_line(mut self, line: impl Into<String>) -> Self {
-        self.extended.push(line.into());
+    pub fn add_extended_line(mut self, line: impl AsRef<str>) -> Self {
+        self.extended.push(line.as_ref().to_owned());
         self
     }
 
@@ -373,7 +373,7 @@ impl DeviceDescriptionBuilder {
             interface_type: self.interface_type,
             direction: self.direction,
             address: self.address,
-            extended: self.extended,
+            extended: self.extended.into_boxed_slice(),
         }
     }
 }

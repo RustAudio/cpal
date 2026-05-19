@@ -71,7 +71,7 @@ pub struct Device {
     direction: DeviceDirection,
     channels: ChannelCount,
     rate: SampleRate,
-    allow_rates: Vec<SampleRate>,
+    allow_rates: Arc<[SampleRate]>,
     quantum: FrameCount,
     min_quantum: FrameCount,
     max_quantum: FrameCount,
@@ -208,7 +208,7 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedOutputConfigs;
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(HostId::PipeWire, self.node_name.clone()))
+        Ok(DeviceId::new(HostId::PipeWire, &self.node_name))
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
@@ -246,10 +246,10 @@ impl DeviceTrait for Device {
         if !self.supports_input() {
             return Ok(vec![].into_iter());
         }
-        let rates = if self.allow_rates.is_empty() {
-            vec![self.rate]
+        let rates: &[SampleRate] = if self.allow_rates.is_empty() {
+            &[self.rate]
         } else {
-            self.allow_rates.clone()
+            &self.allow_rates
         };
         Ok(rates
             .iter()
@@ -274,10 +274,10 @@ impl DeviceTrait for Device {
         if !self.supports_output() {
             return Ok(vec![].into_iter());
         }
-        let rates = if self.allow_rates.is_empty() {
-            vec![self.rate]
+        let rates: &[SampleRate] = if self.allow_rates.is_empty() {
+            &[self.rate]
         } else {
-            self.allow_rates.clone()
+            &self.allow_rates
         };
         Ok(rates
             .iter()
@@ -671,7 +671,7 @@ impl DeviceTrait for Device {
 #[derive(Debug, Clone, Default)]
 struct Settings {
     rate: SampleRate,
-    allow_rates: Vec<SampleRate>,
+    allow_rates: Box<[SampleRate]>,
     quantum: FrameCount,
     min_quantum: FrameCount,
     max_quantum: FrameCount,
@@ -798,7 +798,8 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                         return 0;
                                     };
 
-                                    settings.borrow_mut().allow_rates = allow_rates;
+                                    settings.borrow_mut().allow_rates =
+                                        allow_rates.into_boxed_slice();
                                 }
                                 (Some(clock::QUANTUM), Some(quantum)) => {
                                     let Ok(quantum) = quantum.parse() else {
@@ -1027,9 +1028,10 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         Device::input_default(),
         Device::output_default(),
     ];
+    let shared_rates: Arc<[SampleRate]> = Arc::from(settings.allow_rates.as_ref());
     for device in devices.iter_mut() {
         device.rate = settings.rate;
-        device.allow_rates = settings.allow_rates.clone();
+        device.allow_rates = Arc::clone(&shared_rates);
         device.quantum = settings.quantum;
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
@@ -1044,7 +1046,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
             .into_iter()
             .map(|(mut device, overrides)| {
                 device.rate = overrides.rate.unwrap_or(settings.rate);
-                device.allow_rates = settings.allow_rates.clone();
+                device.allow_rates = Arc::clone(&shared_rates);
                 device.quantum = overrides.quantum.unwrap_or(settings.quantum);
                 device.min_quantum = settings.min_quantum;
                 device.max_quantum = settings.max_quantum;
@@ -1057,20 +1059,13 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
 }
 
 fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
-    let list: Vec<&str> = list
-        .trim()
+    list.trim()
         .strip_prefix("[")?
         .strip_suffix("]")?
-        .split(' ')
-        .flat_map(|s| s.split(','))
+        .split([' ', ','])
         .filter(|s| !s.is_empty())
-        .collect();
-    let mut allow_rates = vec![];
-    for rate in list {
-        let rate = rate.parse().ok()?;
-        allow_rates.push(rate);
-    }
-    Some(allow_rates)
+        .map(|s| s.parse().ok())
+        .collect()
 }
 
 #[cfg(test)]

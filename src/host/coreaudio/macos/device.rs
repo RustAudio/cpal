@@ -456,7 +456,10 @@ impl Device {
         // We now check if the returned uid is non-null before use.
         if !uid.is_null() {
             let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
-            Ok(DeviceId(crate::platform::HostId::CoreAudio, uid_string))
+            Ok(DeviceId::new(
+                crate::platform::HostId::CoreAudio,
+                uid_string,
+            ))
         } else {
             Err(ErrorKind::DeviceNotAvailable.into())
         }

@@ -113,16 +113,13 @@ impl Devices {
 
 impl Device {
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Ok(DeviceDescriptionBuilder::new("Default Device".to_string())
+        Ok(DeviceDescriptionBuilder::new("Default Device")
             .direction(DeviceDirection::Output)
             .build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(
-            crate::platform::HostId::WebAudio,
-            "default".to_string(),
-        ))
+        Ok(DeviceId::new(crate::platform::HostId::WebAudio, "default"))
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {

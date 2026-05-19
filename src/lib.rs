@@ -249,11 +249,35 @@ pub type FrameCount = u32;
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct DeviceId(pub crate::platform::HostId, pub String);
+pub struct DeviceId(crate::platform::HostId, Box<str>);
+
+impl DeviceId {
+    /// Creates a `DeviceId` from a host identifier and a device-specific identifier string.
+    ///
+    /// This constructor is used by backend implementations. Application code should obtain
+    /// `DeviceId` values through [`DeviceTrait::id`] and persist them via [`Display`]/[`FromStr`].
+    ///
+    /// [`DeviceTrait::id`]: crate::traits::DeviceTrait::id
+    /// [`Display`]: std::fmt::Display
+    /// [`FromStr`]: std::str::FromStr
+    pub fn new(host: crate::platform::HostId, id: impl AsRef<str>) -> Self {
+        Self(host, Box::from(id.as_ref()))
+    }
+
+    /// Returns the host this device belongs to.
+    pub fn host(&self) -> crate::platform::HostId {
+        self.0
+    }
+
+    /// Returns the backend-specific device identifier string.
+    pub fn id(&self) -> &str {
+        &self.1
+    }
+}
 
 impl std::fmt::Display for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.0, self.1)
+        write!(f, "{}:{}", self.host(), self.id())
     }
 }
 
@@ -283,7 +307,7 @@ impl std::str::FromStr for DeviceId {
 
         let host_id = crate::platform::HostId::from_str(host_str)?;
 
-        Ok(Self(host_id, device_str.to_string()))
+        Ok(Self::new(host_id, device_str))
     }
 }
 

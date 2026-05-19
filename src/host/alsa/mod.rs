@@ -131,7 +131,7 @@ impl HostTrait for Host {
     }
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
-        let canonical_id = DeviceId(id.0, canonical_pcm_id(&id.1));
+        let canonical_id = DeviceId::new(id.host(), canonical_pcm_id(id.id()));
         self.devices()
             .ok()?
             .find(|d| d.id().ok().as_ref() == Some(&canonical_id))
@@ -431,27 +431,21 @@ impl Device {
             .desc
             .as_ref()
             .and_then(|desc| desc.lines().next())
-            .unwrap_or(&self.pcm_id)
-            .to_string();
+            .unwrap_or(self.pcm_id.as_str());
 
         let mut builder = DeviceDescriptionBuilder::new(name)
-            .driver(self.pcm_id.clone())
+            .driver(self.pcm_id.as_str())
             .direction(self.direction);
 
         if let Some(ref desc) = self.desc {
-            let lines = desc
-                .lines()
-                .map(|line| line.trim().to_string())
-                .filter(|line| !line.is_empty())
-                .collect();
-            builder = builder.extended(lines);
+            builder = builder.extended(desc.lines().map(|l| l.trim()).filter(|l| !l.is_empty()));
         }
 
         Ok(builder.build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Alsa, self.pcm_id.clone()))
+        Ok(DeviceId::new(crate::platform::HostId::Alsa, &self.pcm_id))
     }
 
     fn supported_configs(
@@ -663,7 +657,7 @@ impl Default for Device {
         // determine its actual capabilities without opening it, so we return Unknown direction.
         Self {
             pcm_id: DEFAULT_DEVICE.to_owned(),
-            desc: Some("Default Audio Device".to_string()),
+            desc: Some("Default Audio Device".to_owned()),
             direction: DeviceDirection::Unknown,
             _context: Arc::new(
                 AlsaContext::new().expect("Failed to initialize ALSA configuration"),
