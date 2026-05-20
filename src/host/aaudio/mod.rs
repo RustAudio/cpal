@@ -121,17 +121,10 @@ const SAMPLE_RATES: [i32; 15] = [
 /// The same default for blocking operations as Oboe uses
 const DEFAULT_TIMEOUT_NANOS: i64 = 2_000_000_000;
 
-#[derive(Default)]
 pub struct Host;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Device(Option<AudioDeviceInfo>);
-
-impl Device {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
 
 /// Stream wraps AudioStream in Arc<Mutex<>> to provide Send + Sync semantics.
 ///
@@ -199,16 +192,16 @@ impl HostTrait for Host {
                 .collect::<Vec<_>>()
                 .into_iter())
         } else {
-            Ok(vec![Device::new()].into_iter())
+            Ok(vec![Device(None)].into_iter())
         }
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(Device(None))
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Device::default())
+        Some(Device(None))
     }
 }
 

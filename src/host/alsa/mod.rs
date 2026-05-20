@@ -115,6 +115,17 @@ impl Host {
             inner: Arc::new(inner),
         })
     }
+
+    // "default" is a virtual ALSA device that redirects to the configured default. We cannot
+    // determine its actual capabilities without opening it, so we return Unknown direction.
+    fn default_device(&self) -> Device {
+        Device {
+            pcm_id: DEFAULT_DEVICE.to_owned(),
+            desc: Some("Default Audio Device".to_owned()),
+            direction: DeviceDirection::Unknown,
+            _context: self.inner.clone(),
+        }
+    }
 }
 
 impl HostTrait for Host {
@@ -138,11 +149,11 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        Some(Self::Device::default())
+        Some(self.default_device())
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        Some(Self::Device::default())
+        Some(self.default_device())
     }
 }
 
@@ -648,21 +659,6 @@ impl fmt::Display for Device {
 impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.pcm_id.hash(state);
-    }
-}
-
-impl Default for Device {
-    fn default() -> Self {
-        // "default" is a virtual ALSA device that redirects to the configured default. We cannot
-        // determine its actual capabilities without opening it, so we return Unknown direction.
-        Self {
-            pcm_id: DEFAULT_DEVICE.to_owned(),
-            desc: Some("Default Audio Device".to_owned()),
-            direction: DeviceDirection::Unknown,
-            _context: Arc::new(
-                AlsaContext::new().expect("Failed to initialize ALSA configuration"),
-            ),
-        }
     }
 }
 

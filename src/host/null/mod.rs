@@ -12,10 +12,9 @@ use crate::{
     SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-#[derive(Default)]
 pub struct Devices;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
 
 impl fmt::Display for Device {
@@ -25,53 +24,22 @@ impl fmt::Display for Device {
     }
 }
 
-#[derive(Default)]
 pub struct Host;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stream;
 
 // Compile-time assertion that Stream is Send and Sync
 crate::assert_stream_send!(Stream);
 crate::assert_stream_sync!(Stream);
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SupportedInputConfigs;
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SupportedOutputConfigs;
-
-impl Device {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Host {
     #[allow(dead_code)]
-    pub fn new() -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
-impl Stream {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl SupportedInputConfigs {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl SupportedOutputConfigs {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Devices {
     pub fn new() -> Result<Self, Error> {
         Ok(Self)
     }
@@ -147,7 +115,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        Devices::new()
+        Ok(Devices)
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
