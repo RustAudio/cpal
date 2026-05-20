@@ -4,7 +4,7 @@ use super::Device;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // TODO: Support enumerating earpiece vs headset vs speaker etc?
-pub struct Devices(VecIntoIter<Device>);
+pub struct Devices(pub(super) VecIntoIter<Device>);
 
 impl Iterator for Devices {
     type Item = Device;
