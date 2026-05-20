@@ -1,4 +1,5 @@
 use std::{
+    ffi::CString,
     fmt,
     hash::{Hash, Hasher},
     mem::discriminant,
@@ -135,7 +136,8 @@ impl Host {
         // returns, fall through to the next host with no other option than to leak the thread.
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(pulseaudio::Client::from_env(c"cpal-pulseaudio"));
+            let name = CString::new(format!("cpal-pulseaudio-{}", std::process::id())).unwrap();
+            let _ = tx.send(pulseaudio::Client::from_env(&name));
         });
         let client = rx
             .recv_timeout(INIT_TIMEOUT)
