@@ -361,31 +361,6 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, Error> {
-        // Validate buffer size if Fixed is specified. This is necessary because
-        // `set_period_size_near()` with `ValueOr::Nearest` will accept ANY value and return the
-        // "nearest" supported value, which could be wildly different (e.g., requesting 4096 frames
-        // might return 512 frames if that's "nearest").
-        if let BufferSize::Fixed(requested_size) = conf.buffer_size {
-            // Note: We use `default_input_config`/`default_output_config` to get the buffer size
-            // range. This queries the CURRENT device (`self.pcm_id`), not the default device. The
-            // buffer size range is the same across all format configurations for a given device
-            // (see `supported_configs()`).
-            let supported_config = match stream_type {
-                alsa::Direction::Capture => self.default_input_config(),
-                alsa::Direction::Playback => self.default_output_config(),
-            };
-            if let Ok(config) = supported_config {
-                if let SupportedBufferSize::Range { min, max } = config.buffer_size {
-                    if !(min..=max).contains(&requested_size) {
-                        return Err(Error::with_message(
-                            ErrorKind::UnsupportedConfig,
-                            format!("Buffer size {requested_size} is not in the supported range {min}..={max}"),
-                        ));
-                    }
-                }
-            }
-        }
-
         let handle = {
             let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)?
@@ -1571,6 +1546,17 @@ fn set_hw_params_from_format(
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
     // behavior across different ALSA implementations and hardware.
     if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
+        // Validate the requested size against the device's supported range using the same PCM
+        // handle we'll use for streaming. This avoids a second PCM open (which can disturb
+        // hardware clock state on some drivers) while still catching wildly out-of-range
+        // requests before set_period_size_near silently rounds them.
+        let (min_buffer, max_buffer) = hw_params_buffer_size_min_max(&hw_params);
+        if !(min_buffer..=max_buffer).contains(&buffer_frames) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("Buffer size {buffer_frames} is not in the supported range {min_buffer}..={max_buffer}"),
+            ));
+        }
         hw_params.set_buffer_size_near(DEFAULT_PERIODS * buffer_frames as alsa::pcm::Frames)?;
         hw_params
             .set_period_size_near(buffer_frames as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
