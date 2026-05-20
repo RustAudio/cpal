@@ -36,22 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
 - **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
-- **AAudio**: `Host` and `Device` now implement `Default`; added `Device::new()`.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
 - **ASIO**: `Device` now implements `Debug`.
-- **AudioWorklet**: `Device` and `Host` now implement `Default`; added `Device::new()`.
-- **CoreAudio**: `Host` now implements `Default`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **CoreAudio**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
-- **CoreAudio (iOS)**: `Device` now implements `Default`; added `Device::new()`.
 - **JACK**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
-- **Null**: `Device`, `Host`, `Stream`, `SupportedInputConfigs`, and `SupportedOutputConfigs` now
-  implement `Default`, added `new()` on each.
 - **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
 - **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
 - **WASAPI**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
-- **WASAPI**: `Host` now implements `Default`.
-- **WebAudio**: `Device` and `Host` now implement `Default`; added `Device::new()`.
 
 ### Changed
 
@@ -152,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
 - Removed deprecated `DeviceTrait::name()`.
+- **ALSA**: `Default` implementation for `Device`.
 - **ALSA**: `AlsaHost` is no longer re-exported from `cpal::platform`.
 - **Emscripten**: Removed broken host; use the WebAudio host instead.
 - **WASAPI**: Removed `U24` incorrectly listed as a supported sample format.
@@ -189,7 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
 - **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **ASIO**: Fix overrun not being reported when the driver reports `kAsioOverload`.
-- **AudioWorklet**: Fix `Devices::default()` to enumerate only if `Host::is_available()`.
+- **AudioWorklet**: Fix `default_output_device()` to return `None` when AudioWorklet is unavailable.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
@@ -216,6 +209,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   devices.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
+- **WebAudio**: Fix `default_output_device()` to return `None` when WebAudio is unavailable.
+
 
 ## [0.17.3] - 2026-02-18
 

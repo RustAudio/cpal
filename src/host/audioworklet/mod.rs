@@ -30,14 +30,8 @@ use crate::dependent_module;
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
-
-impl Device {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl fmt::Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -46,7 +40,6 @@ impl fmt::Display for Device {
     }
 }
 
-#[derive(Default)]
 pub struct Host;
 
 pub struct Stream {
@@ -120,7 +113,7 @@ impl HostTrait for Host {
 
 impl Devices {
     fn new() -> Result<Self, Error> {
-        Ok(Self::default())
+        Ok(Devices(Host::is_available()))
     }
 }
 
@@ -414,12 +407,6 @@ impl StreamTrait for Stream {
 impl Drop for Stream {
     fn drop(&mut self) {
         let _ = self.audio_context.close();
-    }
-}
-
-impl Default for Devices {
-    fn default() -> Self {
-        Self(Host::is_available())
     }
 }
 

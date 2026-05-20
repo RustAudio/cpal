@@ -36,7 +36,7 @@ use session_event_manager::SessionEventManager;
 // These days the default of iOS is now F32 and no longer I16
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
 
 impl fmt::Display for Device {
@@ -46,7 +46,6 @@ impl fmt::Display for Device {
     }
 }
 
-#[derive(Default)]
 pub struct Host;
 
 impl Host {
@@ -64,7 +63,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        Ok(Devices::new())
+        Ok(Devices(vec![Device].into_iter()))
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -77,10 +76,6 @@ impl HostTrait for Host {
 }
 
 impl Device {
-    pub fn new() -> Self {
-        Self
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         // Query AVAudioSession to determine actual input/output availability
         // SAFETY: AVAudioSession::sharedInstance() returns the global audio session singleton
