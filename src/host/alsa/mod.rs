@@ -1065,7 +1065,25 @@ fn poll_for_period(
 
     let res = alsa::poll::poll(descriptors, *poll_timeout)?;
     if res == 0 {
-        // poll() returned 0: either a timeout or a spurious wakeup. Nothing to do.
+        // Timeout expired with no events. Query PCM state to handle cases where
+        // POLLERR/POLLHUP was not delivered before the timeout fired (e.g. some
+        // power-management suspend paths or VM/container ALSA shims).
+        match stream.handle.state() {
+            alsa::pcm::State::Disconnected => {
+                return Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "Device disconnected",
+                ));
+            }
+            // Xrun with POLLERR missed: recover the same way the POLLERR path does.
+            alsa::pcm::State::XRun => {
+                return Err(ErrorKind::Xrun.into());
+            }
+            // Suspend with POLLHUP/POLLERR missed: attempt hardware resume.
+            alsa::pcm::State::Suspended => return try_resume(&stream.handle),
+            // No events and no error state: spurious wakeup, poll again.
+            _ => {}
+        }
         return Ok(Poll::Pending);
     }
 
