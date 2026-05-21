@@ -8,7 +8,7 @@ extern crate alsa_sys;
 extern crate libc;
 
 use std::{
-    cmp, fmt,
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -368,7 +368,7 @@ impl Device {
 
         let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
         let (buffer_size, period_size) = set_sw_params_from_format(&handle, stream_type)?;
-        if buffer_size == 0 {
+        if buffer_size == 0 || period_size == 0 {
             return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
@@ -494,68 +494,52 @@ impl Device {
             //SND_PCM_FORMAT_U18_3BE,
         ];
 
-        // Collect supported formats, deduplicating since we test both LE and BE variants.
-        // If hardware supports both endiannesses (rare), we only report the format once.
-        let mut supported_formats = Vec::new();
-        for &(sample_format, alsa_format) in FORMATS.iter() {
-            if hw_params.test_format(alsa_format).is_ok()
-                && !supported_formats.contains(&sample_format)
-            {
-                supported_formats.push(sample_format);
-            }
-        }
-
         let min_rate = hw_params.get_rate_min()?;
         let max_rate = hw_params.get_rate_max()?;
 
         let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
+            // Fixed rate or continuous range.
             vec![(min_rate, max_rate)]
         } else {
-            let mut rates = Vec::new();
-            for &sample_rate in COMMON_SAMPLE_RATES.iter() {
-                if hw_params.test_rate(sample_rate).is_ok() {
-                    rates.push((sample_rate, sample_rate));
-                }
-            }
-
-            if rates.is_empty() {
-                vec![(min_rate, max_rate)]
-            } else {
-                rates
-            }
+            // Discrete rates: probe the standard list plus the hardware's own min and max so
+            // that rates outside `COMMON_SAMPLE_RATES` are not missed.
+            let mut probe: Vec<SampleRate> = COMMON_SAMPLE_RATES.to_vec();
+            probe.push(min_rate);
+            probe.push(max_rate);
+            probe.sort_unstable();
+            probe.dedup();
+            probe
+                .into_iter()
+                .filter(|&r| (min_rate..=max_rate).contains(&r) && hw_params.test_rate(r).is_ok())
+                .map(|r| (r, r))
+                .collect()
         };
 
         let min_channels = hw_params.get_channels_min()?;
-        let max_channels = hw_params.get_channels_max()?;
+        let max_channels = hw_params.get_channels_max()?.min(32); // TODO: cap at 32 or too many configs
 
-        let max_channels = cmp::min(max_channels, 32); // TODO: limiting to 32 channels or too much stuff is returned
-        let supported_channels = (min_channels..=max_channels)
-            .filter_map(|num| {
-                if hw_params.test_channels(num).is_ok() {
-                    Some(num as ChannelCount)
-                } else {
-                    None
+        let mut output = Vec::new();
+        let mut seen_formats: Vec<SampleFormat> = Vec::new();
+        for &(sample_format, alsa_format) in FORMATS.iter() {
+            if seen_formats.contains(&sample_format) || hw_params.test_format(alsa_format).is_err()
+            {
+                continue;
+            }
+            seen_formats.push(sample_format);
+
+            for channels in min_channels..=max_channels {
+                if hw_params.test_channels(channels).is_err() {
+                    continue;
                 }
-            })
-            .collect::<Vec<_>>();
+                let channels = channels as ChannelCount;
+                let buffer_size = supported_period_size_range(&pcm, alsa_format, channels);
 
-        let (min_buffer_size, max_buffer_size) = hw_params_buffer_size_min_max(&hw_params);
-        let buffer_size_range = SupportedBufferSize::Range {
-            min: min_buffer_size,
-            max: max_buffer_size,
-        };
-
-        let mut output = Vec::with_capacity(
-            supported_formats.len() * supported_channels.len() * sample_rates.len(),
-        );
-        for &sample_format in supported_formats.iter() {
-            for &channels in supported_channels.iter() {
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
                         channels,
                         min_sample_rate: min_rate,
                         max_sample_rate: max_rate,
-                        buffer_size: buffer_size_range,
+                        buffer_size,
                         sample_format,
                     });
                 }
@@ -579,7 +563,7 @@ impl Device {
         let mut formats: Vec<_> = {
             match self.supported_configs(stream_t) {
                 // EINVAL when querying direction the device does not support (input-only or output-only)
-                Err(err) if err.kind() == ErrorKind::InvalidInput => {
+                Err(err) if err.kind() == ErrorKind::UnsupportedConfig => {
                     let dir = match stream_t {
                         alsa::Direction::Capture => "input",
                         alsa::Direction::Playback => "output",
@@ -1036,9 +1020,7 @@ fn try_resume(handle: &alsa::PCM) -> Result<Poll, Error> {
         // device is still resuming; poll again until it is ready.
         Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
         // hardware does not support soft resume; treat as xrun so the worker calls prepare()
-        Err(e) if e.errno() == libc::ENOSYS => {
-            Err(Error::with_message(ErrorKind::Xrun, e.to_string()))
-        }
+        Err(e) if e.errno() == libc::ENOSYS => Err(ErrorKind::Xrun.into()),
         Err(e) => Err(e.into()),
     }
 }
@@ -1110,9 +1092,7 @@ fn poll_for_period(
     // POLLIN/POLLOUT: data is ready, fall through to process it.
     let (avail_frames, delay_frames) = match stream.handle.avail_delay() {
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
-        Err(err) if err.errno() == libc::EPIPE => {
-            return Err(Error::with_message(ErrorKind::Xrun, err.to_string()))
-        }
+        Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
         // Suspend: try hardware resume first; fall back to prepare() if unsupported.
         Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.handle),
         res => res,
@@ -1168,13 +1148,11 @@ fn process_input(
                 if frames_read == 0 {
                     return Ok(());
                 } else {
-                    return Err(Error::with_message(ErrorKind::Xrun, err.to_string()));
+                    return Err(ErrorKind::Xrun.into());
                 }
             }
             // EPIPE = xrun: full underrun recovery (prepare + start) required.
-            Err(err) if err.errno() == libc::EPIPE => {
-                return Err(Error::with_message(ErrorKind::Xrun, err.to_string()))
-            }
+            Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
@@ -1238,13 +1216,11 @@ fn process_output(
                 if frames_written == 0 {
                     return Ok(());
                 } else {
-                    return Err(Error::with_message(ErrorKind::Xrun, err.to_string()));
+                    return Err(ErrorKind::Xrun.into());
                 }
             }
             // EPIPE = xrun: full underrun recovery (prepare) required.
-            Err(err) if err.errno() == libc::EPIPE => {
-                return Err(Error::with_message(ErrorKind::Xrun, err.to_string()))
-            }
+            Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
@@ -1439,22 +1415,52 @@ impl StreamTrait for Stream {
     }
 }
 
-// Convert ALSA frames to FrameCount, clamping to valid range.
-// ALSA Frames are i64 (64-bit) or i32 (32-bit).
-fn clamp_frame_count(buffer_size: alsa::pcm::Frames) -> FrameCount {
-    buffer_size.max(1).try_into().unwrap_or(FrameCount::MAX)
+fn supported_period_size_range(
+    pcm: &alsa::pcm::PCM,
+    alsa_format: alsa::pcm::Format,
+    channels: ChannelCount,
+) -> SupportedBufferSize {
+    let Ok(p) = alsa::pcm::HwParams::any(pcm) else {
+        return SupportedBufferSize::Unknown;
+    };
+    if p.set_access(alsa::pcm::Access::RWInterleaved).is_err()
+        || p.set_channels(channels as u32).is_err()
+        || p.set_format(alsa_format).is_err()
+    {
+        return SupportedBufferSize::Unknown;
+    }
+    let Some((min, max)) = hw_params_period_size_min_max(&p) else {
+        return SupportedBufferSize::Unknown;
+    };
+    let min_frames = min.max(1);
+    // cpal double-buffers (ring = DEFAULT_PERIODS × period), so the achievable
+    // period maximum is also bounded by max_buffer / DEFAULT_PERIODS.
+    let effective_max = match p.get_buffer_size_max() {
+        Ok(max_buf) if max_buf > 0 => max.min(max_buf / DEFAULT_PERIODS),
+        _ => max,
+    };
+    if effective_max >= min_frames {
+        let Ok(min) = min_frames.try_into() else {
+            return SupportedBufferSize::Unknown;
+        };
+        SupportedBufferSize::Range {
+            min,
+            max: effective_max.try_into().unwrap_or(FrameCount::MAX),
+        }
+    } else {
+        SupportedBufferSize::Unknown
+    }
 }
 
-fn hw_params_buffer_size_min_max(hw_params: &alsa::pcm::HwParams) -> (FrameCount, FrameCount) {
-    let min_buf = hw_params
-        .get_buffer_size_min()
-        .map(clamp_frame_count)
-        .unwrap_or(1);
-    let max_buf = hw_params
-        .get_buffer_size_max()
-        .map(clamp_frame_count)
-        .unwrap_or(FrameCount::MAX);
-    (min_buf, max_buf)
+fn hw_params_period_size_min_max(
+    hw_params: &alsa::pcm::HwParams,
+) -> Option<(alsa::pcm::Frames, alsa::pcm::Frames)> {
+    let min = hw_params.get_period_size_min().ok()?;
+    let max = hw_params.get_period_size_max().ok()?;
+    // min=0 means no hardware lower bound (PipeWire reports this on unconstrained params);
+    // it is handled in the caller by clamping to 1. max <= 0 is degenerate (or ULONG_MAX
+    // wrapping negative), so we return None in that case rather than a misleading range.
+    (max > 0 && max >= min).then_some((min, max))
 }
 
 fn init_hw_params<'a>(
@@ -1563,21 +1569,42 @@ fn set_hw_params_from_format(
     // When BufferSize::Fixed(x) is specified, we configure double-buffering with
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
     // behavior across different ALSA implementations and hardware.
-    if let BufferSize::Fixed(buffer_frames) = config.buffer_size {
-        // Validate the requested size against the device's supported range using the same PCM
+    if let BufferSize::Fixed(period_size) = config.buffer_size {
+        if period_size == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "Buffer size must be greater than 0",
+            ));
+        }
+
+        let period_size = period_size as alsa::pcm::Frames;
+
+        // Validate the requested size against the device's supported ranges using the same PCM
         // handle we'll use for streaming. This avoids a second PCM open (which can disturb
         // hardware clock state on some drivers) while still catching wildly out-of-range
         // requests before set_period_size_near silently rounds them.
-        let (min_buffer, max_buffer) = hw_params_buffer_size_min_max(&hw_params);
-        if !(min_buffer..=max_buffer).contains(&buffer_frames) {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!("Buffer size {buffer_frames} is not in the supported range {min_buffer}..={max_buffer}"),
-            ));
+        if let Some((min_period, max_period)) = hw_params_period_size_min_max(&hw_params) {
+            if !(min_period..=max_period).contains(&period_size) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("Buffer size {period_size} is not in the supported range {min_period}..={max_period}"),
+                ));
+            }
         }
-        hw_params.set_buffer_size_near(DEFAULT_PERIODS * buffer_frames as alsa::pcm::Frames)?;
-        hw_params
-            .set_period_size_near(buffer_frames as alsa::pcm::Frames, alsa::ValueOr::Nearest)?;
+
+        let buffer_size = DEFAULT_PERIODS * period_size;
+        if let Ok(max_buffer) = hw_params.get_buffer_size_max() {
+            if max_buffer > 0 && buffer_size > max_buffer {
+                let effective_max = max_buffer / DEFAULT_PERIODS;
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!("Buffer size {period_size} exceeds the maximum supported value of {effective_max}"),
+                ));
+            }
+        }
+
+        hw_params.set_buffer_size_near(buffer_size)?;
+        hw_params.set_period_size_near(period_size, alsa::ValueOr::Nearest)?;
     }
 
     // Apply hardware parameters
@@ -1587,7 +1614,7 @@ fn set_hw_params_from_format(
     // PipeWire-ALSA picks a good period size but pairs it with many periods (huge buffer).
     // We need to re-initialize hw_params and set BOTH period and buffer to constrain properly.
     if config.buffer_size == BufferSize::Default {
-        if let Ok(period_size) = hw_params.get_period_size().map(|s| s as alsa::pcm::Frames) {
+        if let Ok(period_size) = hw_params.get_period_size() {
             // Re-initialize hw_params to clear previous constraints
             let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
@@ -1655,18 +1682,11 @@ fn canonical_pcm_id(pcm_id: &str) -> String {
 impl From<alsa::Error> for Error {
     fn from(err: alsa::Error) -> Self {
         match err.errno() {
-            libc::ENODEV | libc::ENOENT | LIBC_ENOTSUPP => {
-                Error::with_message(ErrorKind::DeviceNotAvailable, err.to_string())
-            }
-            libc::EPERM | libc::EACCES => {
-                Error::with_message(ErrorKind::PermissionDenied, err.to_string())
-            }
-            libc::EBUSY | libc::EAGAIN => {
-                Error::with_message(ErrorKind::DeviceBusy, err.to_string())
-            }
-            libc::EINVAL => Error::with_message(ErrorKind::InvalidInput, err.to_string()),
-            libc::EPIPE => Error::with_message(ErrorKind::Xrun, err.to_string()),
-            libc::ENOSYS => Error::with_message(ErrorKind::UnsupportedOperation, err.to_string()),
+            libc::ENODEV | libc::ENOENT | LIBC_ENOTSUPP => ErrorKind::DeviceNotAvailable.into(),
+            libc::EPERM | libc::EACCES => ErrorKind::PermissionDenied.into(),
+            libc::EBUSY | libc::EAGAIN => ErrorKind::DeviceBusy.into(),
+            libc::EINVAL | libc::ENOSYS => ErrorKind::UnsupportedConfig.into(),
+            libc::EPIPE => ErrorKind::Xrun.into(),
             _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
         }
     }
