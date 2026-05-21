@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `BufferSize` now implements `Default` (returns `BufferSize::Default`).
 - `SupportedBufferSize` now implements `Default` (returns `SupportedBufferSize::Unknown`).
 - `SupportedStreamConfig` now implements `Copy`.
+- DSD512 sample rates added to the common rate probe list.
 - **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
   enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
 - **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
@@ -169,6 +170,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix silence template not being applied for DSD.
 - **ALSA**: Fix stream corruption on certain drivers with spurious wakeups.
 - **ALSA**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
+- **ALSA**: Fix `BufferSize::Fixed` validation opening the PCM device a second time.
+- **ALSA**: Fix hang when device raced to an error state without delivering POLLERR.
+- **ALSA**: Fix `supported_configs()` reporting buffer size instead of period size.
+- **ALSA**: Fix `supported_configs()` using the same buffer range for all formats and channels.
+- **ALSA**: Fix `supported_configs()` dropping sample rates outside of `COMMON_SAMPLE_RATES`.
+- **ALSA**: Fix `BufferSize::Fixed(0)` being silently accepted.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
