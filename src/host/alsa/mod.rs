@@ -94,6 +94,25 @@ const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
 // Some ALSA plugins (e.g. alsaequal, certain USB drivers) are not reentrant.
 static ALSA_OPEN_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn open_pcm(pcm_id: &str, direction: alsa::Direction) -> Result<alsa::pcm::PCM, Error> {
+    let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    alsa::pcm::PCM::new(pcm_id, direction, true).map_err(|e| {
+        let e = Error::from(e);
+        if e.kind() == ErrorKind::UnsupportedConfig {
+            let dir = match direction {
+                alsa::Direction::Capture => "input",
+                alsa::Direction::Playback => "output",
+            };
+            Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                format!("Device does not support {dir}"),
+            )
+        } else {
+            e
+        }
+    })
+}
+
 // TODO: Not yet defined in rust-lang/libc crate
 const LIBC_ENOTSUPP: libc::c_int = 524;
 
@@ -361,10 +380,9 @@ impl Device {
         sample_format: SampleFormat,
         stream_type: alsa::Direction,
     ) -> Result<StreamInner, Error> {
-        let handle = {
-            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-            alsa::pcm::PCM::new(&self.pcm_id, stream_type, true)?
-        };
+        crate::validate_stream_config(&conf)?;
+
+        let handle = open_pcm(&self.pcm_id, stream_type)?;
 
         let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
         let (buffer_size, period_size) = set_sw_params_from_format(&handle, stream_type)?;
@@ -438,10 +456,7 @@ impl Device {
         &self,
         stream_t: alsa::Direction,
     ) -> Result<VecIntoIter<SupportedStreamConfigRange>, Error> {
-        let pcm = {
-            let _guard = ALSA_OPEN_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-            alsa::pcm::PCM::new(&self.pcm_id, stream_t, true)?
-        };
+        let pcm = open_pcm(&self.pcm_id, stream_t)?;
 
         let hw_params = alsa::pcm::HwParams::any(&pcm)?;
 
@@ -520,7 +535,8 @@ impl Device {
         const CHANNEL_ENUM_CAP: u32 = 64;
         let max_channels = hw_params
             .get_channels_max()?
-            .min(min_channels.max(CHANNEL_ENUM_CAP));
+            .min(CHANNEL_ENUM_CAP)
+            .min(ChannelCount::MAX as u32);
 
         let mut output = Vec::new();
         let mut seen_formats: Vec<SampleFormat> = Vec::new();
@@ -564,22 +580,9 @@ impl Device {
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedStreamConfigRange::cmp_default_heuristics` order and select the greatest.
     fn default_config(&self, stream_t: alsa::Direction) -> Result<SupportedStreamConfig, Error> {
-        let mut formats: Vec<_> = {
-            match self.supported_configs(stream_t) {
-                // EINVAL when querying direction the device does not support (input-only or output-only)
-                Err(err) if err.kind() == ErrorKind::UnsupportedConfig => {
-                    let dir = match stream_t {
-                        alsa::Direction::Capture => "input",
-                        alsa::Direction::Playback => "output",
-                    };
-                    return Err(Error::with_message(
-                        ErrorKind::UnsupportedOperation,
-                        format!("Device does not support {dir}"),
-                    ));
-                }
-                Err(err) => return Err(err),
-                Ok(fmts) => fmts.collect(),
-            }
+        let mut formats: Vec<_> = match self.supported_configs(stream_t) {
+            Err(err) => return Err(err),
+            Ok(fmts) => fmts.collect(),
         };
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
@@ -1574,13 +1577,6 @@ fn set_hw_params_from_format(
     // buffer_size = 2x and period_size = x. This provides consistent low-latency
     // behavior across different ALSA implementations and hardware.
     if let BufferSize::Fixed(period_size) = config.buffer_size {
-        if period_size == 0 {
-            return Err(Error::with_message(
-                ErrorKind::InvalidInput,
-                "Buffer size must be greater than 0",
-            ));
-        }
-
         let period_size = period_size as alsa::pcm::Frames;
 
         // Validate the requested size against the device's supported ranges using the same PCM
