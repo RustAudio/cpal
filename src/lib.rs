@@ -830,152 +830,232 @@ impl SupportedStreamConfigRange {
     }
 }
 
-#[cfg(test)]
-fn make_range(
-    channels: ChannelCount,
-    format: SampleFormat,
-    min: SampleRate,
-    max: SampleRate,
-) -> SupportedStreamConfigRange {
-    SupportedStreamConfigRange {
-        buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
-        channels,
-        min_sample_rate: min,
-        max_sample_rate: max,
-        sample_format: format,
-    }
-}
-
-#[test]
-fn test_with_standard_sample_rate() {
-    let r = |min, max| make_range(2, SampleFormat::F32, min, max);
-
-    assert_eq!(
-        r(1, 96_000).with_standard_sample_rate().sample_rate(),
-        SAMPLE_RATE_48K
-    );
-    assert_eq!(
-        r(1, 44_100).with_standard_sample_rate().sample_rate(),
-        SAMPLE_RATE_CD
-    );
-}
-
-#[test]
-#[should_panic(expected = "no standard sample rate")]
-fn test_with_standard_sample_rate_panics_when_no_standard_rate() {
-    make_range(2, SampleFormat::F32, 8_000, 32_000).with_standard_sample_rate();
-}
-
-#[test]
-fn test_try_with_standard_sample_rate() {
-    let r = |min, max| make_range(2, SampleFormat::F32, min, max);
-
-    // 48 kHz available; first choice
-    assert_eq!(
-        r(1, 96_000)
-            .try_with_standard_sample_rate()
-            .map(|c| c.sample_rate()),
-        Some(SAMPLE_RATE_48K)
-    );
-
-    // 48 kHz not available but 44.1 kHz is; second choice
-    assert_eq!(
-        r(1, 44_100)
-            .try_with_standard_sample_rate()
-            .map(|c| c.sample_rate()),
-        Some(SAMPLE_RATE_CD)
-    );
-
-    // Neither preferred rate available
-    assert_eq!(r(8_000, 32_000).try_with_standard_sample_rate(), None);
-}
-
-#[test]
-fn test_cmp_default_heuristics_format_order() {
-    use SampleFormat::*;
-
-    // Input is deliberately not sorted to prove the sort works.
-    let unsorted = [
-        F32, I16, DsdU32, U64, I32, DsdU8, F64, U8, I24, U16, I64, U24, U32, I8, DsdU16,
-    ];
-
-    let mut ranges: Vec<_> = unsorted
-        .iter()
-        .map(|&fmt| make_range(2, fmt, 1, 96_000))
-        .collect();
-    ranges.sort_by(|a, b| a.cmp_default_heuristics(b));
-
-    let sorted_formats: Vec<SampleFormat> = ranges.iter().map(|r| r.sample_format()).collect();
-
-    // Expected order from lowest to highest priority:
-    assert_eq!(
-        sorted_formats,
-        vec![DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,]
-    );
-}
-
-#[test]
-fn test_cmp_default_heuristics() {
-    let mut configs = [
-        make_range(1, SampleFormat::F64, 1, 96_000), // mono; loses to all stereo
-        make_range(2, SampleFormat::DsdU8, 1, 96_000), // DSD; lowest format priority
-        make_range(2, SampleFormat::U8, 1, 96_000),
-        make_range(2, SampleFormat::I8, 1, 96_000),
-        make_range(2, SampleFormat::U16, 1, 96_000),
-        make_range(2, SampleFormat::I16, 1, 96_000),
-        make_range(2, SampleFormat::F32, 1, 22_050), // neither standard rate
-        make_range(2, SampleFormat::F32, 1, 44_100), // 44.1 kHz only
-        make_range(2, SampleFormat::F32, 48_000, 96_000), // 48 kHz only
-        make_range(2, SampleFormat::F32, 1, 96_000), // both standard rates
-        make_range(2, SampleFormat::F64, 1, 96_000),
-    ];
-
-    configs.sort_by(|a, b| a.cmp_default_heuristics(b));
-
-    // Results in ascending priority order (lowest first):
-
-    // [0] Mono loses to every stereo entry regardless of format or rate.
-    assert_eq!(configs[0].channels(), 1);
-    assert_eq!(configs[0].sample_format(), SampleFormat::F64);
-
-    // [1]–[5] Stereo entries ranked by format (DSD < 8-bit < 16-bit).
-    assert_eq!(configs[1].sample_format(), SampleFormat::DsdU8);
-    assert_eq!(configs[2].sample_format(), SampleFormat::U8);
-    assert_eq!(configs[3].sample_format(), SampleFormat::I8);
-    assert_eq!(configs[4].sample_format(), SampleFormat::U16);
-    assert_eq!(configs[5].sample_format(), SampleFormat::I16);
-
-    // [6] F64 is outranked by F32.
-    assert_eq!(configs[6].sample_format(), SampleFormat::F64);
-    assert_eq!(configs[6].channels(), 2);
-
-    // [7]–[10] Stereo F32 entries ranked by rate coverage.
-    assert_eq!(configs[7].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[7].max_sample_rate(), 22_050); // neither standard rate
-
-    assert_eq!(configs[8].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[8].max_sample_rate(), 44_100); // 44.1 kHz only
-
-    assert_eq!(configs[9].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[9].min_sample_rate(), 48_000); // 48 kHz only (no 44.1 kHz)
-    assert_eq!(configs[9].max_sample_rate(), 96_000);
-
-    assert_eq!(configs[10].sample_format(), SampleFormat::F32);
-    assert_eq!(configs[10].min_sample_rate(), 1);
-    assert_eq!(configs[10].max_sample_rate(), 96_000); // both standard rates
-}
-
 impl From<SupportedStreamConfig> for StreamConfig {
     fn from(conf: SupportedStreamConfig) -> Self {
         conf.config()
     }
 }
 
+#[allow(dead_code)]
+pub(crate) fn validate_stream_config(config: &StreamConfig) -> Result<(), Error> {
+    if config.channels == 0 {
+        return Err(Error::with_message(
+            ErrorKind::InvalidInput,
+            "channel count must be at least 1",
+        ));
+    }
+    if config.sample_rate == 0 {
+        return Err(Error::with_message(
+            ErrorKind::InvalidInput,
+            "sample rate must be at least 1 Hz",
+        ));
+    }
+    if config.buffer_size == BufferSize::Fixed(0) {
+        return Err(Error::with_message(
+            ErrorKind::InvalidInput,
+            "buffer size must be greater than 0",
+        ));
+    }
+    Ok(())
+}
+
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
 // of commonly used rates. This is always the case for WASAPI and is sometimes the case for ALSA.
 #[allow(dead_code)]
 pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
-    // Standard PCM rates
+    // Standard PCM rates and DSD sample rates through DSD512
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000, 176400,
-    192000, 352800, 384000, 705600, 768000, 1411200, 1536000, 2822400, 3072000,
+    192000, 352800, 384000, 705600, 768000, 1411200, 1536000, 2822400, 3072000, 5644800, 6144000,
+    11289600, 12288000, 22579200, 24576000,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_range(
+        channels: ChannelCount,
+        format: SampleFormat,
+        min: SampleRate,
+        max: SampleRate,
+    ) -> SupportedStreamConfigRange {
+        SupportedStreamConfigRange {
+            buffer_size: SupportedBufferSize::Range { min: 256, max: 512 },
+            channels,
+            min_sample_rate: min,
+            max_sample_rate: max,
+            sample_format: format,
+        }
+    }
+
+    #[test]
+    fn with_standard_sample_rate() {
+        let r = |min, max| make_range(2, SampleFormat::F32, min, max);
+
+        assert_eq!(
+            r(1, 96_000).with_standard_sample_rate().sample_rate(),
+            SAMPLE_RATE_48K
+        );
+        assert_eq!(
+            r(1, 44_100).with_standard_sample_rate().sample_rate(),
+            SAMPLE_RATE_CD
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "no standard sample rate")]
+    fn with_standard_sample_rate_panics_when_no_standard_rate() {
+        make_range(2, SampleFormat::F32, 8_000, 32_000).with_standard_sample_rate();
+    }
+
+    #[test]
+    fn try_with_standard_sample_rate() {
+        let r = |min, max| make_range(2, SampleFormat::F32, min, max);
+
+        // 48 kHz available; first choice
+        assert_eq!(
+            r(1, 96_000)
+                .try_with_standard_sample_rate()
+                .map(|c| c.sample_rate()),
+            Some(SAMPLE_RATE_48K)
+        );
+
+        // 48 kHz not available but 44.1 kHz is; second choice
+        assert_eq!(
+            r(1, 44_100)
+                .try_with_standard_sample_rate()
+                .map(|c| c.sample_rate()),
+            Some(SAMPLE_RATE_CD)
+        );
+
+        // Neither preferred rate available
+        assert_eq!(r(8_000, 32_000).try_with_standard_sample_rate(), None);
+    }
+
+    #[test]
+    fn cmp_default_heuristics_format_order() {
+        use SampleFormat::*;
+
+        // Input is deliberately not sorted to prove the sort works.
+        let unsorted = [
+            F32, I16, DsdU32, U64, I32, DsdU8, F64, U8, I24, U16, I64, U24, U32, I8, DsdU16,
+        ];
+
+        let mut ranges: Vec<_> = unsorted
+            .iter()
+            .map(|&fmt| make_range(2, fmt, 1, 96_000))
+            .collect();
+        ranges.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+        let sorted_formats: Vec<SampleFormat> = ranges.iter().map(|r| r.sample_format()).collect();
+
+        // Expected order from lowest to highest priority:
+        assert_eq!(
+            sorted_formats,
+            vec![DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,]
+        );
+    }
+
+    #[test]
+    fn cmp_default_heuristics() {
+        let mut configs = [
+            make_range(1, SampleFormat::F64, 1, 96_000), // mono; loses to all stereo
+            make_range(2, SampleFormat::DsdU8, 1, 96_000), // DSD; lowest format priority
+            make_range(2, SampleFormat::U8, 1, 96_000),
+            make_range(2, SampleFormat::I8, 1, 96_000),
+            make_range(2, SampleFormat::U16, 1, 96_000),
+            make_range(2, SampleFormat::I16, 1, 96_000),
+            make_range(2, SampleFormat::F32, 1, 22_050), // neither standard rate
+            make_range(2, SampleFormat::F32, 1, 44_100), // 44.1 kHz only
+            make_range(2, SampleFormat::F32, 48_000, 96_000), // 48 kHz only
+            make_range(2, SampleFormat::F32, 1, 96_000), // both standard rates
+            make_range(2, SampleFormat::F64, 1, 96_000),
+        ];
+
+        configs.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+        // Results in ascending priority order (lowest first):
+
+        // [0] Mono loses to every stereo entry regardless of format or rate.
+        assert_eq!(configs[0].channels(), 1);
+        assert_eq!(configs[0].sample_format(), SampleFormat::F64);
+
+        // [1]–[5] Stereo entries ranked by format (DSD < 8-bit < 16-bit).
+        assert_eq!(configs[1].sample_format(), SampleFormat::DsdU8);
+        assert_eq!(configs[2].sample_format(), SampleFormat::U8);
+        assert_eq!(configs[3].sample_format(), SampleFormat::I8);
+        assert_eq!(configs[4].sample_format(), SampleFormat::U16);
+        assert_eq!(configs[5].sample_format(), SampleFormat::I16);
+
+        // [6] F64 is outranked by F32.
+        assert_eq!(configs[6].sample_format(), SampleFormat::F64);
+        assert_eq!(configs[6].channels(), 2);
+
+        // [7]–[10] Stereo F32 entries ranked by rate coverage.
+        assert_eq!(configs[7].sample_format(), SampleFormat::F32);
+        assert_eq!(configs[7].max_sample_rate(), 22_050); // neither standard rate
+
+        assert_eq!(configs[8].sample_format(), SampleFormat::F32);
+        assert_eq!(configs[8].max_sample_rate(), 44_100); // 44.1 kHz only
+
+        assert_eq!(configs[9].sample_format(), SampleFormat::F32);
+        assert_eq!(configs[9].min_sample_rate(), 48_000); // 48 kHz only (no 44.1 kHz)
+        assert_eq!(configs[9].max_sample_rate(), 96_000);
+
+        assert_eq!(configs[10].sample_format(), SampleFormat::F32);
+        assert_eq!(configs[10].min_sample_rate(), 1);
+        assert_eq!(configs[10].max_sample_rate(), 96_000); // both standard rates
+    }
+
+    #[test]
+    fn validate_stream_config_rejects_zero_channels() {
+        let err = validate_stream_config(&StreamConfig {
+            channels: 0,
+            sample_rate: 44100,
+            buffer_size: BufferSize::Default,
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(err.message().unwrap().contains("channel"));
+    }
+
+    #[test]
+    fn validate_stream_config_rejects_zero_sample_rate() {
+        let err = validate_stream_config(&StreamConfig {
+            channels: 2,
+            sample_rate: 0,
+            buffer_size: BufferSize::Default,
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(err.message().unwrap().contains("sample rate"));
+    }
+
+    #[test]
+    fn validate_stream_config_rejects_fixed_buffer_zero() {
+        let err = validate_stream_config(&StreamConfig {
+            channels: 2,
+            sample_rate: 44100,
+            buffer_size: BufferSize::Fixed(0),
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(err.message().unwrap().contains("buffer size"));
+    }
+
+    #[test]
+    fn validate_stream_config_accepts_valid_configs() {
+        assert!(validate_stream_config(&StreamConfig {
+            channels: 2,
+            sample_rate: 44100,
+            buffer_size: BufferSize::Default,
+        })
+        .is_ok());
+        assert!(validate_stream_config(&StreamConfig {
+            channels: 1,
+            sample_rate: 1,
+            buffer_size: BufferSize::Fixed(1),
+        })
+        .is_ok());
+    }
+}
