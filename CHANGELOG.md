@@ -88,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Streams no longer start automatically on creation; call `play()` manually.
 - **ALSA**: The `realtime` feature now skips RT promotion for ineligible PCM types (null,
   I/O plugins, wrapper types); `audio_thread_priority` promoted unconditionally.
+- **ALSA**: Supported configurations are now enumerated up to 64 channels (AES10 maximum).
 - **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **ASIO**: Timestamps now include driver-reported hardware latency.
 - **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
