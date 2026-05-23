@@ -516,7 +516,11 @@ impl Device {
         };
 
         let min_channels = hw_params.get_channels_min()?;
-        let max_channels = hw_params.get_channels_max()?.min(32); // TODO: cap at 32 or too many configs
+        // 64 = AES10 (MADI) maximum; also prevents spinning on plugins like plughw that report u32::MAX.
+        const CHANNEL_ENUM_CAP: u32 = 64;
+        let max_channels = hw_params
+            .get_channels_max()?
+            .min(min_channels.max(CHANNEL_ENUM_CAP));
 
         let mut output = Vec::new();
         let mut seen_formats: Vec<SampleFormat> = Vec::new();
@@ -1685,7 +1689,8 @@ impl From<alsa::Error> for Error {
             libc::ENODEV | libc::ENOENT | LIBC_ENOTSUPP => ErrorKind::DeviceNotAvailable.into(),
             libc::EPERM | libc::EACCES => ErrorKind::PermissionDenied.into(),
             libc::EBUSY | libc::EAGAIN => ErrorKind::DeviceBusy.into(),
-            libc::EINVAL | libc::ENOSYS => ErrorKind::UnsupportedConfig.into(),
+            libc::EINVAL => ErrorKind::UnsupportedConfig.into(),
+            libc::ENOSYS => ErrorKind::UnsupportedOperation.into(),
             libc::EPIPE => ErrorKind::Xrun.into(),
             _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
         }
