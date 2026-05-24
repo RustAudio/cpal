@@ -3,7 +3,6 @@
 //! Default backend on Android.
 
 use std::{
-    cmp,
     convert::TryInto,
     fmt,
     hash::{Hash, Hasher},
@@ -104,14 +103,9 @@ impl From<AndroidDeviceType> for InterfaceType {
     }
 }
 
-// constants from android.media.AudioFormat
-const CHANNEL_OUT_MONO: i32 = 4;
-const CHANNEL_OUT_STEREO: i32 = 12;
-
-// Android Java API supports up to 8 channels
-// TODO: more channels available in native AAudio
-// Maps channel masks to their corresponding channel counts
-const CHANNEL_CONFIGS: [(i32, ChannelCount); 2] = [(CHANNEL_OUT_MONO, 1), (CHANNEL_OUT_STEREO, 2)];
+// ITU-R BS.2051 standard surround channel counts; used as fallback when the device does not
+// report its own via AudioDeviceInfo.getChannelCounts().
+const DEFAULT_CHANNEL_COUNTS: [i32; 5] = [1, 2, 4, 6, 8];
 
 const SAMPLE_RATES: [i32; 15] = [
     5512, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000,
@@ -206,22 +200,22 @@ impl HostTrait for Host {
 }
 
 fn buffer_size_range() -> SupportedBufferSize {
-    SupportedBufferSize::Range {
-        min: 1,
-        max: i32::MAX as FrameCount,
-    }
+    // The valid range for frames_per_data_callback is any positive i32, but the meaningful
+    // lower bound (frames_per_burst) is only known after open_stream.
+    SupportedBufferSize::Unknown
 }
 
 fn default_supported_configs() -> VecIntoIter<SupportedStreamConfigRange> {
     const FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
 
     let buffer_size = buffer_size_range();
-    let mut output = Vec::with_capacity(SAMPLE_RATES.len() * CHANNEL_CONFIGS.len() * FORMATS.len());
+    let mut output =
+        Vec::with_capacity(SAMPLE_RATES.len() * DEFAULT_CHANNEL_COUNTS.len() * FORMATS.len());
     for sample_format in &FORMATS {
-        for (_channel_mask, channel_count) in &CHANNEL_CONFIGS {
+        for channel_count in &DEFAULT_CHANNEL_COUNTS {
             for sample_rate in &SAMPLE_RATES {
                 output.push(SupportedStreamConfigRange {
-                    channels: *channel_count,
+                    channels: *channel_count as ChannelCount,
                     min_sample_rate: *sample_rate as SampleRate,
                     max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
@@ -241,11 +235,10 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
         &SAMPLE_RATES
     };
 
-    const ALL_CHANNELS: [i32; 2] = [1, 2];
     let channel_counts: &[i32] = if !device.channel_counts.is_empty() {
         &device.channel_counts
     } else {
-        &ALL_CHANNELS
+        &DEFAULT_CHANNEL_COUNTS
     };
 
     const ALL_FORMATS: [SampleFormat; 2] = [SampleFormat::I16, SampleFormat::F32];
@@ -260,14 +253,9 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
     for sample_rate in sample_rates {
         for channel_count in channel_counts {
             assert!(*channel_count > 0);
-            if *channel_count > 2 {
-                // could be supported by the device
-                // TODO: more channels available in native AAudio
-                continue;
-            }
             for format in formats {
                 output.push(SupportedStreamConfigRange {
-                    channels: cmp::min(*channel_count as ChannelCount, 2),
+                    channels: *channel_count as ChannelCount,
                     min_sample_rate: *sample_rate as SampleRate,
                     max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
@@ -635,6 +623,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
@@ -645,21 +634,9 @@ impl DeviceTrait for Device {
                 ))
             }
         };
-        let channel_count = match config.channels {
-            1 => 1,
-            2 => 2,
-            channels => {
-                // TODO: more channels available in native AAudio
-                return Err(Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    format!("Channel count {channels} is not supported"),
-                ));
-            }
-        };
-
         let builder = ndk::audio::AudioStreamBuilder::new()?
             .direction(ndk::audio::AudioDirection::Input)
-            .channel_count(channel_count)
+            .channel_count(config.channels as i32)
             .format(format);
 
         build_input_stream(
@@ -684,6 +661,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
@@ -694,21 +672,9 @@ impl DeviceTrait for Device {
                 ))
             }
         };
-        let channel_count = match config.channels {
-            1 => 1,
-            2 => 2,
-            channels => {
-                // TODO: more channels available in native AAudio
-                return Err(Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    format!("Channel count {channels} is not supported"),
-                ));
-            }
-        };
-
         let builder = ndk::audio::AudioStreamBuilder::new()?
             .direction(ndk::audio::AudioDirection::Output)
-            .channel_count(channel_count)
+            .channel_count(config.channels as i32)
             .format(format);
 
         build_output_stream(
