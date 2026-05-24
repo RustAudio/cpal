@@ -7,20 +7,20 @@ use std::{
 use super::{stream::Stream, JACK_SAMPLE_FORMAT};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    traits::DeviceTrait, BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    traits::DeviceTrait, BufferSize, ChannelCount, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-const DEFAULT_NUM_CHANNELS: u16 = 2;
-const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
+const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
 
 #[derive(Clone, Debug)]
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
+    max_channels: ChannelCount,
     direction: DeviceDirection,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
@@ -40,6 +40,22 @@ impl Device {
         // making the stream. This is a hack due to the fact that the Client must be moved to
         // create the AsyncClient.
         let client = super::get_client(&name, client_options)?;
+        let port_pattern = match direction {
+            DeviceDirection::Input => "system:capture_.*",
+            DeviceDirection::Output => "system:playback_.*",
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    format!("JACK does not support {direction:?} direction"),
+                ))
+            }
+        };
+        let max_channels = client
+            .ports(Some(port_pattern), None, jack::PortFlags::empty())
+            .len()
+            .try_into()
+            .unwrap_or(DEFAULT_NUM_CHANNELS)
+            .max(DEFAULT_NUM_CHANNELS);
         Ok(Self {
             // The name given to the client by JACK, could potentially be different from the name
             // supplied e.g. if there is a name collision
@@ -49,6 +65,7 @@ impl Device {
                 min: client.buffer_size(),
                 max: client.buffer_size(),
             },
+            max_channels,
             direction,
             start_server_automatically,
             connect_ports_automatically,
@@ -109,18 +126,15 @@ impl Device {
             Ok(f) => f,
         };
 
-        let mut supported_configs = vec![];
-
-        for &channels in DEFAULT_SUPPORTED_CHANNELS.iter() {
-            supported_configs.push(SupportedStreamConfigRange {
+        (1..=self.max_channels)
+            .map(|channels| SupportedStreamConfigRange {
                 channels,
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
                 buffer_size: f.buffer_size,
                 sample_format: f.sample_format,
-            });
-        }
-        supported_configs
+            })
+            .collect()
     }
 
     pub fn is_input(&self) -> bool {
@@ -187,6 +201,7 @@ impl DeviceTrait for Device {
                 "Device does not support input",
             ));
         }
+        crate::validate_stream_config(&conf)?;
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
@@ -265,6 +280,7 @@ impl DeviceTrait for Device {
                 "Device does not support output",
             ));
         }
+        crate::validate_stream_config(&conf)?;
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
