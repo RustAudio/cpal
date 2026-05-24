@@ -50,14 +50,37 @@ pub struct Stream {
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 const MIN_CHANNELS: ChannelCount = 1;
-const MAX_CHANNELS: ChannelCount = 32;
-const MIN_SAMPLE_RATE: SampleRate = 8_000;
-const MAX_SAMPLE_RATE: SampleRate = 96_000;
+const MAX_CHANNELS: ChannelCount = 64;
+const MAX_SAMPLE_RATE: SampleRate = 768_000; // Chrome's AudioContext
 
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 // https://webaudio.github.io/web-audio-api/#render-quantum-size
 const DEFAULT_RENDER_SIZE: u64 = 128;
+
+fn render_quantum_size_supported() -> bool {
+    (|| -> Option<bool> {
+        let global = js_sys::global();
+        let ctor = js_sys::Reflect::get(&global, &JsValue::from("AudioContext")).ok()?;
+        let proto = js_sys::Reflect::get(&ctor, &JsValue::from("prototype")).ok()?;
+        js_sys::Reflect::has(&proto, &JsValue::from("renderQuantumSize")).ok()
+    })()
+    .unwrap_or(false)
+}
+
+fn supported_render_quantum_range() -> SupportedBufferSize {
+    if render_quantum_size_supported() {
+        SupportedBufferSize::Range {
+            min: DEFAULT_RENDER_SIZE as FrameCount,
+            max: FrameCount::MAX,
+        }
+    } else {
+        SupportedBufferSize::Range {
+            min: DEFAULT_RENDER_SIZE as FrameCount,
+            max: DEFAULT_RENDER_SIZE as FrameCount,
+        }
+    }
+}
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
@@ -141,18 +164,24 @@ impl DeviceTrait for Device {
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        let buffer_size = SupportedBufferSize::Unknown;
+        let buffer_size = supported_render_quantum_range();
 
         // In actuality the number of supported channels cannot be fully known until
         // the browser attempts to initialized the AudioWorklet.
 
         let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
-            .map(|channels| SupportedStreamConfigRange {
-                channels,
-                min_sample_rate: MIN_SAMPLE_RATE,
-                max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size,
-                sample_format: SUPPORTED_SAMPLE_FORMAT,
+            .flat_map(|channels| {
+                crate::COMMON_SAMPLE_RATES
+                    .iter()
+                    .copied()
+                    .filter(|&r| r <= MAX_SAMPLE_RATE)
+                    .map(move |rate| SupportedStreamConfigRange {
+                        channels,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
+                        buffer_size,
+                        sample_format: SUPPORTED_SAMPLE_FORMAT,
+                    })
             })
             .collect();
         Ok(configs.into_iter())
@@ -225,6 +254,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         if config.channels < MIN_CHANNELS || config.channels > MAX_CHANNELS {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
@@ -234,15 +264,7 @@ impl DeviceTrait for Device {
                 ),
             ));
         }
-        if config.sample_rate < MIN_SAMPLE_RATE || config.sample_rate > MAX_SAMPLE_RATE {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Sample rate {} Hz is not in the supported range {} to {} Hz",
-                    config.sample_rate, MIN_SAMPLE_RATE, MAX_SAMPLE_RATE
-                ),
-            ));
-        }
+
         if sample_format != SUPPORTED_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
@@ -250,6 +272,19 @@ impl DeviceTrait for Device {
                     "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
                 ),
             ));
+        }
+
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            if let SupportedBufferSize::Range { min, max } = supported_render_quantum_range() {
+                if !(min..=max).contains(&n) {
+                    return Err(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!(
+                            "Buffer size {n} is not in the supported render quantum range {min}..={max}"
+                        ),
+                    ));
+                }
+            }
         }
 
         let stream_opts = web_sys::AudioContextOptions::new();
@@ -272,6 +307,13 @@ impl DeviceTrait for Device {
 
         let destination = audio_context.destination();
 
+        // Chrome rounds renderSizeHint to a power of two; read back the actual quantum.
+        let actual_render_quantum =
+            js_sys::Reflect::get(audio_context.as_ref(), &JsValue::from("renderQuantumSize"))
+                .ok()
+                .and_then(|v| v.as_f64())
+                .map(|v| v as u64);
+
         // If possible, set the destination's channel_count to the given config.channel.
         // If not, fallback on the default destination channel_count to keep previous behavior
         // and do not return an error.
@@ -279,10 +321,10 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
-        let initial_quantum = match config.buffer_size {
+        let initial_quantum = actual_render_quantum.unwrap_or_else(|| match config.buffer_size {
             BufferSize::Fixed(n) => n as u64,
             BufferSize::Default => DEFAULT_RENDER_SIZE,
-        };
+        });
         let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
         let buffer_size_frames_cb = buffer_size_frames.clone();
         let ctx = audio_context.clone();
