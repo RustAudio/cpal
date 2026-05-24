@@ -346,6 +346,20 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            // When max_quantum is 0 the server clock metadata has not been received yet.
+            if self.max_quantum > 0 && !(self.min_quantum..=self.max_quantum).contains(&n) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {n} is not in the supported quantum range {min}..={max}",
+                        min = self.min_quantum,
+                        max = self.max_quantum
+                    ),
+                ));
+            }
+        }
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = mpsc::channel::<Result<(), Error>>();
@@ -513,6 +527,20 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            // When max_quantum is 0 the server clock metadata has not been received yet.
+            if self.max_quantum > 0 && !(self.min_quantum..=self.max_quantum).contains(&n) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {n} is not in the supported quantum range {min}..={max}",
+                        min = self.min_quantum,
+                        max = self.max_quantum
+                    ),
+                ));
+            }
+        }
         let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
 
         let (init_tx, init_rx) = mpsc::channel::<Result<(), Error>>();
