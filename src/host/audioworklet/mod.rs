@@ -49,10 +49,14 @@ pub struct Stream {
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
+// https://webaudio.github.io/web-audio-api/#dom-audioworkletnode-audioworkletnode
 const MIN_CHANNELS: ChannelCount = 1;
-const MAX_CHANNELS: ChannelCount = 64;
-const MAX_SAMPLE_RATE: SampleRate = 768_000; // Chrome's AudioContext
+const MAX_CHANNELS: ChannelCount = 32;
 
+// Chrome's AudioContext ceiling; no spec-defined limit
+const MAX_SAMPLE_RATE: SampleRate = 768_000;
+
+// https://webaudio.github.io/web-audio-api/#audio-processing-model
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 // https://webaudio.github.io/web-audio-api/#render-quantum-size
@@ -255,16 +259,15 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
-        if config.channels < MIN_CHANNELS || config.channels > MAX_CHANNELS {
+        if config.channels > MAX_CHANNELS {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "Channel count {} is not in the supported range {} to {}",
-                    config.channels, MIN_CHANNELS, MAX_CHANNELS
+                    "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
+                    config.channels
                 ),
             ));
         }
-
         if sample_format != SUPPORTED_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,

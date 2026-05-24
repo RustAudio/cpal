@@ -100,7 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **AudioWorklet**: `default_output_config()` now uses 48 kHz as the default sample rate instead
   of 44.1 kHz, reflecting the dominant native rate on modern hardware.
-- **AudioWorklet**: Supported channel count upper bound raised from 32 to 64 (AES10 maximum).
 - **AudioWorklet**: `channels: 0` or `sample_rate: 0` now return `InvalidInput` instead of `UnsupportedConfig`.
 - **AudioWorklet**: Sample rates now enumerated as discrete standard rates up to 768 kHz.
 - **CoreAudio**: Bump MSRV to 1.85.
@@ -145,7 +144,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 - **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
   44.1 kHz, reflecting the dominant native rate on modern hardware.
-- **WebAudio**: Supported channel count upper bound raised from 32 to 64 (AES10 maximum).
 - **WebAudio**: Sample rates now enumerated as discrete standard rates up to 768 kHz.
 
 ### Removed
@@ -160,6 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
+- **AAudio**: Fix panic in device configuration enumeration for pathological channel counts.
 - **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
 - **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
 - **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
@@ -247,6 +246,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Fix `supported_input_configs()`, `supported_output_configs()`, `default_input_config()`,
   and `default_output_config()` reporting an unconstrained buffer range on software audio stacks.
 - **PulseAudio**: Fix `supported_output_configs()` and `default_output_config()` to account for PulseAudio's double-buffer.
+- **WebAudio**: Fix overflow with pathological channel counts.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 - **WebAudio**: Fix `default_output_device()` to return `None` when WebAudio is unavailable.
