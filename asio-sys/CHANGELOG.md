@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Added `Driver::latencies()`
+- Added `Driver::latencies()` to query input and output stream latencies in frames
+- Added `BufferPreference` enum expressing the driver's preferred buffer size and valid-size constraints
 - `asio_message` now dispatches `kAsioResyncRequest` and `kAsioLatenciesChanged` to callbacks
   instead of silently ignoring them
 - `sample_rate_did_change` now dispatches `AsioDriverEvent::SampleRateChanged` to registered
@@ -25,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public-facing `c_long` fields and return types replaced with `i32`
 - Public-facing `c_double` parameters and return types replaced with `f64`
 - `Driver::latencies()` now returns `Latencies { input, output }`
-- `Driver::buffersize_range()` now returns `BufferSizeRange { min, max }`
+- `BufferSizeRange` adds `preferred: BufferPreference` field
 - `CallbackInfo::system_time` is now `u64` nanoseconds
 - `AsioError::ASE_NoMemory` renamed to `AsioError::NoMemory`
 - `AsioTime::reserved`, `AsioTimeInfo::reserved`, `AsioTimeCode::future` fields made private.
