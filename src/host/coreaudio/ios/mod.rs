@@ -172,6 +172,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
 
@@ -217,6 +218,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, false)?;
 
@@ -388,6 +390,10 @@ fn get_device_buffer_frames() -> usize {
     }
 }
 
+// Typical iOS hardware buffer frame limits according to Apple Technical Q&A QA1631.
+const BUFFER_SIZE_MIN: FrameCount = 256;
+const BUFFER_SIZE_MAX: FrameCount = 4096;
+
 /// Get supported stream config ranges for input (is_input=true) or output (is_input=false).
 fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedStreamConfigRange> {
     // SAFETY: AVAudioSession methods are safe to call on the singleton instance
@@ -402,10 +408,9 @@ fn get_supported_stream_configs(is_input: bool) -> std::vec::IntoIter<SupportedS
         (sample_rate, max_channels)
     };
 
-    // Typical iOS hardware buffer frame limits according to Apple Technical Q&A QA1631.
     let buffer_size = SupportedBufferSize::Range {
-        min: 256,
-        max: 4096,
+        min: BUFFER_SIZE_MIN,
+        max: BUFFER_SIZE_MAX,
     };
 
     // For input, only return the exact channel count (no flexibility)
@@ -431,8 +436,16 @@ fn setup_stream_audio_unit(
     sample_format: SampleFormat,
     is_input: bool,
 ) -> Result<AudioUnit, Error> {
-    // Configure buffer size via AVAudioSession
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
+        if !(BUFFER_SIZE_MIN..=BUFFER_SIZE_MAX).contains(&buffer_size) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Buffer size {buffer_size} is not in the supported range \
+                     {BUFFER_SIZE_MIN}..={BUFFER_SIZE_MAX}"
+                ),
+            ));
+        }
         set_audio_session_buffer_size(buffer_size, config.sample_rate)?;
     }
 

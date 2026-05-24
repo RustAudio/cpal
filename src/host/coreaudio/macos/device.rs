@@ -704,6 +704,7 @@ impl Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         // The scope and element for working with a device's input stream.
         let scope = Scope::Output;
         let element = Element::Input;
@@ -734,7 +735,14 @@ impl Device {
         };
 
         // Configure stream format and buffer size for predictable callback behavior.
-        configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
+        configure_stream_format_and_buffer(
+            &mut audio_unit,
+            config,
+            sample_format,
+            scope,
+            element,
+            self.audio_device_id,
+        )?;
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_disconnect = error_callback.clone();
@@ -811,6 +819,7 @@ impl Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
         // it fails — the AudioUnit will handle format conversion as before.
@@ -837,7 +846,14 @@ impl Device {
         let element = Element::Output;
 
         // Configure device buffer (see comprehensive documentation in input stream above)
-        configure_stream_format_and_buffer(&mut audio_unit, config, sample_format, scope, element)?;
+        configure_stream_format_and_buffer(
+            &mut audio_unit,
+            config,
+            sample_format,
+            scope,
+            element,
+            self.audio_device_id,
+        )?;
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_for_render = error_callback.clone();
@@ -949,6 +965,7 @@ fn configure_stream_format_and_buffer(
     sample_format: SampleFormat,
     scope: Scope,
     element: Element,
+    device_id: AudioDeviceID,
 ) -> Result<(), Error> {
     // Set the stream format using stream-specific scope/element
     // - Input streams: scope=Output, element=Input (configuring output format of input element)
@@ -958,6 +975,19 @@ fn configure_stream_format_and_buffer(
 
     // Configure device buffer size if requested
     if let BufferSize::Fixed(buffer_size) = config.buffer_size {
+        // Pre-validate against the hardware range so callers get a human-readable error.
+        if let Ok(SupportedBufferSize::Range { min, max }) =
+            get_io_buffer_frame_size_range(device_id)
+        {
+            if !(min..=max).contains(&buffer_size) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {buffer_size} is not in the supported range {min}..={max}"
+                    ),
+                ));
+            }
+        }
         // IMPORTANT: Buffer frame size is a DEVICE-LEVEL property, not stream-specific.
         // Unlike stream format above, we ALWAYS use Scope::Global + Element::Output
         // for device properties, regardless of whether this is an input or output stream.
