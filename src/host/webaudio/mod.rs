@@ -233,12 +233,11 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
-        if !valid_config(config, sample_format) {
+        if sample_format != SUPPORTED_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "Sample format {sample_format} or channel count {} is not supported",
-                    config.channels
+                    "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
                 ),
             ));
         }
@@ -249,7 +248,15 @@ impl DeviceTrait for Device {
             BufferSize::Fixed(v) => v as usize,
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
-        let buffer_size_samples = buffer_size_frames * n_channels;
+        let buffer_size_samples = buffer_size_frames.checked_mul(n_channels).ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Buffer size {} * channel count {} overflows on this platform",
+                    buffer_size_frames, config.channels
+                ),
+            )
+        })?;
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
         let data_callback: OutputDataCallbackArc = Arc::new(Mutex::new(data_callback));
@@ -646,13 +653,6 @@ fn is_webaudio_available() -> bool {
     js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext"))
         .unwrap()
         .is_truthy()
-}
-
-// Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
-    conf.channels <= MAX_CHANNELS
-        && conf.sample_rate <= MAX_SAMPLE_RATE
-        && sample_format == SUPPORTED_SAMPLE_FORMAT
 }
 
 fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {

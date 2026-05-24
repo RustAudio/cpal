@@ -321,7 +321,7 @@ impl DeviceTrait for Device {
             destination.set_channel_count(config.channels as u32);
         }
 
-        let initial_quantum = actual_render_quantum.unwrap_or_else(|| match config.buffer_size {
+        let initial_quantum = actual_render_quantum.unwrap_or(match config.buffer_size {
             BufferSize::Fixed(n) => n as u64,
             BufferSize::Default => DEFAULT_RENDER_SIZE,
         });

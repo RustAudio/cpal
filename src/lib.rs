@@ -836,6 +836,7 @@ impl From<SupportedStreamConfig> for StreamConfig {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn validate_stream_config(config: &StreamConfig) -> Result<(), Error> {
     if config.channels == 0 {
         return Err(Error::with_message(

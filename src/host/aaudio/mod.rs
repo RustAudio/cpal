@@ -252,10 +252,15 @@ fn device_supported_configs(device: &AudioDeviceInfo) -> VecIntoIter<SupportedSt
     let mut output = Vec::with_capacity(sample_rates.len() * channel_counts.len() * formats.len());
     for sample_rate in sample_rates {
         for channel_count in channel_counts {
-            assert!(*channel_count > 0);
+            let Ok(channels) = ChannelCount::try_from(*channel_count) else {
+                continue;
+            };
+            if channels == 0 {
+                continue;
+            }
             for format in formats {
                 output.push(SupportedStreamConfigRange {
-                    channels: *channel_count as ChannelCount,
+                    channels,
                     min_sample_rate: *sample_rate as SampleRate,
                     max_sample_rate: *sample_rate as SampleRate,
                     buffer_size,
