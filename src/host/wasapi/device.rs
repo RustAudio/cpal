@@ -283,10 +283,8 @@ unsafe fn format_from_waveformatex_ptr(
             max: buffer_duration_to_frames(max_buffer_duration, sample_rate),
         }
     } else {
-        SupportedBufferSize::Range {
-            min: 0,
-            max: u32::MAX,
-        }
+        // Software audio stack: no hardware buffer constraint to report.
+        SupportedBufferSize::Unknown
     };
 
     let format = SupportedStreamConfig {
@@ -671,8 +669,35 @@ impl Device {
                 sample_rates.push(format.sample_rate);
             }
 
+            let mut default_period_hns: i64 = 0;
+            let device_period_hns = if client
+                .GetDevicePeriod(Some(&mut default_period_hns), None)
+                .is_ok()
+                && default_period_hns > 0
+            {
+                Some(default_period_hns)
+            } else {
+                None
+            };
+
             let mut supported_formats = Vec::new();
             for sample_rate in sample_rates {
+                let buffer_size = match format.buffer_size {
+                    // Software stacks: substitute the device period expressed in frames
+                    // at this sample rate.
+                    SupportedBufferSize::Unknown => device_period_hns
+                        .map(|p_hns| {
+                            let frames = buffer_duration_to_frames(p_hns, sample_rate);
+                            SupportedBufferSize::Range {
+                                min: frames,
+                                max: frames,
+                            }
+                        })
+                        .unwrap_or(SupportedBufferSize::Unknown),
+                    // Hardware stacks: report the hardware buffer size limits as-is.
+                    other => other,
+                };
+
                 for sample_format in WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS {
                     if let Some(waveformat) = config_to_waveformatextensible(
                         StreamConfig {
@@ -692,7 +717,7 @@ impl Device {
                                 channels: format.channels,
                                 min_sample_rate: sample_rate,
                                 max_sample_rate: sample_rate,
-                                buffer_size: format.buffer_size,
+                                buffer_size,
                                 sample_format,
                             });
                         }
@@ -740,12 +765,29 @@ impl Device {
                 .map(WaveFormatExPtr)
                 .context("Failed to get mix format")?;
 
-            format_from_waveformatex_ptr(format_ptr.0, client).ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "Device audio format could not be mapped to a supported format",
-                )
-            })
+            let mut config =
+                format_from_waveformatex_ptr(format_ptr.0, client).ok_or_else(|| {
+                    Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        "Device audio format could not be mapped to a supported format",
+                    )
+                })?;
+
+            if config.buffer_size == SupportedBufferSize::Unknown {
+                let mut default_period_hns: i64 = 0;
+                if client
+                    .GetDevicePeriod(Some(&mut default_period_hns), None)
+                    .is_ok()
+                    && default_period_hns > 0
+                {
+                    let frames = buffer_duration_to_frames(default_period_hns, config.sample_rate);
+                    config.buffer_size = SupportedBufferSize::Range {
+                        min: frames,
+                        max: frames,
+                    };
+                }
+            }
+            Ok(config)
         }
     }
 
@@ -789,6 +831,7 @@ impl Device {
         sample_format: SampleFormat,
         activation_timeout: Option<Duration>,
     ) -> Result<StreamInner, Error> {
+        crate::validate_stream_config(&config)?;
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -799,8 +842,9 @@ impl Device {
                 .build_audioclient(activation_timeout)
                 .context("Failed to build audio client")?;
 
-            // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
-            // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
+            // No further range validation: IAudioClient::Initialize accepts any positive duration
+            // in shared mode. The callback period is always GetDevicePeriod() regardless of what
+            // is requested here; the value only affects ring-buffer latency.
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
             let mut stream_flags = DEFAULT_FLAGS;
@@ -904,6 +948,7 @@ impl Device {
         sample_format: SampleFormat,
         activation_timeout: Option<Duration>,
     ) -> Result<StreamInner, Error> {
+        crate::validate_stream_config(&config)?;
         unsafe {
             // Making sure that COM is initialized.
             // It's not actually sure that this is required, but when in doubt do it.
@@ -914,8 +959,9 @@ impl Device {
                 .build_audioclient(activation_timeout)
                 .context("Failed to build audio client")?;
 
-            // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
-            // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
+            // No further range validation: IAudioClient::Initialize accepts any positive duration
+            // in shared mode. The callback period is always GetDevicePeriod() regardless of what
+            // is requested here; the value only affects ring-buffer latency.
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
             // Computing the format and initializing the device.
