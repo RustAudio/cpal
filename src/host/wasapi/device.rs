@@ -1,10 +1,10 @@
 use crate::{
     error::ResultExt,
     host::{com::ComString, ErrorCallbackArc},
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
+    AudioProcessing, BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 impl From<Audio::EDataFlow> for DeviceDirection {
@@ -679,6 +679,7 @@ impl Device {
                             channels: format.channels,
                             sample_rate,
                             buffer_size: BufferSize::Default,
+                            audio_processing: AudioProcessing::Default,
                         },
                         sample_format,
                     ) {
@@ -799,6 +800,18 @@ impl Device {
                 .build_audioclient(activation_timeout)
                 .context("Failed to build audio client")?;
 
+            if config.audio_processing == AudioProcessing::PreferRaw {
+                if let Ok(audio_client2) = audio_client.cast::<Audio::IAudioClient2>() {
+                    // Disable audio processing if `PreferRaw` is set and the interface supports it.
+                    let props = Audio::AudioClientProperties {
+                        cbSize: std::mem::size_of::<Audio::AudioClientProperties>() as u32,
+                        Options: Audio::AUDCLNT_STREAMOPTIONS_RAW,
+                        ..Default::default()
+                    };
+                    audio_client2.SetClientProperties(&props).ok();
+                }
+            }
+
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
@@ -913,6 +926,18 @@ impl Device {
             let audio_client = self
                 .build_audioclient(activation_timeout)
                 .context("Failed to build audio client")?;
+
+            if config.audio_processing == AudioProcessing::PreferRaw {
+                if let Ok(audio_client2) = audio_client.cast::<Audio::IAudioClient2>() {
+                    // Disable audio processing if `PreferRaw` is set and the interface supports it.
+                    let props = Audio::AudioClientProperties {
+                        cbSize: std::mem::size_of::<Audio::AudioClientProperties>() as u32,
+                        Options: Audio::AUDCLNT_STREAMOPTIONS_RAW,
+                        ..Default::default()
+                    };
+                    audio_client2.SetClientProperties(&props).ok();
+                }
+            }
 
             // Note: Buffer size validation is not needed here - `IAudioClient::Initialize`
             // will return `AUDCLNT_E_BUFFER_SIZE_ERROR` if the buffer size is not supported.
