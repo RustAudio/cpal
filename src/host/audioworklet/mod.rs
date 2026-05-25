@@ -53,7 +53,8 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;
 
-// Chrome's AudioContext ceiling; no spec-defined limit
+// https://webaudio.github.io/web-audio-api/#supported-sample-rates
+const MIN_SAMPLE_RATE: SampleRate = 3_000;
 const MAX_SAMPLE_RATE: SampleRate = 768_000;
 
 // https://webaudio.github.io/web-audio-api/#audio-processing-model
@@ -72,11 +73,12 @@ fn render_quantum_size_supported() -> bool {
     .unwrap_or(false)
 }
 
-fn supported_render_quantum_range() -> SupportedBufferSize {
+fn supported_render_quantum_range(sample_rate: SampleRate) -> SupportedBufferSize {
+    // https://webaudio.github.io/web-audio-api/#supported-render-quantum-sizes
     if render_quantum_size_supported() {
         SupportedBufferSize::Range {
-            min: DEFAULT_RENDER_SIZE as FrameCount,
-            max: FrameCount::MAX,
+            min: 1,
+            max: sample_rate.saturating_mul(6),
         }
     } else {
         SupportedBufferSize::Range {
@@ -168,8 +170,6 @@ impl DeviceTrait for Device {
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        let buffer_size = supported_render_quantum_range();
-
         // In actuality the number of supported channels cannot be fully known until
         // the browser attempts to initialized the AudioWorklet.
 
@@ -178,12 +178,12 @@ impl DeviceTrait for Device {
                 crate::COMMON_SAMPLE_RATES
                     .iter()
                     .copied()
-                    .filter(|&r| r <= MAX_SAMPLE_RATE)
+                    .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
                     .map(move |rate| SupportedStreamConfigRange {
                         channels,
                         min_sample_rate: rate,
                         max_sample_rate: rate,
-                        buffer_size,
+                        buffer_size: supported_render_quantum_range(rate),
                         sample_format: SUPPORTED_SAMPLE_FORMAT,
                     })
             })
@@ -276,9 +276,20 @@ impl DeviceTrait for Device {
                 ),
             ));
         }
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
+                    config.sample_rate
+                ),
+            ));
+        }
 
         if let BufferSize::Fixed(n) = config.buffer_size {
-            if let SupportedBufferSize::Range { min, max } = supported_render_quantum_range() {
+            if let SupportedBufferSize::Range { min, max } =
+                supported_render_quantum_range(config.sample_rate)
+            {
                 if !(min..=max).contains(&n) {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
@@ -317,12 +328,17 @@ impl DeviceTrait for Device {
                 .and_then(|v| v.as_f64())
                 .map(|v| v as u64);
 
-        // If possible, set the destination's channel_count to the given config.channel.
-        // If not, fallback on the default destination channel_count to keep previous behavior
-        // and do not return an error.
-        if config.channels as u32 <= destination.max_channel_count() {
-            destination.set_channel_count(config.channels as u32);
+        if config.channels as u32 > destination.max_channel_count() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Channel count {} exceeds the destination's maximum of {}",
+                    config.channels,
+                    destination.max_channel_count()
+                ),
+            ));
         }
+        destination.set_channel_count(config.channels as u32);
 
         let initial_quantum = actual_render_quantum.unwrap_or(match config.buffer_size {
             BufferSize::Fixed(n) => n as u64,

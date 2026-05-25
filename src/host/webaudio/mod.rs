@@ -71,7 +71,8 @@ pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;
 
-// Chrome's AudioContext ceiling; no spec-defined limit
+// https://webaudio.github.io/web-audio-api/#supported-sample-rates
+const MIN_SAMPLE_RATE: SampleRate = 3_000;
 const MAX_SAMPLE_RATE: SampleRate = 768_000;
 
 // https://webaudio.github.io/web-audio-api/#audio-processing-model
@@ -139,7 +140,7 @@ impl Device {
                 crate::COMMON_SAMPLE_RATES
                     .iter()
                     .copied()
-                    .filter(|&r| r <= MAX_SAMPLE_RATE)
+                    .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
                     .map(move |rate| SupportedStreamConfigRange {
                         channels,
                         min_sample_rate: rate,
@@ -255,6 +256,15 @@ impl DeviceTrait for Device {
                 ),
             ));
         }
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
+                    config.sample_rate
+                ),
+            ));
+        }
 
         let n_channels = config.channels as usize;
 
@@ -289,12 +299,17 @@ impl DeviceTrait for Device {
 
         let destination = ctx.destination();
 
-        // If possible, set the destination's channel_count to the given config.channel.
-        // If not, fallback on the default destination channel_count to keep previous behavior
-        // and do not return an error.
-        if config.channels as u32 <= destination.max_channel_count() {
-            destination.set_channel_count(config.channels as u32);
+        if config.channels as u32 > destination.max_channel_count() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Channel count {} exceeds the destination's maximum of {}",
+                    config.channels,
+                    destination.max_channel_count()
+                ),
+            ));
         }
+        destination.set_channel_count(config.channels as u32);
 
         // SAFETY: WASM is single-threaded, so Arc is safe even though AudioContext is not Send/Sync
         #[allow(clippy::arc_with_non_send_sync)]

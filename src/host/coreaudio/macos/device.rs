@@ -735,13 +735,17 @@ impl Device {
         };
 
         // Configure stream format and buffer size for predictable callback behavior.
+        let effective_device_id = loopback_aggregate
+            .as_ref()
+            .map(|l| l.aggregate_device.audio_device_id)
+            .unwrap_or(self.audio_device_id);
         configure_stream_format_and_buffer(
             &mut audio_unit,
             config,
             sample_format,
             scope,
             element,
-            self.audio_device_id,
+            effective_device_id,
         )?;
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));

@@ -101,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `default_output_config()` now uses 48 kHz as the default sample rate instead
   of 44.1 kHz, reflecting the dominant native rate on modern hardware.
 - **AudioWorklet**: `channels: 0` or `sample_rate: 0` now return `InvalidInput` instead of `UnsupportedConfig`.
-- **AudioWorklet**: Sample rates now enumerated as discrete standard rates up to 768 kHz.
+- **AudioWorklet**: Sample rates now enumerated as discrete standard rates in the spec-required
+  range of 3–768 kHz.
 - **CoreAudio**: Bump MSRV to 1.85.
 - **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
@@ -144,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 - **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
   44.1 kHz, reflecting the dominant native rate on modern hardware.
-- **WebAudio**: Sample rates now enumerated as discrete standard rates up to 768 kHz.
+- **WebAudio**: Sample rates now enumerated as discrete standard rates in the spec-required
+  range of 3–768 kHz.
 
 ### Removed
 
@@ -206,6 +208,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix `BufferSize::Fixed` with a size that does not align to the driver's step constraint
   not returning `ErrorKind::UnsupportedConfig`.
 - **AudioWorklet**: Fix `default_output_device()` to return `None` when AudioWorklet is unavailable.
+- **AudioWorklet**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
+  channels than requested.
+- **AudioWorklet**: Fix `supported_output_configs()` reporting the buffer size upper bound as
+  `FrameCount::MAX`; now correctly `floor(6 × sample_rate)` per spec.
+- **AudioWorklet**: Fix `supported_output_configs()` reporting the minimum render quantum size as
+  128 when `renderQuantumSize` is supported; the spec minimum is 1.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
@@ -251,6 +259,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Report errors through the callback instead of panicking.
 - **WebAudio**: Fix `default_output_device()` to return `None` when WebAudio is unavailable.
 - **WebAudio**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning `ErrorKind::InvalidInput`.
+- **WebAudio**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
+  channels than requested.
 
 
 ## [0.17.3] - 2026-02-18
