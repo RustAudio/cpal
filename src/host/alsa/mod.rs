@@ -835,7 +835,7 @@ struct StreamWorkerContext {
 impl StreamWorkerContext {
     fn new(poll_timeout: &Option<Duration>, stream: &StreamInner, rx: &TriggerReceiver) -> Self {
         let poll_timeout: i32 = if let Some(d) = poll_timeout {
-            d.as_millis().try_into().unwrap()
+            d.as_millis().min(i32::MAX as u128) as i32
         } else {
             -1 // Don't timeout, wait forever.
         };
