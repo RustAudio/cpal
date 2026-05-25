@@ -1670,10 +1670,12 @@ fn canonical_pcm_id(pcm_id: &str) -> String {
             Some((c, d)) => (c.trim(), d.trim()),
             None => (rest.trim(), "0"),
         };
-        if !card_str.contains('=') {
-            if let Ok(device) = device_str.parse::<u32>() {
-                return format!("{prefix}:CARD={card_str},DEV={device}");
+        if card_str.contains('=') {
+            if !rest.contains(',') {
+                return format!("{prefix}:{rest},DEV=0");
             }
+        } else if let Ok(device) = device_str.parse::<u32>() {
+            return format!("{prefix}:CARD={card_str},DEV={device}");
         }
     }
     pcm_id.to_owned()
