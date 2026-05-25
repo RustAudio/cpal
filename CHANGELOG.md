@@ -119,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Streams no longer start automatically on creation; call `play()` manually.
 - **CoreAudio (iOS)**: `default_input_config()` and `default_output_config()` now prefer 48 kHz,
   then 44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
+- **CoreAudio (iOS)**: `default_output_config()` now prefers stereo over the maximum channel count.
 - **JACK**: Timestamps now use the precise hardware deadline.
 - **JACK**: Buffer size change no longer invokes the error callback; internal buffers are resized
   without error.

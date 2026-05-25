@@ -118,13 +118,14 @@ impl Device {
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        // Get the maximum channel count config from supported configs
-        let range = get_supported_stream_configs(false).last().ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                "No supported output configuration",
-            )
-        })?;
+        let range = get_supported_stream_configs(false)
+            .max_by(|a, b| a.cmp_default_heuristics(b))
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "No supported output configuration",
+                )
+            })?;
         Ok(range
             .try_with_standard_sample_rate()
             .unwrap_or_else(|| range.with_max_sample_rate()))
