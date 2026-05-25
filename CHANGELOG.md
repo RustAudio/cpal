@@ -72,9 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently returning an empty list.
 - **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
-- **AAudio**: `SupportedBufferSize` now reports `min: 1`.
+- **AAudio**: `SupportedBufferSize` in enumeration is now `Unknown`.
 - **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
   44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
+- **AAudio**: Channel enumeration extended to 8 channels.
 - **ALSA**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on device
   disconnection.
 - **ALSA**: Polling errors trigger underrun recovery instead of looping.
@@ -99,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **AudioWorklet**: `default_output_config()` now uses 48 kHz as the default sample rate instead
   of 44.1 kHz, reflecting the dominant native rate on modern hardware.
+- **AudioWorklet**: `channels: 0` or `sample_rate: 0` now return `InvalidInput` instead of `UnsupportedConfig`.
+- **AudioWorklet**: Sample rates now enumerated as discrete standard rates in the spec-required
+  range of 3–768 kHz.
 - **CoreAudio**: Bump MSRV to 1.85.
 - **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
@@ -141,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 - **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
   44.1 kHz, reflecting the dominant native rate on modern hardware.
+- **WebAudio**: Sample rates now enumerated as discrete standard rates in the spec-required
+  range of 3–768 kHz.
 
 ### Removed
 
@@ -154,6 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
+- **AAudio**: Fix panic in device configuration enumeration for pathological channel counts.
 - **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
 - **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
 - **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
@@ -161,6 +168,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
 - **AAudio**: Output buffers are now zero-filled before the callback runs.
 - **AAudio**: Stream errors are now forwarded to `error_callback`.
+- **AAudio**: Fix `channels: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
+- **AAudio**: Fix `sample_rate: 0` silently opening a stream at the NDK default rate instead of
+  returning `InvalidInput`.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
@@ -177,6 +187,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix `supported_configs()` using the same buffer range for all formats and channels.
 - **ALSA**: Fix `supported_configs()` dropping sample rates outside of `COMMON_SAMPLE_RATES`.
 - **ALSA**: Fix `BufferSize::Fixed(0)` being silently accepted.
+- **ALSA**: Fix `channels: 0` or `sample_rate: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
+- **ALSA**: Fix `build_*_stream_raw` returning `UnsupportedConfig` instead of `UnsupportedOperation` when
+  the device does not support the requested direction.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
@@ -190,7 +203,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
 - **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
 - **ASIO**: Fix overrun not being reported when the driver reports `kAsioOverload`.
+- **ASIO**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning
+  `ErrorKind::InvalidInput`; preventing a divide-by-zero panic.
+- **ASIO**: Fix `BufferSize::Fixed` with a size that does not align to the driver's step constraint
+  not returning `ErrorKind::UnsupportedConfig`.
 - **AudioWorklet**: Fix `default_output_device()` to return `None` when AudioWorklet is unavailable.
+- **AudioWorklet**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
+  channels than requested.
+- **AudioWorklet**: Fix `supported_output_configs()` reporting the buffer size upper bound as
+  `FrameCount::MAX`; now correctly `floor(6 × sample_rate)` per spec.
+- **AudioWorklet**: Fix `supported_output_configs()` reporting the minimum render quantum size as
+  128 when `renderQuantumSize` is supported; the spec minimum is 1.
 - **CoreAudio**: Fix default output streams silently stopping when the system default output
   device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
 - **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
@@ -201,6 +224,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Fix crashes on certain drivers due to early initialization.
 - **CoreAudio**: Fix `supported_output_configs()` and `supported_input_configs()` collapsing
   non-continuous hardware rates into a continuous range of sample rates (regression since v0.17.0).
+- **CoreAudio**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` to return `ErrorKind::InvalidInput`.
+- **CoreAudio**: Fix `BufferSize::Fixed` producing cryptic backend errors when not validated against
+  the hardware buffer frame size range before stream creation.
+- **CoreAudio (iOS)**: Fix `BufferSize::Fixed` not being validated against the supported range before stream creation.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
 - **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
 - **JACK**: Port registration failure now fails stream creation instead of silently failing.
@@ -208,6 +235,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
 - **JACK**: Underrun notification no longer blocks the notification thread.
 - **JACK**: Output buffers are now zero-filled before the callback runs.
+- **JACK**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning `ErrorKind::InvalidInput`
+  before attempting server connection.
+- **JACK**: Fix `supported_input_configs()` and `supported_output_configs()` reporting a hardcoded sparse channel
+  list instead of enumerating all counts up to the number of physical system ports.
+- **PipeWire**: Fix `channels: 0` or `sample_rate: 0` silently using PipeWire-negotiated values instead of
+  returning `ErrorKind::InvalidInput`.
+- **PulseAudio**: Fix `channels: 0` or `sample_rate: 0` reaching the server instead of returning `ErrorKind::InvalidInput`.
 - **WASAPI**: Poisoned locks now returns an error instead of panicking.
 - **WASAPI**: Output buffers are now zero-filled before the callback runs.
 - **WASAPI**: Fix audio worker thread spawn failure panicking instead of returning an error.
@@ -215,9 +249,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Fix Communications-class inputs to return silence.
 - **WASAPI**: Fix `supported_input_configs()` advertising unsupported sample rates on input 
   devices.
+- **WASAPI**: Fix `sample_rate: 0` with `BufferSize::Fixed` causing a divide-by-zero panic.
+- **WASAPI**: Fix `channels: 0` or `sample_rate: 0` not returning `ErrorKind::InvalidInput`.
+- **WASAPI**: Fix `supported_input_configs()`, `supported_output_configs()`, `default_input_config()`,
+  and `default_output_config()` reporting an unconstrained buffer range on software audio stacks.
+- **PulseAudio**: Fix `supported_output_configs()` and `default_output_config()` to account for PulseAudio's double-buffer.
+- **WebAudio**: Fix overflow with pathological channel counts.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Report errors through the callback instead of panicking.
 - **WebAudio**: Fix `default_output_device()` to return `None` when WebAudio is unavailable.
+- **WebAudio**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning `ErrorKind::InvalidInput`.
+- **WebAudio**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
+  channels than requested.
 
 
 ## [0.17.3] - 2026-02-18

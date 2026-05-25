@@ -98,11 +98,20 @@ pub struct Latencies {
     pub output: i32,
 }
 
+/// Hardware buffer size preferences and constraints.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum BufferPreference {
+    Only(u32),
+    Preferred(u32),
+    Stepped { preferred: u32, step: u32 },
+}
+
 /// Minimum and maximum supported buffer sizes in frames.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BufferSizeRange {
     pub min: i32,
     pub max: i32,
+    pub preferred: BufferPreference,
 }
 
 /// Information provided to the BufferCallback.
@@ -389,7 +398,7 @@ impl Asio {
         let mut driver_names: [[c_char; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS] =
             [[0; MAX_DRIVER_NAME_LEN]; MAX_DRIVERS];
         // Pointer to each driver name.
-        let mut driver_name_ptrs: [*mut i8; MAX_DRIVERS] = [null_mut(); MAX_DRIVERS];
+        let mut driver_name_ptrs: [*mut c_char; MAX_DRIVERS] = [null_mut(); MAX_DRIVERS];
         for (ptr, name) in driver_name_ptrs.iter_mut().zip(&mut driver_names[..]) {
             *ptr = (*name).as_mut_ptr();
         }
@@ -450,7 +459,7 @@ impl Asio {
         let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();
 
         unsafe {
-            match ai::load_asio_driver(driver_name_cstring.as_ptr() as *mut i8) {
+            match ai::load_asio_driver(driver_name_cstring.as_ptr() as *mut c_char) {
                 false => Err(LoadDriverError::LoadDriverFailed),
                 true => {
                     // Initialize ASIO.
@@ -527,6 +536,14 @@ impl Driver {
         Ok(BufferSizeRange {
             min: buffer_sizes.min,
             max: buffer_sizes.max,
+            preferred: match buffer_sizes.grans {
+                -1 => BufferPreference::Only(buffer_sizes.pref as u32),
+                0 => BufferPreference::Preferred(buffer_sizes.pref as u32),
+                granularity => BufferPreference::Stepped {
+                    preferred: buffer_sizes.pref as u32,
+                    step: granularity as u32,
+                },
+            },
         })
     }
 
@@ -600,7 +617,7 @@ impl Driver {
             let name_cstring = CString::new(self.inner.name.as_str())
                 .expect("driver name already stored must not contain null bytes");
             unsafe {
-                if !ai::load_asio_driver(name_cstring.as_ptr() as *mut i8) {
+                if !ai::load_asio_driver(name_cstring.as_ptr() as *mut c_char) {
                     return Err(AsioError::NoDrivers);
                 }
                 let mut driver_info = std::mem::MaybeUninit::<ai::ASIODriverInfo>::uninit();

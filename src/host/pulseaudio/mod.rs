@@ -224,12 +224,15 @@ pub enum Device {
     },
 }
 
-fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
+fn supported_config_ranges(is_playback: bool) -> Vec<SupportedStreamConfigRange> {
     let mut ranges = vec![];
     for format in PULSE_FORMATS {
         for channel_count in 1..protocol::sample_spec::MAX_CHANNELS {
             let bytes_per_frame = channel_count as usize * format.sample_size();
-            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as FrameCount;
+            // Playback uses a double-buffer.
+            let divisor = if is_playback { 2 } else { 1 };
+            let max_frames =
+                (protocol::MAX_MEMBLOCKQ_LENGTH / (divisor * bytes_per_frame)) as FrameCount;
             ranges.push(SupportedStreamConfigRange {
                 channels: channel_count as _,
                 min_sample_rate: MIN_SAMPLE_RATE,
@@ -248,6 +251,7 @@ fn supported_config_ranges() -> Vec<SupportedStreamConfigRange> {
 fn default_config_from_spec(
     sample_spec: &protocol::SampleSpec,
     channel_map: &protocol::ChannelMap,
+    is_playback: bool,
 ) -> Result<SupportedStreamConfig, Error> {
     let sample_format: SampleFormat = sample_spec.format.try_into().map_err(|_| {
         Error::with_message(
@@ -256,7 +260,8 @@ fn default_config_from_spec(
         )
     })?;
     let bytes_per_frame = channel_map.num_channels() as usize * sample_format.sample_size();
-    let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as u32;
+    let divisor = if is_playback { 2 } else { 1 };
+    let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / (divisor * bytes_per_frame)) as u32;
     Ok(SupportedStreamConfig {
         channels: channel_map.num_channels() as _,
         sample_rate: sample_spec.sample_rate,
@@ -277,14 +282,14 @@ impl DeviceTrait for Device {
         let Device::Source { .. } = self else {
             return Ok(vec![].into_iter());
         };
-        Ok(supported_config_ranges().into_iter())
+        Ok(supported_config_ranges(false).into_iter())
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         let Device::Sink { .. } = self else {
             return Ok(vec![].into_iter());
         };
-        Ok(supported_config_ranges().into_iter())
+        Ok(supported_config_ranges(true).into_iter())
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
@@ -294,7 +299,7 @@ impl DeviceTrait for Device {
                 "Device does not support input",
             ));
         };
-        default_config_from_spec(&info.sample_spec, &info.channel_map)
+        default_config_from_spec(&info.sample_spec, &info.channel_map, false)
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
@@ -304,7 +309,7 @@ impl DeviceTrait for Device {
                 "Device does not support output",
             ));
         };
-        default_config_from_spec(&info.sample_spec, &info.channel_map)
+        default_config_from_spec(&info.sample_spec, &info.channel_map, true)
     }
 
     fn build_input_stream_raw<D, E>(
@@ -326,12 +331,27 @@ impl DeviceTrait for Device {
             ));
         };
 
+        crate::validate_stream_config(&config)?;
+
         let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!("Sample format {sample_format} is not supported"),
             )
         })?;
+
+        if let BufferSize::Fixed(frame_count) = config.buffer_size {
+            let bytes_per_frame = config.channels as usize * sample_format.sample_size();
+            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / bytes_per_frame) as FrameCount;
+            if !(1..=max_frames).contains(&frame_count) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {frame_count} is not in the supported range 1..={max_frames}"
+                    ),
+                ));
+            }
+        }
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);
@@ -401,12 +421,29 @@ impl DeviceTrait for Device {
             ));
         };
 
+        crate::validate_stream_config(&config)?;
+
         let format: protocol::SampleFormat = sample_format.try_into().map_err(|_| {
             Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!("Sample format {sample_format} is not supported"),
             )
         })?;
+
+        if let BufferSize::Fixed(frame_count) = config.buffer_size {
+            let bytes_per_frame = config.channels as usize * sample_format.sample_size();
+            // Playback uses a double-buffer (max_length = 2 × frame_count × bytes_per_frame),
+            // so the max period that fits in MAX_MEMBLOCKQ_LENGTH is halved.
+            let max_frames = (protocol::MAX_MEMBLOCKQ_LENGTH / (2 * bytes_per_frame)) as FrameCount;
+            if !(1..=max_frames).contains(&frame_count) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {frame_count} is not in the supported range 1..={max_frames}"
+                    ),
+                ));
+            }
+        }
 
         let sample_spec = make_sample_spec(config, format);
         let channel_map = make_channel_map(config);

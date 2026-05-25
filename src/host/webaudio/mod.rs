@@ -67,15 +67,18 @@ crate::assert_stream_sync!(Stream);
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
+// https://webaudio.github.io/web-audio-api/#dom-baseaudiocontext-createbuffer
 const MIN_CHANNELS: ChannelCount = 1;
 const MAX_CHANNELS: ChannelCount = 32;
-const MIN_SAMPLE_RATE: SampleRate = 8_000;
-const MAX_SAMPLE_RATE: SampleRate = 96_000;
 
-const MIN_BUFFER_SIZE: u32 = 1;
-const MAX_BUFFER_SIZE: u32 = u32::MAX;
-const DEFAULT_BUFFER_SIZE: usize = 2048;
+// https://webaudio.github.io/web-audio-api/#supported-sample-rates
+const MIN_SAMPLE_RATE: SampleRate = 3_000;
+const MAX_SAMPLE_RATE: SampleRate = 768_000;
+
+// https://webaudio.github.io/web-audio-api/#audio-processing-model
 const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
+
+const DEFAULT_BUFFER_SIZE: usize = 2048;
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
@@ -129,16 +132,22 @@ impl Device {
 
     fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
         let buffer_size = SupportedBufferSize::Range {
-            min: MIN_BUFFER_SIZE,
-            max: MAX_BUFFER_SIZE,
+            min: 1,
+            max: FrameCount::MAX,
         };
         let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
-            .map(|channels| SupportedStreamConfigRange {
-                channels,
-                min_sample_rate: MIN_SAMPLE_RATE,
-                max_sample_rate: MAX_SAMPLE_RATE,
-                buffer_size,
-                sample_format: SUPPORTED_SAMPLE_FORMAT,
+            .flat_map(|channels| {
+                crate::COMMON_SAMPLE_RATES
+                    .iter()
+                    .copied()
+                    .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
+                    .map(move |rate| SupportedStreamConfigRange {
+                        channels,
+                        min_sample_rate: rate,
+                        max_sample_rate: rate,
+                        buffer_size,
+                        sample_format: SUPPORTED_SAMPLE_FORMAT,
+                    })
             })
             .collect();
         Ok(configs.into_iter())
@@ -229,12 +238,30 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        if !valid_config(config, sample_format) {
+        crate::validate_stream_config(&config)?;
+        if config.channels > MAX_CHANNELS {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "Sample format {sample_format} or channel count {} is not supported",
+                    "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
                     config.channels
+                ),
+            ));
+        }
+        if sample_format != SUPPORTED_SAMPLE_FORMAT {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
+                ),
+            ));
+        }
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
+                    config.sample_rate
                 ),
             ));
         }
@@ -242,20 +269,18 @@ impl DeviceTrait for Device {
         let n_channels = config.channels as usize;
 
         let buffer_size_frames = match config.buffer_size {
-            BufferSize::Fixed(v) => {
-                if !(MIN_BUFFER_SIZE..=MAX_BUFFER_SIZE).contains(&v) {
-                    return Err(Error::with_message(
-                        ErrorKind::UnsupportedConfig,
-                        format!(
-                            "Buffer size {v} is not in the supported range {MIN_BUFFER_SIZE}..={MAX_BUFFER_SIZE}"
-                        ),
-                    ));
-                }
-                v as usize
-            }
+            BufferSize::Fixed(v) => v as usize,
             BufferSize::Default => DEFAULT_BUFFER_SIZE,
         };
-        let buffer_size_samples = buffer_size_frames * n_channels;
+        let buffer_size_samples = buffer_size_frames.checked_mul(n_channels).ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Buffer size {} * channel count {} overflows on this platform",
+                    buffer_size_frames, config.channels
+                ),
+            )
+        })?;
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
         let data_callback: OutputDataCallbackArc = Arc::new(Mutex::new(data_callback));
@@ -274,12 +299,17 @@ impl DeviceTrait for Device {
 
         let destination = ctx.destination();
 
-        // If possible, set the destination's channel_count to the given config.channel.
-        // If not, fallback on the default destination channel_count to keep previous behavior
-        // and do not return an error.
-        if config.channels as u32 <= destination.max_channel_count() {
-            destination.set_channel_count(config.channels as u32);
+        if config.channels as u32 > destination.max_channel_count() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Channel count {} exceeds the destination's maximum of {}",
+                    config.channels,
+                    destination.max_channel_count()
+                ),
+            ));
         }
+        destination.set_channel_count(config.channels as u32);
 
         // SAFETY: WASM is single-threaded, so Arc is safe even though AudioContext is not Send/Sync
         #[allow(clippy::arc_with_non_send_sync)]
@@ -652,15 +682,6 @@ fn is_webaudio_available() -> bool {
     js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext"))
         .unwrap()
         .is_truthy()
-}
-
-// Whether or not the given stream configuration is valid for building a stream.
-fn valid_config(conf: StreamConfig, sample_format: SampleFormat) -> bool {
-    conf.channels <= MAX_CHANNELS
-        && conf.channels >= MIN_CHANNELS
-        && conf.sample_rate <= MAX_SAMPLE_RATE
-        && conf.sample_rate >= MIN_SAMPLE_RATE
-        && sample_format == SUPPORTED_SAMPLE_FORMAT
 }
 
 fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {

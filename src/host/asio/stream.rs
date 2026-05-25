@@ -133,6 +133,7 @@ impl Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO
@@ -465,6 +466,7 @@ impl Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO
@@ -1116,6 +1118,18 @@ fn check_config(
                     max = range.max
                 ),
             ));
+        }
+        if let sys::BufferPreference::Stepped { step, .. } = range.preferred {
+            let offset = requested_size_i32 - range.min;
+            if offset % step as i32 != 0 {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {requested_size} is not valid; sizes must start at {min} and increment by {step}",
+                        min = range.min
+                    ),
+                ));
+            }
         }
     }
 
