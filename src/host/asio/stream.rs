@@ -62,16 +62,16 @@ enum StreamState {
 }
 
 impl StreamState {
-    fn load(atom: &AtomicU8) -> Self {
-        match atom.load(Ordering::Acquire) {
-            1 => StreamState::Paused,
-            2 => StreamState::Playing,
-            _ => StreamState::Starting,
+    fn load(atom: &AtomicU8, order: Ordering) -> Self {
+        match atom.load(order) {
+            1 => Self::Paused,
+            2 => Self::Playing,
+            _ => Self::Starting,
         }
     }
 
-    fn store(atom: &AtomicU8, state: StreamState) {
-        atom.store(state as u8, Ordering::Release);
+    fn store(self, atom: &AtomicU8, order: Ordering) {
+        atom.store(self as u8, order);
     }
 }
 
@@ -98,12 +98,12 @@ impl Stream {
     }
 
     pub fn play(&self) -> Result<(), Error> {
-        StreamState::store(&self.state, StreamState::Playing);
+        StreamState::Playing.store(&self.state, Ordering::Release);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), Error> {
-        StreamState::store(&self.state, StreamState::Paused);
+        StreamState::Paused.store(&self.state, Ordering::Release);
         Ok(())
     }
 
@@ -212,7 +212,7 @@ impl Device {
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb) != StreamState::Playing {
+            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
                 return;
             }
 
@@ -443,7 +443,7 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::store(&state, StreamState::Paused);
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Stream {
             state,
             driver,
@@ -544,7 +544,7 @@ impl Device {
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb) != StreamState::Playing {
+            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
                 return;
             }
 
@@ -826,7 +826,7 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::store(&state, StreamState::Paused);
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Stream {
             state,
             driver,
@@ -1002,7 +1002,7 @@ impl Device {
                     sys::AsioMessageSelectors::kAsioResetRequest => {
                         // Guard on Starting: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.)
                         // fire spurious reset/resync requests during driver.start().
-                        if StreamState::load(&state) != StreamState::Starting {
+                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream reset was requested by the ASIO driver",
@@ -1014,7 +1014,7 @@ impl Device {
                         // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
                         // means the driver needs a full stop/reinit/start. It is *not* a simple
                         // xrun notification.
-                        if StreamState::load(&state) != StreamState::Starting {
+                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream resynchronization was requested by the ASIO driver",
@@ -1023,7 +1023,7 @@ impl Device {
                         true
                     }
                     sys::AsioMessageSelectors::kAsioOverload => {
-                        if StreamState::load(&state) == StreamState::Playing {
+                        if StreamState::load(&state, Ordering::Acquire) == StreamState::Playing {
                             let _ =
                                 try_emit_error(&error_callback_shared, Error::new(ErrorKind::Xrun));
                         }
@@ -1066,7 +1066,9 @@ impl Device {
                             true
                         }
                     };
-                    if should_notify && StreamState::load(&state) != StreamState::Starting {
+                    if should_notify
+                        && StreamState::load(&state, Ordering::Acquire) != StreamState::Starting
+                    {
                         let _ = timer_tx.send(Error::with_message(
                             ErrorKind::StreamInvalidated,
                             format!("Sample rate changed to {new_rate} Hz by the ASIO driver"),
