@@ -1,7 +1,6 @@
 use super::{
     utils::{
-        get_context, get_package_manager, has_system_feature, with_attached, JNIEnv, JObject,
-        JResult,
+        get_context, get_package_manager, has_system_feature, with_attached, Env, JObject, JResult,
     },
     PackageManager,
 };
@@ -46,7 +45,7 @@ impl AudioFeature {
 }
 
 fn try_check_system_feature<'j>(
-    env: &mut JNIEnv<'j>,
+    env: &mut Env<'j>,
     activity: &JObject<'j>,
     feature: &str,
 ) -> JResult<bool> {

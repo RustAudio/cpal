@@ -87,8 +87,8 @@ dasp_sample = "0.11"
 [dev-dependencies]
 anyhow = "1.0"
 hound = "3.5"
-ringbuf = "0.4"
-clap = { version = ">=4.0, <=4.5.57", features = ["derive"] }
+ringbuf = "0.5"
+clap = { version = "4", features = ["derive"] }
 
 # Support a range of versions in order to avoid duplication of this crate. Make sure to test all
 # versions when bumping to a new release, and only increase the minimum when absolutely necessary.
@@ -124,7 +124,7 @@ audio_thread_priority = { version = "0.35", optional = true, default-features = 
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
-pipewire = { version = "0.9", optional = true, features = ["v0_3_53"] }
+pipewire = { version = "0.10", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
@@ -196,7 +196,7 @@ ndk = { version = "0.9", default-features = false, features = [
     "api-level-26",
 ] }
 ndk-context = "0.1"
-jni = "0.21"
+jni = "0.22"
 libc = "0.2"
 num-derive = "0.4"
 num-traits = "0.2"
