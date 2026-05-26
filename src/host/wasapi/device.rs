@@ -603,6 +603,7 @@ impl Device {
         activation_timeout: Option<Duration>,
     ) -> Result<Audio::IAudioClient, Error> {
         let mut lock = self.ensure_future_audio_client(activation_timeout)?;
+        // ensure_future_audio_client always sets the Option to Some before returning Ok.
         Ok(lock.take().unwrap().0)
     }
 
@@ -625,6 +626,7 @@ impl Device {
         let lock = self
             .ensure_future_audio_client(None)
             .context("Failed to get audio client")?;
+        // ensure_future_audio_client always sets the Option to Some before returning Ok.
         let client = &lock.as_ref().unwrap().0;
 
         unsafe {
@@ -757,6 +759,7 @@ impl Device {
         let lock = self
             .ensure_future_audio_client(None)
             .context("Failed to get audio client")?;
+        // ensure_future_audio_client always sets the Option to Some before returning Ok.
         let client = &lock.as_ref().unwrap().0;
 
         unsafe {

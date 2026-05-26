@@ -3,7 +3,6 @@
 //! Default backend on Android.
 
 use std::{
-    convert::TryInto,
     fmt,
     hash::{Hash, Hasher},
     sync::{
@@ -283,7 +282,7 @@ fn configure_for_device(
     } else {
         builder
     };
-    builder = builder.sample_rate(config.sample_rate.try_into().unwrap());
+    builder = builder.sample_rate(config.sample_rate as i32);
 
     // Following the pattern from Oboe and Google's AAudio, we let AAudio choose the optimal
     // callback size dynamically by default. See
@@ -322,6 +321,7 @@ where
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+    let error_callback_for_data = error_callback.clone();
 
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
@@ -346,6 +346,23 @@ where
                 }
             }
 
+            let Some(n_samples) = u64::try_from(num_frames)
+                .ok()
+                .and_then(|f| f.checked_mul(channel_count as u64))
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                emit_error(
+                    &error_callback_for_data,
+                    Error::with_message(
+                        ErrorKind::BackendError,
+                        format!(
+                            "AAudio provided an invalid frame count in the data callback \
+                             ({num_frames} frames × {channel_count} channels)",
+                        ),
+                    ),
+                );
+                return ndk::audio::AudioCallbackResult::Stop;
+            };
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
                     callback: now_stream_instant(),
@@ -353,13 +370,7 @@ where
                 },
             };
             (data_callback)(
-                &unsafe {
-                    Data::from_parts(
-                        data as *mut _,
-                        (num_frames * channel_count).try_into().unwrap(),
-                        sample_format,
-                    )
-                },
+                &unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
                 &cb_info,
             );
             ndk::audio::AudioCallbackResult::Continue
@@ -401,6 +412,7 @@ where
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+    let error_callback_for_data = error_callback.clone();
 
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
@@ -425,8 +437,25 @@ where
                 }
             }
 
+            let Some(n_samples) = u64::try_from(num_frames)
+                .ok()
+                .and_then(|f| f.checked_mul(channel_count as u64))
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                emit_error(
+                    &error_callback_for_data,
+                    Error::with_message(
+                        ErrorKind::BackendError,
+                        format!(
+                            "AAudio provided an invalid frame count in the data callback \
+                             ({num_frames} frames × {channel_count} channels)",
+                        ),
+                    ),
+                );
+                return ndk::audio::AudioCallbackResult::Stop;
+            };
+
             // Pre-fill with equilibrium so unwritten frames are silent.
-            let n_samples: usize = (num_frames * channel_count).try_into().unwrap();
             let byte_count = n_samples * sample_format.sample_size();
             // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
             unsafe {
@@ -629,6 +658,12 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        if config.sample_rate > i32::MAX as u32 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                format!("sample rate exceeds AAudio's limit of {}", i32::MAX),
+            ));
+        }
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,
@@ -667,6 +702,12 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        if config.sample_rate > i32::MAX as u32 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                format!("sample rate exceeds AAudio's limit of {}", i32::MAX),
+            ));
+        }
         let format = match sample_format {
             SampleFormat::I16 => ndk::audio::AudioFormat::PCM_I16,
             SampleFormat::F32 => ndk::audio::AudioFormat::PCM_Float,

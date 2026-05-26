@@ -172,6 +172,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Fix `channels: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
 - **AAudio**: Fix `sample_rate: 0` silently opening a stream at the NDK default rate instead of
   returning `InvalidInput`.
+- **AAudio**: Fix `sample_rate` values above `i32::MAX` panicking.
+- **AAudio**: Return `ErrorKind::BackendError` instead of panicking the data callback on a sample count overflow.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
@@ -191,6 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Fix `channels: 0` or `sample_rate: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
 - **ALSA**: Fix `build_*_stream_raw` returning `UnsupportedConfig` instead of `UnsupportedOperation` when
   the device does not support the requested direction.
+- **ALSA**: Fix poll timeout overflow panicking when a stream timeout duration exceeds ~24 days.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
 - **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
 - **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
