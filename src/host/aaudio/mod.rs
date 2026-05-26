@@ -346,10 +346,9 @@ where
                 }
             }
 
-            // Widen to u64 before multiplying to avoid i32 overflow wrapping silently in release
-            // builds. Both values are always positive by AAudio contract, so the cast is lossless.
-            let Some(n_samples) = (num_frames as u64)
-                .checked_mul(channel_count as u64)
+            let Some(n_samples) = u64::try_from(num_frames)
+                .ok()
+                .and_then(|f| f.checked_mul(channel_count as u64))
                 .and_then(|n| usize::try_from(n).ok())
             else {
                 emit_error(
@@ -438,10 +437,9 @@ where
                 }
             }
 
-            // Widen to u64 before multiplying to avoid i32 overflow wrapping silently in release
-            // builds. Both values are always positive by AAudio contract, so the cast is lossless.
-            let Some(n_samples) = (num_frames as u64)
-                .checked_mul(channel_count as u64)
+            let Some(n_samples) = u64::try_from(num_frames)
+                .ok()
+                .and_then(|f| f.checked_mul(channel_count as u64))
                 .and_then(|n| usize::try_from(n).ok())
             else {
                 emit_error(
