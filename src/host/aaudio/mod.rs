@@ -322,6 +322,7 @@ where
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+    let error_callback_for_data = error_callback.clone();
 
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
@@ -346,21 +347,32 @@ where
                 }
             }
 
+            // Widen to u64 before multiplying to avoid i32 overflow wrapping silently in release
+            // builds. Both values are always positive by AAudio contract, so the cast is lossless.
+            let Some(n_samples) = (num_frames as u64)
+                .checked_mul(channel_count as u64)
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                emit_error(
+                    &error_callback_for_data,
+                    Error::with_message(
+                        ErrorKind::BackendError,
+                        format!(
+                            "AAudio provided an invalid frame count in the data callback \
+                             ({num_frames} frames × {channel_count} channels)",
+                        ),
+                    ),
+                );
+                return ndk::audio::AudioCallbackResult::Stop;
+            };
             let cb_info = InputCallbackInfo {
                 timestamp: InputStreamTimestamp {
                     callback: now_stream_instant(),
                     capture: input_stream_instant(stream, sample_rate),
                 },
             };
-            // num_frames and channel_count are both positive i32 values constrained by AAudio
             (data_callback)(
-                &unsafe {
-                    Data::from_parts(
-                        data as *mut _,
-                        (num_frames * channel_count).try_into().unwrap(),
-                        sample_format,
-                    )
-                },
+                &unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
                 &cb_info,
             );
             ndk::audio::AudioCallbackResult::Continue
@@ -402,6 +414,7 @@ where
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
+    let error_callback_for_data = error_callback.clone();
 
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
@@ -426,9 +439,26 @@ where
                 }
             }
 
+            // Widen to u64 before multiplying to avoid i32 overflow wrapping silently in release
+            // builds. Both values are always positive by AAudio contract, so the cast is lossless.
+            let Some(n_samples) = (num_frames as u64)
+                .checked_mul(channel_count as u64)
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                emit_error(
+                    &error_callback_for_data,
+                    Error::with_message(
+                        ErrorKind::BackendError,
+                        format!(
+                            "AAudio provided an invalid frame count in the data callback \
+                             ({num_frames} frames × {channel_count} channels)",
+                        ),
+                    ),
+                );
+                return ndk::audio::AudioCallbackResult::Stop;
+            };
+
             // Pre-fill with equilibrium so unwritten frames are silent.
-            // num_frames and channel_count are both positive i32 values constrained by AAudio
-            let n_samples: usize = (num_frames * channel_count).try_into().unwrap();
             let byte_count = n_samples * sample_format.sample_size();
             // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
             unsafe {

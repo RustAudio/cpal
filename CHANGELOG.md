@@ -172,6 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: Fix `sample_rate: 0` silently opening a stream at the NDK default rate instead of
   returning `InvalidInput`.
 - **AAudio**: Fix `sample_rate` values above `i32::MAX` panicking.
+- **AAudio**: Return `ErrorKind::BackendError` instead of panicking the data callback on a sample count overflow.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
 - **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
 - **ALSA**: Fix spurious timestamp errors during stream startup.
