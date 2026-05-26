@@ -15,9 +15,9 @@ pub fn with_attached<F, R>(context: AndroidContext, closure: F) -> JResult<R>
 where
     for<'j> F: FnOnce(&mut Env<'j>, JObject<'j>) -> JResult<R>,
 {
-    let vm = unsafe { JavaVM::from_raw(context.vm().cast())? };
+    let vm = unsafe { JavaVM::from_raw(context.vm().cast()) };
     let raw_context = context.context() as jobject;
-    vm.attach_current_thread(|env| {
+    vm.attach_current_thread(|env: &mut Env<'_>| {
         let context_obj = unsafe { JObject::from_raw(env, raw_context) };
         closure(env, context_obj)
     })
@@ -28,10 +28,10 @@ pub fn call_method_no_args_ret_int_array<'j>(
     subject: &JObject<'j>,
     method: &str,
 ) -> JResult<Vec<i32>> {
-    let array: JIntArray = env
+    let obj = env
         .call_method(subject, JNIString::new(method), jni::jni_sig!("()[I"), &[])?
-        .l()?
-        .into();
+        .l()?;
+    let array: JIntArray<'j> = unsafe { JIntArray::from_raw(env, obj.into_raw()) };
     let length = array.len(env)?;
     let mut values = vec![0i32; length];
     array.get_region(env, 0, &mut values)?;
@@ -61,15 +61,15 @@ pub fn call_method_no_args_ret_string<'j>(
     subject: &JObject<'j>,
     method: &str,
 ) -> JResult<JString<'j>> {
-    Ok(env
+    let obj = env
         .call_method(
             subject,
             JNIString::new(method),
             jni::jni_sig!("()Ljava/lang/String;"),
             &[],
         )?
-        .l()?
-        .into())
+        .l()?;
+    Ok(unsafe { JString::from_raw(env, obj.into_raw()) })
 }
 
 pub fn call_method_no_args_ret_char_sequence<'j>(
@@ -86,15 +86,15 @@ pub fn call_method_no_args_ret_char_sequence<'j>(
         )?
         .l()?;
 
-    Ok(env
+    let s_obj = env
         .call_method(
             &cseq,
             jni::jni_str!("toString"),
             jni::jni_sig!("()Ljava/lang/String;"),
             &[],
         )?
-        .l()?
-        .into())
+        .l()?;
+    Ok(unsafe { JString::from_raw(env, s_obj.into_raw()) })
 }
 
 pub fn call_method_string_arg_ret_bool<'j>(
@@ -163,15 +163,15 @@ pub fn get_system_property<'j>(
 ) -> JResult<JString<'j>> {
     let name_str = env.new_string(name)?;
     let default_str = env.new_string(default_value)?;
-    Ok(env
+    let obj = env
         .call_static_method(
             jni::jni_str!("android/os/SystemProperties"),
             jni::jni_str!("get"),
             jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
             &[(&name_str).into(), (&default_str).into()],
         )?
-        .l()?
-        .into())
+        .l()?;
+    Ok(unsafe { JString::from_raw(env, obj.into_raw()) })
 }
 
 pub fn get_devices<'j>(
@@ -179,12 +179,14 @@ pub fn get_devices<'j>(
     subject: &JObject<'j>,
     flags: i32,
 ) -> JResult<JObjectArray<'j>> {
-    env.call_method(
-        subject,
-        jni::jni_str!("getDevices"),
-        jni::jni_sig!("(I)[Landroid/media/AudioDeviceInfo;"),
-        &[flags.into()],
-    )?
-    .l()
-    .map(From::from)
+    let obj = env
+        .call_method(
+            subject,
+            jni::jni_str!("getDevices"),
+            jni::jni_sig!("(I)[Landroid/media/AudioDeviceInfo;"),
+            &[flags.into()],
+        )?
+        .l()?;
+    let arr: JObjectArray<'j> = unsafe { JObjectArray::from_raw(env, obj.into_raw()) };
+    Ok(arr)
 }

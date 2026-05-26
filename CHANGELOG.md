@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump MSRV to 1.85.
 - Changed per-operation error types (`DevicesError`, `SupportedStreamConfigsError`, etc.) and
   `HostUnavailable` into a unfied `Error`/`ErrorKind`. See [UPGRADING.md](UPGRADING.md).
 - `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`
@@ -70,7 +71,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
   direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
   silently returning an empty list.
-- **AAudio**: Bump MSRV to 1.85.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **AAudio**: `SupportedBufferSize` in enumeration is now `Unknown`.
 - **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
@@ -103,7 +103,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `channels: 0` or `sample_rate: 0` now return `InvalidInput` instead of `UnsupportedConfig`.
 - **AudioWorklet**: Sample rates now enumerated as discrete standard rates in the spec-required
   range of 3–768 kHz.
-- **CoreAudio**: Bump MSRV to 1.85.
 - **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **CoreAudio**: Physical stream format is now set directly on the hardware device.
@@ -141,13 +140,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   device changes; stream error callback now receives `ErrorKind::DeviceChanged`.
 - **WASAPI**: `Device::immdevice()` now returns `Option<Audio::IMMDevice>` instead of
   `&Audio::IMMDevice`.
-- **WebAudio**: Bump MSRV to 1.85.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
 - **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
   44.1 kHz, reflecting the dominant native rate on modern hardware.
 - **WebAudio**: Sample rates now enumerated as discrete standard rates in the spec-required
-  range of 3–768 kHz.
+  range of 3-768 kHz.
 
 ### Removed
 

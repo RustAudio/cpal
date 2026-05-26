@@ -348,7 +348,7 @@ fn stream_instant_from_start(start: Instant) -> StreamInstant {
 
 /// Read `clock_gettime` and return it as a [`StreamInstant`].
 ///
-/// This is the same clock source used by [`Stream::time()`], so values returned
+/// This is the same clock source used by `pw_stream_get_time_n`, so values returned
 /// here are directly comparable with the `callback`/`capture`/`playback` instants
 /// delivered to the data callback.
 fn monotonic_stream_instant() -> Option<StreamInstant> {
