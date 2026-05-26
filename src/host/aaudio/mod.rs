@@ -3,7 +3,6 @@
 //! Default backend on Android.
 
 use std::{
-    convert::TryInto,
     fmt,
     hash::{Hash, Hasher},
     sync::{
