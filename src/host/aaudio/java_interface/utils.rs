@@ -187,6 +187,6 @@ pub fn get_devices<'j>(
             &[flags.into()],
         )?
         .l()?;
-    let arr: JObjectArray<'j, JObject<'j>> = unsafe { JObjectArray::from_raw(env, obj.into_raw()) };
+    let arr = unsafe { JObjectArray::<JObject<'j>>::from_raw(env, obj.into_raw()) };
     Ok(arr)
 }
