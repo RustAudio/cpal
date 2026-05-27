@@ -15,6 +15,8 @@ pub fn with_attached<F, R>(context: AndroidContext, closure: F) -> JResult<R>
 where
     for<'j> F: FnOnce(&mut Env<'j>, JObject<'j>) -> JResult<R>,
 {
+    // jni 0.22: from_raw returns JavaVM directly and asserts non-null,
+    // so attach_current_thread and the closure are the only fallible steps.
     let vm = unsafe { JavaVM::from_raw(context.vm().cast()) };
     let raw_context = context.context() as jobject;
     vm.attach_current_thread(|env: &mut Env<'_>| {

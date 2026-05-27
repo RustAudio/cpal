@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump MSRV to 1.85.
 - Changed per-operation error types (`DevicesError`, `SupportedStreamConfigsError`, etc.) and
-  `HostUnavailable` into a unfied `Error`/`ErrorKind`. See [UPGRADING.md](UPGRADING.md).
+  `HostUnavailable` into a unified `Error`/`ErrorKind`. See [UPGRADING.md](UPGRADING.md).
 - `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`
 - `HostId::name()` now returns a more human-friendly name instead of the raw backend identifier.
 - `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
