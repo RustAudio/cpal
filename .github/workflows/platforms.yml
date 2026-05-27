@@ -2,7 +2,7 @@ name: Platform Compatibility
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -11,7 +11,7 @@ on:
       - "Dockerfile*"
       - "Cross.toml"
   pull_request:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"

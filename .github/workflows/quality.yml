@@ -2,14 +2,14 @@ name: Code Quality
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
       - "LICENSE*"
       - ".gitignore"
   pull_request:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
