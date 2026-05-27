@@ -1,6 +1,6 @@
 [package]
 name = "cpal"
-version = "0.18.0"
+version = "0.19.0"
 description = "Low-level cross-platform audio I/O library."
 repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
