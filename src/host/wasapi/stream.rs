@@ -239,10 +239,6 @@ unsafe impl Send for Stream {}
 // The audio thread owns all COM objects, so no cross-thread COM access occurs.
 unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 struct RunContext {
     // Streams that have been created in this event loop.
     stream: StreamInner,

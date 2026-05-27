@@ -38,10 +38,9 @@ impl Host {
     pub fn from_host<T>(host: T) -> Self
     where
         T: HostTrait + Send + Sync + 'static,
-        T::Device: Send + Sync + Clone,
+        T::Device: Clone,
         <T::Device as DeviceTrait>::SupportedInputConfigs: Clone,
         <T::Device as DeviceTrait>::SupportedOutputConfigs: Clone,
-        <T::Device as DeviceTrait>::Stream: Send + Sync,
     {
         Self(Box::new(host))
     }
@@ -72,10 +71,9 @@ impl Device {
     /// Construct a custom device from an arbitrary [`DeviceTrait`] implementation.
     pub fn from_device<T>(device: T) -> Self
     where
-        T: DeviceTrait + Send + Sync + Clone + 'static,
+        T: DeviceTrait + Clone + 'static,
         T::SupportedInputConfigs: Clone,
         T::SupportedOutputConfigs: Clone,
-        T::Stream: Send + Sync,
     {
         Self(Box::new(device))
     }
@@ -123,7 +121,7 @@ impl Stream {
     /// Construct a custom stream from an arbitrary [`StreamTrait`] implementation.
     pub fn from_stream<T>(stream: T) -> Self
     where
-        T: StreamTrait + Send + Sync + 'static,
+        T: StreamTrait + 'static,
     {
         Self(Box::new(stream))
     }
@@ -241,7 +239,7 @@ fn supported_configs_to_erased(
     SupportedConfigs(Box::new(i))
 }
 
-fn stream_to_erased(s: impl StreamTrait + Send + Sync + 'static) -> Stream {
+fn stream_to_erased(s: impl StreamTrait + 'static) -> Stream {
     Stream(Box::new(s))
 }
 
@@ -329,7 +327,7 @@ where
 
 impl<T> StreamErased for T
 where
-    T: StreamTrait + Send + Sync,
+    T: StreamTrait,
 {
     fn play(&self) -> Result<(), Error> {
         <T as StreamTrait>::play(self)

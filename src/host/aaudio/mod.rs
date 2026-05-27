@@ -148,10 +148,6 @@ unsafe impl Send for Stream {}
 // All operations on the stream go through the mutex, ensuring exclusive access.
 unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 /// State for dynamic buffer tuning on output streams.
 #[derive(Default)]
 struct BufferTuningState {

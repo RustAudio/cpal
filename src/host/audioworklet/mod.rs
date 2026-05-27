@@ -465,6 +465,10 @@ impl StreamTrait for Stream {
     }
 }
 
+// SAFETY: `AudioContext` is only accessed from the thread that created the `Stream`.
+unsafe impl Send for Stream {}
+unsafe impl Sync for Stream {}
+
 impl Drop for Stream {
     fn drop(&mut self) {
         let _ = self.audio_context.close();

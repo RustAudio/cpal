@@ -745,10 +745,6 @@ pub struct Stream {
     latch: Latch,
 }
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 impl StreamInner {
     #[inline]
     fn callback_instant(&self, status: &alsa::pcm::Status) -> StreamInstant {

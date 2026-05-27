@@ -61,10 +61,6 @@ pub struct Stream {
 unsafe impl Send for Stream {}
 unsafe impl Sync for Stream {}
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 // https://webaudio.github.io/web-audio-api/#dom-baseaudiocontext-createbuffer
