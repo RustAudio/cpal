@@ -87,7 +87,7 @@ dasp_sample = "0.11"
 [dev-dependencies]
 anyhow = "1.0"
 hound = "3.5"
-ringbuf = "0.5"
+ringbuf = "0.4"
 clap = { version = ">=4.6, <5", features = ["derive"] }
 
 # Support a range of versions in order to avoid duplication of this crate. Make sure to test all
