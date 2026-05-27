@@ -14,19 +14,26 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
-- [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
-- [ ] Raise your `windows` dependency to `>= 0.61` if you pin it below that.
 - [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
 - [ ] If you relied on the default config returning `F32`, pin the sample format explicitly.
-- [ ] **JACK**: Handle or discard the new `Result` from `Stream::connect_to_system_outputs()` and
-  `Stream::connect_to_system_inputs()`.
+- [ ] Rename the `audio_thread_priority` feature to `realtime-dbus` in `Cargo.toml`.
 - [ ] **ALSA, CoreAudio, JACK**: Add an explicit `stream.play()` call after `build_*_stream()` if
   you were relying on these backends to auto-start streams.
+- [ ] **JACK**: Handle or discard the new `Result` from `Stream::connect_to_system_outputs()` and
+  `Stream::connect_to_system_inputs()`.
+- [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
+- [ ] Raise your `windows` dependency to `>= 0.61` if you pin it below that.
 - [ ] Replace `DeviceId(host, string)` tuple construction with `DeviceId::new(host, id)`
 - [ ] Replace `device_id.0` / `device_id.1` field access with `device_id.host()` / `device_id.id()`
 - [ ] Update `DeviceDescription::extended()` call sites to iterate `&str` instead of `&[String]`
 - [ ] If you implement a custom host, update `DeviceDescriptionBuilder` setter arguments from
   `impl Into<String>` to `impl AsRef<str>`
+- [ ] Replace any remaining `device.name()` calls with `device.description()` or `device.id()`
+- [ ] **ALSA**: Replace `Device::default()` with `host.default_output_device()` or
+  `host.default_input_device()`
+- [ ] **WASAPI**: Update `Device::immdevice()` call sites to handle `Option<Audio::IMMDevice>`
+  instead of `&Audio::IMMDevice`
+- [ ] **ALSA**: Update any direct imports of `cpal::platform::AlsaHost`
 
 ## 1. Unified `Error` and `ErrorKind` type
 

@@ -9,101 +9,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `Device` now implements `PartialEq`, `Eq`, `Hash`, `Display`, and `Debug`.
-- `ErrorKind::BackendError` for platform audio API errors that don't map to a specific kind.
-- `ErrorKind::DeviceBusy` for retryable device access errors (e.g. EBUSY, EAGAIN).
-- `ErrorKind::DeviceChanged` signals that the audio route changed to another device.
-- `ErrorKind::InvalidInput` for invalid arguments and caller-supplied values.
-- `ErrorKind::PermissionDenied` for OS-level access denials.
-- `ErrorKind::RealtimeDenied` for when real-time scheduling is requested but not granted;
-  previously such failures were only printed to stderr and discarded.
-- `ErrorKind::ResourceExhausted` for OS resource limits such as thread or memory exhaustion.
-- `ErrorKind::UnsupportedOperation` for operations the backend or device does not implement.
-- `StreamConfig` now implements `Copy`.
-- `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
-- `HostTrait::device_by_id()` is now dispatched to each backend's implementation, allowing
-  backends to override it.
+- New `ErrorKind` variants for the unified error type: `BackendError` (platform error without a
+  specific mapping); `DeviceBusy` (retryable device access, e.g. EBUSY/EAGAIN); `DeviceChanged`
+  (audio route changed to another device); `InvalidInput` (invalid caller-supplied values);
+  `PermissionDenied` (OS-level access denial); `RealtimeDenied` (real-time scheduling refused —
+  previously only printed to stderr); `ResourceExhausted` (OS thread/memory limits);
+  `UnsupportedOperation` (backend or device does not implement the operation).
+- `Device` now implements `PartialEq`, `Eq`, `Hash`, `Display`, and `Debug` on all backends.
+- `realtime` feature for real-time audio thread scheduling without a D-Bus build dependency.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
+- `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
 - `SAMPLE_RATE_CD` (44100 Hz) and `SAMPLE_RATE_48K` (48000 Hz) constants.
-- `SupportedStreamConfigRange::contains_rate()` to test whether a sample rate falls within a range.
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
-- `realtime` feature for high-priority audio scheduling without a D-Bus build dependency.
-- Add `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md`.
+- `SupportedStreamConfigRange::contains_rate()` to test whether a sample rate falls within a range.
+- `StreamConfig` and `SupportedStreamConfig` now implement `Copy`.
 - `BufferSize` now implements `Default` (returns `BufferSize::Default`).
 - `SupportedBufferSize` now implements `Default` (returns `SupportedBufferSize::Unknown`).
-- `SupportedStreamConfig` now implements `Copy`.
+- `HostTrait::device_by_id()` is now backend-dispatched, allowing each host to override the
+  default implementation.
 - DSD512 sample rates added to the common rate probe list.
-- **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` when the `realtime` feature is
-  enabled; stream error callback receives `ErrorKind::RealtimeDenied` if not granted.
-- **AAudio**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
+- **AAudio**: Streams now request `PERFORMANCE_MODE_LOW_LATENCY` with the `realtime` feature;
+  reports `ErrorKind::RealtimeDenied` if not granted.
 - **ALSA**: `device_by_id()` now accepts PCM shorthand names such as `hw:0,0` and `plughw:foo`.
-- **ASIO**: `Device` now implements `Debug`.
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
-- **CoreAudio**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
-- **JACK**: `Device` now implements `PartialEq`, `Eq`, and `Hash`.
-- **PipeWire**: New host for Linux and some BSDs using the PipeWire API.
-- **PulseAudio**: New host for Linux and some BSDs using the PulseAudio API.
-- **WASAPI**: `Device` now implements `PartialEq`, `Eq`, `Hash`, and `Debug`.
+- **PipeWire**: New host for Linux and BSD via the native PipeWire API.
+- **PulseAudio**: New host for Linux and BSD via the PulseAudio API.
 
 ### Changed
 
-- Bump MSRV to 1.85.
 - Changed per-operation error types (`DevicesError`, `SupportedStreamConfigsError`, etc.) and
   `HostUnavailable` into a unified `Error`/`ErrorKind`. See [UPGRADING.md](UPGRADING.md).
-- `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`
-- `HostId::name()` now returns a more human-friendly name instead of the raw backend identifier.
+- `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
+- `DeviceTrait::build_*_stream()` now takes `StreamConfig` by value instead of `&StreamConfig`.
 - `StreamInstant` API changed and extended to mirror `std::time::Instant`/`Duration`. See
   [UPGRADING.md](UPGRADING.md) for migration details.
-- `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants.
-  See [UPGRADING.md](UPGRADING.md) for migration details.
-- `audio_thread_priority` feature renamed to `realtime-dbus`.
-- `audio_thread_priority` dependency bumped to 0.35.
-- `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` with a stable device ID.
-- Error messages are now consistent across all hosts.
+- Streams no longer start automatically on `build_*_stream()`; call `play()` explicitly.
+  Previously ALSA, CoreAudio, and JACK auto-started streams on creation.
+- Default output and input configs now prefer 48 kHz, then 44.1 kHz, then the device maximum.
+  Previously the preferred rate was backend-dependent (typically 44.1 kHz or device maximum).
+- `SupportedStreamConfigRange::cmp_default_heuristics` now ranks all `SampleFormat` variants;
+  `F32` > `F64` > descending integer widths. Default configs may now return `I32` or `I24` on
+  high-precision hardware. See [UPGRADING.md](UPGRADING.md).
+- Bump MSRV to 1.85.
 - `DeviceId` fields are now private; construct with `DeviceId::new(host, id)` and access with
-  `.host()` / `.id()`. See [UPGRADING.md](UPGRADING.md) for migration details.
-- `DeviceDescription::extended()` now returns `impl Iterator<Item = &str>` instead of `&[String]`. 
-  See [UPGRADING.md](UPGRADING.md) for migration details.
-- `DeviceDescriptionBuilder` setters now accept `impl AsRef<str>` instead of `impl Into<String>`. 
-- **AAudio**: Device names now include the device type suffix (e.g. "Speaker (Builtin Speaker)")
-  for easier identification when enumerating devices.
-- **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
-  direction-mismatched devices (e.g. querying input configs on an output-only device) instead of
-  silently returning an empty list.
+  `.host()` / `.id()`. See [UPGRADING.md](UPGRADING.md).
+- `audio_thread_priority` feature renamed to `realtime-dbus`.
+- `DeviceDescription::extended()` now returns `impl Iterator<Item = &str>` instead of `&[String]`.
+  See [UPGRADING.md](UPGRADING.md).
+- `HostId::name()` now returns a more human-friendly name.
+- `DeviceDescriptionBuilder` setters now accept `impl AsRef<str>` instead of `impl Into<String>`.
+- **AAudio**: Channel enumeration extended to 8 channels.
 - **AAudio**: Buffers with default sizes are now dynamically tuned.
 - **AAudio**: `SupportedBufferSize` in enumeration is now `Unknown`.
-- **AAudio**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
-  44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
-- **AAudio**: Channel enumeration extended to 8 channels.
+- **AAudio**: Device names now include the device type suffix (e.g. `Speaker (Builtin Speaker)`).
+- **AAudio**: `supported_input_configs()` and `supported_output_configs()` now return an error for
+  direction-mismatched devices instead of silently returning an empty list.
 - **ALSA**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on device
   disconnection.
-- **ALSA**: Polling errors trigger underrun recovery instead of looping.
-- **ALSA**: Try to resume from hardware after a system suspend.
-- **ALSA**: Loop partial reads and writes to completion.
-- **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ALSA**: Callback timestamps use `LinkSynchronized` hardware cross-timestamps for lower jitter
   on supported devices.
-- **ALSA**: `default_input_config()` and `default_output_config()` now prefer 48 kHz, then
-  44.1 kHz, then the maximum supported sample rate, instead of preferring 44.1 kHz.
-- **ALSA**: Streams no longer start automatically on creation; call `play()` manually.
-- **ALSA**: The `realtime` feature now skips RT promotion for ineligible PCM types (null,
-  I/O plugins, wrapper types); `audio_thread_priority` promoted unconditionally.
+- **ALSA**: Try to resume from hardware after a system suspend.
+- **ALSA**: Loop partial reads and writes to completion.
+- **ALSA**: Polling errors trigger underrun recovery instead of looping.
+- **ALSA**: Prevent reentrancy issues with non-reentrant plugins and devices.
 - **ALSA**: Supported configurations are now enumerated up to 64 channels (AES10 maximum).
-- **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
+- **ALSA**: The `realtime` feature now skips RT promotion for ineligible PCM types (null,
+  I/O plugins, wrapper types).
 - **ASIO**: Timestamps now include driver-reported hardware latency.
-- **ASIO**: Hardware latency is now re-queried when the driver reports `kAsioLatenciesChanged`.
 - **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` on
-  `kAsioResyncRequest`.
-- **ASIO**: Stream error callback now receives `ErrorKind::StreamInvalidated` when the driver
-  reports a sample rate change (`sampleRateDidChange`) of 1 Hz or more from the configured rate.
+  `kAsioResyncRequest` or a sample rate change of 1 Hz or more from the configured rate.
+- **ASIO**: Hardware latency is re-queried when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: `Device::driver`, `asio_streams`, and `current_callback_flag` are no longer `pub`.
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
-- **AudioWorklet**: `default_output_config()` now uses 48 kHz as the default sample rate instead
-  of 44.1 kHz, reflecting the dominant native rate on modern hardware.
-- **AudioWorklet**: `channels: 0` or `sample_rate: 0` now return `InvalidInput` instead of `UnsupportedConfig`.
 - **AudioWorklet**: Sample rates now enumerated as discrete standard rates in the spec-required
-  range of 3–768 kHz.
-- **CoreAudio**: Bump `mach2` to 0.6 (uses `core::ffi` instead of `libc`, enables tvOS builds).
+  range of 3-768 kHz.
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **CoreAudio**: Physical stream format is now set directly on the hardware device.
 - **CoreAudio**: Stream error callback now receives `ErrorKind::StreamInvalidated` on any sample
@@ -111,45 +91,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on iOS
   when media services are lost.
 - **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` when the system
-  default output device changes.
-- **CoreAudio**: Stream error callback now receives `ErrorKind::DeviceChanged` on iOS when
-  headphones are unplugged.
+  default output device changes, or on iOS when headphones are unplugged.
 - **CoreAudio**: User timeouts are now respected when building a stream.
-- **CoreAudio**: Streams no longer start automatically on creation; call `play()` manually.
-- **CoreAudio (iOS)**: `default_input_config()` and `default_output_config()` now prefer 48 kHz,
-  then 44.1 kHz, then the maximum supported sample rate, instead of always taking the maximum.
 - **CoreAudio (iOS)**: `default_output_config()` now prefers stereo over the maximum channel count.
 - **JACK**: Timestamps now use the precise hardware deadline.
-- **JACK**: Buffer size change no longer invokes the error callback; internal buffers are resized
-  without error.
 - **JACK**: Stream error callback now receives `ErrorKind::DeviceNotAvailable` on server shutdown.
-- **JACK**: Default client name now includes the process PID.
-- **JACK**: User timeouts are now respected when building a stream.
-- **JACK**: `Stream::connect_to_system_outputs()` and `Stream::connect_to_system_inputs()` now
-  return `Result<(), Error>` and roll back the graph instead of silently discarding
-  port-connection failures.
 - **JACK**: Stream error callback now receives `ErrorKind::RealtimeDenied` once if the process
   callback is not running at real-time scheduling priority.
-- **JACK**: Streams no longer start automatically on creation; call `play()` manually.
-- **Linux/BSD**: Default host in order from first to last available now is: PipeWire, PulseAudio,
-  ALSA.
-- **WASAPI**: Raise `windows` dependency lower bound to 0.61.
+- **JACK**: `Stream::connect_to_system_outputs()` and `connect_to_system_inputs()` now return
+  `Result<(), Error>` and roll back the port graph on failure.
+- **JACK**: User timeouts are now respected when building a stream.
+- **JACK**: Buffer size changes no longer invoke the error callback; internal buffers are resized
+  transparently.
+- **JACK**: Default client name now includes the process PID.
+- **Linux/BSD**: Default host priority: PipeWire > PulseAudio > ALSA.
+- **WASAPI**: Default output and input streams now automatically reroute when the system default
+  device changes; stream error callback receives `ErrorKind::DeviceChanged`.
 - **WASAPI**: Timestamps now include hardware pipeline latency.
 - **WASAPI**: `FriendlyName` is now preferred as device name over `DeviceDesc`.
-- **WASAPI**: Default output and input streams now automatically reroute when the system default
-  device changes; stream error callback now receives `ErrorKind::DeviceChanged`.
-- **WASAPI**: `Device::immdevice()` now returns `Option<Audio::IMMDevice>` instead of
-  `&Audio::IMMDevice`.
+- **WASAPI**: `Device::immdevice()` now returns `Option<Audio::IMMDevice>`.
+- **WASAPI**: Raise `windows` dependency lower bound to 0.61.
 - **WebAudio**: Timestamps now include base and output latency.
 - **WebAudio**: Initial buffer scheduling offset now scales with buffer duration.
-- **WebAudio**: `default_output_config()` now uses 48 kHz as the default sample rate instead of
-  44.1 kHz, reflecting the dominant native rate on modern hardware.
 - **WebAudio**: Sample rates now enumerated as discrete standard rates in the spec-required
   range of 3-768 kHz.
 
 ### Removed
 
-- Replaced `StreamInstant::add()` and `sub()` by `checked_add()`/`+` and `checked_sub()`/`-`.
+- `StreamInstant::add()` and `sub()` replaced by `checked_add()`/`+` and `checked_sub()`/`-`.
 - Removed deprecated `DeviceTrait::name()`.
 - **ALSA**: `Default` implementation for `Device`.
 - **ALSA**: `AlsaHost` is no longer re-exported from `cpal::platform`.
@@ -158,112 +127,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fix numeric overflows in calls to create `StreamInstant` in ASIO, CoreAudio and JACK.
+- `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` now return `ErrorKind::InvalidInput`
+  consistently across all backends (previously `UnsupportedConfig` or a panic).
+- Output buffers are now zero-filled before the callback runs across all backends.
+- Poisoned mutex guards now return `ErrorKind::StreamInvalidated` instead of panicking (AAudio,
+  ASIO, CoreAudio, JACK, WASAPI).
+- Fix callbacks firing before `build_*_stream` returns the `Stream` handle (ALSA, ASIO, WASAPI).
+- Fix `buffer_capacity_in_frames` integer overflow for large fixed buffer sizes (AAudio, ALSA).
+- Fix numeric overflows when constructing `StreamInstant` (ASIO, CoreAudio, JACK).
 - **AAudio**: Fix panic in device configuration enumeration for pathological channel counts.
 - **AAudio**: Fix thread lock when a stream is dropped before it fully starts.
-- **AAudio**: Fix capture and playback timestamps falling back to time-zero on error.
-- **AAudio**: Fix capture and playback timestamp not accounting for audio pipeline buffer depth.
-- **AAudio**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
-- **AAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
-- **AAudio**: Output buffers are now zero-filled before the callback runs.
-- **AAudio**: Stream errors are now forwarded to `error_callback`.
-- **AAudio**: Fix `channels: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
-- **AAudio**: Fix `sample_rate: 0` silently opening a stream at the NDK default rate instead of
-  returning `InvalidInput`.
+- **AAudio**: Fix capture and playback timestamps not accounting for audio pipeline buffer depth,
+  and falling back to zero on error.
 - **AAudio**: Fix `sample_rate` values above `i32::MAX` panicking.
-- **AAudio**: Return `ErrorKind::BackendError` instead of panicking the data callback on a sample count overflow.
+- **AAudio**: Fix stream errors not forwarded to `error_callback`.
+- **AAudio**: Return `ErrorKind::BackendError` instead of panicking on sample count overflow in
+  the data callback.
 - **ALSA**: Fix capture stream hanging or spinning on overruns.
-- **ALSA**: Fix timestamps stepping backward during stream startup or after xrun recovery.
-- **ALSA**: Fix spurious timestamp errors during stream startup.
-- **ALSA**: Fix spurious timeout errors during polling.
+- **ALSA**: Fix timestamps stepping backward during startup or after xrun recovery.
+- **ALSA**: Fix spurious timestamp and timeout errors during stream startup and polling.
 - **ALSA**: Fix rare panics when dropping the stream is interrupted.
 - **ALSA**: Fix timestamp overflows on 32-bit platforms.
-- **ALSA**: Fix overflow in `buffer_capacity_in_frames` for large fixed buffer sizes.
-- **ALSA**: Fix silence template not being applied for DSD.
+- **ALSA**: Fix silence template not applied for DSD.
 - **ALSA**: Fix stream corruption on certain drivers with spurious wakeups.
-- **ALSA**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
+- **ALSA**: Fix hang when a device raced to an error state without delivering POLLERR.
+- **ALSA**: Fix `supported_configs()` reporting buffer size instead of period size, using the same
+  buffer range for all formats/channels, and dropping sample rates outside `COMMON_SAMPLE_RATES`.
 - **ALSA**: Fix `BufferSize::Fixed` validation opening the PCM device a second time.
-- **ALSA**: Fix hang when device raced to an error state without delivering POLLERR.
-- **ALSA**: Fix `supported_configs()` reporting buffer size instead of period size.
-- **ALSA**: Fix `supported_configs()` using the same buffer range for all formats and channels.
-- **ALSA**: Fix `supported_configs()` dropping sample rates outside of `COMMON_SAMPLE_RATES`.
-- **ALSA**: Fix `BufferSize::Fixed(0)` being silently accepted.
-- **ALSA**: Fix `channels: 0` or `sample_rate: 0` returning `UnsupportedConfig` instead of `InvalidInput`.
-- **ALSA**: Fix `build_*_stream_raw` returning `UnsupportedConfig` instead of `UnsupportedOperation` when
-  the device does not support the requested direction.
-- **ALSA**: Fix poll timeout overflow panicking when a stream timeout duration exceeds ~24 days.
+- **ALSA**: Fix poll timeout overflow panic for stream durations exceeding ~24 days.
+- **ALSA**: Fix `build_*_stream_raw` returning `UnsupportedConfig` instead of `UnsupportedOperation`
+  for direction-mismatched devices.
 - **ASIO**: Fix enumeration returning only the first device when using `collect()`.
-- **ASIO**: Fix device enumeration and stream creation failing when called from spawned threads.
-- **ASIO**: Fix buffer size not resizing when the driver reports `kAsioBufferSizeChange`.
-- **ASIO**: Fix latency not updating when the driver reports `kAsioLatenciesChanged`.
+- **ASIO**: Fix device enumeration and stream creation failing from spawned threads.
+- **ASIO**: Fix buffer size not resizing on `kAsioBufferSizeChange`.
+- **ASIO**: Fix latency not updating on `kAsioLatenciesChanged`.
 - **ASIO**: Fix distortion when buggy drivers fire the buffer callback multiple times per cycle.
-- **ASIO**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
-- **ASIO**: Poisoned stream mutex in the buffer-size change handler no longer silently skips the
-  update.
-- **ASIO**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of panicking.
-- **ASIO**: Output buffers are now zero-filled before the callback runs.
-- **ASIO**: Fix `driver.sample_rate()` failures at stream creation being silently ignored.
-- **ASIO**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
-- **ASIO**: Fix overrun not being reported when the driver reports `kAsioOverload`.
-- **ASIO**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning
-  `ErrorKind::InvalidInput`; preventing a divide-by-zero panic.
-- **ASIO**: Fix `BufferSize::Fixed` with a size that does not align to the driver's step constraint
-  not returning `ErrorKind::UnsupportedConfig`.
-- **AudioWorklet**: Fix `default_output_device()` to return `None` when AudioWorklet is unavailable.
-- **AudioWorklet**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
-  channels than requested.
-- **AudioWorklet**: Fix `supported_output_configs()` reporting the buffer size upper bound as
-  `FrameCount::MAX`; now correctly `floor(6 × sample_rate)` per spec.
-- **AudioWorklet**: Fix `supported_output_configs()` reporting the minimum render quantum size as
-  128 when `renderQuantumSize` is supported; the spec minimum is 1.
-- **CoreAudio**: Fix default output streams silently stopping when the system default output
-  device is unplugged; they now reroute automatically or report `ErrorKind::DeviceNotAvailable`.
-- **CoreAudio**: Fix undefined behaviour and silent failure in loopback device creation.
-- **CoreAudio**: Fix loopback aggregate device UID collisions between concurrent instances and after crashes.
+- **ASIO**: Fix poisoned callback and buffer-size-change mutexes silently dropping notifications.
+- **ASIO**: Fix `driver.sample_rate()` failures at stream creation silently ignored.
+- **ASIO**: Fix overrun not reported when the driver reports `kAsioOverload`.
+- **ASIO**: Fix `BufferSize::Fixed` with a size not aligned to the driver's step constraint not
+  returning `ErrorKind::UnsupportedConfig`.
+- **AudioWorklet**: Fix `default_output_device()` returning non-`None` when AudioWorklet is
+  unavailable.
+- **AudioWorklet**: Fix channel count silently clamped below `destination.maxChannelCount`.
+- **AudioWorklet**: Fix `supported_output_configs()` reporting `FrameCount::MAX` as the buffer
+  size upper bound (correct: `floor(6 * sample_rate)` per spec).
+- **AudioWorklet**: Fix `supported_output_configs()` reporting 128 as the minimum render quantum
+  when `renderQuantumSize` is supported (spec minimum is 1).
+- **CoreAudio**: Fix default output streams silently stopping when the system default device is
+  unplugged; they now reroute or report `ErrorKind::DeviceNotAvailable`.
+- **CoreAudio**: Fix undefined behavior and silent failure in loopback device creation.
+- **CoreAudio**: Fix loopback aggregate device UID collisions between concurrent instances and
+  after crashes.
 - **CoreAudio**: Fix loopback capture returning silence due to disabled tap auto-start.
-- **CoreAudio**: Poisoned stream locks now return `ErrorKind::StreamInvalidated` instead of 
-  panicking.
 - **CoreAudio**: Fix crashes on certain drivers due to early initialization.
-- **CoreAudio**: Fix `supported_output_configs()` and `supported_input_configs()` collapsing
-  non-continuous hardware rates into a continuous range of sample rates (regression since v0.17.0).
-- **CoreAudio**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` to return `ErrorKind::InvalidInput`.
-- **CoreAudio**: Fix `BufferSize::Fixed` producing cryptic backend errors when not validated against
-  the hardware buffer frame size range before stream creation.
-- **CoreAudio (iOS)**: Fix `BufferSize::Fixed` not being validated against the supported range before stream creation.
+- **CoreAudio**: Fix `supported_output/input_configs()` collapsing non-continuous hardware rates
+  into a continuous range (regression since v0.17.0).
+- **CoreAudio**: Fix `BufferSize::Fixed` producing cryptic backend errors when not validated
+  against the hardware buffer range.
+- **CoreAudio (iOS)**: Fix `BufferSize::Fixed` not validated against the supported range before
+  stream creation.
 - **JACK**: Fix input capture timestamp using callback execution time instead of cycle start.
-- **JACK**: Poisoned error callback mutex no longer silently drops subsequent error notifications.
-- **JACK**: Port registration failure now fails stream creation instead of silently failing.
-- **JACK**: `activate_async()` failure now returns an error instead of panicking.
-- **JACK**: Sample rate is now validated against the live JACK server at stream creation time.
-- **JACK**: Underrun notification no longer blocks the notification thread.
-- **JACK**: Output buffers are now zero-filled before the callback runs.
-- **JACK**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning `ErrorKind::InvalidInput`
-  before attempting server connection.
-- **JACK**: Fix `supported_input_configs()` and `supported_output_configs()` reporting a hardcoded sparse channel
-  list instead of enumerating all counts up to the number of physical system ports.
-- **PipeWire**: Fix `channels: 0` or `sample_rate: 0` silently using PipeWire-negotiated values instead of
-  returning `ErrorKind::InvalidInput`.
-- **PulseAudio**: Fix `channels: 0` or `sample_rate: 0` reaching the server instead of returning `ErrorKind::InvalidInput`.
-- **WASAPI**: Poisoned locks now returns an error instead of panicking.
-- **WASAPI**: Output buffers are now zero-filled before the callback runs.
+- **JACK**: Fix poisoned error callback mutex silently dropping subsequent error notifications.
+- **JACK**: Fix port registration failure not propagating to stream creation.
+- **JACK**: Fix `activate_async()` failure panicking instead of returning an error.
+- **JACK**: Fix sample rate not validated against the live JACK server at stream creation.
+- **JACK**: Fix underrun notification blocking the notification thread.
+- **JACK**: Fix `supported_input/output_configs()` reporting a hardcoded sparse channel list
+  instead of enumerating all counts up to physical system ports.
+- **PipeWire**: Fix `channels: 0` or `sample_rate: 0` silently using PipeWire-negotiated values
+  instead of returning `ErrorKind::InvalidInput`.
+- **PulseAudio**: Fix `supported_output_configs()` and `default_output_config()` not accounting
+  for PulseAudio's double-buffer.
 - **WASAPI**: Fix audio worker thread spawn failure panicking instead of returning an error.
-- **WASAPI**: Fix callbacks firing before `build_*_stream` returns the `Stream` handle.
-- **WASAPI**: Fix Communications-class inputs to return silence.
-- **WASAPI**: Fix `supported_input_configs()` advertising unsupported sample rates on input 
+- **WASAPI**: Fix Communications-class inputs returning non-silence.
+- **WASAPI**: Fix `supported_input_configs()` advertising unsupported sample rates on input
   devices.
 - **WASAPI**: Fix `sample_rate: 0` with `BufferSize::Fixed` causing a divide-by-zero panic.
-- **WASAPI**: Fix `channels: 0` or `sample_rate: 0` not returning `ErrorKind::InvalidInput`.
-- **WASAPI**: Fix `supported_input_configs()`, `supported_output_configs()`, `default_input_config()`,
-  and `default_output_config()` reporting an unconstrained buffer range on software audio stacks.
-- **PulseAudio**: Fix `supported_output_configs()` and `default_output_config()` to account for PulseAudio's double-buffer.
+- **WASAPI**: Fix `supported_input/output_configs()` and `default_input/output_config()` reporting
+  an unconstrained buffer range on software audio stacks.
 - **WebAudio**: Fix overflow with pathological channel counts.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
-- **WebAudio**: Report errors through the callback instead of panicking.
-- **WebAudio**: Fix `default_output_device()` to return `None` when WebAudio is unavailable.
-- **WebAudio**: Fix `channels: 0`, `sample_rate: 0`, or `BufferSize::Fixed(0)` not returning `ErrorKind::InvalidInput`.
-- **WebAudio**: Fix channel count exceeding `destination.maxChannelCount` silently using fewer
-  channels than requested.
-
+- **WebAudio**: Fix errors panicking instead of being reported through the callback.
+- **WebAudio**: Fix `default_output_device()` returning `Some` when WebAudio is unavailable.
+- **WebAudio**: Fix channel count silently clamped when exceeding `destination.maxChannelCount`.
 
 ## [0.17.3] - 2026-02-18
 
