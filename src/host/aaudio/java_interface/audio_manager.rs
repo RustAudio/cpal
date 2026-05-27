@@ -1,5 +1,5 @@
 use super::{
-    utils::{get_context, get_system_property, with_attached, JNIEnv, JResult},
+    utils::{get_context, get_system_property, with_attached, Env, JResult},
     AudioManager,
 };
 
@@ -13,13 +13,12 @@ impl AudioManager {
     }
 }
 
-fn get_mixer_bursts<'j>(env: &mut JNIEnv<'j>) -> JResult<i32> {
+fn get_mixer_bursts<'j>(env: &mut Env<'j>) -> JResult<i32> {
     let mixer_bursts = get_system_property(env, "aaudio.mixer_bursts", "2")?;
 
-    let mixer_bursts_string = String::from(env.get_string(&mixer_bursts)?);
+    let mixer_bursts_string = String::from(mixer_bursts.mutf8_chars(env)?);
 
-    // TODO: Use jni::errors::Error::ParseFailed instead of jni::errors::Error::JniCall once jni > v0.21.1 is released
     mixer_bursts_string
         .parse::<i32>()
-        .map_err(|_| jni::errors::Error::JniCall(jni::errors::JniError::Unknown))
+        .map_err(|e| jni::errors::Error::ParseFailed(e.to_string()))
 }

@@ -13,10 +13,15 @@ use std::{
 
 use pipewire::{
     self as pw,
+    context::ContextRc,
+    core::PW_ID_CORE,
+    main_loop::MainLoopRc,
     metadata::{Metadata, MetadataListener},
     node::{Node, NodeListener},
+    properties::PropertiesBox,
     proxy::ProxyT,
     spa::utils::result::AsyncSeq,
+    types::ObjectType,
 };
 
 use super::stream::Stream;
@@ -151,7 +156,7 @@ impl Device {
         &self,
         direction: DeviceDirection,
         config: &StreamConfig,
-    ) -> pw::properties::PropertiesBox {
+    ) -> PropertiesBox {
         let mut properties = match direction {
             DeviceDirection::Output => pw::properties::properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
@@ -738,17 +743,17 @@ fn parse_fraction(s: &str) -> Option<(u32, u32)> {
     Some((num, den))
 }
 
-fn remote_props() -> Option<pw::properties::PropertiesBox> {
+fn remote_props() -> Option<PropertiesBox> {
     let socket = super::utils::find_socket_path()?;
-    let mut props = pw::properties::PropertiesBox::new();
+    let mut props = PropertiesBox::new();
     props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
     Some(props)
 }
 
 pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
-    let mainloop = pw::main_loop::MainLoopRc::new(None).ok()?;
-    let context = pw::context::ContextRc::new(&mainloop, None).ok()?;
+    let mainloop = MainLoopRc::new(None).ok()?;
+    let context = ContextRc::new(&mainloop, None).ok()?;
     let core = context.connect_rc(remote_props()).ok()?;
     let registry = core.get_registry_rc().ok()?;
 
@@ -770,7 +775,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         .done({
             let pending_events = pending_events.clone();
             move |id, seq| {
-                if id != pw::core::PW_ID_CORE {
+                if id != PW_ID_CORE {
                     return;
                 }
                 let mut pendinglist = pending_events.borrow_mut();
@@ -793,7 +798,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
             let requests = requests.clone();
             let settings = settings.clone();
             move |global| match global.type_ {
-                pipewire::types::ObjectType::Metadata => {
+                ObjectType::Metadata => {
                     if !global.props.is_some_and(|props| {
                         props
                             .get(METADATA_NAME)
@@ -861,7 +866,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                         .borrow_mut()
                         .push((meta_settings.upcast(), Request::Meta(listener)));
                 }
-                pipewire::types::ObjectType::Node => {
+                ObjectType::Node => {
                     let Some(props) = global.props else {
                         return;
                     };

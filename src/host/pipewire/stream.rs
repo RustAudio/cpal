@@ -12,18 +12,22 @@ use std::{
 use pipewire::{
     self as pw,
     context::ContextRc,
-    core::{CoreRc, Listener as CoreListener},
+    core::{CoreRc, Listener as CoreListener, PW_ID_CORE},
     main_loop::MainLoopRc,
     metadata::{Metadata, MetadataListener},
+    properties::PropertiesBox,
     registry::{Listener as RegistryListener, RegistryRc},
     spa::{
         param::{
+            audio::{AudioFormat, AudioInfoRaw},
             format::{MediaSubtype, MediaType},
-            format_utils,
+            format_utils, ParamType,
         },
-        pod::Pod,
+        pod::{serialize::PodSerializer, Object, Pod, Value},
+        utils::{Direction, SpaTypes},
     },
-    stream::{StreamListener, StreamRc, StreamState},
+    stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
+    types::ObjectType,
 };
 
 use crate::{
@@ -168,7 +172,7 @@ pub(crate) const SUPPORTED_FORMATS: &[SampleFormat] = &[
     SampleFormat::F64,
 ];
 
-impl From<SampleFormat> for pw::spa::param::audio::AudioFormat {
+impl From<SampleFormat> for AudioFormat {
     fn from(value: SampleFormat) -> Self {
         match value {
             SampleFormat::I8 => Self::S8,
@@ -218,7 +222,7 @@ pub struct UserData<D> {
     data_callback: D,
     error_callback: ErrorCallbackArc,
     sample_format: SampleFormat,
-    format: pw::spa::param::audio::AudioInfoRaw,
+    format: AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
     start: Instant,
     is_default_device: Arc<AtomicBool>,
@@ -256,36 +260,15 @@ impl<D> UserData<D> {
     }
 }
 
-/// Hardware timestamp from a PipeWire graph cycle.
-struct PwTime {
-    /// CLOCK_MONOTONIC nanoseconds, stamped at the start of the graph cycle.
-    now_ns: i64,
-    /// Pipeline delay converted to nanoseconds.
-    /// For output: how far ahead of the driver our next sample will be played.
-    /// For input:  how long ago the data in the buffer was captured.
-    delay_ns: i64,
-}
-
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
 /// the driver has not started yet or the rate is unavailable.
-fn pw_stream_time(stream: &pw::stream::Stream) -> Option<PwTime> {
-    let mut t: pw::sys::pw_time = unsafe { std::mem::zeroed() };
-    let rc = unsafe {
-        pw::sys::pw_stream_get_time_n(
-            stream.as_raw_ptr(),
-            &mut t,
-            std::mem::size_of::<pw::sys::pw_time>(),
-        )
-    };
-    if rc != 0 || t.now <= 0 || t.rate.denom == 0 {
+fn pw_stream_time(stream: &pw::stream::Stream) -> Option<Time> {
+    let t = stream.time().ok()?;
+    if t.now() <= 0 || t.rate().denom == 0 {
         return None;
     }
-    debug_assert_eq!(t.rate.num, 1, "unexpected pw_time rate.num");
-    let delay_ns = t.delay * 1_000_000_000i64 / t.rate.denom as i64;
-    Some(PwTime {
-        now_ns: t.now,
-        delay_ns,
-    })
+    debug_assert_eq!(t.rate().num, 1, "unexpected pw_time rate.num");
+    Some(t)
 }
 
 impl<D> UserData<D>
@@ -295,10 +278,13 @@ where
     fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, capture) = match pw_stream_time(stream) {
-            Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns as u64),
-                StreamInstant::from_nanos((now_ns - delay_ns.max(0)) as u64),
-            ),
+            Some(t) => {
+                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
+                (
+                    StreamInstant::from_nanos(t.now() as u64),
+                    StreamInstant::from_nanos((t.now() - delay_ns.max(0)) as u64),
+                )
+            }
             None => {
                 let cb = monotonic_stream_instant()
                     .unwrap_or_else(|| stream_instant_from_start(self.start));
@@ -321,10 +307,13 @@ where
     fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
         let (callback, playback) = match pw_stream_time(stream) {
-            Some(PwTime { now_ns, delay_ns }) => (
-                StreamInstant::from_nanos(now_ns as u64),
-                StreamInstant::from_nanos((now_ns + delay_ns.max(0)) as u64),
-            ),
+            Some(t) => {
+                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
+                (
+                    StreamInstant::from_nanos(t.now() as u64),
+                    StreamInstant::from_nanos((t.now() + delay_ns.max(0)) as u64),
+                )
+            }
             None => {
                 let cb = monotonic_stream_instant()
                     .unwrap_or_else(|| stream_instant_from_start(self.start));
@@ -359,9 +348,9 @@ fn stream_instant_from_start(start: Instant) -> StreamInstant {
 
 /// Read `clock_gettime` and return it as a [`StreamInstant`].
 ///
-/// This is the same clock used by `pw_stream_get_time_n` (`pw_time.now`), so values
-/// returned here are directly comparable with the `callback`/`capture`/`playback`
-/// instants delivered to the data callback.
+/// This is the same clock source used by `pw_stream_get_time_n`, so values returned
+/// here are directly comparable with the `callback`/`capture`/`playback` instants
+/// delivered to the data callback.
 fn monotonic_stream_instant() -> Option<StreamInstant> {
     let mut ts = libc::timespec {
         tv_sec: 0,
@@ -375,9 +364,9 @@ fn monotonic_stream_instant() -> Option<StreamInstant> {
     }
 }
 
-fn remote_props() -> Option<pw::properties::PropertiesBox> {
+fn remote_props() -> Option<PropertiesBox> {
     let socket = super::utils::find_socket_path()?;
-    let mut props = pw::properties::PropertiesBox::new();
+    let mut props = PropertiesBox::new();
     props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
     Some(props)
 }
@@ -412,7 +401,7 @@ impl DefaultDeviceMonitor {
         let registry_listener = registry
             .add_listener_local()
             .global(move |global| {
-                if global.type_ != pipewire::types::ObjectType::Metadata {
+                if global.type_ != ObjectType::Metadata {
                     return;
                 }
                 if !global.props.is_some_and(|props| {
@@ -492,7 +481,7 @@ impl DefaultDeviceMonitor {
 
 pub struct ConnectParams {
     pub config: StreamConfig,
-    pub properties: pw::properties::PropertiesBox,
+    pub properties: PropertiesBox,
     pub sample_format: SampleFormat,
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
@@ -517,8 +506,8 @@ where
         connect_automatically,
     } = params;
 
-    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
-    let context = pw::context::ContextRc::new(&mainloop, None)?;
+    let mainloop = MainLoopRc::new(None)?;
+    let context = ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
@@ -532,7 +521,7 @@ where
         let error_callback_core = error_callback.clone();
         core.add_listener_local()
             .error(move |id, _seq, _res, message| {
-                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
+                if id == PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &error_callback_core,
                         Error::with_message(
@@ -560,7 +549,7 @@ where
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = pw::stream::StreamRc::new(
+    let stream = StreamRc::new(
         core.clone(),
         &format!("cpal-playback-{}", std::process::id()),
         properties,
@@ -572,7 +561,7 @@ where
             let Some(param) = param else {
                 return;
             };
-            if id != pw::spa::param::ParamType::Format.as_raw() {
+            if id != ParamType::Format.as_raw() {
                 return;
             }
 
@@ -593,7 +582,7 @@ where
                     let current_channels = user_data.format.channels();
                     let current_rate = user_data.format.rate();
                     let expected_fmt =
-                        pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                        AudioFormat::from(user_data.sample_format);
                     let current_fmt = user_data.format.format();
                     let mismatch = current_channels != channels
                         || current_rate != rate
@@ -700,35 +689,33 @@ where
             }
         })
         .register()?;
-    let mut audio_info = pw::spa::param::audio::AudioInfoRaw::new();
+    let mut audio_info = AudioInfoRaw::new();
     audio_info.set_format(sample_format.into());
     audio_info.set_rate(rate);
     audio_info.set_channels(channels);
 
-    let obj = pw::spa::pod::Object {
-        type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
-        id: pw::spa::param::ParamType::EnumFormat.as_raw(),
+    let obj = Object {
+        type_: SpaTypes::ObjectParamFormat.as_raw(),
+        id: ParamType::EnumFormat.as_raw(),
         properties: audio_info.into(),
     };
-    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &pw::spa::pod::Value::Object(obj),
-    )
-    .unwrap()
-    .0
-    .into_inner();
+    let values: Vec<u8> =
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &Value::Object(obj))
+            .unwrap()
+            .0
+            .into_inner();
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let mut flags = pw::stream::StreamFlags::MAP_BUFFERS;
+    let mut flags = StreamFlags::MAP_BUFFERS;
     if connect_automatically {
-        flags |= pw::stream::StreamFlags::AUTOCONNECT;
+        flags |= StreamFlags::AUTOCONNECT;
     }
 
-    stream.connect(pw::spa::utils::Direction::Output, None, flags, &mut params)?;
+    stream.connect(Direction::Output, None, flags, &mut params)?;
 
     Ok(StreamData {
         mainloop,
@@ -762,8 +749,8 @@ where
         connect_automatically,
     } = params;
 
-    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
-    let context = pw::context::ContextRc::new(&mainloop, None)?;
+    let mainloop = MainLoopRc::new(None)?;
+    let context = ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(remote_props())?;
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
@@ -777,7 +764,7 @@ where
         let error_callback_core = error_callback.clone();
         core.add_listener_local()
             .error(move |id, _seq, _res, message| {
-                if id == pw::core::PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
+                if id == PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
                     emit_error(
                         &error_callback_core,
                         Error::with_message(
@@ -806,7 +793,7 @@ where
 
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = pw::stream::StreamRc::new(
+    let stream = StreamRc::new(
         core.clone(),
         &format!("cpal-capture-{}", std::process::id()),
         properties,
@@ -817,7 +804,7 @@ where
             let Some(param) = param else {
                 return;
             };
-            if id != pw::spa::param::ParamType::Format.as_raw() {
+            if id != ParamType::Format.as_raw() {
                 return;
             }
 
@@ -839,7 +826,7 @@ where
                     let current_channels = user_data.format.channels();
                     let current_rate = user_data.format.rate();
                     let expected_fmt =
-                        pw::spa::param::audio::AudioFormat::from(user_data.sample_format);
+                        AudioFormat::from(user_data.sample_format);
                     let current_fmt = user_data.format.format();
                     let mismatch = current_channels != channels
                         || current_rate != rate
@@ -928,35 +915,33 @@ where
             }
         })
         .register()?;
-    let mut audio_info = pw::spa::param::audio::AudioInfoRaw::new();
+    let mut audio_info = AudioInfoRaw::new();
     audio_info.set_format(sample_format.into());
     audio_info.set_rate(rate);
     audio_info.set_channels(channels);
 
-    let obj = pw::spa::pod::Object {
-        type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
-        id: pw::spa::param::ParamType::EnumFormat.as_raw(),
+    let obj = Object {
+        type_: SpaTypes::ObjectParamFormat.as_raw(),
+        id: ParamType::EnumFormat.as_raw(),
         properties: audio_info.into(),
     };
-    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &pw::spa::pod::Value::Object(obj),
-    )
-    .unwrap()
-    .0
-    .into_inner();
+    let values: Vec<u8> =
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &Value::Object(obj))
+            .unwrap()
+            .0
+            .into_inner();
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let mut flags = pw::stream::StreamFlags::MAP_BUFFERS;
+    let mut flags = StreamFlags::MAP_BUFFERS;
     if connect_automatically {
-        flags |= pw::stream::StreamFlags::AUTOCONNECT;
+        flags |= StreamFlags::AUTOCONNECT;
     }
 
-    stream.connect(pw::spa::utils::Direction::Input, None, flags, &mut params)?;
+    stream.connect(Direction::Input, None, flags, &mut params)?;
 
     Ok(StreamData {
         mainloop,

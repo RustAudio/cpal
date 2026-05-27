@@ -356,8 +356,7 @@ where
                     Error::with_message(
                         ErrorKind::BackendError,
                         format!(
-                            "AAudio provided an invalid frame count in the data callback \
-                             ({num_frames} frames × {channel_count} channels)",
+                            "AAudio provided an invalid frame count in the data callback ({num_frames} frames with {channel_count} channels)",
                         ),
                     ),
                 );
@@ -447,8 +446,7 @@ where
                     Error::with_message(
                         ErrorKind::BackendError,
                         format!(
-                            "AAudio provided an invalid frame count in the data callback \
-                             ({num_frames} frames × {channel_count} channels)",
+                            "AAudio provided an invalid frame count in the data callback ({num_frames} frames with {channel_count} channels)",
                         ),
                     ),
                 );

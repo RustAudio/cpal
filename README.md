@@ -42,17 +42,18 @@ The minimum Rust version required depends on which audio backend and features yo
 | Backend | Platforms | MSRV |
 | ------- | --------- | ---- |
 | AAudio | Android | 1.85 |
-| ALSA | Linux, BSD | 1.82 |
-| CoreAudio | macOS, iOS, tvOS | 1.85 |
-| JACK | Linux, BSD, macOS, Windows | 1.82 |
+| ALSA | Linux, BSD | 1.85 |
+| CoreAudio | macOS, iOS | 1.85 |
+| CoreAudio | tvOS | nightly |
+| JACK | Linux, BSD, macOS, Windows | 1.85 |
 | PipeWire | Linux, BSD | 1.85 |
 | PulseAudio | Linux, BSD | 1.88 |
-| WASAPI / ASIO | Windows | 1.82 |
+| WASAPI / ASIO | Windows | 1.85 |
 | WASM (`wasm32-unknown`) | WebAssembly | 1.85 |
-| WASM (`wasm32-wasip1`) | WebAssembly | 1.78 |
+| WASM (`wasm32-wasip1`) | WebAssembly | 1.85 |
 | WASM (`audioworklet`) | WebAssembly | nightly |
 
-The `audioworklet` backend requires nightly Rust and `-Zbuild-std` with atomics support enabled.
+The `audioworklet` backend additionally requires `-Zbuild-std` with atomics support enabled.
 
 ## Optional Features
 
