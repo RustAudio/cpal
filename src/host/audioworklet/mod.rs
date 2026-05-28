@@ -12,7 +12,8 @@ use std::{
     time::Duration,
 };
 
-use futures::{channel::mpsc, StreamExt as _};
+use futures_channel::mpsc;
+use futures_util::StreamExt as _;
 use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
@@ -256,7 +257,13 @@ impl DeviceTrait for Device {
     /// initialization succeeds, then the queued commands take effect; if it fails they are
     /// discarded and the error is delivered to `error_callback`.
     ///
+    /// [`now`](crate::traits::StreamTrait::now) returns the scheduled time of the last rendered
+    /// audio frame, seeded from [`AudioContext::current_time`] at construction. While the stream
+    /// is paused, this value does not advance. This is consistent with the [`AudioContext`] clock,
+    /// which also freezes when paused.
+    ///
     /// [`AudioContext`]: web_sys::AudioContext
+    /// [`AudioContext::current_time`]: https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/currentTime
     /// [`AudioWorkletNode`]: web_sys::AudioWorkletNode
     fn build_output_stream_raw<D, E>(
         &self,

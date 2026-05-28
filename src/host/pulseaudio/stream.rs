@@ -6,8 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::executor::block_on;
-use futures::FutureExt as _;
+use futures_executor::block_on;
+use futures_util::FutureExt as _;
 use pulseaudio::{protocol, AsPlaybackSource};
 
 use crate::{
