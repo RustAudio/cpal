@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use futures::executor::block_on;
+use futures_executor::block_on;
 use pulseaudio::protocol;
 
 mod stream;

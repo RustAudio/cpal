@@ -41,6 +41,8 @@ asio = [
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
 # Platform: WebAssembly (wasm32-unknown-unknown)
 audioworklet = [
+    "dep:futures-channel",
+    "dep:futures-util",
     "wasm-bindgen",
     "web-sys/Blob",
     "web-sys/BlobPropertyBag",
@@ -72,7 +74,7 @@ pipewire = ["dep:pipewire"]
 # Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
 # Requires: PulseAudio server and client libraries installed on the system
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
-pulseaudio = ["dep:pulseaudio", "dep:futures"]
+pulseaudio = ["dep:pulseaudio", "dep:futures-executor", "dep:futures-util"]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
@@ -123,7 +125,8 @@ libc = "0.2"
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
-futures = { version = "0.3", optional = true }
+futures-executor = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true, features = ["alloc"] }
 pipewire = { version = "0.10", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
@@ -177,6 +180,8 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+futures-channel = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true, features = ["alloc"] }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
     "AudioContext",

@@ -23,6 +23,7 @@ pub use self::ios::{
     Device, Host, Stream,
 };
 #[cfg(target_os = "macos")]
+#[allow(unused_imports)]
 pub use self::macos::{Host, Stream};
 
 // Common helper methods used by both macOS and iOS
@@ -137,7 +138,3 @@ impl From<coreaudio::Error> for Error {
 }
 
 pub(crate) type OSStatus = i32;
-
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);

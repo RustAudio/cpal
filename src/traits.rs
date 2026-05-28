@@ -2,8 +2,8 @@
 //!
 //! # Custom Host Implementations
 //!
-//! When implementing custom hosts with the `custom` feature, use the [`assert_stream_send!`](crate::assert_stream_send)
-//! and [`assert_stream_sync!`](crate::assert_stream_sync) macros to verify your `Stream` type meets CPAL's requirements.
+//! When implementing custom hosts with the `custom` feature, your `Device` type must implement
+//! [`DeviceTrait`] and your `Stream` type must implement [`StreamTrait`].
 
 use std::{
     fmt::{Debug, Display},
@@ -109,7 +109,7 @@ pub trait HostTrait {
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
-pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
+pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// The iterator type yielding supported input stream formats.
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
@@ -410,7 +410,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
 }
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control it.
-pub trait StreamTrait {
+pub trait StreamTrait: Send + Sync {
     /// Start the stream.
     ///
     /// Streams returned by `build_*_stream` are always stopped, so `play` must be called before the
@@ -481,17 +481,7 @@ pub trait StreamTrait {
 }
 
 /// Compile-time assertion that a stream type implements [`Send`].
-///
-/// Custom host implementations should use this macro to verify their `Stream` type
-/// can be safely transferred between threads, as required by CPAL's API.
-///
-/// # Example
-///
-/// ```
-/// use cpal::assert_stream_send;
-/// struct MyStream { /* ... */ }
-/// assert_stream_send!(MyStream);
-/// ```
+#[deprecated(since = "0.19.0", note = "StreamTrait now requires Send + Sync")]
 #[macro_export]
 macro_rules! assert_stream_send {
     ($t:ty) => {
@@ -501,17 +491,7 @@ macro_rules! assert_stream_send {
 }
 
 /// Compile-time assertion that a stream type implements [`Sync`].
-///
-/// Custom host implementations should use this macro to verify their `Stream` type
-/// can be safely shared between threads, as required by CPAL's API.
-///
-/// # Example
-///
-/// ```
-/// use cpal::assert_stream_sync;
-/// struct MyStream { /* ... */ }
-/// assert_stream_sync!(MyStream);
-/// ```
+#[deprecated(since = "0.19.0", note = "StreamTrait now requires Send + Sync")]
 #[macro_export]
 macro_rules! assert_stream_sync {
     ($t:ty) => {

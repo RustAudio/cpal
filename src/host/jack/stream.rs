@@ -41,10 +41,6 @@ pub struct Stream {
     output_port_names: Box<[String]>,
 }
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 impl Stream {
     pub fn new_input<D, E>(
         client: jack::Client,

@@ -84,10 +84,6 @@ pub struct Stream {
     time_base: Arc<TimeBase>,
 }
 
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
-
 impl Stream {
     pub fn now(&self) -> StreamInstant {
         // `ASIOTimeInfo::systemTime` is specified by the ASIO SDK as nanoseconds

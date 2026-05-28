@@ -1,3 +1,22 @@
+# Upgrading from v0.18 to v0.19
+
+This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
+
+## Breaking Changes Checklist
+
+- [ ] If you implement a custom host, ensure your `Device` and `Stream` types are `Send + Sync`.
+- [ ] Remove any calls to the deprecated `assert_stream_send!` and `assert_stream_sync!` macros.
+
+## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
+
+**What changed:** `DeviceTrait` and `StreamTrait` now declare `Send + Sync` as supertrait bounds.
+
+This only affects authors of `custom` host implementations. Users of built-in hosts are unaffected.
+
+**Impact:** Remove any `assert_stream_send!` and `assert_stream_sync!` calls from your custom host; they are now deprecated. If your `Device` or `Stream` type contains raw pointers or other non-`Send`/non-`Sync` internals (e.g. COM handles, JS objects), audit that concurrent access is actually safe, then add `unsafe impl Send` and `unsafe impl Sync`.
+
+---
+
 # Upgrading from v0.17 to v0.18
 
 This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
