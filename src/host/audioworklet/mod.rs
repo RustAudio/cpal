@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use futures::{channel::mpsc, StreamExt as _};
 use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
@@ -43,7 +44,8 @@ impl fmt::Display for Device {
 pub struct Host;
 
 pub struct Stream {
-    audio_context: web_sys::AudioContext,
+    command_tx: mpsc::UnboundedSender<Command>,
+    current_time_bits: Arc<AtomicU64>,
     buffer_size_frames: Arc<AtomicU64>,
 }
 
@@ -86,6 +88,11 @@ fn supported_render_quantum_range(sample_rate: SampleRate) -> SupportedBufferSiz
             max: DEFAULT_RENDER_SIZE as FrameCount,
         }
     }
+}
+
+enum Command {
+    Play,
+    Pause,
 }
 
 impl Host {
@@ -244,6 +251,11 @@ impl DeviceTrait for Device {
     /// delivered to `error_callback` after the caller already holds a [`Stream`]. There is no
     /// way to surface such errors synchronously given the Web Audio API's design.
     ///
+    /// [`play`](crate::traits::StreamTrait::play) and [`pause`](crate::traits::StreamTrait::pause)
+    /// calls made before initialization completes return `Ok` immediately and are queued. If
+    /// initialization succeeds, then the queued commands take effect; if it fails they are
+    /// discarded and the error is delivered to `error_callback`.
+    ///
     /// [`AudioContext`]: web_sys::AudioContext
     /// [`AudioWorkletNode`]: web_sys::AudioWorkletNode
     fn build_output_stream_raw<D, E>(
@@ -346,6 +358,13 @@ impl DeviceTrait for Device {
         });
         let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
         let buffer_size_frames_cb = buffer_size_frames.clone();
+
+        let current_time_bits = Arc::new(AtomicU64::new(audio_context.current_time().to_bits()));
+        let current_time_bits_cb = current_time_bits.clone();
+        let current_time_bits_init = current_time_bits.clone();
+
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let result: Result<(), JsValue> = async move {
@@ -389,6 +408,7 @@ impl DeviceTrait for Device {
                     &WasmAudioProcessor::new(Box::new(
                         move |interleaved_data, frame_size, sample_rate, now| {
                             buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
+                            current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
                             let data = interleaved_data.as_mut_ptr() as *mut ();
                             let mut data = unsafe {
                                 Data::from_parts(data, interleaved_data.len(), sample_format)
@@ -421,15 +441,46 @@ impl DeviceTrait for Device {
                 let message = err
                     .as_string()
                     .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
-                error_callback(Error::with_message(
-                    ErrorKind::UnsupportedOperation,
-                    message,
-                ))
+                error_callback(Error::with_message(ErrorKind::HostUnavailable, message));
+
+                // Close AudioContext and exit; dropping command_rx closes the channel,
+                // so subsequent play()/pause() calls return HostUnavailable.
+                let _ = audio_context.close();
+                return;
             }
+
+            current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
+
+            // Process play/pause commands from any thread until Stream is dropped.
+            // Dropping Stream closes command_tx, which terminates this loop.
+            while let Some(cmd) = command_rx.next().await {
+                match cmd {
+                    Command::Play => {
+                        if audio_context.resume().is_err() {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to resume audio context",
+                            ));
+                        }
+                    }
+                    Command::Pause => {
+                        if audio_context.suspend().is_err() {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to suspend audio context",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Stream dropped: close the AudioContext on the main thread.
+            let _ = audio_context.close();
         });
 
         Ok(Self::Stream {
-            audio_context,
+            command_tx,
+            current_time_bits,
             buffer_size_frames,
         })
     }
@@ -441,37 +492,27 @@ impl StreamTrait for Stream {
     }
 
     fn play(&self) -> Result<(), Error> {
-        match self.audio_context.resume() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to resume audio context",
-            )),
-        }
+        self.command_tx.unbounded_send(Command::Play).map_err(|_| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                "audio worklet initialization failed",
+            )
+        })
     }
 
     fn pause(&self) -> Result<(), Error> {
-        match self.audio_context.suspend() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to suspend audio context",
-            )),
-        }
+        self.command_tx.unbounded_send(Command::Pause).map_err(|_| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                "audio worklet initialization failed",
+            )
+        })
     }
 
     fn now(&self) -> StreamInstant {
-        StreamInstant::from_secs_f64(self.audio_context.current_time())
-    }
-}
-
-// SAFETY: `AudioContext` is only accessed from the thread that created the `Stream`.
-unsafe impl Send for Stream {}
-unsafe impl Sync for Stream {}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        let _ = self.audio_context.close();
+        StreamInstant::from_secs_f64(f64::from_bits(
+            self.current_time_bits.load(Ordering::Relaxed),
+        ))
     }
 }
 

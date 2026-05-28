@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
 - `assert_stream_send!` and `assert_stream_sync!` are deprecated; `StreamTrait: Send + Sync` makes them redundant.
 
+### Fixed
+
+- **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
+
 ## [0.18.0] - YYYY-MM-DD
 
 ### Added

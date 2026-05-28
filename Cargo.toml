@@ -41,6 +41,7 @@ asio = [
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
 # Platform: WebAssembly (wasm32-unknown-unknown)
 audioworklet = [
+    "dep:futures",
     "wasm-bindgen",
     "web-sys/Blob",
     "web-sys/BlobPropertyBag",
@@ -177,6 +178,7 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+futures = { version = "0.3", optional = true }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
     "AudioContext",

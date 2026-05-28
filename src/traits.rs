@@ -2,8 +2,8 @@
 //!
 //! # Custom Host Implementations
 //!
-//! When implementing custom hosts with the `custom` feature, use the [`assert_stream_send!`](crate::assert_stream_send)
-//! and [`assert_stream_sync!`](crate::assert_stream_sync) macros to verify your `Stream` type meets CPAL's requirements.
+//! When implementing custom hosts with the `custom` feature, your `Device` type must implement
+//! [`DeviceTrait`] and your `Stream` type must implement [`StreamTrait`].
 
 use std::{
     fmt::{Debug, Display},
