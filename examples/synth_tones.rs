@@ -7,9 +7,9 @@ extern crate clap;
 extern crate cpal;
 
 use cpal::{
+    Device, Error, ErrorKind, FromSample, Host, I24, OutputCallbackInfo, Sample, SampleFormat,
+    SizedSample, Stream, StreamConfig, SupportedStreamConfig, U24,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error, ErrorKind, FromSample, Host, OutputCallbackInfo, Sample, SampleFormat,
-    SizedSample, Stream, StreamConfig, SupportedStreamConfig, I24, U24,
 };
 
 fn main() -> anyhow::Result<()> {

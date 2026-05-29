@@ -1,7 +1,7 @@
 //! Manages loopback recording (recording system audio output)
 
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{CStr, c_void},
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{AtomicU32, Ordering},
@@ -9,26 +9,25 @@ use std::{
 
 static AGGREGATE_INSTANCE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-use objc2::{rc::Retained, AnyThread};
+use objc2::{AnyThread, rc::Retained};
 use objc2_core_audio::{
-    kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
-    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
-    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
     AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap,
     AudioHardwareDestroyAggregateDevice, AudioHardwareDestroyProcessTap,
     AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress, CATapDescription,
-    CATapMuteBehavior,
+    CATapMuteBehavior, kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
+    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
+    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
 };
 use objc2_core_foundation::{
+    CFArray, CFDictionary, CFMutableDictionary, CFRetained, CFString, CFStringCreateWithCString,
     kCFAllocatorDefault, kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks,
-    kCFTypeDictionaryValueCallBacks, CFArray, CFDictionary, CFMutableDictionary, CFRetained,
-    CFString, CFStringCreateWithCString,
+    kCFTypeDictionaryValueCallBacks,
 };
 use objc2_foundation::{NSArray, NSNumber, NSString};
 
 use super::device::Device;
-use crate::{host::coreaudio::check_os_status, Error, ErrorKind};
+use crate::{Error, ErrorKind, host::coreaudio::check_os_status};
 type CFStringRef = *mut std::os::raw::c_void;
 
 impl Device {

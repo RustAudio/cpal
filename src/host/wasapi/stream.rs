@@ -3,9 +3,9 @@ use std::{
     ops::ControlFlow,
     ptr,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, SendError, Sender},
         Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, SendError, Sender, channel},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -18,14 +18,14 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        ErrorCallbackArc,
-    },
-    traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
     StreamInstant,
+    host::{
+        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
+        latch::Latch,
+    },
+    traits::StreamTrait,
 };
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.

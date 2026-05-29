@@ -1,9 +1,9 @@
 use jni::sys::jobject;
 pub use jni::{
+    Env, JavaVM,
     errors::Result as JResult,
     objects::{JIntArray, JObject, JObjectArray, JString},
     strings::JNIString,
-    Env, JavaVM,
 };
 use ndk_context::AndroidContext;
 

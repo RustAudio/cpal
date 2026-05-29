@@ -10,8 +10,8 @@ extern crate libc;
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -21,18 +21,18 @@ use std::{
 use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 use crate::{
+    BufferSize, COMMON_SAMPLE_RATES, ChannelCount, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, FrameCount,
+    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
+    SampleFormat, SampleRate, StreamConfig, StreamInstant, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
-        equilibrium::{fill_equilibrium, DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE},
+        equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
         frames_to_duration,
         latch::Latch,
     },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    COMMON_SAMPLE_RATES,
 };
 
 mod enumerate;
@@ -1542,7 +1542,7 @@ fn sample_format_to_alsa_format(
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!("Sample format {sample_format} is not supported"),
-            ))
+            ));
         }
     };
 
@@ -1583,7 +1583,9 @@ fn set_hw_params_from_format(
             if !(min_period..=max_period).contains(&period_size) {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("Buffer size {period_size} is not in the supported range {min_period}..={max_period}"),
+                    format!(
+                        "Buffer size {period_size} is not in the supported range {min_period}..={max_period}"
+                    ),
                 ));
             }
         }
@@ -1594,7 +1596,9 @@ fn set_hw_params_from_format(
                 let effective_max = max_buffer / DEFAULT_PERIODS;
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("Buffer size {period_size} exceeds the maximum supported value of {effective_max}"),
+                    format!(
+                        "Buffer size {period_size} exceeds the maximum supported value of {effective_max}"
+                    ),
                 ));
             }
         }

@@ -1,8 +1,8 @@
 [package]
 name = "wasm-beep"
 description = "cpal beep example for WebAssembly"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 rust-version = "1.85"
 
 [lib]

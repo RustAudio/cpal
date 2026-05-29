@@ -11,8 +11,8 @@ use std::{
     os::raw::{c_char, c_double, c_void},
     ptr::null_mut,
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, Weak,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };

@@ -3,8 +3,9 @@ extern crate num_traits;
 
 use std::{
     sync::{
-        atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Mutex,
+        atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering},
+        mpsc,
     },
     time::Duration,
 };
@@ -12,14 +13,14 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
+    BufferSize, Data, Error, ErrorKind, FrameCount, I24, InputCallbackInfo, InputStreamTimestamp,
+    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant,
     host::{
         com,
         error_emit::{emit_error, try_emit_error},
         frames_to_duration,
     },
-    BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant, I24,
 };
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
@@ -1155,7 +1156,7 @@ fn check_config(
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!("Sample format {sample_format} is not supported"),
-            ))
+            ));
         }
     }
     if channels > num_asio_channels {

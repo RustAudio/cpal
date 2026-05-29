@@ -15,10 +15,10 @@ pub use self::{
     stream::Stream,
 };
 use crate::{
-    host::com,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Data, DeviceDescription, DeviceId, Error, FrameCount, InputCallbackInfo, OutputCallbackInfo,
     SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    host::com,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 mod device;

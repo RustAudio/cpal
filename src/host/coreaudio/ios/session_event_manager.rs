@@ -12,8 +12,8 @@ use objc2_avf_audio::{
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
 use crate::{
-    host::{emit_error, latch::Latch, ErrorCallbackArc},
     Error, ErrorKind,
+    host::{ErrorCallbackArc, emit_error, latch::Latch},
 };
 
 unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {

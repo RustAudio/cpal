@@ -1,8 +1,8 @@
 use super::{
-    utils::{
-        get_context, get_package_manager, has_system_feature, with_attached, Env, JObject, JResult,
-    },
     PackageManager,
+    utils::{
+        Env, JObject, JResult, get_context, get_package_manager, has_system_feature, with_attached,
+    },
 };
 
 /**

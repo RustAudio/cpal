@@ -1,14 +1,14 @@
 use std::sync::{
-    atomic::{AtomicU8, Ordering},
     Arc, Mutex,
+    atomic::{AtomicU8, Ordering},
 };
 
 use super::JACK_SAMPLE_FORMAT;
 use crate::{
-    host::{emit_error, frames_to_duration, try_emit_error, ErrorCallbackArc},
-    traits::StreamTrait,
     ChannelCount, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, Sample, SampleRate, StreamInstant,
+    host::{ErrorCallbackArc, emit_error, frames_to_duration, try_emit_error},
+    traits::StreamTrait,
 };
 
 #[repr(u8)]
@@ -366,9 +366,9 @@ impl jack::ProcessHandler for LocalProcessHandler {
                         mach_init::mach_thread_self,
                         mach_port::mach_port_deallocate,
                         thread_policy::{
+                            THREAD_TIME_CONSTRAINT_POLICY, THREAD_TIME_CONSTRAINT_POLICY_COUNT,
                             thread_policy_get, thread_policy_t,
-                            thread_time_constraint_policy_data_t, THREAD_TIME_CONSTRAINT_POLICY,
-                            THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+                            thread_time_constraint_policy_data_t,
                         },
                         traps::mach_task_self,
                     };

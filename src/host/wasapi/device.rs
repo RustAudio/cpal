@@ -1,10 +1,10 @@
 use crate::{
+    BufferSize, COMMON_SAMPLE_RATES, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     error::ResultExt,
-    host::{com::ComString, ErrorCallbackArc},
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
+    host::{ErrorCallbackArc, com::ComString},
 };
 
 impl From<Audio::EDataFlow> for DeviceDirection {
@@ -30,19 +30,19 @@ use std::{
 };
 
 use windows::{
-    core::{Interface, GUID},
     Win32::{
         Devices::Properties,
         Foundation::{ERROR_TIMEOUT, PROPERTYKEY},
         Media::{Audio, Audio::IAudioRenderClient, KernelStreaming, Multimedia},
         System::{
             Com,
-            Com::{StructuredStorage, STGM_READ},
+            Com::{STGM_READ, StructuredStorage},
             Threading,
             Variant::{VT_LPWSTR, VT_UI4},
         },
         UI::Shell::PropertiesSystem::IPropertyStore,
     },
+    core::{GUID, Interface},
 };
 
 use super::stream::{AudioClientFlow, DefaultDeviceMonitor, Stream, StreamInner};
@@ -873,7 +873,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Stream configuration is not supported in shared mode",
-                        ))
+                        ));
                     }
                     Err(e) => return Err(e),
                     _ => (),
@@ -984,7 +984,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Stream configuration is not supported in shared mode",
-                        ))
+                        ));
                     }
                     Err(e) => return Err(e),
                     _ => (),

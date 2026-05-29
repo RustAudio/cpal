@@ -6,21 +6,21 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     sync::{
-        atomic::{AtomicI32, Ordering},
         Arc, Mutex,
+        atomic::{AtomicI32, Ordering},
     },
     time::Duration,
     vec::IntoIter as VecIntoIter,
 };
 
 use crate::{
-    host::{emit_error, ErrorCallbackArc},
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
+    host::{ErrorCallbackArc, emit_error},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 extern crate ndk;
@@ -665,7 +665,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!("Sample format {sample_format} is not supported"),
-                ))
+                ));
             }
         };
         let builder = ndk::audio::AudioStreamBuilder::new()?
@@ -709,7 +709,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!("Sample format {sample_format} is not supported"),
-                ))
+                ));
             }
         };
         let builder = ndk::audio::AudioStreamBuilder::new()?

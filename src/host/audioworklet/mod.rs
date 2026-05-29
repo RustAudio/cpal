@@ -6,8 +6,8 @@
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -18,12 +18,12 @@ use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    host::frames_to_duration,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
     OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    host::frames_to_duration,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 mod dependent_module;
@@ -402,11 +402,7 @@ impl DeviceTrait for Device {
                         .unwrap_or(0.0);
                 let total_output_latency_secs = {
                     let sum = base_latency_secs + output_latency_secs;
-                    if sum.is_finite() {
-                        sum.max(0.0)
-                    } else {
-                        0.0
-                    }
+                    if sum.is_finite() { sum.max(0.0) } else { 0.0 }
                 };
 
                 options.set_processor_options(Some(&js_sys::Array::of3(

@@ -10,8 +10,8 @@ use std::{
 
 use clap::Parser;
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Error, ErrorKind, FromSample, HostId, Sample, SampleFormat, SupportedStreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 #[derive(Parser, Debug)]
@@ -155,7 +155,7 @@ fn main() -> Result<(), anyhow::Error> {
         sample_format => {
             return Err(anyhow::Error::msg(format!(
                 "Unsupported sample format '{sample_format}'"
-            )))
+            )));
         }
     };
 

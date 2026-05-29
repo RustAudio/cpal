@@ -411,7 +411,7 @@ fn invoke_vcvars_if_not_set() {
         // Filters the output of vcvarsall.bat to only include lines of the form "VARNAME=VALUE"
         let parts: Vec<&str> = line.splitn(2, '=').collect();
         if parts.len() == 2 {
-            env::set_var(parts[0], parts[1]);
+            unsafe { env::set_var(parts[0], parts[1]) };
             println!("{}={}", parts[0], parts[1]);
         }
     }

@@ -13,9 +13,9 @@
 
 use clap::Parser;
 use cpal::{
+    Device, Error, ErrorKind, FromSample, HostId, I24, OutputCallbackInfo, Sample, SampleFormat,
+    SizedSample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error, ErrorKind, FromSample, HostId, OutputCallbackInfo, Sample, SampleFormat,
-    SizedSample, StreamConfig, I24,
 };
 
 #[derive(Parser, Debug)]

@@ -15,12 +15,12 @@ mod stream;
 pub use stream::Stream;
 
 use crate::{
-    error::ResultExt,
-    traits::{DeviceTrait, HostTrait},
     BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
     Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, OutputCallbackInfo, SampleFormat,
     SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
+    error::ResultExt,
+    traits::{DeviceTrait, HostTrait},
 };
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(2);

@@ -6,7 +6,7 @@ repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
 keywords = ["audio", "sound"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.85"
 
 [badges]
@@ -89,8 +89,8 @@ dasp_sample = "0.11"
 [dev-dependencies]
 anyhow = "1.0"
 hound = "3.5"
-ringbuf = "0.4"
-clap = { version = ">=4.6, <5", features = ["derive"] }
+ringbuf = "0.5"
+clap = { version = "4.6", features = ["derive"] }
 
 # Support a range of versions in order to avoid duplication of this crate. Make sure to test all
 # versions when bumping to a new release, and only increase the minimum when absolutely necessary.
@@ -114,7 +114,7 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
-asio-sys = { version = "0.3.0", path = "asio-sys", optional = true }
+asio-sys = { version = "0.4.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13", optional = true }
 

@@ -1,12 +1,12 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-use device::{init_devices, Class, Device, Devices};
+use device::{Class, Device, Devices, init_devices};
 use stream::PwInitGuard;
 
-use crate::{traits::HostTrait, Error, ErrorKind};
+use crate::{Error, ErrorKind, traits::HostTrait};
 
 mod device;
 mod stream;
