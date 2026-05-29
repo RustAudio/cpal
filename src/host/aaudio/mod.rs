@@ -378,7 +378,7 @@ where
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.
-    #[allow(clippy::arc_with_non_send_sync)]
+    #[expect(clippy::arc_with_non_send_sync)]
     Ok(Stream {
         inner: Arc::new(Mutex::new(stream)),
         direction: DeviceDirection::Input,
@@ -535,7 +535,7 @@ where
     // SAFETY: Stream implements Send + Sync (see unsafe impl below). Arc<Mutex<AudioStream>>
     // is safe because the Mutex provides exclusive access and AudioStream's thread safety
     // is documented in the AAudio C API.
-    #[allow(clippy::arc_with_non_send_sync)]
+    #[expect(clippy::arc_with_non_send_sync)]
     Ok(Stream {
         inner: Arc::new(Mutex::new(stream)),
         direction: DeviceDirection::Output,

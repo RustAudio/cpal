@@ -9,7 +9,10 @@ use crate::{Error, ErrorKind, SampleFormat, traits::HostTrait};
 mod device;
 mod stream;
 
-#[allow(unused_imports)] // Re-exported for public API via platform module
+#[expect(
+    unused_imports,
+    reason = "re-exported for public API via platform module"
+)]
 pub use self::{
     device::{Device, SupportedInputConfigs, SupportedOutputConfigs},
     stream::Stream,

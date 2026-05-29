@@ -6,12 +6,18 @@ use std::io::Error as IoError;
 
 use windows::Win32::Media::Audio;
 
-#[allow(unused_imports)]
+#[expect(
+    unused_imports,
+    reason = "re-exported for public API via platform module"
+)]
 pub use self::device::{
     Device, Devices, SupportedInputConfigs, SupportedOutputConfigs, default_input_device,
     default_output_device,
 };
-#[allow(unused_imports)]
+#[expect(
+    unused_imports,
+    reason = "re-exported for public API via platform module"
+)]
 pub use self::stream::Stream;
 use crate::{Error, ErrorKind, traits::HostTrait};
 

@@ -682,7 +682,7 @@ fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> 
 
 #[cfg(target_feature = "atomics")]
 #[wasm_bindgen]
-extern "C" {
+unsafe extern "C" {
     #[wasm_bindgen(js_name = AudioBuffer)]
     type ExternalArrayAudioBuffer;
 

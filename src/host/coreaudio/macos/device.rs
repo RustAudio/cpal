@@ -467,7 +467,7 @@ impl Device {
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
-    #[allow(clippy::cast_ptr_alignment)]
+    #[expect(clippy::cast_ptr_alignment)]
     fn supported_configs(
         &self,
         scope: AudioObjectPropertyScope,
@@ -690,9 +690,6 @@ impl Device {
 }
 
 impl Device {
-    #[allow(clippy::cast_ptr_alignment)]
-    #[allow(clippy::while_immutable_condition)]
-    #[allow(clippy::float_cmp)]
     fn build_input_stream_raw<D, E>(
         &self,
         config: StreamConfig,

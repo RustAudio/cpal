@@ -243,6 +243,11 @@ impl Display for SampleFormat {
 /// assert_eq!(i16::FORMAT, cpal::SampleFormat::I16);
 /// assert_eq!(f32::FORMAT, cpal::SampleFormat::F32);
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a supported cpal sample type",
+    label = "this type cannot be used as a cpal audio sample",
+    note = "cpal supports: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, I24, U24"
+)]
 pub trait SizedSample: Sample {
     /// The corresponding [`SampleFormat`] for this sample type.
     const FORMAT: SampleFormat;

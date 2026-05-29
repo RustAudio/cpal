@@ -536,7 +536,7 @@ impl SupportedStreamConfig {
 
 // Note: Data does not implement `is_empty()` because it always contains a valid audio buffer
 // by design. The buffer may contain silence, but it is never structurally empty.
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty)]
 impl Data {
     /// Constructor for host implementations to use.
     ///
