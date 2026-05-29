@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Migrated to Rust 2024.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
+
+### Deprecated
+
 - `assert_stream_send!` and `assert_stream_sync!` are deprecated; `StreamTrait: Send + Sync` makes them redundant.
 
 ### Fixed
