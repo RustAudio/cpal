@@ -188,9 +188,7 @@ unsafe fn immendpoint_from_immdevice(device: Audio::IMMDevice) -> Audio::IMMEndp
 }
 
 unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::EDataFlow {
-    endpoint
-        .GetDataFlow()
-        .expect("could not get endpoint data_flow")
+    unsafe { endpoint.GetDataFlow() }.expect("could not get endpoint data_flow")
 }
 
 // Given the audio client and format, returns whether the audio engine supports it natively in
@@ -200,11 +198,13 @@ pub unsafe fn is_format_supported(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
 ) -> Result<bool, Error> {
     let mut closest_match: *mut Audio::WAVEFORMATEX = ptr::null_mut();
-    let hr = client.IsFormatSupported(
-        Audio::AUDCLNT_SHAREMODE_SHARED,
-        waveformatex_ptr,
-        Some(&mut closest_match),
-    );
+    let hr = unsafe {
+        client.IsFormatSupported(
+            Audio::AUDCLNT_SHAREMODE_SHARED,
+            waveformatex_ptr,
+            Some(&mut closest_match),
+        )
+    };
     if !closest_match.is_null() {
         let _free = WaveFormatExPtr(closest_match);
     }
@@ -222,16 +222,18 @@ unsafe fn format_from_waveformatex_ptr(
     fn cmp_guid(a: &GUID, b: &GUID) -> bool {
         (a.data1, a.data2, a.data3, a.data4) == (b.data1, b.data2, b.data3, b.data4)
     }
-    let sample_format = match (
-        (*waveformatex_ptr).wBitsPerSample,
-        (*waveformatex_ptr).wFormatTag as u32,
-    ) {
+    let sample_format = match unsafe {
+        (
+            (*waveformatex_ptr).wBitsPerSample,
+            (*waveformatex_ptr).wFormatTag as u32,
+        )
+    } {
         (8, Audio::WAVE_FORMAT_PCM) => SampleFormat::U8,
         (16, Audio::WAVE_FORMAT_PCM) => SampleFormat::I16,
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
-            let sub = (*waveformatextensible_ptr).SubFormat;
+            let sub = unsafe { (*waveformatextensible_ptr).SubFormat };
 
             if cmp_guid(&sub, &KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM) {
                 match n_bits {
@@ -252,7 +254,7 @@ unsafe fn format_from_waveformatex_ptr(
         _ => return None,
     };
 
-    let sample_rate = (*waveformatex_ptr).nSamplesPerSec;
+    let sample_rate = unsafe { (*waveformatex_ptr).nSamplesPerSec };
 
     // GetBufferSizeLimits is only used for Hardware-Offloaded Audio
     // Processing, which was added in Windows 8, which places hardware
@@ -268,7 +270,7 @@ unsafe fn format_from_waveformatex_ptr(
     let (mut min_buffer_duration, mut max_buffer_duration) = (0, 0);
     let buffer_size_is_limited = audio_client
         .cast::<Audio::IAudioClient2>()
-        .and_then(|audio_client| {
+        .and_then(|audio_client| unsafe {
             audio_client.GetBufferSizeLimits(
                 waveformatex_ptr,
                 true,
@@ -288,7 +290,7 @@ unsafe fn format_from_waveformatex_ptr(
     };
 
     let format = SupportedStreamConfig {
-        channels: (*waveformatex_ptr).nChannels as _,
+        channels: unsafe { (*waveformatex_ptr).nChannels } as _,
         sample_rate,
         buffer_size,
         sample_format,
@@ -388,12 +390,14 @@ unsafe fn activate_audio_interface_sync(
 
     let (tx, rx) = std::sync::mpsc::channel();
     let handler: Audio::IActivateAudioInterfaceCompletionHandler = CompletionHandler(tx).into();
-    Audio::ActivateAudioInterfaceAsync(
-        device_interface_path,
-        &Audio::IAudioClient::IID,
-        None,
-        &handler,
-    )?;
+    unsafe {
+        Audio::ActivateAudioInterfaceAsync(
+            device_interface_path,
+            &Audio::IAudioClient::IID,
+            None,
+            &handler,
+        )?;
+    }
     // If a timeout was given use it; otherwise block until Windows calls ActivateCompleted.
     // `handler` holds the sender and remains live on the stack, so `recv` cannot fail.
     let result = if let Some(dur) = activation_timeout {
@@ -1065,14 +1069,14 @@ impl Device {
 ///
 /// Both devices must be valid, live `IMMDevice` COM objects.
 unsafe fn endpoint_ids_equal(a: &Audio::IMMDevice, b: &Audio::IMMDevice) -> bool {
-    let id_a = a.GetId().expect("cpal: GetId failure");
-    let id_b = b.GetId().expect("cpal: GetId failure");
+    let id_a = unsafe { a.GetId() }.expect("cpal: GetId failure");
+    let id_b = unsafe { b.GetId() }.expect("cpal: GetId failure");
     let _ga = ComString(id_a);
     let _gb = ComString(id_b);
     let mut off = 0isize;
     loop {
-        let wa = *id_a.0.offset(off);
-        let wb = *id_b.0.offset(off);
+        let wa = unsafe { *id_a.0.offset(off) };
+        let wb = unsafe { *id_b.0.offset(off) };
         if wa != wb {
             return false;
         }
@@ -1088,11 +1092,11 @@ unsafe fn endpoint_ids_equal(a: &Audio::IMMDevice, b: &Audio::IMMDevice) -> bool
 /// # Safety
 /// `device` must be a valid, live `IMMDevice` COM object.
 unsafe fn hash_endpoint_id<H: std::hash::Hasher>(device: &Audio::IMMDevice, state: &mut H) {
-    let id = device.GetId().expect("cpal: GetId failure");
+    let id = unsafe { device.GetId() }.expect("cpal: GetId failure");
     let _g = ComString(id);
     let mut off = 0isize;
     loop {
-        let w = *id.0.offset(off);
+        let w = unsafe { *id.0.offset(off) };
         if w == 0 {
             break;
         }
@@ -1207,18 +1211,18 @@ unsafe fn get_property_u32(
     property_store: &IPropertyStore,
     property_key: *const PROPERTYKEY,
 ) -> Option<u32> {
-    let mut property_value = property_store.GetValue(property_key).ok()?;
-    let prop_variant = &property_value.Anonymous.Anonymous;
+    let mut property_value = unsafe { property_store.GetValue(property_key) }.ok()?;
+    let prop_variant = unsafe { &property_value.Anonymous.Anonymous };
 
     // Check if it's a UI4 (unsigned 32-bit integer)
     if prop_variant.vt != VT_UI4 {
         return None;
     }
 
-    let value = *(&prop_variant.Anonymous as *const _ as *const u32);
+    let value = unsafe { *(&prop_variant.Anonymous as *const _ as *const u32) };
 
     // Clean up the property
-    StructuredStorage::PropVariantClear(&mut property_value).ok();
+    unsafe { StructuredStorage::PropVariantClear(&mut property_value) }.ok();
 
     Some(value)
 }
@@ -1228,19 +1232,19 @@ unsafe fn get_property_string(
     property_store: &IPropertyStore,
     property_key: *const PROPERTYKEY,
 ) -> Option<String> {
-    let mut property_value = property_store.GetValue(property_key).ok()?;
-    let prop_variant = &property_value.Anonymous.Anonymous;
+    let mut property_value = unsafe { property_store.GetValue(property_key) }.ok()?;
+    let prop_variant = unsafe { &property_value.Anonymous.Anonymous };
 
     // Read the string from the union data field, expecting a *const u16.
     if prop_variant.vt != VT_LPWSTR {
         return None;
     }
-    let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
+    let ptr_utf16 = unsafe { *(&prop_variant.Anonymous as *const _ as *const *const u16) };
 
     // Find the length of the null-terminated string with a safety limit
     const MAX_STRING_LEN: usize = 32768; // 32K characters should be more than enough
     let mut len = 0;
-    while len < MAX_STRING_LEN && *ptr_utf16.add(len) != 0 {
+    while len < MAX_STRING_LEN && unsafe { *ptr_utf16.add(len) } != 0 {
         len += 1;
     }
 
@@ -1250,7 +1254,7 @@ unsafe fn get_property_string(
     }
 
     // Create the utf16 slice and convert it into a string.
-    let string_slice = slice::from_raw_parts(ptr_utf16, len);
+    let string_slice = unsafe { slice::from_raw_parts(ptr_utf16, len) };
     let os_string: OsString = OsStringExt::from_wide(string_slice);
     let result = match os_string.into_string() {
         Ok(string) => Some(string),
@@ -1258,7 +1262,7 @@ unsafe fn get_property_string(
     };
 
     // Clean up the property.
-    StructuredStorage::PropVariantClear(&mut property_value).ok();
+    unsafe { StructuredStorage::PropVariantClear(&mut property_value) }.ok();
 
     result
 }
@@ -1335,9 +1339,7 @@ pub fn default_output_device() -> Option<Device> {
 
 /// Get the audio clock used to produce `StreamInstant`s.
 unsafe fn get_audio_clock(audio_client: &Audio::IAudioClient) -> Result<Audio::IAudioClock, Error> {
-    audio_client
-        .GetService::<Audio::IAudioClock>()
-        .context("Failed to get audio clock")
+    unsafe { audio_client.GetService::<Audio::IAudioClock>() }.context("Failed to get audio clock")
 }
 
 // Sample rate range supported by the Media Foundation Resampler MFT used by AUTOCONVERTPCM.
