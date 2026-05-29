@@ -17,13 +17,19 @@ mod ios;
 mod macos;
 
 #[cfg(not(target_os = "macos"))]
-#[allow(unused_imports)]
+#[expect(
+    unused_imports,
+    reason = "re-exported for public API via platform module"
+)]
 pub use self::ios::{
     Device, Host, Stream,
     enumerate::{Devices, SupportedInputConfigs, SupportedOutputConfigs},
 };
 #[cfg(target_os = "macos")]
-#[allow(unused_imports)]
+#[expect(
+    unused_imports,
+    reason = "re-exported for public API via platform module"
+)]
 pub use self::macos::{Host, Stream};
 
 // Common helper methods used by both macOS and iOS

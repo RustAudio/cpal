@@ -20,7 +20,7 @@ use web_sys::{Blob, BlobPropertyBag, Url};
 // This is a not-so-clean approach to get the current bindgen ES module URL
 // in Rust. This will fail at run time on bindgen targets not using ES modules.
 #[wasm_bindgen]
-extern "C" {
+unsafe extern "C" {
     #[wasm_bindgen]
     type ImportMeta;
 

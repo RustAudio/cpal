@@ -246,7 +246,7 @@ impl Device {
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
-            #[allow(clippy::too_many_arguments)]
+            #[expect(clippy::too_many_arguments)]
             unsafe fn process_input_callback<A, D, F>(
                 data_callback: &mut D,
                 interleaved: &mut [u8],
@@ -593,7 +593,7 @@ impl Device {
             /// 2. If required, silence the ASIO buffer.
             /// 3. Finally, write the interleaved data to the non-interleaved ASIO buffer,
             ///    performing endianness conversions as necessary.
-            #[allow(clippy::too_many_arguments)]
+            #[expect(clippy::too_many_arguments)]
             unsafe fn process_output_callback<A, D, F>(
                 data_callback: &mut D,
                 interleaved: &mut [u8],
@@ -1269,7 +1269,7 @@ fn i24_bytes_to_i32(i24_bytes: &[u8; 3], little_endian: bool) -> i32 {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 unsafe fn process_output_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
@@ -1346,7 +1346,7 @@ unsafe fn process_output_callback_i24<D>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 unsafe fn process_input_callback_i24<D>(
     data_callback: &mut D,
     interleaved: &mut [u8],
