@@ -10,8 +10,8 @@ use std::{
     fmt,
     ops::DerefMut,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -19,16 +19,16 @@ use std::{
 type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send>>;
 
 use self::{
-    wasm_bindgen::{prelude::*, JsCast},
+    wasm_bindgen::{JsCast, prelude::*},
     web_sys::{AudioContext, AudioContextOptions},
 };
 use crate::{
-    host::ErrorCallbackArc,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
     OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    host::ErrorCallbackArc,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 /// Type alias for shared closure handles used in audio callbacks
@@ -404,11 +404,7 @@ impl DeviceTrait for Device {
                                 .unwrap_or(0.0);
                                 let total_hw_latency_secs = {
                                     let sum = base_latency_secs + output_latency_secs;
-                                    if sum.is_finite() {
-                                        sum.max(0.0)
-                                    } else {
-                                        0.0
-                                    }
+                                    if sum.is_finite() { sum.max(0.0) } else { 0.0 }
                                 };
                                 let callback = StreamInstant::from_secs_f64(now);
                                 let playback = StreamInstant::from_secs_f64(

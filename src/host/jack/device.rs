@@ -4,13 +4,13 @@ use std::{
     time::Duration,
 };
 
-use super::{stream::Stream, JACK_SAMPLE_FORMAT};
+use super::{JACK_SAMPLE_FORMAT, stream::Stream};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    traits::DeviceTrait, BufferSize, ChannelCount, Data, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    traits::DeviceTrait,
 };
 
 const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
@@ -47,7 +47,7 @@ impl Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedOperation,
                     format!("JACK does not support {direction:?} direction"),
-                ))
+                ));
             }
         };
         let max_channels = client
@@ -205,7 +205,9 @@ impl DeviceTrait for Device {
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
+                format!(
+                    "Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"
+                ),
             ));
         }
 
@@ -284,7 +286,9 @@ impl DeviceTrait for Device {
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
+                format!(
+                    "Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"
+                ),
             ));
         }
 

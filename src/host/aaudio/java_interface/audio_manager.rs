@@ -1,6 +1,6 @@
 use super::{
-    utils::{get_context, get_system_property, with_attached, Env, JResult},
     AudioManager,
+    utils::{Env, JResult, get_context, get_system_property, with_attached},
 };
 
 impl AudioManager {

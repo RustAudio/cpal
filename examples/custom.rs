@@ -1,18 +1,18 @@
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     ChannelCount, Data, Device, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, FromSample, InputCallbackInfo, OutputCallbackInfo,
     OutputStreamTimestamp, Sample, SampleFormat, Stream, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 #[allow(dead_code)]

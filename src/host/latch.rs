@@ -5,8 +5,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Weak,
+        atomic::{AtomicBool, Ordering},
     },
     thread::Thread,
 };

@@ -4,7 +4,7 @@
 
 extern crate jack;
 
-use crate::{traits::HostTrait, Error, ErrorKind, SampleFormat};
+use crate::{Error, ErrorKind, SampleFormat, traits::HostTrait};
 
 mod device;
 mod stream;

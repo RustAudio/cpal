@@ -4,7 +4,7 @@ use std::{io::Error as IoError, marker::PhantomData};
 
 use windows::Win32::{
     Foundation::RPC_E_CHANGED_MODE,
-    System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED},
+    System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize},
 };
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {

@@ -8,25 +8,25 @@ use std::{
 };
 
 use coreaudio::audio_unit::{
-    render_callback::{self, data},
     AudioUnit, Element, Scope,
+    render_callback::{self, data},
 };
 use objc2_audio_toolbox::{kAudioOutputUnitProperty_EnableIO, kAudioUnitProperty_StreamFormat};
 use objc2_avf_audio::AVAudioSession;
 use objc2_core_audio_types::AudioBuffer;
 
 use self::enumerate::{
-    default_input_device, default_output_device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    Devices, SupportedInputConfigs, SupportedOutputConfigs, default_input_device,
+    default_output_device,
 };
 use super::{asbd_from_config, host_time_to_stream_instant};
 use crate::{
-    host::{frames_to_duration, latch::Latch, try_emit_error, ErrorCallbackArc},
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    host::{ErrorCallbackArc, frames_to_duration, latch::Latch, try_emit_error},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 pub mod enumerate;

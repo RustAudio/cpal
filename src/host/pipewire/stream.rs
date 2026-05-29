@@ -2,8 +2,8 @@ use std::{
     cell::RefCell,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::JoinHandle,
     time::Instant,
@@ -19,11 +19,12 @@ use pipewire::{
     registry::{Listener as RegistryListener, RegistryRc},
     spa::{
         param::{
+            ParamType,
             audio::{AudioFormat, AudioInfoRaw},
             format::{MediaSubtype, MediaType},
-            format_utils, ParamType,
+            format_utils,
         },
-        pod::{serialize::PodSerializer, Object, Pod, Value},
+        pod::{Object, Pod, Value, serialize::PodSerializer},
         utils::{Direction, SpaTypes},
     },
     stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
@@ -31,13 +32,13 @@ use pipewire::{
 };
 
 use crate::{
-    host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        try_emit_error, ErrorCallbackArc,
-    },
-    traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
+    host::{
+        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
+        latch::Latch, try_emit_error,
+    },
+    traits::StreamTrait,
 };
 
 /// Counts the number of live [`PwInitGuard`] instances across all threads.

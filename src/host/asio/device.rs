@@ -1,15 +1,15 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    sync::{atomic::AtomicU32, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicU32},
 };
 
 use super::sys;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    host::com, ChannelCount, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    ChannelCount, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, ErrorKind,
+    FrameCount, SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, host::com,
 };
 
 /// A ASIO Device

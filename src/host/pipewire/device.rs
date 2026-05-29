@@ -4,8 +4,9 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
+        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
     thread,
     time::Duration,
@@ -26,22 +27,22 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
+    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, InterfaceType,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         emit_error,
         latch::Latch,
         pipewire::{
             stream::{
-                DefaultDeviceMonitor, PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS,
+                DefaultDeviceMonitor, PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData,
             },
-            utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
+            utils::{DEVICE_ICON_NAME, METADATA_NAME, audio, clock, default, node},
         },
     },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::DeviceTrait,
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, InterfaceType,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 pub type Devices = std::vec::IntoIter<Device>;
@@ -1103,7 +1104,7 @@ fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
 
 #[cfg(test)]
 mod test {
-    use super::{parse_allow_rates, parse_fraction, Class, Device};
+    use super::{Class, Device, parse_allow_rates, parse_fraction};
     use crate::host::pipewire::utils::default;
 
     #[test]

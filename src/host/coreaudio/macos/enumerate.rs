@@ -1,20 +1,19 @@
 use std::{
     mem,
-    ptr::{null, NonNull},
+    ptr::{NonNull, null},
     vec::IntoIter as VecIntoIter,
 };
 
 use objc2_core_audio::{
-    kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
+    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-    AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-    AudioObjectPropertyAddress,
 };
 
-use super::{check_os_status, Device};
-pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
+use super::{Device, check_os_status};
 use crate::Error;
+pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
 unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {

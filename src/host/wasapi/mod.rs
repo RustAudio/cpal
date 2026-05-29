@@ -8,12 +8,12 @@ use windows::Win32::Media::Audio;
 
 #[allow(unused_imports)]
 pub use self::device::{
-    default_input_device, default_output_device, Device, Devices, SupportedInputConfigs,
-    SupportedOutputConfigs,
+    Device, Devices, SupportedInputConfigs, SupportedOutputConfigs, default_input_device,
+    default_output_device,
 };
 #[allow(unused_imports)]
 pub use self::stream::Stream;
-use crate::{traits::HostTrait, Error, ErrorKind};
+use crate::{Error, ErrorKind, traits::HostTrait};
 
 mod device;
 mod stream;

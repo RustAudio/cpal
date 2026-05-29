@@ -176,10 +176,10 @@ pub use device_description::{
 };
 pub use error::*;
 pub use platform::{
-    available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
-    SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
+    ALL_HOSTS, Device, Devices, Host, HostId, Stream, SupportedInputConfigs,
+    SupportedOutputConfigs, available_hosts, default_host, host_from_id,
 };
-pub use sample_format::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
+pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 use wasm_bindgen::prelude::*;
 
@@ -952,7 +952,9 @@ mod tests {
         // Expected order from lowest to highest priority:
         assert_eq!(
             sorted_formats,
-            vec![DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,]
+            vec![
+                DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,
+            ]
         );
     }
 
@@ -1045,17 +1047,21 @@ mod tests {
 
     #[test]
     fn validate_stream_config_accepts_valid_configs() {
-        assert!(validate_stream_config(&StreamConfig {
-            channels: 2,
-            sample_rate: 44100,
-            buffer_size: BufferSize::Default,
-        })
-        .is_ok());
-        assert!(validate_stream_config(&StreamConfig {
-            channels: 1,
-            sample_rate: 1,
-            buffer_size: BufferSize::Fixed(1),
-        })
-        .is_ok());
+        assert!(
+            validate_stream_config(&StreamConfig {
+                channels: 2,
+                sample_rate: 44100,
+                buffer_size: BufferSize::Default,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_stream_config(&StreamConfig {
+                channels: 1,
+                sample_rate: 1,
+                buffer_size: BufferSize::Fixed(1),
+            })
+            .is_ok()
+        );
     }
 }

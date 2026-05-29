@@ -1,37 +1,37 @@
 use std::{
     fmt,
     mem::{self, size_of},
-    ptr::{null, NonNull},
+    ptr::{NonNull, null},
     sync::{
-        mpsc::{channel, RecvTimeoutError},
         Arc, Mutex,
+        mpsc::{RecvTimeoutError, channel},
     },
     time::{Duration, Instant},
 };
 
 use coreaudio::audio_unit::{
+    AudioUnit, Element, SampleFormat as CoreAudioSampleFormat, Scope, StreamFormat,
     audio_format::LinearPcmFlags,
     macos_helpers::{
-        audio_unit_from_device_id_uninitialized, find_matching_physical_format, get_device_name,
-        set_device_physical_stream_format, RateListener,
+        RateListener, audio_unit_from_device_id_uninitialized, find_matching_physical_format,
+        get_device_name, set_device_physical_stream_format,
     },
     render_callback::{self, data},
-    AudioUnit, Element, SampleFormat as CoreAudioSampleFormat, Scope, StreamFormat,
 };
 use objc2_audio_toolbox::{
     kAudioOutputUnitProperty_CurrentDevice, kAudioUnitProperty_StreamFormat,
 };
 use objc2_core_audio::{
-    kAudioAggregateDeviceClassID, kAudioDevicePropertyAvailableNominalSampleRates,
-    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
-    kAudioDevicePropertyDeviceUID, kAudioDevicePropertyLatency,
-    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertySafetyOffset,
-    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioObjectPropertyClass, kAudioObjectPropertyElementMain, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    AudioClassID, AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
+    AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyScope,
+    AudioObjectSetPropertyData, kAudioAggregateDeviceClassID,
+    kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceUID,
+    kAudioDevicePropertyLatency, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertySafetyOffset, kAudioDevicePropertyStreamConfiguration,
+    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyClass, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -40,19 +40,20 @@ use objc2_core_foundation::{CFString, Type};
 
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
-    asbd_from_config, check_os_status, host_time_to_stream_instant, DefaultOutputMonitor,
-    DisconnectManager, Monitor, Stream,
+    DefaultOutputMonitor, DisconnectManager, Monitor, Stream, asbd_from_config, check_os_status,
+    host_time_to_stream_instant,
 };
 use crate::{
-    host::{
-        coreaudio::macos::{loopback::LoopbackDevice, StreamInner},
-        frames_to_duration, try_emit_error, ErrorCallbackArc,
-    },
-    traits::DeviceTrait,
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, InterfaceType,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
     StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    host::{
+        ErrorCallbackArc,
+        coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
+        frames_to_duration, try_emit_error,
+    },
+    traits::DeviceTrait,
 };
 
 /// Try to find a matching physical stream format on the device and apply it.
@@ -566,7 +567,7 @@ impl Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         "Unexpected audio property scope",
-                    ))
+                    ));
                 }
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;
@@ -629,7 +630,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Audio format is not linear PCM",
-                        ))
+                        ));
                     }
                 };
                 let maybe_sample_format =
@@ -644,7 +645,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Sample format is not supported; supported formats are F32 and I16",
-                        ))
+                        ));
                     }
                 }
             };
@@ -656,7 +657,7 @@ impl Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         "Unexpected audio property scope",
-                    ))
+                    ));
                 }
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;

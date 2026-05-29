@@ -1,21 +1,20 @@
 #![allow(deprecated)]
-use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 
 use coreaudio::audio_unit::AudioUnit;
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioDeviceID, AudioObjectID,
-    AudioObjectPropertyAddress,
+    AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyNominalSampleRate, kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
 };
 use property_listener::AudioObjectPropertyListener;
 
-pub use self::enumerate::{default_input_device, default_output_device, Devices};
-use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
+pub use self::enumerate::{Devices, default_input_device, default_output_device};
+use super::{OSStatus, asbd_from_config, check_os_status, host_time_to_stream_instant};
 use crate::{
+    Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
     host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
     traits::{HostTrait, StreamTrait},
-    Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
 
 mod device;
@@ -384,9 +383,8 @@ impl StreamTrait for Stream {
 #[cfg(test)]
 mod test {
     use crate::{
-        default_host,
+        InputCallbackInfo, OutputCallbackInfo, Sample, default_host,
         traits::{DeviceTrait, HostTrait, StreamTrait},
-        InputCallbackInfo, OutputCallbackInfo, Sample,
     };
 
     #[test]

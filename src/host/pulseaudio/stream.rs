@@ -1,20 +1,20 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Condvar, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use futures_executor::block_on;
 use futures_util::FutureExt as _;
-use pulseaudio::{protocol, AsPlaybackSource};
+use pulseaudio::{AsPlaybackSource, protocol};
 
 use crate::{
-    host::{emit_error, latch::Latch, ErrorCallbackArc},
-    traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
+    host::{ErrorCallbackArc, emit_error, latch::Latch},
+    traits::StreamTrait,
 };
 
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);

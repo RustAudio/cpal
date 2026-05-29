@@ -7,10 +7,10 @@ use core::time::Duration;
 use std::fmt;
 
 use crate::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo,
     OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
     SupportedStreamConfigRange,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 /// A host that can be used to write custom [`HostTrait`] implementations.

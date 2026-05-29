@@ -6,10 +6,10 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
     InputCallbackInfo, OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant,
     SupportedStreamConfig, SupportedStreamConfigRange,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
 pub struct Devices;
