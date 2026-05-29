@@ -18,7 +18,7 @@ use crate::{
 
 unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     let user_info = notification.userInfo()?;
-    let key = AVAudioSessionRouteChangeReasonKey?;
+    let key = unsafe { AVAudioSessionRouteChangeReasonKey }?;
     let dict = unsafe { user_info.cast_unchecked::<NSString, AnyObject>() };
     let value = dict.objectForKey(key)?;
     let number = value.downcast_ref::<NSNumber>()?;

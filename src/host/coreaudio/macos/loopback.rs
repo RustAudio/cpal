@@ -217,7 +217,7 @@ pub fn create_audio_aggregate_device_properties(
         )
         .unwrap()
     };
-    let aggregate_dev_properties = unsafe {
+    unsafe {
         let dict = CFMutableDictionary::new(
             kCFAllocatorDefault,
             5,
@@ -253,7 +253,5 @@ pub fn create_audio_aggregate_device_properties(
         );
 
         CFRetained::cast_unchecked::<CFDictionary>(dict)
-    };
-
-    aggregate_dev_properties
+    }
 }

@@ -488,14 +488,17 @@ unsafe fn extract_audio_buffer(
     sample_format: SampleFormat,
     is_input: bool,
 ) -> (AudioBuffer, Data) {
-    let buffer = if is_input {
-        // Input: access through buffer array
-        let first_buf_ptr = core::ptr::addr_of!((*args.data.data).mBuffers) as *const AudioBuffer;
-        core::ptr::read_unaligned(first_buf_ptr)
-    } else {
-        // Output: direct access
-        let buf_ptr = core::ptr::addr_of!((*args.data.data).mBuffers[0]);
-        core::ptr::read_unaligned(buf_ptr)
+    let buffer = unsafe {
+        if is_input {
+            // Input: access through buffer array
+            let first_buf_ptr =
+                core::ptr::addr_of!((*args.data.data).mBuffers) as *const AudioBuffer;
+            core::ptr::read_unaligned(first_buf_ptr)
+        } else {
+            // Output: direct access
+            let buf_ptr = core::ptr::addr_of!((*args.data.data).mBuffers[0]);
+            core::ptr::read_unaligned(buf_ptr)
+        }
     };
 
     let mut data_ptr = buffer.mData as *mut ();
@@ -507,7 +510,7 @@ unsafe fn extract_audio_buffer(
         len = 0;
     }
 
-    let data = Data::from_parts(data_ptr, len, sample_format);
+    let data = unsafe { Data::from_parts(data_ptr, len, sample_format) };
 
     (buffer, data)
 }

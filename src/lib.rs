@@ -400,7 +400,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::FromWasmAbi>::Abi;
 
     unsafe fn from_abi(js: Self::Abi) -> Self {
-        match Option::<FrameCount>::from_abi(js) {
+        match unsafe { Option::<FrameCount>::from_abi(js) } {
             None => Self::Default,
             Some(fc) => Self::Fixed(fc),
         }

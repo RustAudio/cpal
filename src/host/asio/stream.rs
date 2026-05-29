@@ -263,27 +263,29 @@ impl Device {
                 F: Fn(A) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
-                let interleaved: &mut [A] = cast_slice_mut(interleaved);
+                let interleaved: &mut [A] = unsafe { cast_slice_mut(interleaved) };
                 let n_frames = asio_stream.buffer_size as usize;
                 let n_channels = interleaved.len() / n_frames;
                 let buffer_index = asio_info.buffer_index as usize;
                 for ch_ix in 0..n_channels {
                     let asio_channel =
-                        asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix, None);
+                        unsafe { asio_channel_slice::<A>(asio_stream, buffer_index, ch_ix, None) };
                     for (frame, s_asio) in interleaved.chunks_mut(n_channels).zip(asio_channel) {
                         frame[ch_ix] = from_endianness(*s_asio);
                     }
                 }
 
                 // 2. Deliver the interleaved buffer to the callback.
-                apply_input_callback_to_data::<A, _>(
-                    data_callback,
-                    interleaved,
-                    callback_instant,
-                    sample_rate,
-                    format,
-                    hardware_latency_frames,
-                );
+                unsafe {
+                    apply_input_callback_to_data::<A, _>(
+                        data_callback,
+                        interleaved,
+                        callback_instant,
+                        sample_rate,
+                        format,
+                        hardware_latency_frames,
+                    );
+                }
             }
 
             match (&stream_type, sample_format) {
@@ -608,24 +610,27 @@ impl Device {
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(A, A) -> A,
             {
-                let interleaved: &mut [A] = cast_slice_mut(interleaved);
-                apply_output_callback_to_data::<A, _>(
-                    data_callback,
-                    interleaved,
-                    callback_instant,
-                    sample_rate,
-                    format,
-                    hardware_latency_frames,
-                );
+                let interleaved: &mut [A] = unsafe { cast_slice_mut(interleaved) };
+                unsafe {
+                    apply_output_callback_to_data::<A, _>(
+                        data_callback,
+                        interleaved,
+                        callback_instant,
+                        sample_rate,
+                        format,
+                        hardware_latency_frames,
+                    );
+                }
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
                 let buffer_index = asio_info.buffer_index as usize;
 
                 // Write interleaved samples to ASIO channels, one channel at a time.
                 for ch_ix in 0..n_channels {
-                    let asio_channel =
-                        asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix, None);
+                    let asio_channel = unsafe {
+                        asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix, None)
+                    };
                     if silence_asio_buffer {
-                        asio_channel.align_to_mut::<u8>().1.fill(0);
+                        unsafe { asio_channel.align_to_mut::<u8>() }.1.fill(0);
                     }
                     for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
                         *s_asio = mix_samples(*s_asio, frame[ch_ix]);
@@ -1174,7 +1179,9 @@ fn check_config(
 #[inline]
 unsafe fn cast_slice_mut<T>(v: &mut [u8]) -> &mut [T] {
     debug_assert!(v.len() % std::mem::size_of::<T>() == 0);
-    std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
+    unsafe {
+        std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut T, v.len() / std::mem::size_of::<T>())
+    }
 }
 
 /// Helper function to convert from little endianness.
@@ -1203,7 +1210,7 @@ unsafe fn asio_channel_slice<T>(
     let channel_length = requested_channel_length.unwrap_or(asio_stream.buffer_size as usize);
     let buff_ptr: *const T =
         asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *const _;
-    std::slice::from_raw_parts(buff_ptr, channel_length)
+    unsafe { std::slice::from_raw_parts(buff_ptr, channel_length) }
 }
 
 /// Shorthand for retrieving the asio buffer slice associated with a channel.
@@ -1219,7 +1226,7 @@ unsafe fn asio_channel_slice_mut<T>(
 ) -> &mut [T] {
     let channel_length = requested_channel_length.unwrap_or(asio_stream.buffer_size as usize);
     let buff_ptr: *mut T = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
-    std::slice::from_raw_parts_mut(buff_ptr, channel_length)
+    unsafe { std::slice::from_raw_parts_mut(buff_ptr, channel_length) }
 }
 
 fn load_driver_err(e: sys::LoadDriverError) -> Error {
@@ -1277,15 +1284,17 @@ unsafe fn process_output_callback_i24<D>(
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     let format = SampleFormat::I24;
-    let interleaved: &mut [I24] = cast_slice_mut(interleaved);
-    apply_output_callback_to_data::<I24, _>(
-        data_callback,
-        interleaved,
-        callback_instant,
-        sample_rate,
-        format,
-        hardware_latency_frames,
-    );
+    let interleaved: &mut [I24] = unsafe { cast_slice_mut(interleaved) };
+    unsafe {
+        apply_output_callback_to_data::<I24, _>(
+            data_callback,
+            interleaved,
+            callback_instant,
+            sample_rate,
+            format,
+            hardware_latency_frames,
+        );
+    }
 
     // Size of samples in the ASIO buffer (has to be 3 in this case)
     let asio_sample_size_bytes = 3;
@@ -1295,15 +1304,17 @@ unsafe fn process_output_callback_i24<D>(
     // Write interleaved samples to ASIO channels, one channel at a time.
     for ch_ix in 0..n_channels {
         // Take channel as u8 array ([u8; 3] packets to represent i24)
-        let asio_channel = asio_channel_slice_mut(
-            asio_stream,
-            buffer_index,
-            ch_ix,
-            Some(asio_stream.buffer_size as usize * asio_sample_size_bytes),
-        );
+        let asio_channel = unsafe {
+            asio_channel_slice_mut(
+                asio_stream,
+                buffer_index,
+                ch_ix,
+                Some(asio_stream.buffer_size as usize * asio_sample_size_bytes),
+            )
+        };
 
         if silence_asio_buffer {
-            asio_channel.align_to_mut::<u8>().1.fill(0);
+            unsafe { asio_channel.align_to_mut::<u8>() }.1.fill(0);
         }
 
         // Fill in every channel from the interleaved vector
@@ -1351,19 +1362,21 @@ unsafe fn process_input_callback_i24<D>(
     let format = SampleFormat::I24;
 
     // 1. Write the ASIO channels to the CPAL buffer.
-    let interleaved: &mut [I24] = cast_slice_mut(interleaved);
+    let interleaved: &mut [I24] = unsafe { cast_slice_mut(interleaved) };
     let n_frames = asio_stream.buffer_size as usize;
     let n_channels = interleaved.len() / n_frames;
     let buffer_index = asio_info.buffer_index as usize;
     let asio_sample_size_bytes = 3;
 
     for ch_ix in 0..n_channels {
-        let asio_channel = asio_channel_slice::<u8>(
-            asio_stream,
-            buffer_index,
-            ch_ix,
-            Some(n_frames * asio_sample_size_bytes),
-        );
+        let asio_channel = unsafe {
+            asio_channel_slice::<u8>(
+                asio_stream,
+                buffer_index,
+                ch_ix,
+                Some(n_frames * asio_sample_size_bytes),
+            )
+        };
         for (channel_sample, sample_in_buffer) in asio_channel
             .chunks(asio_sample_size_bytes)
             .zip(interleaved.iter_mut().skip(ch_ix).step_by(n_channels))
@@ -1377,14 +1390,16 @@ unsafe fn process_input_callback_i24<D>(
     }
 
     // 2. Deliver the interleaved buffer to the callback.
-    apply_input_callback_to_data::<I24, _>(
-        data_callback,
-        interleaved,
-        callback_instant,
-        sample_rate,
-        format,
-        hardware_latency_frames,
-    );
+    unsafe {
+        apply_input_callback_to_data::<I24, _>(
+            data_callback,
+            interleaved,
+            callback_instant,
+            sample_rate,
+            format,
+            hardware_latency_frames,
+        );
+    }
 }
 
 /// Apply the output callback to the interleaved buffer.
@@ -1400,11 +1415,13 @@ unsafe fn apply_output_callback_to_data<A, D>(
     A: Copy,
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
-    let mut data = Data::from_parts(
-        interleaved.as_mut_ptr() as *mut (),
-        interleaved.len(),
-        sample_format,
-    );
+    let mut data = unsafe {
+        Data::from_parts(
+            interleaved.as_mut_ptr() as *mut (),
+            interleaved.len(),
+            sample_format,
+        )
+    };
     let delay = frames_to_duration(hardware_latency_frames as FrameCount, sample_rate);
     let playback = callback_instant + delay;
     let timestamp = OutputStreamTimestamp {
@@ -1428,11 +1445,13 @@ unsafe fn apply_input_callback_to_data<A, D>(
     A: Copy,
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
-    let data = Data::from_parts(
-        interleaved.as_mut_ptr() as *mut (),
-        interleaved.len(),
-        format,
-    );
+    let data = unsafe {
+        Data::from_parts(
+            interleaved.as_mut_ptr() as *mut (),
+            interleaved.len(),
+            format,
+        )
+    };
     let delay = frames_to_duration(hardware_latency_frames as FrameCount, sample_rate);
     let capture = callback_instant
         .checked_sub(delay)

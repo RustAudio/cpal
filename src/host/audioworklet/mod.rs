@@ -603,6 +603,6 @@ impl WasmAudioProcessor {
     /// It must not have already been unpacked or deallocated, and must not be used after this call.
     /// Using an invalid or already-consumed pointer will result in undefined behavior.
     pub unsafe fn unpack(val: usize) -> Self {
-        *Box::from_raw(val as *mut _)
+        unsafe { *Box::from_raw(val as *mut _) }
     }
 }

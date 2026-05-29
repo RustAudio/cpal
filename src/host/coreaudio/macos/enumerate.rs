@@ -15,7 +15,7 @@ use super::{Device, check_os_status};
 use crate::Error;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
-unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
+fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -31,30 +31,34 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     }
 
     let mut data_size = 0u32;
-    let status = AudioObjectGetPropertyDataSize(
-        kAudioObjectSystemObject as AudioObjectID,
-        NonNull::from(&property_address),
-        0,
-        null(),
-        NonNull::from(&mut data_size),
-    );
+    let status = unsafe {
+        AudioObjectGetPropertyDataSize(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&property_address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+        )
+    };
     try_status_or_return!(status);
 
     let device_count = data_size / mem::size_of::<AudioDeviceID>() as u32;
     let mut audio_devices = vec![];
     audio_devices.reserve_exact(device_count as usize);
 
-    let status = AudioObjectGetPropertyData(
-        kAudioObjectSystemObject as AudioObjectID,
-        NonNull::from(&property_address),
-        0,
-        null(),
-        NonNull::from(&mut data_size),
-        NonNull::new(audio_devices.as_mut_ptr()).unwrap().cast(),
-    );
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&property_address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+            NonNull::new(audio_devices.as_mut_ptr()).unwrap().cast(),
+        )
+    };
     try_status_or_return!(status);
 
-    audio_devices.set_len(device_count as usize);
+    unsafe { audio_devices.set_len(device_count as usize) };
 
     Ok(audio_devices)
 }
@@ -63,7 +67,7 @@ pub struct Devices(VecIntoIter<AudioDeviceID>);
 
 impl Devices {
     pub fn new() -> Result<Self, Error> {
-        let devices = unsafe { audio_devices() }?;
+        let devices = audio_devices()?;
         Ok(Self(devices.into_iter()))
     }
 }
