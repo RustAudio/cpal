@@ -231,21 +231,28 @@ unsafe fn format_from_waveformatex_ptr(
         (8, Audio::WAVE_FORMAT_PCM) => SampleFormat::U8,
         (16, Audio::WAVE_FORMAT_PCM) => SampleFormat::I16,
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
+        (64, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F64,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = unsafe { (*waveformatextensible_ptr).SubFormat };
+            let valid_bits = unsafe { (*waveformatextensible_ptr).Samples.wValidBitsPerSample };
 
             if cmp_guid(&sub, &KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM) {
                 match n_bits {
                     8 => SampleFormat::U8,
                     16 => SampleFormat::I16,
                     24 => SampleFormat::I24,
+                    32 if valid_bits == 24 => SampleFormat::I24,
                     32 => SampleFormat::I32,
                     64 => SampleFormat::I64,
                     _ => return None,
                 }
-            } else if n_bits == 32 && cmp_guid(&sub, &Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
-                SampleFormat::F32
+            } else if cmp_guid(&sub, &Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
+                match n_bits {
+                    32 => SampleFormat::F32,
+                    64 => SampleFormat::F64,
+                    _ => return None,
+                }
             } else {
                 return None;
             }
@@ -1349,13 +1356,14 @@ const OUTPUT_MAX_SAMPLE_RATE: SampleRate = 384_000;
 // Formats encodable as WAVEFORMATEXTENSIBLE. U8/I16 map to WAVE_FORMAT_PCM; the rest use
 // WAVE_FORMAT_EXTENSIBLE. Unsigned formats wider than 8 bits are omitted: KSDATAFORMAT_SUBTYPE_PCM
 // is always signed for 16-bit and wider, so submitting unsigned data would produce a DC offset.
-const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 6] = [
+const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 7] = [
     SampleFormat::U8,
     SampleFormat::I16,
     SampleFormat::I24,
     SampleFormat::I32,
     SampleFormat::I64,
     SampleFormat::F32,
+    SampleFormat::F64,
 ];
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
@@ -1368,9 +1376,11 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
 
-        SampleFormat::I24 | SampleFormat::I32 | SampleFormat::I64 | SampleFormat::F32 => {
-            KernelStreaming::WAVE_FORMAT_EXTENSIBLE
-        }
+        SampleFormat::I24
+        | SampleFormat::I32
+        | SampleFormat::I64
+        | SampleFormat::F32
+        | SampleFormat::F64 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
 
         _ => return None,
     };
@@ -1379,10 +1389,10 @@ fn config_to_waveformatextensible(
     let sample_bytes = sample_format.sample_size() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
-    let bits_per_sample = match sample_format {
-        SampleFormat::I24 => 24,
-        _ => 8 * sample_bytes,
-    };
+    // wBitsPerSample is the container word size; wValidBitsPerSample is the actual bit depth.
+    // For I24 the container is 32 bits (sample_size() == 4) but only 24 bits are significant.
+    let container_bits = 8 * sample_bytes;
+    let valid_bits = sample_format.bits_per_sample() as u16;
 
     let cb_size = if format_tag == Audio::WAVE_FORMAT_PCM {
         0
@@ -1398,7 +1408,7 @@ fn config_to_waveformatextensible(
         nSamplesPerSec: sample_rate,
         nAvgBytesPerSec: avg_bytes_per_sec,
         nBlockAlign: block_align,
-        wBitsPerSample: bits_per_sample,
+        wBitsPerSample: container_bits,
         cbSize: cb_size,
     };
 
@@ -1412,14 +1422,14 @@ fn config_to_waveformatextensible(
         | SampleFormat::I32
         | SampleFormat::I64 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
 
-        SampleFormat::F32 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
+        SampleFormat::F32 | SampleFormat::F64 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
         _ => return None,
     };
 
     let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,
         Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
-            wSamplesPerBlock: bits_per_sample,
+            wValidBitsPerSample: valid_bits,
         },
         dwChannelMask: channel_mask,
         SubFormat: sub_format,
