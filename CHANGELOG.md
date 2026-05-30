@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
+- **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
+- **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
 
 ## [0.18.0] - YYYY-MM-DD
 
