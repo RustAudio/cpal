@@ -6,6 +6,8 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
+#[cfg(target_feature = "atomics")]
+use std::sync::atomic::AtomicU64;
 use std::{
     fmt,
     ops::DerefMut,
@@ -15,6 +17,11 @@ use std::{
     },
     time::Duration,
 };
+
+#[cfg(target_feature = "atomics")]
+use futures_channel::mpsc;
+#[cfg(target_feature = "atomics")]
+use futures_util::StreamExt as _;
 
 type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send>>;
 
@@ -34,6 +41,12 @@ use crate::{
 /// Type alias for shared closure handles used in audio callbacks
 type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 
+#[cfg(target_feature = "atomics")]
+enum Command {
+    Play,
+    Pause,
+}
+
 /// Content is false if the iterator is empty.
 pub struct Devices(bool);
 
@@ -50,16 +63,31 @@ impl fmt::Display for Device {
 pub struct Host;
 
 pub struct Stream {
-    ctx: Arc<AudioContext>,
-    on_ended_closures: Vec<ClosureHandle>,
     config: StreamConfig,
     buffer_size_frames: usize,
+
+    // Single-threaded WASM: hold JS types directly. Safe because there is only one thread.
+    #[cfg(not(target_feature = "atomics"))]
+    ctx: Arc<AudioContext>,
+    #[cfg(not(target_feature = "atomics"))]
+    on_ended_closures: Vec<ClosureHandle>,
+    #[cfg(not(target_feature = "atomics"))]
     is_started: Arc<AtomicBool>,
+
+    // Multi-threaded WASM (+atomics): all fields are Send+Sync; JS types are held in a
+    // spawn_local task that runs on the main thread.
+    #[cfg(target_feature = "atomics")]
+    command_tx: mpsc::UnboundedSender<Command>,
+    #[cfg(target_feature = "atomics")]
+    current_time_bits: Arc<AtomicU64>,
 }
 
-// WASM runs in a single-threaded environment, so Send and Sync are safe by design.
+// Without atomics, WASM is single-threaded, so there are no thread boundaries to cross.
+#[cfg(not(target_feature = "atomics"))]
 unsafe impl Send for Stream {}
+#[cfg(not(target_feature = "atomics"))]
 unsafe impl Sync for Stream {}
+// With atomics, all Stream fields auto-derive Send+Sync.
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
@@ -76,9 +104,20 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 const DEFAULT_BUFFER_SIZE: usize = 2048;
 
+// Minimum initial timer delay mandated by the HTML spec.
+// https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timers
+const INITIAL_TIMEOUT_MS: i32 = 4;
+
 impl Host {
     pub fn new() -> Result<Self, Error> {
-        Ok(Self)
+        if Self::is_available() {
+            Ok(Self)
+        } else {
+            Err(Error::with_message(
+                ErrorKind::HostUnavailable,
+                "WebAudio is not available",
+            ))
+        }
     }
 }
 
@@ -87,8 +126,7 @@ impl HostTrait for Host {
     type Device = Device;
 
     fn is_available() -> bool {
-        // Assume this host is always available on webaudio.
-        true
+        is_webaudio_available()
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
@@ -106,7 +144,7 @@ impl HostTrait for Host {
 
 impl Devices {
     fn new() -> Result<Self, Error> {
-        Ok(Devices(is_webaudio_available()))
+        Ok(Devices(Host::is_available()))
     }
 }
 
@@ -281,6 +319,8 @@ impl DeviceTrait for Device {
 
         let data_callback: OutputDataCallbackArc = Arc::new(Mutex::new(data_callback));
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+
+        #[cfg(not(target_feature = "atomics"))]
         let is_started = Arc::new(AtomicBool::new(false));
 
         // Create the WebAudio stream.
@@ -307,7 +347,9 @@ impl DeviceTrait for Device {
         }
         destination.set_channel_count(config.channels as u32);
 
-        // SAFETY: WASM is single-threaded, so Arc is safe even though AudioContext is not Send/Sync
+        // SAFETY: AudioContext and Closure are not Send/Sync, but these Arcs are created on the
+        // main thread and never leave it: in the non-atomics path WASM is single-threaded, and in
+        // the atomics path they are moved into a spawn_local task which also runs on the main thread.
         #[allow(clippy::arc_with_non_send_sync)]
         let ctx = Arc::new(ctx);
 
@@ -323,6 +365,10 @@ impl DeviceTrait for Device {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
+        // Shared current-time counter updated on every callback invocation.
+        #[cfg(target_feature = "atomics")]
+        let current_time_bits = Arc::new(AtomicU64::new(0u64));
+
         // Create a set of closures / callbacks which will continuously fetch and schedule sample
         // playback. Starting with two workers, e.g. a front and back buffer so that audio frames
         // can be fetched in the background.
@@ -331,6 +377,9 @@ impl DeviceTrait for Device {
             let error_callback_handle = error_callback.clone();
             let ctx_handle = ctx.clone();
             let time_handle = time.clone();
+
+            #[cfg(target_feature = "atomics")]
+            let current_time_bits_handle = current_time_bits.clone();
 
             // A set of temporary buffers to be used for intermediate sample transformation steps.
             let mut temporary_buffer = vec![0f32; buffer_size_samples];
@@ -361,7 +410,6 @@ impl DeviceTrait for Device {
                 })?;
 
             // A self reference to this closure for passing to future audio event calls.
-            // SAFETY: WASM is single-threaded, so Arc is safe even though Closure is not Send/Sync
             #[allow(clippy::arc_with_non_send_sync)]
             let on_ended_closure: ClosureHandle = Arc::new(RwLock::new(None));
             let on_ended_closure_handle = on_ended_closure.clone();
@@ -371,6 +419,11 @@ impl DeviceTrait for Device {
                 .unwrap()
                 .replace(Closure::wrap(Box::new(move || {
                     let now = ctx_handle.current_time();
+
+                    // Keep the shared clock up to date so Stream::now() has a fresh value.
+                    #[cfg(target_feature = "atomics")]
+                    current_time_bits_handle.store(now.to_bits(), Ordering::Relaxed);
+
                     let time_at_start_of_buffer = {
                         let time_at_start_of_buffer = time_handle
                             .read()
@@ -557,16 +610,70 @@ impl DeviceTrait for Device {
             on_ended_closures.push(on_ended_closure);
         }
 
-        Ok(Self::Stream {
+        #[cfg(not(target_feature = "atomics"))]
+        return Ok(Self::Stream {
             ctx,
             on_ended_closures,
             config,
             buffer_size_frames,
             is_started,
-        })
+        });
+
+        #[cfg(target_feature = "atomics")]
+        {
+            let current_time_bits_stream = current_time_bits.clone();
+            let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+            wasm_bindgen_futures::spawn_local(async move {
+                let window = web_sys::window().unwrap();
+                let mut started = false;
+                while let Some(cmd) = command_rx.next().await {
+                    match cmd {
+                        Command::Play => {
+                            if !started {
+                                started = true;
+                                schedule_initial_timeouts(
+                                    &window,
+                                    &on_ended_closures,
+                                    buffer_size_frames,
+                                    config.sample_rate,
+                                );
+                            }
+                            if ctx.resume().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to resume audio context",
+                                    ),
+                                );
+                            }
+                        }
+                        Command::Pause => {
+                            if ctx.suspend().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to suspend audio context",
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Stream dropped: close the AudioContext on the main thread.
+                let _ = ctx.close();
+            });
+            Ok(Self::Stream {
+                command_tx,
+                current_time_bits: current_time_bits_stream,
+                buffer_size_frames,
+                config,
+            })
+        }
     }
 }
 
+// Without atomics: AudioContext is accessible directly from Stream.
+#[cfg(not(target_feature = "atomics"))]
 impl Stream {
     /// Return the [`AudioContext`](https://developer.mozilla.org/docs/Web/API/AudioContext) used
     /// by this stream.
@@ -577,59 +684,62 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        let window = web_sys::window().unwrap();
-        match self.ctx.resume() {
-            Ok(_) => {
-                // Only schedule the initial timeouts once.
-                if self
-                    .is_started
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_err()
-                {
-                    return Ok(());
+        #[cfg(not(target_feature = "atomics"))]
+        {
+            let window = web_sys::window().unwrap();
+            match self.ctx.resume() {
+                Ok(_) => {
+                    // Only schedule the initial timeouts once.
+                    if self
+                        .is_started
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_err()
+                    {
+                        return Ok(());
+                    }
+                    schedule_initial_timeouts(
+                        &window,
+                        &self.on_ended_closures,
+                        self.buffer_size_frames,
+                        self.config.sample_rate,
+                    );
+                    Ok(())
                 }
-                // Begin webaudio playback, initially scheduling the closures to fire on a timeout
-                // event. Minimum value as per spec: https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timers
-                let mut offset_ms = 4;
-                let time_step_secs =
-                    buffer_time_step_secs(self.buffer_size_frames, self.config.sample_rate);
-                let time_step_ms = ((time_step_secs * 1_000.0).ceil() as i32).max(1);
-                for on_ended_closure in self.on_ended_closures.iter() {
-                    window
-                        .set_timeout_with_callback_and_timeout_and_arguments_0(
-                            on_ended_closure
-                                .read()
-                                .unwrap()
-                                .as_ref()
-                                .unwrap()
-                                .as_ref()
-                                .unchecked_ref(),
-                            offset_ms,
-                        )
-                        .unwrap();
-                    offset_ms += time_step_ms;
-                }
-                Ok(())
+                Err(_) => Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "Failed to resume audio context",
+                )),
             }
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to resume audio context",
-            )),
         }
+        #[cfg(target_feature = "atomics")]
+        self.command_tx.unbounded_send(Command::Play).map_err(|_| {
+            Error::with_message(ErrorKind::DeviceNotAvailable, "Stream has been dropped")
+        })
     }
 
     fn pause(&self) -> Result<(), Error> {
-        match self.ctx.suspend() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to suspend audio context",
-            )),
+        #[cfg(not(target_feature = "atomics"))]
+        {
+            match self.ctx.suspend() {
+                Ok(_) => Ok(()),
+                Err(_) => Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "Failed to suspend audio context",
+                )),
+            }
         }
+        #[cfg(target_feature = "atomics")]
+        self.command_tx.unbounded_send(Command::Pause).map_err(|_| {
+            Error::with_message(ErrorKind::DeviceNotAvailable, "Stream has been dropped")
+        })
     }
 
     fn now(&self) -> StreamInstant {
-        StreamInstant::from_secs_f64(self.ctx.current_time())
+        #[cfg(not(target_feature = "atomics"))]
+        let t = self.ctx.current_time();
+        #[cfg(target_feature = "atomics")]
+        let t = f64::from_bits(self.current_time_bits.load(Ordering::Relaxed));
+        StreamInstant::from_secs_f64(t)
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
@@ -637,11 +747,15 @@ impl StreamTrait for Stream {
     }
 }
 
+// Without atomics: close the AudioContext synchronously on drop.
+#[cfg(not(target_feature = "atomics"))]
 impl Drop for Stream {
     fn drop(&mut self) {
         let _ = self.ctx.close();
     }
 }
+// With atomics: dropping `command_tx` closes the channel, which signals the
+// spawn_local task to call ctx.close() on the main thread.
 
 impl Iterator for Devices {
     type Item = Device;
@@ -662,22 +776,51 @@ fn default_input_device() -> Option<Device> {
 }
 
 fn default_output_device() -> Option<Device> {
-    if is_webaudio_available() {
+    if Host::is_available() {
         Some(Device)
     } else {
         None
     }
 }
 
-// Detects whether the `AudioContext` global variable is available.
+// Detects whether WebAudio is available: requires a window context (not a Worker) with an
+// AudioContext constructor present.
 fn is_webaudio_available() -> bool {
-    js_sys::Reflect::get(&js_sys::global(), &JsValue::from("AudioContext"))
-        .unwrap()
-        .is_truthy()
+    web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(w.as_ref(), &JsValue::from("AudioContext")).ok())
+        .is_some_and(|v| v.is_truthy())
 }
 
 fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {
     buffer_size_frames as f64 / sample_rate as f64
+}
+
+/// Stagger the initial `setTimeout` kicks for the double-buffer pair so the two closures
+/// don't fire at the same instant on the first tick.
+fn schedule_initial_timeouts(
+    window: &web_sys::Window,
+    on_ended_closures: &[ClosureHandle],
+    buffer_size_frames: usize,
+    sample_rate: SampleRate,
+) {
+    let time_step_secs = buffer_time_step_secs(buffer_size_frames, sample_rate);
+    let time_step_ms = ((time_step_secs * 1_000.0).ceil() as i32).max(1);
+    let mut offset_ms = INITIAL_TIMEOUT_MS;
+    for on_ended_closure in on_ended_closures {
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                on_ended_closure
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unchecked_ref(),
+                offset_ms,
+            )
+            .unwrap();
+        offset_ms += time_step_ms;
+    }
 }
 
 #[cfg(target_feature = "atomics")]

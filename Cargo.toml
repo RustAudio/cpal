@@ -31,25 +31,22 @@ realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 # Provides low-latency audio I/O by bypassing the Windows audio stack
 # Requires: ASIO drivers and LLVM/Clang for build-time bindings
 # See README for detailed setup instructions
-asio = [
-    "dep:asio-sys",
-    "dep:num-traits",
-]
+asio = ["dep:asio-sys", "dep:num-traits"]
 
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
 # Platform: WebAssembly (wasm32-unknown-unknown)
 audioworklet = [
-    "dep:futures-channel",
-    "dep:futures-util",
-    "wasm-bindgen",
-    "web-sys/Blob",
-    "web-sys/BlobPropertyBag",
-    "web-sys/Url",
-    "web-sys/AudioWorklet",
-    "web-sys/AudioWorkletNode",
-    "web-sys/AudioWorkletNodeOptions",
+  "dep:futures-channel",
+  "dep:futures-util",
+  "wasm-bindgen",
+  "web-sys/Blob",
+  "web-sys/BlobPropertyBag",
+  "web-sys/Url",
+  "web-sys/AudioWorklet",
+  "web-sys/AudioWorkletNode",
+  "web-sys/AudioWorkletNodeOptions",
 ]
 
 # Support for user-defined custom hosts, devices, and streams
@@ -81,7 +78,12 @@ pulseaudio = ["dep:pulseaudio", "dep:futures-executor", "dep:futures-util"]
 # Required for any WebAssembly audio support
 # Platform: WebAssembly (wasm32-unknown-unknown)
 # Note: This is typically enabled automatically when targeting wasm32
-wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+wasm-bindgen = [
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:futures-channel",
+  "dep:futures-util",
+]
 
 [dependencies]
 dasp_sample = "0.11"
@@ -99,19 +101,19 @@ clap = { version = "4.6", features = ["derive"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = { version = ">=0.61, <=0.62" }
 windows = { version = ">=0.61, <=0.62", features = [
-    "Win32_Media",
-    "Win32_Media_Audio",
-    "Win32_Foundation",
-    "Win32_Devices_Properties",
-    "Win32_Media_KernelStreaming",
-    "Win32_System_Com_StructuredStorage",
-    "Win32_System_Threading",
-    "Win32_System_Performance",
-    "Win32_Security",
-    "Win32_System_SystemServices",
-    "Win32_System_Variant",
-    "Win32_Media_Multimedia",
-    "Win32_UI_Shell_PropertiesSystem",
+  "Win32_Media",
+  "Win32_Media_Audio",
+  "Win32_Foundation",
+  "Win32_Devices_Properties",
+  "Win32_Media_KernelStreaming",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Threading",
+  "Win32_System_Performance",
+  "Win32_Security",
+  "Win32_System_SystemServices",
+  "Win32_System_Variant",
+  "Win32_Media_Multimedia",
+  "Win32_UI_Shell_PropertiesSystem",
 ] }
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 asio-sys = { version = "0.4.0", path = "asio-sys", optional = true }
@@ -126,37 +128,39 @@ audio_thread_priority = { version = "0.35", optional = true, default-features = 
 jack = { version = "0.13", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures-executor = { version = "0.3", optional = true }
-futures-util = { version = "0.3", default-features = false, optional = true, features = ["alloc"] }
+futures-util = { version = "0.3", default-features = false, optional = true, features = [
+  "alloc",
+] }
 pipewire = { version = "0.10", optional = true, features = ["v0_3_53"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
 coreaudio-rs = { version = "0.14.2", default-features = false, features = [
-    "core_audio",
-    "audio_toolbox",
+  "core_audio",
+  "audio_toolbox",
 ] }
 objc2-core-audio = { version = "0.3", default-features = false, features = [
-    "std",
-    "AudioHardware",
-    "AudioHardwareDeprecated",
-    "objc2",
-    "objc2-foundation",
+  "std",
+  "AudioHardware",
+  "AudioHardwareDeprecated",
+  "objc2",
+  "objc2-foundation",
 ] }
 objc2-audio-toolbox = { version = "0.3", default-features = false, features = [
-    "std",
-    "AUComponent",
-    "AudioUnitProperties",
+  "std",
+  "AUComponent",
+  "AudioUnitProperties",
 ] }
 objc2-core-audio-types = { version = "0.3", default-features = false, features = [
-    "std",
-    "CoreAudioBaseTypes",
+  "std",
+  "CoreAudioBaseTypes",
 ] }
 objc2-core-foundation = { version = "0.3" }
 objc2-foundation = { version = "0.3", default-features = false, features = [
-    "std",
-    "NSArray",
-    "NSString",
-    "NSValue",
+  "std",
+  "NSArray",
+  "NSString",
+  "NSValue",
 ] }
 objc2 = { version = "0.6" }
 
@@ -166,39 +170,41 @@ jack = { version = "0.13", optional = true }
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
-    "block2",
-    "NSDictionary",
-    "NSNotification",
-    "NSOperation",
+  "block2",
+  "NSDictionary",
+  "NSNotification",
+  "NSOperation",
 ] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = [
-    "std",
-    "AVAudioSession",
-    "AVAudioSessionTypes",
+  "std",
+  "AVAudioSession",
+  "AVAudioSessionTypes",
 ] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 futures-channel = { version = "0.3", optional = true }
-futures-util = { version = "0.3", default-features = false, optional = true, features = ["alloc"] }
+futures-util = { version = "0.3", default-features = false, optional = true, features = [
+  "alloc",
+] }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
-    "AudioContext",
-    "AudioContextOptions",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "AudioNode",
-    "AudioDestinationNode",
-    "Window",
-    "AudioContextState",
+  "AudioContext",
+  "AudioContextOptions",
+  "AudioBuffer",
+  "AudioBufferSourceNode",
+  "AudioNode",
+  "AudioDestinationNode",
+  "Window",
+  "AudioContextState",
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 ndk = { version = "0.9", default-features = false, features = [
-    "audio",
-    "api-level-26",
+  "audio",
+  "api-level-26",
 ] }
 ndk-context = "0.1"
 jni = "0.22"
@@ -225,14 +231,14 @@ name = "synth_tones"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
-    "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-    "aarch64-apple-ios",
-    "wasm32-unknown-unknown",
-    "aarch64-linux-android",
-    "x86_64-unknown-freebsd",
-    "x86_64-unknown-netbsd",
-    "x86_64-unknown-dragonfly",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+  "wasm32-unknown-unknown",
+  "aarch64-linux-android",
+  "x86_64-unknown-freebsd",
+  "x86_64-unknown-netbsd",
+  "x86_64-unknown-dragonfly",
 ]
