@@ -75,8 +75,8 @@ pub struct Stream {
     #[cfg(not(target_feature = "atomics"))]
     is_started: Arc<AtomicBool>,
 
-    // Multi-threaded WASM (+atomics): all fields are Send+Sync; JS types are held in a
-    // spawn_local task that runs on the main thread.
+    // Multi-threaded WASM (+atomics): all fields are Send+Sync; JS types are owned by a
+    // spawn_local future on the local thread and are never stored here.
     #[cfg(target_feature = "atomics")]
     command_tx: mpsc::UnboundedSender<Command>,
     #[cfg(target_feature = "atomics")]
@@ -116,7 +116,7 @@ impl Host {
         } else {
             Err(Error::with_message(
                 ErrorKind::HostUnavailable,
-                "WebAudio is not available",
+                "WebAudio is not available in this context",
             ))
         }
     }
@@ -348,9 +348,10 @@ impl DeviceTrait for Device {
         }
         destination.set_channel_count(config.channels as u32);
 
-        // SAFETY: AudioContext and Closure are not Send/Sync, but these Arcs are created on the
-        // main thread and never leave it: in the non-atomics path WASM is single-threaded, and in
-        // the atomics path they are moved into a spawn_local task which also runs on the main thread.
+        // SAFETY: AudioContext and Closure are not Send/Sync. In the non-atomics path WASM is
+        // single-threaded so there are no thread boundaries to cross. In the atomics path these
+        // values are moved into a spawn_local future on the same local thread; they are never
+        // stored in Stream (which is Send+Sync) and therefore never escape to another thread.
         #[allow(clippy::arc_with_non_send_sync)]
         let ctx = Arc::new(ctx);
 
@@ -367,8 +368,9 @@ impl DeviceTrait for Device {
             .unwrap_or(0.0);
 
         // Shared current-time counter updated on every callback invocation.
+        // Seeded from the live clock so now() is on the correct time base before the first callback.
         #[cfg(target_feature = "atomics")]
-        let current_time_bits = Arc::new(AtomicU64::new(0u64));
+        let current_time_bits = Arc::new(AtomicU64::new(ctx.current_time().to_bits()));
 
         // Create a set of closures / callbacks which will continuously fetch and schedule sample
         // playback. Starting with two workers, e.g. a front and back buffer so that audio frames
@@ -612,13 +614,15 @@ impl DeviceTrait for Device {
         }
 
         #[cfg(not(target_feature = "atomics"))]
-        return Ok(Self::Stream {
-            ctx,
-            on_ended_closures,
-            config,
-            buffer_size_frames,
-            is_started,
-        });
+        {
+            Ok(Self::Stream {
+                ctx,
+                on_ended_closures,
+                config,
+                buffer_size_frames,
+                is_started,
+            })
+        }
 
         #[cfg(target_feature = "atomics")]
         {
@@ -630,21 +634,20 @@ impl DeviceTrait for Device {
                 while let Some(cmd) = command_rx.next().await {
                     match cmd {
                         Command::Play => {
-                            if !started {
-                                started = true;
-                                schedule_initial_timeouts(
-                                    &window,
-                                    &on_ended_closures,
-                                    buffer_size_frames,
-                                    config.sample_rate,
-                                );
-                            }
                             if ctx.resume().is_err() {
                                 error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                     Error::with_message(
                                         ErrorKind::DeviceNotAvailable,
                                         "Failed to resume audio context",
                                     ),
+                                );
+                            } else if !started {
+                                started = true;
+                                schedule_initial_timeouts(
+                                    &window,
+                                    &on_ended_closures,
+                                    buffer_size_frames,
+                                    config.sample_rate,
                                 );
                             }
                         }
@@ -713,7 +716,10 @@ impl StreamTrait for Stream {
         }
         #[cfg(target_feature = "atomics")]
         self.command_tx.unbounded_send(Command::Play).map_err(|_| {
-            Error::with_message(ErrorKind::DeviceNotAvailable, "Stream has been dropped")
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "WebAudio context task stopped unexpectedly",
+            )
         })
     }
 
@@ -730,7 +736,10 @@ impl StreamTrait for Stream {
         }
         #[cfg(target_feature = "atomics")]
         self.command_tx.unbounded_send(Command::Pause).map_err(|_| {
-            Error::with_message(ErrorKind::DeviceNotAvailable, "Stream has been dropped")
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "WebAudio context task stopped unexpectedly",
+            )
         })
     }
 

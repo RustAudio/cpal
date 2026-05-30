@@ -874,6 +874,7 @@ mod platform_impl {
     #[cfg(feature = "audioworklet")]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
+    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
@@ -882,10 +883,18 @@ mod platform_impl {
     );
 
     /// The default host for the current compilation target platform.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside a Window context (e.g. from a Web Worker or Service Worker),
+    /// where `AudioContext` is unavailable.
     pub fn default_host() -> Host {
-        WebAudioHost::new()
-            .expect("the default host should always be available")
-            .into()
+        assert!(
+            WebAudioHost::is_available(),
+            "WebAudio is not available in this context; \
+             AudioContext requires a Window (not a Worker or Service Worker)"
+        );
+        WebAudioHost::new().unwrap().into()
     }
 }
 
