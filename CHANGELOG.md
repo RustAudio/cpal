@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: tvOS target support (Tier 3, requires nightly).
 - **PipeWire**: New host for Linux and BSD via the native PipeWire API.
 - **PulseAudio**: New host for Linux and BSD via the PulseAudio API.
+- **WASAPI**: `F64` sample format support.
 
 ### Changed
 
@@ -206,6 +207,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Fix `sample_rate: 0` with `BufferSize::Fixed` causing a divide-by-zero panic.
 - **WASAPI**: Fix `supported_input/output_configs()` and `default_input/output_config()` reporting
   an unconstrained buffer range on software audio stacks.
+- **WASAPI**: Fix `I24` not enumerated and 24-bit devices misidentified as `I32`.
 - **WebAudio**: Fix overflow with pathological channel counts.
 - **WebAudio**: Fix duplicated callbacks on repeated `play()` calls.
 - **WebAudio**: Fix errors panicking instead of being reported through the callback.
