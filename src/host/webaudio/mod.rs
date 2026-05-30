@@ -11,12 +11,12 @@ use std::sync::atomic::AtomicU64;
 use std::{
     fmt,
     ops::DerefMut,
-    sync::{
-        Arc, Mutex, RwLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, RwLock, atomic::Ordering},
     time::Duration,
 };
+
+#[cfg(not(target_feature = "atomics"))]
+use std::sync::atomic::AtomicBool;
 
 #[cfg(target_feature = "atomics")]
 use futures_channel::mpsc;
@@ -63,10 +63,11 @@ impl fmt::Display for Device {
 pub struct Host;
 
 pub struct Stream {
-    config: StreamConfig,
     buffer_size_frames: usize,
 
     // Single-threaded WASM: hold JS types directly. Safe because there is only one thread.
+    #[cfg(not(target_feature = "atomics"))]
+    config: StreamConfig,
     #[cfg(not(target_feature = "atomics"))]
     ctx: Arc<AudioContext>,
     #[cfg(not(target_feature = "atomics"))]
@@ -666,7 +667,6 @@ impl DeviceTrait for Device {
                 command_tx,
                 current_time_bits: current_time_bits_stream,
                 buffer_size_frames,
-                config,
             })
         }
     }
