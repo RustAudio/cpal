@@ -501,7 +501,7 @@ impl DeviceTrait for Device {
         };
 
         let display_name =
-            String::from_utf8_lossy(description.as_ref().unwrap_or(name).as_bytes()).into_owned();
+            String::from_utf8_lossy(description.as_ref().unwrap_or(name).as_bytes());
 
         Ok(DeviceDescriptionBuilder::new(display_name)
             .direction(direction)
