@@ -500,8 +500,7 @@ impl DeviceTrait for Device {
             Device::Source { info, .. } => (&info.name, &info.description, DeviceDirection::Input),
         };
 
-        let display_name =
-            String::from_utf8_lossy(description.as_ref().unwrap_or(name).as_bytes());
+        let display_name = String::from_utf8_lossy(description.as_ref().unwrap_or(name).as_bytes());
 
         Ok(DeviceDescriptionBuilder::new(display_name)
             .direction(direction)
