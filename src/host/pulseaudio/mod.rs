@@ -500,22 +500,24 @@ impl DeviceTrait for Device {
             Device::Source { info, .. } => (&info.name, &info.description, DeviceDirection::Input),
         };
 
-        let mut builder = DeviceDescriptionBuilder::new(String::from_utf8_lossy(name.as_bytes()))
-            .direction(direction);
-        if let Some(desc) = description {
-            builder = builder.add_extended_line(String::from_utf8_lossy(desc.as_bytes()));
-        }
+        let display_name =
+            String::from_utf8_lossy(description.as_ref().unwrap_or(name).as_bytes()).into_owned();
 
-        Ok(builder.build())
+        Ok(DeviceDescriptionBuilder::new(display_name)
+            .direction(direction)
+            .build())
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        let id = match self {
-            Device::Sink { info, .. } => info.index,
-            Device::Source { info, .. } => info.index,
+        let name = match self {
+            Device::Sink { info, .. } => &info.name,
+            Device::Source { info, .. } => &info.name,
         };
 
-        Ok(DeviceId::new(HostId::PulseAudio, id.to_string()))
+        Ok(DeviceId::new(
+            HostId::PulseAudio,
+            String::from_utf8_lossy(name.as_bytes()),
+        ))
     }
 }
 
@@ -652,8 +654,8 @@ fn make_record_buffer_attr(
 impl PartialEq for Device {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Device::Sink { info: a, .. }, Device::Sink { info: b, .. }) => a.index == b.index,
-            (Device::Source { info: a, .. }, Device::Source { info: b, .. }) => a.index == b.index,
+            (Device::Sink { info: a, .. }, Device::Sink { info: b, .. }) => a.name == b.name,
+            (Device::Source { info: a, .. }, Device::Source { info: b, .. }) => a.name == b.name,
             _ => false,
         }
     }
@@ -672,8 +674,8 @@ impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
-            Device::Sink { info, .. } => info.index.hash(state),
-            Device::Source { info, .. } => info.index.hash(state),
+            Device::Sink { info, .. } => info.name.hash(state),
+            Device::Source { info, .. } => info.name.hash(state),
         }
     }
 }
