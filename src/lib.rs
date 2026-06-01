@@ -200,6 +200,7 @@ pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24}
 use wasm_bindgen::prelude::*;
 
 pub mod device_description;
+mod duplex;
 mod error;
 mod host;
 pub mod platform;
@@ -524,6 +525,7 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
+pub use duplex::{DuplexCallbackInfo, DuplexStreamConfig};
 pub use timestamp::{
     InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
     StreamInstant,

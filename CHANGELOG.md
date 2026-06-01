@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `realtime` feature for real-time audio thread scheduling without a D-Bus build dependency.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
+- Added duplex stream API (interface only; backends to follow).
 - `SAMPLE_RATE_CD` (44100 Hz) and `SAMPLE_RATE_48K` (48000 Hz) constants.
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
