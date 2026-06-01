@@ -12,9 +12,9 @@ use std::{
 };
 
 use crate::{
-    Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, InputDevices, OutputCallbackInfo,
-    OutputDevices, SampleFormat, SizedSample, StreamConfig, StreamInstant, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    Data, DeviceDescription, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
+    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, SampleFormat, SizedSample,
+    StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -114,10 +114,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
     type SupportedOutputConfigs: Iterator<Item = SupportedStreamConfigRange>;
-    /// The stream type created by [`build_input_stream_raw`] and [`build_output_stream_raw`].
+    /// The stream type created by [`build_input_stream_raw`] and [`build_output_stream_raw`],
+    /// and [`build_duplex_stream_raw`].
     ///
     /// [`build_input_stream_raw`]: Self::build_input_stream_raw
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
+    /// [`build_duplex_stream_raw`]: Self::build_duplex_stream_raw
     type Stream: StreamTrait;
 
     /// Structured description of the device with metadata.
@@ -158,6 +160,18 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     fn supports_output(&self) -> bool {
         self.supported_output_configs()
             .is_ok_and(|mut iter| iter.next().is_some())
+    }
+
+    /// True if the device can build a synchronized duplex stream where the captured input and
+    /// rendered output share a single clock.
+    ///
+    /// Returning `true` is a contract that input and output sides will run from one device-level
+    /// callback, or an OS driver aggregate (such as an Aggregate Device on MacOS).
+    ///
+    /// The default implementation returns `false`; hosts that can guarantee a shared clock should
+    /// override.
+    fn supports_duplex(&self) -> bool {
+        false
     }
 
     /// An iterator yielding input stream configurations that are supported by the device.
@@ -407,6 +421,102 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     where
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static;
+
+    /// Create a synchronized duplex stream whose input and output share the same clock
+    /// or OS provided bidirectional aggregate device (MacOS). MacOS Aggregate device drift
+    /// compensation is not required.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - Channels, sample rate, and buffer size shared by both directions.
+    /// * `data_callback` - Called periodically with captured input and a mutable output buffer.
+    /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
+    /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
+    ///   indefinitely. Note: not all backends honor this value.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::UnsupportedOperation`] if the host or device does not support duplex
+    ///   streams.
+    /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel counts, buffer size, or
+    ///   sample format is not supported by the device.
+    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
+    /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device
+    ///   (e.g. microphone access on macOS).
+    /// - [`ErrorKind::InvalidInput`] if the configuration parameters are invalid.
+    /// - [`ErrorKind::StreamInvalidated`] if the device's sample rate or buffer size changed
+    ///   during stream creation, or an internal lock was poisoned.
+    /// - [`ErrorKind::ResourceExhausted`] if the host fails to spawn an internal monitoring
+    ///   thread.
+    /// - [`ErrorKind::BackendError`] for unclassified backend failures.
+    ///
+    /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
+    /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
+    /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
+    /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
+    /// [`ErrorKind::ResourceExhausted`]: crate::ErrorKind::ResourceExhausted
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
+    fn build_duplex_stream<T, D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        mut data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        T: SizedSample,
+        D: FnMut(&[T], &mut [T], &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        self.build_duplex_stream_raw(
+            config,
+            T::FORMAT,
+            move |input, output, info| {
+                data_callback(
+                    input
+                        .as_slice()
+                        .expect("host supplied incorrect sample type"),
+                    output
+                        .as_slice_mut()
+                        .expect("host supplied incorrect sample type"),
+                    info,
+                )
+            },
+            error_callback,
+            timeout,
+        )
+    }
+
+    /// Create a dynamically typed synchronized duplex stream.
+    ///
+    /// Hosts that support duplex streams must override this method;
+    /// the default implementation returns [`ErrorKind::UnsupportedOperation`].
+    ///
+    /// See [`build_duplex_stream`](Self::build_duplex_stream) for parameter and error
+    /// documentation.
+    ///
+    /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        _config: DuplexStreamConfig,
+        _sample_format: SampleFormat,
+        _data_callback: D,
+        _error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "duplex streams are not supported by this host",
+        ))
+    }
 }
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control it.
