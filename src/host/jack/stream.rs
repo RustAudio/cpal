@@ -70,11 +70,13 @@ impl Stream {
 
         let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-
+        let sample_rate = client.sample_rate().try_into().map_err(|_| {
+            Error::with_message(ErrorKind::Other, "client returned an invalid sample rate")
+        })?;
         let input_process_handler = LocalProcessHandler::new(
             vec![],
             ports,
-            client.sample_rate(),
+            sample_rate,
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
@@ -126,11 +128,14 @@ impl Stream {
 
         let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+        let sample_rate = client.sample_rate().try_into().map_err(|_| {
+            Error::with_message(ErrorKind::Other, "client returned an invalid sample rate")
+        })?;
 
         let output_process_handler = LocalProcessHandler::new(
             ports,
             vec![],
-            client.sample_rate(),
+            sample_rate,
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),

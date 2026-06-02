@@ -56,11 +56,14 @@ impl Device {
             .try_into()
             .unwrap_or(DEFAULT_NUM_CHANNELS)
             .max(DEFAULT_NUM_CHANNELS);
+        let sample_rate = client.sample_rate().try_into().map_err(|_| {
+            Error::with_message(ErrorKind::Other, "client returned an invalid sample rate")
+        })?;
         Ok(Self {
             // The name given to the client by JACK, could potentially be different from the name
             // supplied e.g. if there is a name collision
             name: client.name().to_owned(),
-            sample_rate: client.sample_rate(),
+            sample_rate,
             buffer_size: SupportedBufferSize::Range {
                 min: client.buffer_size(),
                 max: client.buffer_size(),
@@ -216,7 +219,10 @@ impl DeviceTrait for Device {
         let build = move || -> Result<Stream, Error> {
             let client_options = super::get_client_options(start_server_automatically);
             let client = super::get_client(&name, client_options)?;
-            if conf.sample_rate != client.sample_rate() {
+            let sample_rate = client.sample_rate().try_into().map_err(|_| {
+                Error::with_message(ErrorKind::Other, "client returned an invalid sample rate")
+            })?;
+            if conf.sample_rate != sample_rate {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
@@ -296,7 +302,10 @@ impl DeviceTrait for Device {
             // Create a fresh client to validate against live server state.
             let client_options = super::get_client_options(start_server_automatically);
             let client = super::get_client(&name, client_options)?;
-            if conf.sample_rate != client.sample_rate() {
+            let sample_rate = client.sample_rate().try_into().map_err(|_| {
+                Error::with_message(ErrorKind::Other, "client returned an invalid sample rate")
+            })?;
+            if conf.sample_rate != sample_rate {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
