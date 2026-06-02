@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -18,10 +19,10 @@ use cpal::{
 #[derive(Clone)] // Clone, Send+Sync are required
 struct MyHost;
 
-#[derive(Clone)] // Clone, Send+Sync are required
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct MyDevice;
 
-// Only Send+Sync is needed
+// Needs to be Send+Sync
 struct MyStream {
     controls: Arc<StreamControls>,
     // The instant the audio thread was started; shared with now() so that
@@ -65,10 +66,6 @@ impl DeviceTrait for MyDevice {
     type SupportedInputConfigs = std::iter::Empty<SupportedStreamConfigRange>;
     type SupportedOutputConfigs = std::iter::Once<SupportedStreamConfigRange>;
     type Stream = MyStream;
-
-    fn name(&self) -> Result<String, Error> {
-        Ok(String::from("custom"))
-    }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
         Ok(DeviceDescriptionBuilder::new("Custom Device").build())
@@ -186,6 +183,13 @@ impl DeviceTrait for MyDevice {
             start,
             handle: Some(handle),
         })
+    }
+}
+
+impl fmt::Display for MyDevice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
     }
 }
 
@@ -318,7 +322,12 @@ pub fn make_stream(device: &Device, config: StreamConfig) -> Result<Stream, anyh
         current_sample_index: 0.0,
         frequency_hz: 440.0,
     };
-    let err_fn = |err| eprintln!("Error building output sound stream: {err}");
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
+    };
 
     let time_at_start = std::time::Instant::now();
     println!("Time at start: {time_at_start:?}");

@@ -3,8 +3,8 @@ extern crate num_traits;
 
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering},
+        mpsc, Arc, Mutex,
     },
     time::Duration,
 };
@@ -12,7 +12,11 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    host::{com, frames_to_duration},
+    host::{
+        com,
+        error_emit::{emit_error, try_emit_error},
+        frames_to_duration,
+    },
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
     StreamInstant, I24,
@@ -20,6 +24,7 @@ use crate::{
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.
+#[derive(Default)]
 struct TimeBase {
     last_ns: AtomicU64,
     epoch_ns: AtomicU64,
@@ -29,13 +34,6 @@ struct TimeBase {
 const TIMEGETIME_WRAP_NS: u64 = (u32::MAX as u64 + 1) * 1_000_000;
 
 impl TimeBase {
-    fn new() -> Self {
-        Self {
-            last_ns: AtomicU64::new(0),
-            epoch_ns: AtomicU64::new(0),
-        }
-    }
-
     /// Convert a nanosecond timestamp to a monotonic `StreamInstant`.
     fn to_stream_instant(&self, ns: u64) -> StreamInstant {
         // `Relaxed` is sufficient: callbacks run on a single ASIO thread. The only
@@ -52,11 +50,34 @@ impl TimeBase {
     }
 }
 
+/// Matches the `startTimer(500)` call JUCE uses for debouncing ASIO driver event notifications.
+const ASIO_EVENT_DEBOUNCE: Duration = Duration::from_millis(500);
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StreamState {
+    Starting = 0,
+    Paused = 1,
+    Playing = 2,
+}
+
+impl StreamState {
+    fn load(atom: &AtomicU8, order: Ordering) -> Self {
+        match atom.load(order) {
+            1 => Self::Paused,
+            2 => Self::Playing,
+            _ => Self::Starting,
+        }
+    }
+
+    fn store(self, atom: &AtomicU8, order: Ordering) {
+        atom.store(self as u8, order);
+    }
+}
+
 pub struct Stream {
-    playing: Arc<AtomicBool>,
-    // Ensure the `Driver` does not terminate until the last stream is dropped.
+    state: Arc<AtomicU8>,
     driver: Arc<sys::Driver>,
-    #[allow(dead_code)]
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::BufferCallbackId,
     driver_event_callback_id: sys::DriverEventCallbackId,
@@ -77,18 +98,18 @@ impl Stream {
     }
 
     pub fn play(&self) -> Result<(), Error> {
-        self.playing.store(true, Ordering::Release);
+        StreamState::Playing.store(&self.state, Ordering::Release);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), Error> {
-        self.playing.store(false, Ordering::Release);
+        StreamState::Paused.store(&self.state, Ordering::Release);
         Ok(())
     }
 
     pub fn buffer_size(&self) -> Result<FrameCount, Error> {
         let streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         Ok(streams
             .output
@@ -112,12 +133,16 @@ impl Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO
             .get()
             .ok_or_else(|| {
-                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "ASIO driver is not initialized",
+                )
             })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
@@ -129,14 +154,14 @@ impl Device {
             super::device::convert_data_type(&stream_type).ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("ASIO input data type {stream_type:?} is not supported"),
+                    "Input sample format is not supported",
                 )
             })?;
         if sample_format != expected_sample_format {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} does not match ASIO input format {expected_sample_format}"
+                    "Sample format {sample_format} is not supported; expected {expected_sample_format}"
                 ),
             ));
         }
@@ -159,27 +184,35 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let driver_event_callback_id = self.add_event_callback(
-            &driver,
-            error_callback,
-            Arc::clone(&hardware_input_latency),
-            true,
-        );
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let driver_event_callback_id = self
+            .add_event_callback(
+                &driver,
+                error_callback,
+                Arc::clone(&hardware_input_latency),
+                true,
+                Arc::clone(&state),
+            )
+            .inspect_err(|_| {
+                // Roll back the input stream stored by get_or_create_input_stream.
+                if let Ok(mut streams) = self.asio_streams.lock() {
+                    streams.input = None;
+                }
+            })?;
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
-        let playing = Arc::clone(&stream_playing);
+        let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
-        let time_base = Arc::new(TimeBase::new());
+        let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
         // Set the input callback.
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
-            // If not playing return early.
-            if !playing.load(Ordering::Acquire) {
+            // If not playing, return early.
+            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
                 return;
             }
 
@@ -401,10 +434,18 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        driver.start().map_err(build_stream_err)?;
+        if let Err(e) = driver.start() {
+            driver.remove_event_callback(driver_event_callback_id);
+            driver.remove_callback(callback_id);
+            if let Ok(mut streams) = asio_streams.lock() {
+                streams.input = None;
+            }
+            return Err(build_stream_err(e));
+        }
 
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Stream {
-            playing: stream_playing,
+            state,
             driver,
             asio_streams,
             callback_id,
@@ -425,12 +466,16 @@ impl Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        crate::validate_stream_config(&config)?;
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO
             .get()
             .ok_or_else(|| {
-                Error::with_message(ErrorKind::DeviceNotAvailable, "ASIO driver not initialized")
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "ASIO driver is not initialized",
+                )
             })?
             .load_driver(description.name())
             .map_err(load_driver_err)?;
@@ -442,14 +487,14 @@ impl Device {
             super::device::convert_data_type(&stream_type).ok_or_else(|| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
-                    format!("ASIO output data type {stream_type:?} is not supported"),
+                    "Output sample format is not supported",
                 )
             })?;
         if sample_format != expected_sample_format {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "sample format {sample_format} does not match ASIO output format {expected_sample_format}"
+                    "Sample format {sample_format} is not supported; expected {expected_sample_format}"
                 ),
             ));
         }
@@ -473,25 +518,33 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let driver_event_callback_id = self.add_event_callback(
-            &driver,
-            error_callback,
-            Arc::clone(&hardware_output_latency),
-            false,
-        );
+        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let driver_event_callback_id = self
+            .add_event_callback(
+                &driver,
+                error_callback,
+                Arc::clone(&hardware_output_latency),
+                false,
+                Arc::clone(&state),
+            )
+            .inspect_err(|_| {
+                // Roll back the output stream stored by get_or_create_output_stream.
+                if let Ok(mut streams) = self.asio_streams.lock() {
+                    streams.output = None;
+                }
+            })?;
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
-        let playing = Arc::clone(&stream_playing);
+        let state_cb = Arc::clone(&state);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
-        let time_base = Arc::new(TimeBase::new());
+        let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if !playing.load(Ordering::Acquire) {
+            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
                 return;
             }
 
@@ -764,10 +817,18 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = self.asio_streams.clone();
 
-        driver.start().map_err(build_stream_err)?;
+        if let Err(e) = driver.start() {
+            driver.remove_event_callback(driver_event_callback_id);
+            driver.remove_callback(callback_id);
+            if let Ok(mut streams) = asio_streams.lock() {
+                streams.output = None;
+            }
+            return Err(build_stream_err(e));
+        }
 
+        StreamState::Paused.store(&state, Ordering::Release);
         Ok(Stream {
-            playing: stream_playing,
+            state,
             driver,
             asio_streams,
             callback_id,
@@ -791,7 +852,7 @@ impl Device {
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
         let mut streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
         let buffer_size = match config.buffer_size {
@@ -833,7 +894,7 @@ impl Device {
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
         let mut streams = self.asio_streams.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
         let buffer_size = match config.buffer_size {
@@ -868,16 +929,63 @@ impl Device {
         error_callback: E,
         hardware_latency: Arc<AtomicU32>,
         is_input: bool,
-    ) -> sys::DriverEventCallbackId
+        state: Arc<AtomicU8>,
+    ) -> Result<sys::DriverEventCallbackId, Error>
     where
         E: FnMut(Error) + Send + 'static,
     {
         let error_callback_shared = Arc::new(Mutex::new(error_callback));
-        let configured_sample_rate = driver.sample_rate().ok().filter(|&r| r > 0.0);
+        let configured_sample_rate = match driver.sample_rate() {
+            Ok(r) if r > 0.0 => Some(r),
+            _ => {
+                // Some drivers do not report a sample rate before a stream has started.
+                None
+            }
+        };
         let driver_for_latency = driver.clone();
         let asio_streams_for_event = self.asio_streams.clone();
 
-        driver.add_event_callback(move |event| {
+        // Debounce timer: wait for ASIO_EVENT_DEBOUNCE of silence after the most recent event
+        // before delivering to the user. Exits when `timer_tx` is dropped, which happens when the
+        // event callback closure is removed during stream teardown.
+        let (timer_tx, timer_rx) = mpsc::channel::<Error>();
+        let error_cb_for_timer = Arc::clone(&error_callback_shared);
+        std::thread::Builder::new()
+            .name("cpal-asio-event-timer".into())
+            .spawn(move || {
+                let mut pending: Option<Error> = None;
+                loop {
+                    // Use recv() when idle (no timeout needed) so we don't spin.
+                    let result = if pending.is_some() {
+                        timer_rx.recv_timeout(ASIO_EVENT_DEBOUNCE)
+                    } else {
+                        timer_rx
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                    };
+                    match result {
+                        Ok(err) => {
+                            // New event; restart the grace window.
+                            pending = Some(err);
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // Grace period elapsed with no new events: now deliver.
+                            if let Some(err) = pending.take() {
+                                emit_error(&error_cb_for_timer, err);
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to spawn event timer thread: {e}"),
+                )
+            })?;
+
+        Ok(driver.add_event_callback(move |event| {
             match event {
                 sys::AsioDriverEvent::Message {
                     selector: msg,
@@ -888,29 +996,38 @@ impl Device {
                         matches!(
                             sys::AsioMessageSelectors::from_i64(value as i64),
                             Some(sys::AsioMessageSelectors::kAsioBufferSizeChange)
+                                | Some(sys::AsioMessageSelectors::kAsioOverload)
                         )
                     }
                     sys::AsioMessageSelectors::kAsioResetRequest => {
-                        error_callback_shared
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            Error::with_message(
+                        // Guard on Starting: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.)
+                        // fire spurious reset/resync requests during driver.start().
+                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
+                            let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                "ASIO driver requested stream reset",
-                            ),
-                        );
-                        false
+                                "Stream reset was requested by the ASIO driver",
+                            ));
+                        }
+                        true
                     }
                     sys::AsioMessageSelectors::kAsioResyncRequest => {
-                        error_callback_shared
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())(
-                            Error::with_message(
-                                ErrorKind::Xrun,
-                                "ASIO driver requested resynchronization",
-                            ),
-                        );
-                        false
+                        // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
+                        // means the driver needs a full stop/reinit/start. It is *not* a simple
+                        // xrun notification.
+                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
+                            let _ = timer_tx.send(Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Stream resynchronization was requested by the ASIO driver",
+                            ));
+                        }
+                        true
+                    }
+                    sys::AsioMessageSelectors::kAsioOverload => {
+                        if StreamState::load(&state, Ordering::Acquire) == StreamState::Playing {
+                            let _ =
+                                try_emit_error(&error_callback_shared, Error::new(ErrorKind::Xrun));
+                        }
+                        true
                     }
                     sys::AsioMessageSelectors::kAsioLatenciesChanged => {
                         if let Ok(latencies) = driver_for_latency.latencies() {
@@ -942,22 +1059,25 @@ impl Device {
                     _ => false,
                 },
                 sys::AsioDriverEvent::SampleRateChanged(new_rate) => {
-                    if let Some(rate) = configured_sample_rate {
-                        if (new_rate - rate).abs() >= 1.0 {
-                            error_callback_shared
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())(
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    format!("ASIO driver changed sample rate to {new_rate} Hz"),
-                                ),
-                            );
+                    let should_notify = match configured_sample_rate {
+                        Some(rate) => (new_rate - rate).abs() >= 1.0,
+                        None => {
+                            // Unknown baseline: any reported change is treated as invalidating.
+                            true
                         }
+                    };
+                    if should_notify
+                        && StreamState::load(&state, Ordering::Acquire) != StreamState::Starting
+                    {
+                        let _ = timer_tx.send(Error::with_message(
+                            ErrorKind::StreamInvalidated,
+                            format!("Sample rate changed to {new_rate} Hz by the ASIO driver"),
+                        ));
                     }
                     false
                 }
             }
-        })
+        }))
     }
 }
 
@@ -995,10 +1115,23 @@ fn check_config(
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
-                    "buffer size {requested_size} is not in the supported range {}..={}",
-                    range.min, range.max
+                    "Buffer size {requested_size} is not in the supported range {min}..={max}",
+                    min = range.min,
+                    max = range.max
                 ),
             ));
+        }
+        if let sys::BufferPreference::Stepped { step, .. } = range.preferred {
+            let offset = requested_size_i32 - range.min;
+            if offset % step as i32 != 0 {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {requested_size} is not valid; sizes must start at {min} and increment by {step}",
+                        min = range.min
+                    ),
+                ));
+            }
         }
     }
 
@@ -1015,7 +1148,7 @@ fn check_config(
         } else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample rate {sample_rate} Hz is not supported by the ASIO driver"),
+                format!("Sample rate {sample_rate} Hz is not supported"),
             ));
         }
     }
@@ -1025,14 +1158,14 @@ fn check_config(
         _ => {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported by ASIO"),
+                format!("Sample format {sample_format} is not supported"),
             ))
         }
     }
     if channels > num_asio_channels {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
-            format!("{channels} channels exceeds the ASIO device maximum of {num_asio_channels}"),
+            format!("Channel count {channels} exceeds the maximum of {num_asio_channels}"),
         ));
     }
     Ok(())
@@ -1109,7 +1242,11 @@ fn build_stream_err(e: sys::AsioError) -> Error {
         sys::AsioError::InvalidInput | sys::AsioError::BadMode => {
             Error::with_message(ErrorKind::InvalidInput, e.to_string())
         }
-        err => Error::with_message(ErrorKind::Other, err.to_string()),
+        sys::AsioError::InvalidBufferSize | sys::AsioError::NoRate => {
+            Error::with_message(ErrorKind::UnsupportedConfig, e.to_string())
+        }
+        sys::AsioError::HardwareStuck => Error::with_message(ErrorKind::DeviceBusy, e.to_string()),
+        err => Error::with_message(ErrorKind::BackendError, err.to_string()),
     }
 }
 

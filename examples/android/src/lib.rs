@@ -5,7 +5,8 @@ extern crate cpal;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, FromSample, OutputCallbackInfo, Sample, SampleFormat, SizedSample, StreamConfig, I24,
+    Device, Error, ErrorKind, FromSample, OutputCallbackInfo, Sample, SampleFormat, SizedSample,
+    StreamConfig, I24,
 };
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
@@ -51,7 +52,10 @@ where
         (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => eprintln!("{err}"),
+        _ => eprintln!("Stream error: {err}"),
+    };
 
     let stream = device.build_output_stream(
         config,

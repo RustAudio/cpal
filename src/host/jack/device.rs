@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     hash::{Hash, Hasher},
     time::Duration,
 };
@@ -6,20 +7,20 @@ use std::{
 use super::{stream::Stream, JACK_SAMPLE_FORMAT};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    traits::DeviceTrait, BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    traits::DeviceTrait, BufferSize, ChannelCount, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-const DEFAULT_NUM_CHANNELS: u16 = 2;
-const DEFAULT_SUPPORTED_CHANNELS: [u16; 10] = [1, 2, 4, 6, 8, 16, 24, 32, 48, 64];
+const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
 
 #[derive(Clone, Debug)]
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
+    max_channels: ChannelCount,
     direction: DeviceDirection,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
@@ -39,15 +40,32 @@ impl Device {
         // making the stream. This is a hack due to the fact that the Client must be moved to
         // create the AsyncClient.
         let client = super::get_client(&name, client_options)?;
+        let port_pattern = match direction {
+            DeviceDirection::Input => "system:capture_.*",
+            DeviceDirection::Output => "system:playback_.*",
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    format!("JACK does not support {direction:?} direction"),
+                ))
+            }
+        };
+        let max_channels = client
+            .ports(Some(port_pattern), None, jack::PortFlags::empty())
+            .len()
+            .try_into()
+            .unwrap_or(DEFAULT_NUM_CHANNELS)
+            .max(DEFAULT_NUM_CHANNELS);
         Ok(Self {
             // The name given to the client by JACK, could potentially be different from the name
             // supplied e.g. if there is a name collision
-            name: client.name().to_string(),
+            name: client.name().to_owned(),
             sample_rate: client.sample_rate(),
             buffer_size: SupportedBufferSize::Range {
                 min: client.buffer_size(),
                 max: client.buffer_size(),
             },
+            max_channels,
             direction,
             start_server_automatically,
             connect_ports_automatically,
@@ -55,7 +73,7 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Jack, self.name.clone()))
+        Ok(DeviceId::new(crate::platform::HostId::Jack, &self.name))
     }
 
     pub fn default_output_device(
@@ -108,18 +126,15 @@ impl Device {
             Ok(f) => f,
         };
 
-        let mut supported_configs = vec![];
-
-        for &channels in DEFAULT_SUPPORTED_CHANNELS.iter() {
-            supported_configs.push(SupportedStreamConfigRange {
+        (1..=self.max_channels)
+            .map(|channels| SupportedStreamConfigRange {
                 channels,
                 min_sample_rate: f.sample_rate,
                 max_sample_rate: f.sample_rate,
                 buffer_size: f.buffer_size,
                 sample_format: f.sample_format,
-            });
-        }
-        supported_configs
+            })
+            .collect()
     }
 
     pub fn is_input(&self) -> bool {
@@ -183,13 +198,14 @@ impl DeviceTrait for Device {
         if self.is_output() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support input",
+                "Device does not support input",
             ));
         }
+        crate::validate_stream_config(&conf)?;
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported; JACK requires {JACK_SAMPLE_FORMAT}"),
+                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
             ));
         }
 
@@ -204,7 +220,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
-                        "sample rate {} Hz does not match JACK server rate {} Hz",
+                        "Sample rate {} Hz does not match the server rate {} Hz",
                         conf.sample_rate,
                         client.sample_rate()
                     ),
@@ -215,7 +231,7 @@ impl DeviceTrait for Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "buffer size {size} does not match JACK server buffer size {}",
+                            "Buffer size {size} does not match the server buffer size {}",
                             client.buffer_size()
                         ),
                     ));
@@ -224,7 +240,7 @@ impl DeviceTrait for Device {
             let mut stream =
                 Stream::new_input(client, conf.channels, data_callback, error_callback)?;
             if connect_ports_automatically {
-                stream.connect_to_system_inputs();
+                stream.connect_to_system_inputs()?;
             }
             Ok(stream)
         };
@@ -261,13 +277,14 @@ impl DeviceTrait for Device {
         if self.is_input() {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "device does not support output",
+                "Device does not support output",
             ));
         }
+        crate::validate_stream_config(&conf)?;
         if sample_format != JACK_SAMPLE_FORMAT {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                format!("sample format {sample_format} is not supported; JACK requires {JACK_SAMPLE_FORMAT}"),
+                format!("Sample format {sample_format} is not supported; required format is {JACK_SAMPLE_FORMAT}"),
             ));
         }
 
@@ -283,7 +300,7 @@ impl DeviceTrait for Device {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
-                        "sample rate {} Hz does not match JACK server rate {} Hz",
+                        "Sample rate {} Hz does not match the server rate {} Hz",
                         conf.sample_rate,
                         client.sample_rate()
                     ),
@@ -294,7 +311,7 @@ impl DeviceTrait for Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "buffer size {size} does not match JACK server buffer size {}",
+                            "Buffer size {size} does not match the server buffer size {}",
                             client.buffer_size()
                         ),
                     ));
@@ -303,7 +320,7 @@ impl DeviceTrait for Device {
             let mut stream =
                 Stream::new_output(client, conf.channels, data_callback, error_callback)?;
             if connect_ports_automatically {
-                stream.connect_to_system_outputs();
+                stream.connect_to_system_outputs()?;
             }
             Ok(stream)
         };
@@ -334,6 +351,13 @@ impl PartialEq for Device {
 }
 
 impl Eq for Device {}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {

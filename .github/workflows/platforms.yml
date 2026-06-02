@@ -25,14 +25,14 @@ on:
 env:
   # MSRV varies by backend due to platform-specific dependencies
   MSRV_AAUDIO: "1.85"
-  MSRV_ALSA: "1.82"
+  MSRV_ALSA: "1.85"
   MSRV_COREAUDIO: "1.85"
-  MSRV_JACK: "1.82"
+  MSRV_JACK: "1.85"
   MSRV_PIPEWIRE: "1.85"
   MSRV_PULSEAUDIO: "1.88"
-  MSRV_WASIP1: "1.78"
+  MSRV_WASIP1: "1.85"
   MSRV_WASM: "1.85"
-  MSRV_WINDOWS: "1.82"
+  MSRV_WINDOWS: "1.85"
 
   PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
 
@@ -171,7 +171,7 @@ jobs:
       - name: Install audio packages
         run: |
           apt-get update -qq
-          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libpipewire-0.3-dev
+          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libdbus-1-dev libpipewire-0.3-dev
 
       - name: Install Rust (${{ env.MSRV_PIPEWIRE }})
         uses: dtolnay/rust-toolchain@master
@@ -530,7 +530,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["0.59.0", "0.60.0", "0.61.3"]
+        version: ["0.61.3", "0.62.2"]
 
     name: windows-crate-v${{ matrix.version }}
     steps:
@@ -554,6 +554,14 @@ jobs:
         run: |
           cargo generate-lockfile
           cargo update -p windows --precise ${{ matrix.version }}
+          # After pinning windows there may be two windows-core versions in the lockfile
+          # (the direct dep stays at the latest allowed, the transitive dep is what windows
+          # needs). Find the stale one dynamically and replace it with the needed version.
+          NEEDED=$(awk -F'"' '/^name = "windows-core"$/{f=1} f && /^version = /{print $2; f=0}' Cargo.lock \
+            | sort -V | head -1)
+          STALE=$(awk -F'"' '/^name = "windows-core"$/{f=1} f && /^version = /{print $2; f=0}' Cargo.lock \
+            | sort -V | tail -1)
+          [ "$NEEDED" != "$STALE" ] && cargo update -p "windows-core@$STALE" --precise "$NEEDED"
           echo "Locked windows crate version:"
           cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
           echo "Cargo.lock entry:"
@@ -562,7 +570,67 @@ jobs:
       - name: Check WASAPI with windows v${{ matrix.version }}
         run: cargo +${{ env.MSRV_WINDOWS }} check --workspace --verbose
 
-  # cpal publishing (only on cpal release events)
+  docs-cpal:
+    if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            target: x86_64-unknown-linux-gnu
+          - name: macOS
+            target: aarch64-apple-darwin
+          - name: Windows
+            target: x86_64-pc-windows-msvc
+          - name: WASM
+            target: wasm32-unknown-unknown
+          - name: Android
+            target: aarch64-linux-android
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        if: matrix.name == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ${{ env.PACKAGES_LINUX }}
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: dtolnay/install@cargo-docs-rs
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: docs-${{ matrix.target }}
+
+      - run: cargo docs-rs --target ${{ matrix.target }}
+
+  docs-asio-sys:
+    if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
+    name: docs-asio-sys
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: dtolnay/install@cargo-docs-rs
+
+      - run: cargo docs-rs
+        working-directory: asio-sys
+
   publish-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
     needs:
@@ -578,6 +646,7 @@ jobs:
       - wasm-audioworklet
       - wasm-wasip1
       - windows-versions
+      - docs-cpal
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -606,11 +675,11 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
         run: cargo publish
 
-  # asio-sys publishing (only on asio-sys release events)
   publish-asio-sys:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
     needs:
       - windows
+      - docs-asio-sys
     runs-on: windows-latest
     env:
       CPAL_ASIO_DIR: ${{ github.workspace }}/asio

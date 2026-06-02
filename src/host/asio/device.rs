@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     hash::{Hash, Hasher},
     sync::{atomic::AtomicU32, Arc, Mutex},
 };
@@ -24,7 +25,7 @@ pub struct Device {
     buffer_size_max: FrameCount,
     input_sample_format: Option<SampleFormat>,
     output_sample_format: Option<SampleFormat>,
-    supported_sample_rates: Vec<SampleRate>,
+    supported_sample_rates: Box<[SampleRate]>,
 
     // Input and/or Output stream.
     // A driver can only have one of each.
@@ -40,20 +41,6 @@ pub struct Devices {
     current_driver: Option<sys::Driver>,
 }
 
-impl PartialEq for Device {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
-impl Eq for Device {}
-
-impl Hash for Device {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
-}
-
 impl Device {
     pub fn description(&self) -> Result<DeviceDescription, Error> {
         let direction = crate::device_description::direction_from_counts(
@@ -61,14 +48,14 @@ impl Device {
             Some(self.channels_out),
         );
 
-        Ok(DeviceDescriptionBuilder::new(self.name.clone())
-            .driver(self.name.clone())
+        Ok(DeviceDescriptionBuilder::new(&self.name)
+            .driver(&self.name)
             .direction(direction)
             .build())
     }
 
     pub fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Asio, self.name.clone()))
+        Ok(DeviceId::new(crate::platform::HostId::Asio, &self.name))
     }
 
     /// Gets the supported input configs.
@@ -105,13 +92,13 @@ impl Device {
         if channels == 0 {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "ASIO device reports no channels for this direction",
+                "Device reports no channels for this direction",
             ));
         }
         let sample_format = sample_format.ok_or_else(|| {
             Error::with_message(
                 ErrorKind::UnsupportedOperation,
-                "no supported sample format for this ASIO device",
+                "No supported sample format",
             )
         })?;
         Ok(SupportedStreamConfig {
@@ -151,6 +138,35 @@ impl Device {
             .map_err(load_driver_err)?
             .open_control_panel()
             .map_err(|e| Error::with_message(ErrorKind::UnsupportedOperation, format!("{e:?}")))
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for Device {}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Device")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -203,7 +219,7 @@ impl Iterator for Devices {
                             .ok()
                             .and_then(|t| convert_data_type(&t));
 
-                        let supported_sample_rates: Vec<SampleRate> = crate::COMMON_SAMPLE_RATES
+                        let supported_sample_rates: Box<[SampleRate]> = crate::COMMON_SAMPLE_RATES
                             .iter()
                             .copied()
                             .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))

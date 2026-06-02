@@ -59,26 +59,27 @@ pub struct AudioDeviceInfo {
     /**
      * Available channel configurations
      */
-    pub channel_counts: Vec<i32>,
+    pub channel_counts: Box<[i32]>,
 
     /**
      * Supported sample rates
      */
-    pub sample_rates: Vec<i32>,
+    pub sample_rates: Box<[i32]>,
 
     /**
      * Supported audio formats
      */
-    pub formats: Vec<SampleFormat>,
+    pub formats: Box<[SampleFormat]>,
 }
 
 /**
  * The type of audio device
  */
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, Default, FromPrimitive)]
 #[non_exhaustive]
 #[repr(i32)]
 pub enum AudioDeviceType {
+    #[default]
     Unknown = 0,
     AuxLine = 19,
     BleBroadcast = 30,

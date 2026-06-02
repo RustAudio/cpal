@@ -19,7 +19,6 @@ use std::{
 /// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::I24;
-
 /// 24-bit unsigned integer sample type.
 ///
 /// Represents 24-bit audio with range `0..=((1 << 24) - 1)`, with origin at `1 << 23 == 8388608`.
@@ -29,7 +28,6 @@ pub use dasp_sample::I24;
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::U24;
 pub use dasp_sample::{FromSample, Sample};
-
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 use wasm_bindgen::prelude::*;
 

@@ -1,43 +1,5 @@
 #[cfg(any(
     target_os = "linux",
-    target_os = "windows",
-    target_vendor = "apple",
-    feature = "audioworklet",
-    all(
-        feature = "jack",
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "macos",
-            target_os = "windows",
-        )
-    )
-))]
-use crate::{FrameCount, SampleRate};
-
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_vendor = "apple",
-    feature = "audioworklet",
-    all(
-        feature = "jack",
-        any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "macos",
-            target_os = "windows",
-        )
-    )
-))]
-use std::time::Duration;
-
-#[cfg(any(
-    target_os = "linux",
     target_os = "dragonfly",
     target_os = "freebsd",
     target_os = "netbsd",
@@ -128,6 +90,129 @@ pub(crate) mod custom;
 )))]
 pub(crate) mod null;
 
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+))]
+pub(crate) mod latch;
+
+/// Shared error-callback type that hands the callback across thread boundaries.
+#[allow(dead_code)]
+pub(crate) type ErrorCallbackArc = std::sync::Arc<std::sync::Mutex<dyn FnMut(crate::Error) + Send>>;
+
+/// Error-delivery helpers shared by backends that hold an `ErrorCallbackArc`.
+#[cfg(any(
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "windows",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+    all(
+        feature = "pulseaudio",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) mod error_emit;
+
+#[cfg(any(
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "windows",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+    all(
+        feature = "pulseaudio",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) use error_emit::emit_error;
+#[cfg(any(
+    target_vendor = "apple",
+    all(target_os = "android", feature = "realtime"),
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) use error_emit::try_emit_error;
+
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(
     target_os = "linux",
@@ -147,14 +232,17 @@ pub(crate) mod null;
     )
 ))]
 #[inline]
-pub(crate) fn frames_to_duration(frames: FrameCount, rate: SampleRate) -> Duration {
+pub(crate) fn frames_to_duration(
+    frames: crate::FrameCount,
+    rate: crate::SampleRate,
+) -> std::time::Duration {
     if rate == 0 {
-        return Duration::ZERO;
+        return std::time::Duration::ZERO;
     }
     let rate = rate as u64;
     let secs = frames as u64 / rate;
     // rem_frames < rate <= u32::MAX, so rem_frames * 1_000_000_000 < u64::MAX
     let rem_frames = frames as u64 % rate;
     let nanos = rem_frames * 1_000_000_000 / rate;
-    Duration::new(secs, nanos as u32)
+    std::time::Duration::new(secs, nanos as u32)
 }
