@@ -2,10 +2,8 @@
 //!
 //! Assumes that the input and output devices can use the same stream configuration and that they
 //! support the f32 sample format.
-//!
-//! Uses a delay of `LATENCY_MS` milliseconds in case the default input and output streams are not
-//! precisely synchronised.
-
+use std::sync::Arc;
+use std::sync::Mutex;
 use clap::Parser;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -26,10 +24,6 @@ struct Opt {
     /// The output audio device to use
     #[arg(short, long, value_name = "OUT")]
     output_device: Option<String>,
-
-    /// Specify the delay between input and output
-    #[arg(short, long, value_name = "DELAY_MS", default_value_t = 150.0)]
-    latency: f32,
 
     /// Use the JACK host. Requires `--features jack`.
     #[arg(long, default_value_t = false)]
@@ -102,36 +96,28 @@ fn main() -> anyhow::Result<()> {
     println!("Using input device: \"{}\"", input_device.id()?);
     println!("Using output device: \"{}\"", output_device.id()?);
 
+    // Using different hosts results to different configs.
+    // better set it manually, if you use multiple hosts
+
     // We'll try and use the same configuration between streams to keep it simple.
     let config: StreamConfig = input_device.default_input_config()?.into();
 
-    // Create a delay in case the input and output devices aren't synced.
-    let latency_frames = (opt.latency / 1_000.0) * config.sample_rate as f32;
-    let latency_samples = latency_frames as usize * config.channels as usize;
+    let mtx = Arc::new(Mutex::new(0));
+    let mtx_2 = mtx.clone();
 
-    // The buffer to share samples
-    let ring = HeapRb::<f32>::new(latency_samples * 2);
+    // Heap access, usually slower.
+    // you may use static buffers for higher performance.
+    let ring = HeapRb::<f32>::new(config.sample_rate as usize);
     let (mut producer, mut consumer) = ring.split();
 
-    // Pre-fill with silence equal to the length of the delay.
-    for _ in 0..latency_samples {
-        // The ring buffer has twice as much space as necessary to add latency here,
-        // so this should never fail
-        producer.try_push(f32::EQUILIBRIUM).unwrap();
-    }
-
     let input_data_fn = move |data: &[f32], _: &InputCallbackInfo| {
-        if producer.push_slice(data) < data.len() {
-            eprintln!("output stream fell behind: try increasing latency");
-        }
+        mtx.lock();
+        producer.push_slice(data);
     };
 
     let output_data_fn = move |data: &mut [f32], _: &OutputCallbackInfo| {
-        let read = consumer.pop_slice(data);
-        if read < data.len() {
-            data[read..].fill(f32::EQUILIBRIUM);
-            eprintln!("input stream fell behind: try increasing latency");
-        }
+        mtx_2.lock();
+        consumer.pop_slice(data);
     };
 
     // Build streams.
@@ -141,10 +127,7 @@ fn main() -> anyhow::Result<()> {
     println!("Successfully built streams.");
 
     // Play the streams.
-    println!(
-        "Starting the input and output streams with `{}` milliseconds of latency.",
-        opt.latency
-    );
+    println!("Starting the input and output streams");
     input_stream.play()?;
     output_stream.play()?;
 
