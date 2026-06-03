@@ -114,14 +114,14 @@ windows = { version = ">=0.61, <=0.62", features = [
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 asio-sys = { version = "0.3.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
-jack = { version = "0.13", optional = true }
+jack = { version = "0.13.5", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.11"
 alsa-sys = { version = "0.4", optional = true }
 libc = "0.2"
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
-jack = { version = "0.13", optional = true }
+jack = { version = "0.13.5", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 pipewire = { version = "0.10", optional = true, features = ["v0_3_53"] }
@@ -158,7 +158,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 objc2 = { version = "0.6" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-jack = { version = "0.13", optional = true }
+jack = { version = "0.13.5", optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = "0.6"
