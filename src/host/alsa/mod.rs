@@ -8,6 +8,7 @@ extern crate alsa_sys;
 extern crate libc;
 
 use std::{
+    collections::HashMap,
     fmt,
     sync::{
         Arc, Mutex,
@@ -538,21 +539,41 @@ impl Device {
             .min(CHANNEL_ENUM_CAP)
             .min(ChannelCount::MAX as u32);
 
-        let mut output = Vec::new();
-        let mut seen_formats: Vec<SampleFormat> = Vec::new();
+        let supported_channels: Vec<ChannelCount> =
+            if min_channels == max_channels || hw_params.test_channels(min_channels + 1).is_ok() {
+                (min_channels..=max_channels)
+                    .map(|c| c as ChannelCount)
+                    .collect()
+            } else {
+                (min_channels..=max_channels)
+                    .filter(|&c| hw_params.test_channels(c).is_ok())
+                    .map(|c| c as ChannelCount)
+                    .collect()
+            };
+
+        let mut output =
+            Vec::with_capacity(FORMATS.len() * supported_channels.len() * sample_rates.len());
+        let mut seen_formats: Vec<SampleFormat> = Vec::with_capacity(FORMATS.len());
+
+        // Key: (channels, physical width in bits) with 4 physical widths (8/16/32/64 bits)
+        let mut buffer_size_cache: HashMap<(ChannelCount, u32), SupportedBufferSize> =
+            HashMap::with_capacity(supported_channels.len() * 4);
+
         for &(sample_format, alsa_format) in FORMATS.iter() {
             if seen_formats.contains(&sample_format) || hw_params.test_format(alsa_format).is_err()
             {
                 continue;
             }
             seen_formats.push(sample_format);
+            let width = alsa_format.physical_width().unwrap_or(0) as u32;
 
-            for channels in min_channels..=max_channels {
-                if hw_params.test_channels(channels).is_err() {
-                    continue;
-                }
-                let channels = channels as ChannelCount;
-                let buffer_size = supported_period_size_range(&pcm, alsa_format, channels);
+            for &channels in &supported_channels {
+                let buffer_size =
+                    *buffer_size_cache
+                        .entry((channels, width))
+                        .or_insert_with(|| {
+                            supported_period_size_range(&hw_params, alsa_format, channels)
+                        });
 
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
@@ -1419,13 +1440,11 @@ impl StreamTrait for Stream {
 }
 
 fn supported_period_size_range(
-    pcm: &alsa::pcm::PCM,
+    hw_params: &alsa::pcm::HwParams<'_>,
     alsa_format: alsa::pcm::Format,
     channels: ChannelCount,
 ) -> SupportedBufferSize {
-    let Ok(p) = alsa::pcm::HwParams::any(pcm) else {
-        return SupportedBufferSize::Unknown;
-    };
+    let p = hw_params.clone();
     if p.set_access(alsa::pcm::Access::RWInterleaved).is_err()
         || p.set_channels(channels as u32).is_err()
         || p.set_format(alsa_format).is_err()
