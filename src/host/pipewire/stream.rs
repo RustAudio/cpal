@@ -243,7 +243,7 @@ impl<D> UserData<D> {
         if let Err(e) =
             audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
         {
-            emit_error(&self.error_callback, Error::from(e));
+            let _ = try_emit_error(&self.error_callback, Error::from(e));
         }
     }
 
