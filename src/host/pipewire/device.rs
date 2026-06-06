@@ -181,7 +181,10 @@ impl Device {
         properties.insert("node.group", format!("cpal-{}", std::process::id()));
 
         if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-            properties.insert(*pw::keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
+            properties.insert(
+                *pw::keys::NODE_LATENCY,
+                format!("{buffer_size}/{rate}", rate = config.sample_rate),
+            );
         }
         properties
     }
@@ -480,14 +483,6 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                #[cfg(feature = "realtime")]
-                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum,
-                    device.rate,
-                ) {
-                    emit_error(&error_callback, Error::from(e));
-                }
-
                 mainloop.run();
 
                 drop(listener);
@@ -659,14 +654,6 @@ impl DeviceTrait for Device {
                 // If the Latch is dropped without being released (error path), exit cleanly.
                 if !waiter.wait() {
                     return;
-                }
-
-                #[cfg(feature = "realtime")]
-                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum,
-                    device.rate,
-                ) {
-                    emit_error(&error_callback, Error::from(e));
                 }
 
                 mainloop.run();

@@ -230,9 +230,24 @@ pub struct UserData<D> {
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
+    #[cfg(feature = "realtime")]
+    rt_promoted: bool,
 }
 
 impl<D> UserData<D> {
+    // `#[cold]` because it only runs on the first cycle and whenever PipeWire renegotiates the graph quantum.
+    #[cfg(feature = "realtime")]
+    #[cold]
+    fn promote_realtime(&mut self, frames: FrameCount) {
+        // Set regardless of success, so a failed promotion isn't retried until the quantum changes.
+        self.rt_promoted = true;
+        if let Err(e) =
+            audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
+        {
+            let _ = try_emit_error(&self.error_callback, Error::from(e));
+        }
+    }
+
     fn state_changed(&mut self, new: StreamState) {
         match new {
             StreamState::Streaming => self.has_connected = true,
@@ -277,7 +292,17 @@ where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
     fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
+        #[cfg(feature = "realtime")]
+        {
+            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
+            if !self.rt_promoted || frames as u64 != prev {
+                self.promote_realtime(frames as FrameCount);
+            }
+        }
+
+        #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
+
         let (callback, capture) = match pw_stream_time(stream) {
             Some(t) => {
                 let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
@@ -306,7 +331,17 @@ where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
     fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
+        #[cfg(feature = "realtime")]
+        {
+            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
+            if !self.rt_promoted || frames as u64 != prev {
+                self.promote_realtime(frames as FrameCount);
+            }
+        }
+
+        #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
+
         let (callback, playback) = match pw_stream_time(stream) {
             Some(t) => {
                 let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
@@ -547,6 +582,8 @@ where
         is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        #[cfg(feature = "realtime")]
+        rt_promoted: false,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -710,7 +747,8 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
     let mut flags = StreamFlags::MAP_BUFFERS;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
@@ -790,6 +828,8 @@ where
         is_default_device: is_default_device.clone(),
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        #[cfg(feature = "realtime")]
+        rt_promoted: false,
     };
 
     let channels = config.channels as _;
@@ -936,7 +976,8 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
     let mut flags = StreamFlags::MAP_BUFFERS;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
