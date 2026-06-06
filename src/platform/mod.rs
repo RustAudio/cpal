@@ -871,13 +871,13 @@ mod platform_impl {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
 mod platform_impl {
-    #[cfg(feature = "audioworklet")]
+    #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
-        #[cfg(feature = "audioworklet")] AudioWorklet => AudioWorkletHost,
+        #[cfg(all(feature = "audioworklet", target_feature = "atomics"))] AudioWorklet => AudioWorkletHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 

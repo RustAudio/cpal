@@ -459,6 +459,9 @@ jobs:
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
 
+      - name: Check all features (no atomics)
+        run: cargo +${{ env.MSRV_WASM }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
+
       - name: Build wasm-beep example
         working-directory: ./examples/wasm-beep
         run: trunk build
