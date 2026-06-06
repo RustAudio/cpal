@@ -227,6 +227,9 @@ name = "enumerate"
 name = "feedback"
 
 [[example]]
+name = "duplex_feedback"
+
+[[example]]
 name = "record_wav"
 
 [[example]]
