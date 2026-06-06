@@ -342,7 +342,10 @@ This section applies only if you implement `HostTrait`, `DeviceTrait`, or `Strea
 ```rust
 // After (v0.18): derive or implement the required traits on your Device type
 #[derive(PartialEq, Eq, Hash, Debug)]
-struct MyDevice { /* ... */ }
+struct MyDevice {
+    name: String,
+    // ...
+}
 
 impl std::fmt::Display for MyDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
