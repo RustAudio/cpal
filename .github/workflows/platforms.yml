@@ -149,7 +149,7 @@ jobs:
         run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} check --examples --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
 
   pipewire-bookworm:
     name: pipewire-bookworm

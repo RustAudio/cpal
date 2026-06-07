@@ -869,7 +869,7 @@ mod platform_impl {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "wasm-bindgen"))]
 mod platform_impl {
     #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
@@ -936,7 +936,7 @@ mod platform_impl {
     target_os = "netbsd",
     target_vendor = "apple",
     target_os = "android",
-    all(target_arch = "wasm32", feature = "wasm-bindgen"),
+    all(target_arch = "wasm32", target_os = "unknown", feature = "wasm-bindgen"),
 )))]
 mod platform_impl {
     use crate::host::null::Host as NullHost;
