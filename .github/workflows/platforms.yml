@@ -94,12 +94,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_ALSA }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_ALSA }} check --examples --no-default-features --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
 
@@ -150,12 +144,6 @@ jobs:
 
       - name: Check examples (default features)
         run: cross +${{ env.MSRV_ALSA }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Run tests (no default features)
-        run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Check examples (no default features)
-        run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Run tests (all features)
         run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
@@ -241,12 +229,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_WINDOWS }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --no-default-features --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
@@ -293,12 +275,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} check --no-default-features --examples --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
 
@@ -341,9 +317,6 @@ jobs:
 
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_AAUDIO }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_AAUDIO }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
@@ -391,9 +364,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --workspace --verbose --target ${{ env.TARGET }}
 
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
       - name: Check examples (all features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
 
@@ -429,9 +399,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +nightly check --examples --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
-      - name: Check examples (no default features)
-        run: cargo +nightly check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
-
       - name: Check examples (all features)
         run: cargo +nightly check --examples --all-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
@@ -458,6 +425,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: wasm-bindgen
+
+      - name: Check examples (default features)
+        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
@@ -496,8 +466,14 @@ jobs:
         with:
           key: wasm-audioworklet
 
+      - name: Check examples (default features)
+        run: cargo +nightly check --examples --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
+
       - name: Check examples (audioworklet feature)
         run: cargo +nightly check --examples --features audioworklet --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
+
+      - name: Check all features
+        run: cargo +nightly check --workspace --all-features --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
       - name: Build audioworklet-beep example
         working-directory: ./examples/audioworklet-beep
@@ -527,8 +503,8 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_WASIP1 }} check --examples --workspace --target ${{ env.TARGET }} --verbose
 
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WASIP1 }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
+      - name: Check all features
+        run: cargo +${{ env.MSRV_WASIP1 }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
   # Windows crate version compatibility
   windows-versions:
