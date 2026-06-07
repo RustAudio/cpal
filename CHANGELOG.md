@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Exclude `pipewire` from the `docs.rs` build; system dependency not available in its environment.
+- Fix `wasm-bindgen` causing compile errors on non-browser `wasm32` targets such as `wasm32-wasip1`.
 
 ## [0.18.0] - 2026-06-06
 
