@@ -74,7 +74,11 @@ pub(crate) mod pulseaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
 pub(crate) mod webaudio;
 
 #[cfg(feature = "custom")]
@@ -88,7 +92,11 @@ pub(crate) mod custom;
     target_os = "netbsd",
     target_vendor = "apple",
     target_os = "android",
-    all(target_arch = "wasm32", target_os = "unknown", feature = "wasm-bindgen"),
+    all(
+        target_arch = "wasm32",
+        target_os = "unknown",
+        feature = "wasm-bindgen"
+    ),
 )))]
 pub(crate) mod null;
 
