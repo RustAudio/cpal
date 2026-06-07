@@ -34,10 +34,10 @@ env:
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
 
-  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
+  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libdbus-1-dev libpipewire-0.3-dev
 
-  # Mirrors the packages actually present in docs.rs's sandboxed build environment
-  PACKAGES_DOCS_RS: libasound2-dev libjack-jackd2-0 libdbus-1-dev libpulse-dev
+  # System packages required by the docs.rs feature set and available on docs.rs build environment.
+  PACKAGES_DOCS_RS: libasound2-dev libjack-jackd2-dev libdbus-1-dev
 
   ANDROID_COMPILE_SDK: "30"
   ANDROID_BUILD_TOOLS: "30.0.3"
