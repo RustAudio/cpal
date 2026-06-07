@@ -217,7 +217,17 @@ name = "record_wav"
 name = "synth_tones"
 
 [package.metadata.docs.rs]
-all-features = true
+# The docs.rs build environment does not have all the dependencies for all features
+features = [
+    "asio",
+    "audioworklet",
+    "custom",
+    "jack",
+    "pulseaudio",
+    "realtime",
+    "realtime-dbus",
+    "wasm-bindgen",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
     "x86_64-unknown-linux-gnu",
