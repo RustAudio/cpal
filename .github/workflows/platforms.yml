@@ -36,6 +36,9 @@ env:
 
   PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
 
+  # Mirrors the packages actually present in docs.rs's sandboxed build environment
+  PACKAGES_DOCS_RS: libasound2-dev libjack-jackd2-0 libdbus-1-dev libpulse-dev
+
   ANDROID_COMPILE_SDK: "30"
   ANDROID_BUILD_TOOLS: "30.0.3"
 
@@ -600,7 +603,7 @@ jobs:
         if: matrix.name == 'Linux'
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: ${{ env.PACKAGES_LINUX }}
+          packages: ${{ env.PACKAGES_DOCS_RS }}
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
