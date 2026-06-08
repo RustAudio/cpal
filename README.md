@@ -35,23 +35,24 @@ ALSA is needed even when using JACK, PipeWire, or PulseAudio.
 
 The optional `realtime-dbus` feature additionally requires `libdbus-1-dev` (Debian/Ubuntu) or `dbus-devel` (Fedora). See [ALSA Real-Time Priority Promotion](#alsa-real-time-priority-promotion).
 
-## Minimum Supported Rust Version (MSRV)
+## Minimum Supported Versions
 
-The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
+The minimum Rust version (MSRV) and minimum operating system / runtime version both depend on which audio backend and features you're using, as each platform has different dependencies:
 
-| Backend | Platforms | MSRV |
-| ------- | --------- | ---- |
-| AAudio | Android | 1.85 |
-| ALSA | Linux, BSD | 1.85 |
-| CoreAudio | macOS, iOS | 1.85 |
-| CoreAudio | tvOS | nightly |
-| JACK | Linux, BSD, macOS, Windows | 1.85 |
-| PipeWire | Linux, BSD | 1.85 |
-| PulseAudio | Linux, BSD | 1.88 |
-| WASAPI / ASIO | Windows | 1.85 |
-| WASM (`wasm32-unknown`) | WebAssembly | 1.85 |
-| WASM (`wasm32-wasip1`) | WebAssembly | 1.85 |
-| WASM (`audioworklet`) | WebAssembly | nightly |
+| Backend | Platforms | MSRV | Minimum OS / runtime |
+| ------- | --------- | ---- | -------------------- |
+| AAudio | Android | 1.85 | Android 8.0 (API 26) |
+| ALSA | Linux, BSD | 1.85 | — |
+| CoreAudio | macOS | 1.85 | macOS 14.2 (Sonoma) |
+| CoreAudio | iOS | 1.85 | — |
+| CoreAudio | tvOS | nightly | — |
+| JACK | Linux, BSD, macOS, Windows | 1.85 | — |
+| PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
+| PulseAudio | Linux, BSD | 1.88 | — |
+| WASAPI / ASIO | Windows | 1.85 | Windows 8 |
+| WASM (`wasm32-unknown`) | WebAssembly | 1.85 | — |
+| WASM (`wasm32-wasip1`) | WebAssembly | 1.85 | — |
+| WASM (`audioworklet`) | WebAssembly | nightly | — |
 
 The `audioworklet` backend additionally requires `-Zbuild-std` with atomics support enabled.
 
