@@ -92,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: `BufferSize::Fixed` now sets `renderSizeHint` on the `AudioContext`.
 - **AudioWorklet**: Sample rates now enumerated as discrete standard rates in the spec-required
   range of 3-768 kHz.
+- **CoreAudio**: Minimum supported macOS version is now 14.2 (Sonoma).
 - **CoreAudio**: Timestamps now include device latency and safety offset.
 - **CoreAudio**: Physical stream format is now set directly on the hardware device.
 - **CoreAudio**: Stream error callback now receives `ErrorKind::StreamInvalidated` on any sample
