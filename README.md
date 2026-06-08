@@ -43,7 +43,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | ------- | --------- | ---- | -------------------- |
 | AAudio | Android | 1.85 | Android 8.0 (API 26) |
 | ALSA | Linux, BSD | 1.85 | — |
-| CoreAudio | macOS | 1.85 | macOS 14.2 (Sonoma) |
+| CoreAudio | macOS | 1.85 | macOS 14.2 (loopback recording requires 14.6+) |
 | CoreAudio | iOS | 1.85 | — |
 | CoreAudio | tvOS | nightly | — |
 | JACK | Linux, BSD, macOS, Windows | 1.85 | — |
