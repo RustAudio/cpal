@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.18.2] - Unreleased
 
-### Changed
+### Fixed
 
-- **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
+- **WASAPI**: Pinned `windows` and `windows-core` to the same minor version (0.62). The
+  `#[windows::core::implement]` proc-macro emits code that references `windows_core` by crate
+  name; when `windows` and `windows-core` resolved to different minor versions (e.g. alongside
+  Tauri 2.x which pins `windows` to 0.61.x), the generated `_Impl` types failed their
+  `Interface` / `IUnknownImpl` trait bounds.
 
 ## [0.18.1] - 2026-06-07
 
