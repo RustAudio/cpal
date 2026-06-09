@@ -1,23 +1,3 @@
-use crate::{
-    error::ResultExt,
-    host::{com::ComString, ErrorCallbackArc},
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
-};
-
-impl From<Audio::EDataFlow> for DeviceDirection {
-    fn from(data_flow: Audio::EDataFlow) -> Self {
-        if data_flow == Audio::eCapture {
-            DeviceDirection::Input
-        } else if data_flow == Audio::eRender {
-            DeviceDirection::Output
-        } else {
-            DeviceDirection::Unknown
-        }
-    }
-}
 use std::{
     cell::Cell,
     ffi::OsString,
@@ -28,6 +8,15 @@ use std::{
     ptr, slice,
     sync::{Arc, Mutex, MutexGuard, OnceLock},
     time::Duration,
+};
+
+use crate::{
+    error::ResultExt,
+    host::{com::ComString, ErrorCallbackArc},
+    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
+    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 use windows::{
@@ -1343,6 +1332,18 @@ pub fn default_input_device() -> Option<Device> {
 pub fn default_output_device() -> Option<Device> {
     // Detect if a default output device exists before creating a `Device` for it.
     current_default_endpoint(Audio::eRender).map(|_| Device::default_output())
+}
+
+impl From<Audio::EDataFlow> for DeviceDirection {
+    fn from(data_flow: Audio::EDataFlow) -> Self {
+        if data_flow == Audio::eCapture {
+            DeviceDirection::Input
+        } else if data_flow == Audio::eRender {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Unknown
+        }
+    }
 }
 
 /// Get the audio clock used to produce `StreamInstant`s, together with its (constant) frequency.
