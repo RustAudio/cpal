@@ -828,7 +828,7 @@ fn process_output(
 }
 
 /// Atomically reads the stream's `IAudioClock`, returning the callback [`StreamInstant`]
-/// together with the device position (how far playback has progressed.
+/// together with the device position.
 #[inline]
 fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
     let mut position: u64 = 0;
@@ -881,8 +881,9 @@ fn output_timestamp(
     // frames we are about to write. Those frames must drain before ours are heard.
     let consumed_nanos = position as u128 * 1_000_000_000 / stream.clock_frequency as u128;
     let written_nanos = stream.frames_written.get() as u128 * 1_000_000_000 / sample_rate as u128;
-    // The difference is the (small) buffer fill, so it fits in `u64` nanoseconds.
-    let buffered = Duration::from_nanos(written_nanos.saturating_sub(consumed_nanos) as u64);
+    let buffered_nanos =
+        u64::try_from(written_nanos.saturating_sub(consumed_nanos)).unwrap_or(u64::MAX);
+    let buffered = Duration::from_nanos(buffered_nanos);
 
     let playback = callback + (buffered + stream.stream_latency);
     Ok(OutputStreamTimestamp { callback, playback })
