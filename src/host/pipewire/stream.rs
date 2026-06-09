@@ -306,8 +306,8 @@ where
             Some(t) => {
                 let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
                 (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() - delay_ns.max(0)) as u64),
+                    StreamInstant::from_nanos(t.now().max(0) as u64),
+                    StreamInstant::from_nanos((t.now() - delay_ns.max(0)).max(0) as u64),
                 )
             }
             None => {
@@ -345,8 +345,8 @@ where
             Some(t) => {
                 let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
                 (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() + delay_ns.max(0)) as u64),
+                    StreamInstant::from_nanos(t.now().max(0) as u64),
+                    StreamInstant::from_nanos((t.now() + delay_ns.max(0)).max(0) as u64),
                 )
             }
             None => {
