@@ -90,13 +90,10 @@ hound = "3.5"
 ringbuf = "0.4"
 clap = { version = ">=4.6, <5", features = ["derive"] }
 
-# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
-# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
-# windows 0.61 removed the `implement` feature flag, so #[windows::core::implement] works
-# unconditionally from 0.61 onward. Keep the upper bound in sync with the CI matrix below.
+# `windows` and `windows-core` must be the same minor version.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-core = { version = ">=0.61, <=0.62" }
-windows = { version = ">=0.61, <=0.62", features = [
+windows-core = "0.62"
+windows = { version = "0.62", features = [
     "Win32_Media",
     "Win32_Media_Audio",
     "Win32_Foundation",

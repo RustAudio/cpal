@@ -39,7 +39,6 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 **Build configuration changes:**
 
 - [ ] Rename the `audio_thread_priority` feature to `realtime-dbus`.
-- [ ] **WASAPI**: Raise your `windows` dependency to `>= 0.61`.
 - [ ] **WASM**: Migrate from `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
 
 **Custom host implementations:**
