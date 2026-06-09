@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
 
+### Fixed
+
+- **WASAPI**: Fix output `playback` timestamps occasionally stepping backwards.
+
 ## [0.18.1] - 2026-06-07
 
 ### Fixed

@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     mem,
     ops::ControlFlow,
     ptr,
@@ -18,10 +19,7 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        ErrorCallbackArc,
-    },
+    host::{emit_error, equilibrium::fill_equilibrium, latch::Latch, ErrorCallbackArc},
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
@@ -290,6 +288,10 @@ pub enum AudioClientFlow {
 pub struct StreamInner {
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
+    // Cached (constant) frequency of `audio_clock`.
+    pub clock_frequency: u64,
+    // Running total of frames submitted to the render buffer.
+    pub frames_written: Cell<u64>,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
@@ -809,23 +811,26 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, frames_available, sample_rate)?;
+        let timestamp = output_timestamp(stream, sample_rate)?;
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
         render_client
             .ReleaseBuffer(frames_available, 0)
             .map_err(Error::from)?;
+
+        stream
+            .frames_written
+            .set(stream.frames_written.get() + frames_available as u64);
     }
 
     Ok(())
 }
 
-/// Use the stream's `IAudioClock` to produce the current stream instant.
-///
-/// Uses the QPC position produced via the `GetPosition` method.
+/// Atomically reads the stream's `IAudioClock`, returning the callback [`StreamInstant`]
+/// together with the device position (how far playback has progressed.
 #[inline]
-fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
+fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
@@ -840,7 +845,7 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    Ok(instant)
+    Ok((instant, position))
 }
 
 /// Produce the input stream timestamp.
@@ -859,26 +864,26 @@ fn input_timestamp(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    let callback = stream_instant(stream)?;
+    let (callback, _position) = clock_position(stream)?;
     Ok(InputStreamTimestamp { capture, callback })
 }
 
 /// Produce the output stream timestamp.
 ///
-/// `frames_available` is the number of frames available for writing as reported by subtracting the
-/// result of `GetCurrentPadding` from the maximum buffer size.
-///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
 #[inline]
 fn output_timestamp(
     stream: &StreamInner,
-    frames_available: FrameCount,
     sample_rate: SampleRate,
 ) -> Result<OutputStreamTimestamp, Error> {
-    let callback = stream_instant(stream)?;
+    let (callback, position) = clock_position(stream)?;
     // `padding` is the number of frames already queued in the endpoint buffer ahead of the
     // frames we are about to write. Those frames must drain before ours are heard.
-    let padding = stream.max_frames_in_buffer - frames_available;
-    let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
+    let consumed_nanos = position as u128 * 1_000_000_000 / stream.clock_frequency as u128;
+    let written_nanos = stream.frames_written.get() as u128 * 1_000_000_000 / sample_rate as u128;
+    // The difference is the (small) buffer fill, so it fits in `u64` nanoseconds.
+    let buffered = Duration::from_nanos(written_nanos.saturating_sub(consumed_nanos) as u64);
+
+    let playback = callback + (buffered + stream.stream_latency);
     Ok(OutputStreamTimestamp { callback, playback })
 }
