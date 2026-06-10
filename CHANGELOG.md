@@ -5,12 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **PipeWire**: Fix non-monotonic timestamps on unusual clock readings.
-
 ## [0.18.1] - 2026-06-07
 
 ### Fixed
@@ -1291,7 +1285,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.1...HEAD
 [0.18.1]: https://github.com/RustAudio/cpal/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/RustAudio/cpal/compare/v0.17.3...v0.18.0
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
