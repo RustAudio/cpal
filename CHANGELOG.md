@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Migrated to Rust 2024.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
+- **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
 
 ### Deprecated
 
@@ -22,7 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
 
-## [0.18.0] - YYYY-MM-DD
+## [0.18.1] - 2026-06-07
+
+### Fixed
+
+- Exclude `pipewire` from the `docs.rs` build; system dependency not available in its environment.
+- Fix `wasm-bindgen` causing compile errors on non-browser `wasm32` targets such as `wasm32-wasip1`.
+
+## [0.18.0] - 2026-06-06
 
 ### Added
 
@@ -1295,7 +1303,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/RustAudio/cpal/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/RustAudio/cpal/compare/v0.17.3...v0.18.0
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/RustAudio/cpal/compare/v0.17.1...v0.17.2

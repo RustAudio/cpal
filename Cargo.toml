@@ -94,26 +94,23 @@ hound = "3.5"
 ringbuf = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 
-# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
-# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
-# windows 0.61 removed the `implement` feature flag, so #[windows::core::implement] works
-# unconditionally from 0.61 onward. Keep the upper bound in sync with the CI matrix below.
+# `windows` and `windows-core` must be the same minor version.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-core = { version = ">=0.61, <=0.62" }
-windows = { version = ">=0.61, <=0.62", features = [
-  "Win32_Media",
-  "Win32_Media_Audio",
-  "Win32_Foundation",
-  "Win32_Devices_Properties",
-  "Win32_Media_KernelStreaming",
-  "Win32_System_Com_StructuredStorage",
-  "Win32_System_Threading",
-  "Win32_System_Performance",
-  "Win32_Security",
-  "Win32_System_SystemServices",
-  "Win32_System_Variant",
-  "Win32_Media_Multimedia",
-  "Win32_UI_Shell_PropertiesSystem",
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Media",
+    "Win32_Media_Audio",
+    "Win32_Foundation",
+    "Win32_Devices_Properties",
+    "Win32_Media_KernelStreaming",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Threading",
+    "Win32_System_Performance",
+    "Win32_Security",
+    "Win32_System_SystemServices",
+    "Win32_System_Variant",
+    "Win32_Media_Multimedia",
+    "Win32_UI_Shell_PropertiesSystem",
 ] }
 audio_thread_priority = { version = "0.35", optional = true, default-features = false }
 asio-sys = { version = "0.4.0", path = "asio-sys", optional = true }
@@ -228,7 +225,17 @@ name = "record_wav"
 name = "synth_tones"
 
 [package.metadata.docs.rs]
-all-features = true
+# The docs.rs build environment does not have all the dependencies for all features
+features = [
+    "asio",
+    "audioworklet",
+    "custom",
+    "jack",
+    "pulseaudio",
+    "realtime",
+    "realtime-dbus",
+    "wasm-bindgen",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
   "x86_64-unknown-linux-gnu",
