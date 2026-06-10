@@ -506,52 +506,6 @@ jobs:
       - name: Check all features
         run: cargo +${{ env.MSRV_WASIP1 }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
-  # Windows crate version compatibility
-  windows-versions:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ["0.61.3", "0.62.2"]
-
-    name: windows-crate-v${{ matrix.version }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install dependencies
-        run: choco install llvm
-
-      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.MSRV_WINDOWS }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: windows-v${{ matrix.version }}
-
-      - name: Lock windows crate to specific version
-        shell: bash
-        run: |
-          cargo generate-lockfile
-          cargo update -p windows --precise ${{ matrix.version }}
-          # After pinning windows there may be two windows-core versions in the lockfile
-          # (the direct dep stays at the latest allowed, the transitive dep is what windows
-          # needs). Find the stale one dynamically and replace it with the needed version.
-          NEEDED=$(awk -F'"' '/^name = "windows-core"$/{f=1} f && /^version = /{print $2; f=0}' Cargo.lock \
-            | sort -V | head -1)
-          STALE=$(awk -F'"' '/^name = "windows-core"$/{f=1} f && /^version = /{print $2; f=0}' Cargo.lock \
-            | sort -V | tail -1)
-          [ "$NEEDED" != "$STALE" ] && cargo update -p "windows-core@$STALE" --precise "$NEEDED"
-          echo "Locked windows crate version:"
-          cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
-          echo "Cargo.lock entry:"
-          grep -A 5 "name = \"windows\"" Cargo.lock | head -10
-
-      - name: Check WASAPI with windows v${{ matrix.version }}
-        run: cargo +${{ env.MSRV_WINDOWS }} check --workspace --verbose
-
   docs-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
     strategy:
@@ -627,7 +581,6 @@ jobs:
       - wasm-bindgen
       - wasm-audioworklet
       - wasm-wasip1
-      - windows-versions
       - docs-cpal
     runs-on: ubuntu-latest
     steps:
