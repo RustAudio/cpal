@@ -304,10 +304,12 @@ where
 
         let (callback, capture) = match pw_stream_time(stream) {
             Some(t) => {
-                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
+                // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                let now = t.now() as u64;
+                let delay_ns = (t.delay() * 1_000_000_000i64 / t.rate().denom as i64).max(0) as u64;
                 (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() - delay_ns.max(0)) as u64),
+                    StreamInstant::from_nanos(now),
+                    StreamInstant::from_nanos(now.saturating_sub(delay_ns)),
                 )
             }
             None => {
@@ -343,10 +345,12 @@ where
 
         let (callback, playback) = match pw_stream_time(stream) {
             Some(t) => {
-                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
+                // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                let now = t.now() as u64;
+                let delay_ns = (t.delay() * 1_000_000_000i64 / t.rate().denom as i64).max(0) as u64;
                 (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() + delay_ns.max(0)) as u64),
+                    StreamInstant::from_nanos(now),
+                    StreamInstant::from_nanos(now.saturating_add(delay_ns)),
                 )
             }
             None => {
