@@ -652,10 +652,17 @@ fn run_output(
     let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
         .context("Failed to get audio clock frequency")
     {
-        Ok(frequency) => {
-            debug_assert_ne!(frequency, 0, "IAudioClock::GetFrequency returned zero");
-            frequency
+        Ok(0) => {
+            emit_error(
+                error_callback,
+                Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioClock::GetFrequency returned zero",
+                ),
+            );
+            return;
         }
+        Ok(frequency) => frequency,
         Err(err) => {
             emit_error(error_callback, err);
             return;
