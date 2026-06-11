@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     ffi::OsString,
     fmt,
     hash::Hash,
@@ -917,7 +916,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Capture { capture_client };
 
-            let (audio_clock, clock_frequency) = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -929,8 +930,6 @@ impl Device {
             Ok(StreamInner {
                 audio_client,
                 audio_clock,
-                clock_frequency,
-                frames_written: Cell::new(0),
                 client_flow,
                 event,
                 playing: false,
@@ -1032,7 +1031,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Render { render_client };
 
-            let (audio_clock, clock_frequency) = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -1044,8 +1045,6 @@ impl Device {
             Ok(StreamInner {
                 audio_client,
                 audio_clock,
-                clock_frequency,
-                frames_written: Cell::new(0),
                 client_flow,
                 event,
                 playing: false,
@@ -1344,23 +1343,6 @@ impl From<Audio::EDataFlow> for DeviceDirection {
             DeviceDirection::Unknown
         }
     }
-}
-
-/// Get the audio clock used to produce `StreamInstant`s, together with its (constant) frequency.
-unsafe fn get_audio_clock(
-    audio_client: &Audio::IAudioClient,
-) -> Result<(Audio::IAudioClock, u64), Error> {
-    let audio_clock = audio_client
-        .GetService::<Audio::IAudioClock>()
-        .context("Failed to get audio clock")?;
-    let clock_frequency = audio_clock
-        .GetFrequency()
-        .context("Failed to get audio clock frequency")?;
-    debug_assert_ne!(
-        clock_frequency, 0,
-        "IAudioClock::GetFrequency returned zero"
-    );
-    Ok((audio_clock, clock_frequency))
 }
 
 // Sample rate range supported by the Media Foundation Resampler MFT used by AUTOCONVERTPCM.

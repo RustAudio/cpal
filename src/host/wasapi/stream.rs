@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     mem,
     ops::ControlFlow,
     ptr,
@@ -288,10 +287,6 @@ pub enum AudioClientFlow {
 pub struct StreamInner {
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
-    // Cached (constant) frequency of `audio_clock`.
-    pub clock_frequency: u64,
-    // Running total of frames submitted to the render buffer.
-    pub frames_written: Cell<u64>,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
@@ -653,6 +648,21 @@ fn run_output(
         emit_error(error_callback, err);
     }
 
+    // The clock frequency is constant for the stream's lifetime.
+    let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
+        .context("Failed to get audio clock frequency")
+    {
+        Ok(frequency) => {
+            debug_assert_ne!(frequency, 0, "IAudioClock::GetFrequency returned zero");
+            frequency
+        }
+        Err(err) => {
+            emit_error(error_callback, err);
+            return;
+        }
+    };
+    let mut frames_written: u64 = 0;
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             ControlFlow::Break(()) => break,
@@ -663,7 +673,13 @@ fn run_output(
             AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_output(&run_ctxt.stream, render_client, data_callback) {
+        if let Err(err) = process_output(
+            &run_ctxt.stream,
+            render_client,
+            data_callback,
+            clock_frequency,
+            &mut frames_written,
+        ) {
             emit_error(error_callback, err);
             break;
         }
@@ -789,6 +805,8 @@ fn process_output(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    clock_frequency: u64,
+    frames_written: &mut u64,
 ) -> Result<(), Error> {
     // The number of frames available for writing.
     let frames_available = match get_available_frames(stream)? {
@@ -811,7 +829,7 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, sample_rate)?;
+        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
@@ -819,9 +837,7 @@ fn process_output(
             .ReleaseBuffer(frames_available, 0)
             .map_err(Error::from)?;
 
-        stream
-            .frames_written
-            .set(stream.frames_written.get() + frames_available as u64);
+        *frames_written += frames_available as u64;
     }
 
     Ok(())
@@ -875,12 +891,14 @@ fn input_timestamp(
 fn output_timestamp(
     stream: &StreamInner,
     sample_rate: SampleRate,
+    clock_frequency: u64,
+    frames_written: u64,
 ) -> Result<OutputStreamTimestamp, Error> {
     let (callback, position) = clock_position(stream)?;
     // `padding` is the number of frames already queued in the endpoint buffer ahead of the
     // frames we are about to write. Those frames must drain before ours are heard.
-    let consumed_nanos = position as u128 * 1_000_000_000 / stream.clock_frequency as u128;
-    let written_nanos = stream.frames_written.get() as u128 * 1_000_000_000 / sample_rate as u128;
+    let consumed_nanos = position as u128 * 1_000_000_000 / clock_frequency as u128;
+    let written_nanos = frames_written as u128 * 1_000_000_000 / sample_rate as u128;
     let buffered_nanos =
         u64::try_from(written_nanos.saturating_sub(consumed_nanos)).unwrap_or(u64::MAX);
     let buffered = Duration::from_nanos(buffered_nanos);
