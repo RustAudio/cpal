@@ -904,8 +904,8 @@ fn output_timestamp(
     frames_written: u64,
 ) -> Result<OutputStreamTimestamp, Error> {
     let (callback, position) = clock_position(stream)?;
-    // `padding` is the number of frames already queued in the endpoint buffer ahead of the
-    // frames we are about to write. Those frames must drain before ours are heard.
+    // `buffered` is the amount of audio we've already submitted that has not yet been consumed by
+    // the device at this instant; it determines when the next written frame will be heard.
     let consumed_nanos = position as u128 * 1_000_000_000 / clock_frequency as u128;
     let written_nanos = frames_written as u128 * 1_000_000_000 / sample_rate as u128;
     let buffered_nanos =
