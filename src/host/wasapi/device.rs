@@ -1,23 +1,3 @@
-use crate::{
-    error::ResultExt,
-    host::{com::ComString, ErrorCallbackArc},
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
-};
-
-impl From<Audio::EDataFlow> for DeviceDirection {
-    fn from(data_flow: Audio::EDataFlow) -> Self {
-        if data_flow == Audio::eCapture {
-            DeviceDirection::Input
-        } else if data_flow == Audio::eRender {
-            DeviceDirection::Output
-        } else {
-            DeviceDirection::Unknown
-        }
-    }
-}
 use std::{
     ffi::OsString,
     fmt,
@@ -27,6 +7,15 @@ use std::{
     ptr, slice,
     sync::{Arc, Mutex, MutexGuard, OnceLock},
     time::Duration,
+};
+
+use crate::{
+    error::ResultExt,
+    host::{com::ComString, ErrorCallbackArc},
+    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
+    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 use windows::{
@@ -927,7 +916,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Capture { capture_client };
 
-            let audio_clock = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -1040,7 +1031,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Render { render_client };
 
-            let audio_clock = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -1340,11 +1333,16 @@ pub fn default_output_device() -> Option<Device> {
     current_default_endpoint(Audio::eRender).map(|_| Device::default_output())
 }
 
-/// Get the audio clock used to produce `StreamInstant`s.
-unsafe fn get_audio_clock(audio_client: &Audio::IAudioClient) -> Result<Audio::IAudioClock, Error> {
-    audio_client
-        .GetService::<Audio::IAudioClock>()
-        .context("Failed to get audio clock")
+impl From<Audio::EDataFlow> for DeviceDirection {
+    fn from(data_flow: Audio::EDataFlow) -> Self {
+        if data_flow == Audio::eCapture {
+            DeviceDirection::Input
+        } else if data_flow == Audio::eRender {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Unknown
+        }
+    }
 }
 
 // Sample rate range supported by the Media Foundation Resampler MFT used by AUTOCONVERTPCM.
