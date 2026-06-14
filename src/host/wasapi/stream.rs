@@ -822,9 +822,7 @@ fn process_output(
     };
 
     unsafe {
-        let buffer = render_client
-            .GetBuffer(frames_available)
-            .map_err(Error::from)?;
+        let buffer = render_client.GetBuffer(frames_available)?;
 
         debug_assert!(!buffer.is_null());
 
@@ -840,9 +838,7 @@ fn process_output(
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
-        render_client
-            .ReleaseBuffer(frames_available, 0)
-            .map_err(Error::from)?;
+        render_client.ReleaseBuffer(frames_available, 0)?;
 
         *frames_written += frames_available as u64;
     }
@@ -850,8 +846,8 @@ fn process_output(
     Ok(())
 }
 
-/// Atomically reads the stream's `IAudioClock`, returning the callback [`StreamInstant`]
-/// together with the device position.
+/// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback
+/// [`StreamInstant`] together with the device position from that same snapshot.
 #[inline]
 fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
     let mut position: u64 = 0;
@@ -894,6 +890,12 @@ fn input_timestamp(
 /// Produce the output stream timestamp.
 ///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
+///
+/// `clock_frequency` is the device clock's constant tick rate, used to convert the reported clock
+/// position into a played-out duration.
+///
+/// `frames_written` is the running total of frames submitted to the render buffer so far, used to
+/// derive how much audio is buffered ahead of the device position.
 #[inline]
 fn output_timestamp(
     stream: &StreamInner,
