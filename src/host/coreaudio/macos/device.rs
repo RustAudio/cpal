@@ -3,6 +3,7 @@ use std::{
     mem::{self, size_of},
     ptr::{null, NonNull},
     sync::{
+        atomic::{AtomicUsize, Ordering},
         mpsc::{channel, RecvTimeoutError},
         Arc, Mutex,
     },
@@ -705,9 +706,8 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
-        // The scope and element for working with a device's input stream.
-        let scope = Scope::Output;
-        let element = Element::Input;
+
+        // Input is not automatically rerouted, so its buffer depth is constant and its timestamp monotonic.
 
         // Set the physical stream format (bit depth + sample rate) on the hardware device.
         // This avoids unnecessary format conversions, which is especially important on aggregate
@@ -733,6 +733,10 @@ impl Device {
                 AudioUnitMode::Input,
             )?
         };
+
+        // The scope and element for working with a device's input stream.
+        let scope = Scope::Output;
+        let element = Element::Input;
 
         // Configure stream format and buffer size for predictable callback behavior.
         let effective_device_id = loopback_aggregate
@@ -815,7 +819,7 @@ impl Device {
         &self,
         config: StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
+        data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Stream, Error>
@@ -824,6 +828,11 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+
+        // Keep `playback` monotonic: a default output device reroute can lower the device buffer depth,
+        // pulling `playback` backward.
+        let mut data_callback = crate::host::monotonic_output_callback(data_callback);
+
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
         // it fails — the AudioUnit will handle format conversion as before.
@@ -867,6 +876,13 @@ impl Device {
         let (bytes_per_channel, sample_rate, device_buffer_frames, extra_latency_frames) =
             setup_callback_vars(&audio_unit, config, sample_format, Scope::Output);
 
+        // A DefaultOutput unit auto-reroutes to a new device without rebuilding the stream,
+        // which changes this depth, and is then refreshed by DefaultOutputMonitor.
+        let latency_frames = Arc::new(AtomicUsize::new(
+            device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
+        ));
+        let callback_latency_frames = latency_frames.clone();
+
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
@@ -889,10 +905,12 @@ impl Device {
                 }
                 Ok(cb) => cb,
             };
-            let buffer_frames = len / channels as usize;
-            // Use device buffer size for latency calculation if available
-            let latency_frames =
-                device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
+            let latency_frames = match callback_latency_frames.load(Ordering::Relaxed) {
+                // Depth unknown (query failed): estimate the device buffer from this callback, but
+                // still add the safety offset and device latency, matching the input path.
+                0 => len / channels as usize + extra_latency_frames,
+                n => n,
+            };
             let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let playback = callback + delay;
             let timestamp = OutputStreamTimestamp { callback, playback };
@@ -914,7 +932,12 @@ impl Device {
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
         let monitor: Box<dyn Monitor> = if matches!(mode, AudioUnitMode::DefaultOutput) {
-            Box::new(DefaultOutputMonitor::new(weak_inner, error_callback)?)
+            // Refresh the buffer depth whenever the default device reroutes automatically.
+            Box::new(DefaultOutputMonitor::new(
+                weak_inner,
+                error_callback,
+                Some((latency_frames, Scope::Output)),
+            )?)
         } else {
             Box::new(DisconnectManager::new(
                 self.audio_device_id,
@@ -1012,7 +1035,7 @@ fn configure_stream_format_and_buffer(
 }
 
 /// Returns the sum of the device latency and safety offset in frames.
-fn get_device_extra_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usize {
+pub(crate) fn get_device_extra_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usize {
     let device_latency: u32 = audio_unit
         .get_property(kAudioDevicePropertyLatency, scope, Element::Output)
         .unwrap_or(0);

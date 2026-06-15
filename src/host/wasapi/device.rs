@@ -146,6 +146,9 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        // Keep `playback` monotonic: an underrun can saturate `buffered` to zero, pulling
+        // `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let monitor = self.default_device_monitor()?;

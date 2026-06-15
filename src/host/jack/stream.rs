@@ -456,8 +456,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
             );
             // Create timestamp
             let callback = start_callback_instant;
-            // Input data was made available at the start of the cycle (current_usecs).
-            let capture = start_cycle_instant;
+            // `capture` is when the first frame in this buffer was sampled at the ADC. JACK's
+            // capture latency is the hardware-to-port distance, measured from the cycle start.
+            let latency = hardware_latency_frames(&self.in_ports, jack::LatencyType::Capture)
+                .map(|frames| frames_to_duration(frames, self.sample_rate))
+                .unwrap_or_default();
+            let capture = start_cycle_instant
+                .checked_sub(latency)
+                .unwrap_or(StreamInstant::ZERO);
             let timestamp = InputStreamTimestamp { callback, capture };
             let info = InputCallbackInfo { timestamp };
             input_callback(&data, &info);
@@ -473,15 +479,27 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let mut data = temp_buffer_to_data(&mut self.temp_output_buffer, total);
             // Create timestamp
             let callback = start_callback_instant;
-            // Use next_usecs (the hardware deadline for this cycle) when available; it is the
-            // exact instant at which the last sample written here will be consumed by the device.
-            let playback = match next_usecs_opt {
-                Some(next_usecs) => micros_to_stream_instant(next_usecs),
-                None => {
-                    start_cycle_instant
-                        + frames_to_duration(current_frame_count as FrameCount, self.sample_rate)
-                }
-            };
+            // `playback` is when the first frame written here reaches the DAC.
+            let playback =
+                match hardware_latency_frames(&self.out_ports, jack::LatencyType::Playback) {
+                    // Prefer JACK's port-to-hardware latency, measured from the cycle start.
+                    Some(frames) => {
+                        start_cycle_instant + frames_to_duration(frames, self.sample_rate)
+                    }
+                    // When no latency is reported, fall back to next_usecs, the hardware
+                    // deadline for this cycle.
+                    None => match next_usecs_opt {
+                        Some(next_usecs) => micros_to_stream_instant(next_usecs),
+                        // Fallback to one buffer ahead if that is unavailable too.
+                        None => {
+                            start_cycle_instant
+                                + frames_to_duration(
+                                    current_frame_count as FrameCount,
+                                    self.sample_rate,
+                                )
+                        }
+                    },
+                };
             let timestamp = OutputStreamTimestamp { callback, playback };
             let info = OutputCallbackInfo { timestamp };
             output_callback(&mut data, &info);
@@ -517,6 +535,24 @@ impl jack::ProcessHandler for LocalProcessHandler {
 #[inline]
 fn micros_to_stream_instant(micros: u64) -> StreamInstant {
     StreamInstant::from_micros(micros)
+}
+
+/// Maximum latency, in frames, between `ports` and the hardware for the given direction,
+/// or `None` if JACK reports zero.
+#[inline]
+fn hardware_latency_frames<PS>(
+    ports: &[jack::Port<PS>],
+    mode: jack::LatencyType,
+) -> Option<FrameCount> {
+    let frames = ports
+        .iter()
+        .map(|port| {
+            // This reads a cached value and is documented as safe to call from the process callback.
+            port.get_latency_range(mode).1
+        })
+        .max() // conservative: use worst-case latency across all ports
+        .unwrap_or(0);
+    (frames > 0).then_some(frames as FrameCount)
 }
 
 /// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
