@@ -152,19 +152,21 @@ impl StreamInstant {
     ///
     /// # Panics
     ///
-    /// Panics if `secs` is negative, not finite, or overflows the range of `StreamInstant`.
+    /// Panics if `secs` is negative, NaN, or too large to represent.
     pub fn from_secs_f64(secs: f64) -> Self {
         const NANOS_PER_SEC: u128 = 1_000_000_000;
-        const MAX_NANOS: f64 = ((u64::MAX as u128 + 1) * NANOS_PER_SEC) as f64;
-        let nanos = secs * NANOS_PER_SEC as f64;
-        if !(0.0..MAX_NANOS).contains(&nanos) {
-            panic!("StreamInstant::from_secs_f64 called with invalid value: {secs}");
-        }
-        let nanos = nanos as u128;
-        Self::new(
-            (nanos / NANOS_PER_SEC) as u64,
-            (nanos % NANOS_PER_SEC) as u32,
-        )
+        // Check the sign before rounding: a tiny negative would round to 0 and slip through.
+        // `>= 0.0` is also false for NaN, so this rejects both.
+        assert!(
+            secs >= 0.0,
+            "StreamInstant::from_secs_f64 called with a negative or NaN value: {secs}"
+        );
+        // `f64 as u128` saturates, so +inf and absurd magnitudes land on u128::MAX and are caught
+        // as overflow below instead of wrapping.
+        let nanos = (secs * NANOS_PER_SEC as f64).round() as u128;
+        let secs_whole = u64::try_from(nanos / NANOS_PER_SEC)
+            .unwrap_or_else(|_| panic!("StreamInstant::from_secs_f64 value too large: {secs}"));
+        Self::new(secs_whole, (nanos % NANOS_PER_SEC) as u32)
     }
 
     /// Creates a new `StreamInstant` from the specified number of whole seconds and additional
@@ -349,5 +351,12 @@ mod tests {
     #[should_panic]
     fn test_stream_instant_from_secs_f64_infinite() {
         StreamInstant::from_secs_f64(f64::INFINITY);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_stream_instant_from_secs_f64_overflow() {
+        // Rounds up into u64::MAX + 1 seconds; must panic rather than wrap to 0.
+        StreamInstant::from_secs_f64(u64::MAX as f64);
     }
 }

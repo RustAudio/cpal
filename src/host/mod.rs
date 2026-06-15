@@ -253,7 +253,8 @@ pub(crate) fn frames_to_duration(
     let secs = frames as u64 / rate;
     // rem_frames < rate <= u32::MAX, so rem_frames * 1_000_000_000 < u64::MAX
     let rem_frames = frames as u64 % rate;
-    let nanos = rem_frames * 1_000_000_000 / rate;
+    // Round to nearest so the duration isn't biased.
+    let nanos = (rem_frames * 1_000_000_000 + rate / 2) / rate;
     std::time::Duration::new(secs, nanos as u32)
 }
 

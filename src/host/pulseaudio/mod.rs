@@ -470,7 +470,7 @@ impl DeviceTrait for Device {
         };
 
         // Keep `playback` monotonic: the latency can decrease when the server switches
-        //to a different sink, pulling `playback` forward.
+        // to a different sink, pulling `playback` backward.
         let data_callback = crate::host::monotonic_output_callback(data_callback);
         let client = client.clone();
         let stream = if let Some(dur) = timeout {
