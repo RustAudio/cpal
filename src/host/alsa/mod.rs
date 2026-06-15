@@ -265,6 +265,9 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        // Keep `capture` monotonic: avail_delay() varies between cycles, and a capture overrun
+        // can make it jump up enough to pull `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
         let stream = Self::Stream::new_input(
@@ -288,6 +291,9 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        // Keep `playback` monotonic: avail_delay() varies between cycles, and a playback
+        // underrun can drain the buffer enough to pull `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
         let stream = Self::Stream::new_output(

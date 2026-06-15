@@ -45,7 +45,11 @@ pub struct Host;
 pub struct Stream {
     audio_context: web_sys::AudioContext,
     buffer_size_frames: Arc<AtomicU64>,
+    _latency_poller: Option<LatencyPoller>,
 }
+
+/// How often the main thread re-reads `outputLatency` to publish it to the worklet.
+const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
@@ -250,7 +254,7 @@ impl DeviceTrait for Device {
         &self,
         config: StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
+        data_callback: D,
         mut error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
@@ -259,6 +263,9 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        // Keep `playback` monotonic: the polled outputLatency can drop when the
+        // page calls `setSinkId()` to switch output devices, pulling `playback` backward.
+        let mut data_callback = crate::host::monotonic_output_callback(data_callback);
         if config.channels > MAX_CHANNELS {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
@@ -346,6 +353,9 @@ impl DeviceTrait for Device {
         });
         let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
         let buffer_size_frames_cb = buffer_size_frames.clone();
+        // The worklet realm cannot read AudioContext properties, so share the value via an atomic.
+        let latency_nanos = Arc::new(AtomicU64::new(total_latency_nanos(&audio_context)));
+        let latency_nanos_cb = latency_nanos.clone();
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let result: Result<(), JsValue> = async move {
@@ -361,28 +371,6 @@ impl DeviceTrait for Device {
                 options.set_output_channel_count(&js_array);
                 options.set_number_of_inputs(0);
 
-                // Capture audio output latency here: the closure runs in a separate worker and cannot access AudioContext properties directly.
-                // While baseLatency is fixed for the context lifetime, outputLatency can change but not be re-read from inside the worklet;
-                // we snapshot it here.
-                let base_latency_secs =
-                    js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("baseLatency"))
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                let output_latency_secs =
-                    js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("outputLatency"))
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                let total_output_latency_secs = {
-                    let sum = base_latency_secs + output_latency_secs;
-                    if sum.is_finite() {
-                        sum.max(0.0)
-                    } else {
-                        0.0
-                    }
-                };
-
                 options.set_processor_options(Some(&js_sys::Array::of3(
                     &wasm_bindgen::module(),
                     &wasm_bindgen::memory(),
@@ -397,9 +385,9 @@ impl DeviceTrait for Device {
                             let callback = StreamInstant::from_secs_f64(now);
                             let buffer_duration =
                                 frames_to_duration(frame_size as FrameCount, sample_rate);
-                            let playback = callback
-                                + (buffer_duration
-                                    + Duration::from_secs_f64(total_output_latency_secs));
+                            let latency =
+                                Duration::from_nanos(latency_nanos_cb.load(Ordering::Relaxed));
+                            let playback = callback + (buffer_duration + latency);
                             let timestamp = OutputStreamTimestamp { callback, playback };
                             let info = OutputCallbackInfo { timestamp };
                             (data_callback)(&mut data, &info);
@@ -428,9 +416,31 @@ impl DeviceTrait for Device {
             }
         });
 
+        // outputLatency can change at runtime (e.g. an output-device switch) but is only readable
+        // on the main thread, so poll it here and publish it to the worklet via the shared atomic.
+        let latency_poller = web_sys::window().and_then(|window| {
+            let poll_ctx = audio_context.clone();
+            let poll_latency = latency_nanos.clone();
+            let closure = Closure::<dyn FnMut()>::new(move || {
+                poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
+            });
+            window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    LATENCY_POLL_INTERVAL.as_millis() as i32,
+                )
+                .ok()
+                .map(|interval_id| LatencyPoller {
+                    window,
+                    interval_id,
+                    _closure: closure,
+                })
+        });
+
         Ok(Self::Stream {
             audio_context,
             buffer_size_frames,
+            _latency_poller: latency_poller,
         })
     }
 }
@@ -486,7 +496,7 @@ impl Iterator for Devices {
 
 type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
 
-/// WasmAudioProcessor provides an interface for the Javascript code
+/// WasmAudioProcessor provides an interface for the JavaScript code
 /// running in the AudioWorklet to interact with Rust.
 #[wasm_bindgen]
 pub struct WasmAudioProcessor {
@@ -556,5 +566,35 @@ impl WasmAudioProcessor {
     /// Using an invalid or already-consumed pointer will result in undefined behavior.
     pub unsafe fn unpack(val: usize) -> Self {
         *Box::from_raw(val as *mut _)
+    }
+}
+
+/// Drives a `setInterval` that refreshes the shared output-latency value.
+struct LatencyPoller {
+    window: web_sys::Window,
+    interval_id: i32,
+    _closure: Closure<dyn FnMut()>,
+}
+
+impl Drop for LatencyPoller {
+    fn drop(&mut self) {
+        self.window.clear_interval_with_handle(self.interval_id);
+    }
+}
+
+/// Reads the playback buffer depth from a context.
+fn total_latency_nanos(ctx: &web_sys::AudioContext) -> u64 {
+    let read = |key: &str| {
+        js_sys::Reflect::get(ctx.as_ref(), &JsValue::from(key))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    };
+    // `baseLatency` is fixed for the context lifetime; `outputLatency` can change.
+    let secs = read("baseLatency") + read("outputLatency");
+    if secs.is_finite() && secs > 0.0 {
+        (secs * 1_000_000_000.0) as u64
+    } else {
+        0
     }
 }

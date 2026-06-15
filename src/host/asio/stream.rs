@@ -125,7 +125,7 @@ impl Device {
         &self,
         config: StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
+        data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, Error>
@@ -134,6 +134,10 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        // Keep `capture` monotonic: kAsioLatenciesChanged (e.g. the user changes the buffer
+        // size in the ASIO driver's control panel) can raise inputLatency, pulling `capture`
+        // backward.
+        let mut data_callback = crate::host::monotonic_input_callback(data_callback);
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO
@@ -458,7 +462,7 @@ impl Device {
         &self,
         config: StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
+        data_callback: D,
         error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Stream, Error>
@@ -467,6 +471,10 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        // Keep `playback` monotonic: kAsioLatenciesChanged (e.g. the user changes the buffer
+        // size in the ASIO driver's control panel) can lower outputLatency, pulling `playback`
+        // backward.
+        let mut data_callback = crate::host::monotonic_output_callback(data_callback);
         com::com_initialized();
         let description = self.description()?;
         let driver = super::GLOBAL_ASIO

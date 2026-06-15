@@ -283,6 +283,9 @@ impl DeviceTrait for Device {
         })?;
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
+        // Keep `playback` monotonic: outputLatency can drop (e.g. the page calls `setSinkId()` to
+        // switch output devices), which would pull `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let data_callback: OutputDataCallbackArc = Arc::new(Mutex::new(data_callback));
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let is_started = Arc::new(AtomicBool::new(false));

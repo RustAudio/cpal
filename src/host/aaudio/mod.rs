@@ -677,6 +677,9 @@ impl DeviceTrait for Device {
             .channel_count(config.channels as i32)
             .format(format);
 
+        // Keep `capture` monotonic: a transient getTimestamp() failure falls back to `now()`
+        // (no latency offset), so the next successful read can pull `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         build_input_stream(
             self,
             config,
@@ -721,6 +724,9 @@ impl DeviceTrait for Device {
             .channel_count(config.channels as i32)
             .format(format);
 
+        // Keep `playback` monotonic: a transient getTimestamp() failure falls back to `now()`
+        // (no latency offset), pulling `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         build_output_stream(
             self,
             config,
