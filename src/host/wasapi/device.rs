@@ -1452,11 +1452,16 @@ fn shared_mode_period_frames(
 
 fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) -> i64 {
     match buffer_size {
-        BufferSize::Fixed(frames) => *frames as i64 * (1_000_000_000 / 100) / sample_rate as i64,
+        // Round: a frame count and its 100ns duration are not exact multiples, so truncating here
+        // and again on the way back drops common sizes (512, 1024, ...) by one frame.
+        BufferSize::Fixed(frames) => {
+            let rate = sample_rate as i64;
+            (*frames as i64 * (1_000_000_000 / 100) + rate / 2) / rate
+        }
         BufferSize::Default => 0,
     }
 }
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
-    (buffer_duration * sample_rate as i64 * 100 / 1_000_000_000) as FrameCount
+    ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
 }
