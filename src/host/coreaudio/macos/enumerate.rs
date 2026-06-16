@@ -7,7 +7,7 @@ use std::{
 use objc2_core_audio::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultInputDevice,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
-    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
     AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress,
 };
@@ -20,7 +20,7 @@ unsafe fn audio_devices() -> Result<Vec<AudioDeviceID>, Error> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
 
     macro_rules! try_status_or_return {
@@ -84,7 +84,7 @@ pub fn default_input_device() -> Option<Device> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDefaultInputDevice,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
 
     let mut audio_device_id: AudioDeviceID = 0;
@@ -114,7 +114,7 @@ pub fn default_output_device() -> Option<Device> {
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioHardwarePropertyDefaultOutputDevice,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
 
     let mut audio_device_id: AudioDeviceID = 0;

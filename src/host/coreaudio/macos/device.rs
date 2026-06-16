@@ -28,16 +28,15 @@ use objc2_core_audio::{
     kAudioDevicePropertyDeviceUID, kAudioDevicePropertyLatency,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertySafetyOffset,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioObjectPropertyClass, kAudioObjectPropertyElementMain, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    kAudioObjectPropertyClass, kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
-use objc2_core_foundation::{CFString, Type};
+use objc2_core_foundation::{CFRetained, CFString};
 
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
@@ -98,7 +97,7 @@ fn set_sample_rate(
     let mut property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyNominalSampleRate,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
     let mut sample_rate: f64 = 0.0;
     let mut data_size = mem::size_of::<f64>() as u32;
@@ -259,7 +258,7 @@ fn get_io_buffer_frame_size_range(device_id: AudioDeviceID) -> Result<SupportedB
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyBufferFrameSizeRange,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
     // SAFETY: AudioObjectGetPropertyData writes exactly one AudioValueRange into the output
     // pointer when querying kAudioDevicePropertyBufferFrameSizeRange. We verify the status
@@ -435,7 +434,7 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        // CFString is copied from the audio object, use wrap_under_create_rule
+        // CFString is returned under the create rule, so take ownership of the +1 reference.
         let mut uid: *mut CFString = std::ptr::null_mut();
         let mut data_size = size_of::<*mut CFString>() as u32;
 
@@ -456,7 +455,8 @@ impl Device {
         // SAFETY: Status was successful, meaning the API call succeeded.
         // We now check if the returned uid is non-null before use.
         if !uid.is_null() {
-            let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
+            let uid_string =
+                unsafe { CFRetained::from_raw(NonNull::new(uid).unwrap()).to_string() };
             Ok(DeviceId::new(
                 crate::platform::HostId::CoreAudio,
                 uid_string,
@@ -475,7 +475,7 @@ impl Device {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: scope,
-            mElement: kAudioObjectPropertyElementMaster,
+            mElement: kAudioObjectPropertyElementMain,
         };
 
         unsafe {
@@ -603,7 +603,7 @@ impl Device {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamFormat,
             mScope: scope,
-            mElement: kAudioObjectPropertyElementMaster,
+            mElement: kAudioObjectPropertyElementMain,
         };
 
         unsafe {
