@@ -23,7 +23,7 @@ use objc2_core_audio::{
 use objc2_core_foundation::{
     kCFAllocatorDefault, kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks,
     kCFTypeDictionaryValueCallBacks, CFArray, CFDictionary, CFMutableDictionary, CFRetained,
-    CFString, CFStringCreateWithCString,
+    CFString,
 };
 use objc2_foundation::{NSArray, NSNumber, NSString};
 
@@ -153,7 +153,7 @@ impl Drop for LoopbackDevice {
 
 fn to_cfstring(cstr: &'static CStr) -> CFRetained<CFString> {
     unsafe {
-        CFStringCreateWithCString(
+        CFString::with_c_string(
             kCFAllocatorDefault,
             cstr.as_ptr(),
             0x08000100, /* UTF8 */
