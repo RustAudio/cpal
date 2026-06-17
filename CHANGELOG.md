@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
 - **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
