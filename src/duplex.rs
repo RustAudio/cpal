@@ -1,4 +1,4 @@
-use crate::{ChannelCount, InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
+use crate::{BufferSize, ChannelCount, InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
 
 /// Information relevant to a single call to the user's duplex stream data callback.
 ///
@@ -43,5 +43,5 @@ pub struct DuplexStreamConfig {
     /// The sample rate driving both directions.
     pub sample_rate: SampleRate,
     /// The desired buffer size, in frames per callback.
-    pub buffer_size: crate::BufferSize,
+    pub buffer_size: BufferSize,
 }

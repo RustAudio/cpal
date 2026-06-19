@@ -166,7 +166,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// rendered output share a single clock.
     ///
     /// Returning `true` is a contract that input and output sides will run from one device-level
-    /// callback, or an OS driver aggregate (such as an Aggregate Device on MacOS).
+    /// callback, or an OS driver aggregate (such as an Aggregate Device on macOS).
     ///
     /// The default implementation returns `false`; hosts that can guarantee a shared clock should
     /// override.
@@ -423,7 +423,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
         E: FnMut(Error) + Send + 'static;
 
     /// Create a synchronized duplex stream whose input and output share the same clock
-    /// or OS provided bidirectional aggregate device (MacOS). MacOS Aggregate device drift
+    /// or OS provided bidirectional aggregate device (macOS). macOS Aggregate device drift
     /// compensation is not required.
     ///
     /// # Parameters
@@ -460,7 +460,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     /// [`ErrorKind::ResourceExhausted`]: crate::ErrorKind::ResourceExhausted
     /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
-    fn build_duplex_stream<T, D, E>(
+    fn build_duplex_stream<I, O, D, E>(
         &self,
         config: DuplexStreamConfig,
         mut data_callback: D,
@@ -468,13 +468,15 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        T: SizedSample,
-        D: FnMut(&[T], &mut [T], &DuplexCallbackInfo) + Send + 'static,
+        I: SizedSample,
+        O: SizedSample,
+        D: FnMut(&[I], &mut [O], &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         self.build_duplex_stream_raw(
             config,
-            T::FORMAT,
+            I::FORMAT,
+            O::FORMAT,
             move |input, output, info| {
                 data_callback(
                     input
@@ -503,7 +505,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     fn build_duplex_stream_raw<D, E>(
         &self,
         _config: DuplexStreamConfig,
-        _sample_format: SampleFormat,
+        _input_sample_format: SampleFormat,
+        _output_sample_format: SampleFormat,
         _data_callback: D,
         _error_callback: E,
         _timeout: Option<Duration>,
