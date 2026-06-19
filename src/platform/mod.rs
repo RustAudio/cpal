@@ -538,7 +538,8 @@ macro_rules! impl_platform_host {
             fn build_duplex_stream_raw<D, E>(
                 &self,
                 config: crate::DuplexStreamConfig,
-                sample_format: crate::SampleFormat,
+                input_sample_format: crate::SampleFormat,
+                output_sample_format: crate::SampleFormat,
                 data_callback: D,
                 error_callback: E,
                 timeout: Option<std::time::Duration>,
@@ -555,7 +556,8 @@ macro_rules! impl_platform_host {
                         DeviceInner::$HostVariant(ref d) => d
                             .build_duplex_stream_raw(
                                 config,
-                                sample_format,
+                                input_sample_format,
+                                output_sample_format,
                                 data_callback,
                                 error_callback,
                                 timeout,
