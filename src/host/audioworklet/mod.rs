@@ -528,6 +528,10 @@ impl StreamTrait for Stream {
         })
     }
 
+    fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        self.pause()
+    }
+
     fn now(&self) -> StreamInstant {
         StreamInstant::from_secs_f64(f64::from_bits(
             self.current_time_bits.load(Ordering::Relaxed),
