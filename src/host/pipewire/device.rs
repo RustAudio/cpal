@@ -382,6 +382,9 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        // Keep `capture` monotonic: pw_time delay() grows when another client joins
+        // needing a larger buffer, which can pull `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
@@ -555,6 +558,9 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        // Keep `playback` monotonic: pw_time delay() shrinks when other clients that needed
+        // a larger buffer leave the graph, which can pull `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())

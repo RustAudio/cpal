@@ -19,9 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Timestamps now stay monotonic across device and graph changes.
+- **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
 - **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
+- **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
+- **iOS**: Timestamps now include hardware latency and update when the audio route changes.
+- **JACK**: Timestamps now include port latency.
+- **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
+- **WASAPI**: Reported buffer sizes are no longer off by one frame.
 
 ## [0.18.1] - 2026-06-07
 

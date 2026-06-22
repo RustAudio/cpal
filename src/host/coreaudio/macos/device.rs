@@ -4,6 +4,7 @@ use std::{
     ptr::{NonNull, null},
     sync::{
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
         mpsc::{RecvTimeoutError, channel},
     },
     time::{Duration, Instant},
@@ -36,7 +37,7 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
-use objc2_core_foundation::{CFString, Type};
+use objc2_core_foundation::{CFRetained, CFString};
 
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
@@ -98,7 +99,7 @@ fn set_sample_rate(
     let mut property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyNominalSampleRate,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
     let mut sample_rate: f64 = 0.0;
     let mut data_size = mem::size_of::<f64>() as u32;
@@ -259,7 +260,7 @@ fn get_io_buffer_frame_size_range(device_id: AudioDeviceID) -> Result<SupportedB
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyBufferFrameSizeRange,
         mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMaster,
+        mElement: kAudioObjectPropertyElementMain,
     };
     // SAFETY: AudioObjectGetPropertyData writes exactly one AudioValueRange into the output
     // pointer when querying kAudioDevicePropertyBufferFrameSizeRange. We verify the status
@@ -435,7 +436,7 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        // CFString is copied from the audio object, use wrap_under_create_rule
+        // CFString is returned under the create rule, so take ownership of the +1 reference.
         let mut uid: *mut CFString = std::ptr::null_mut();
         let mut data_size = size_of::<*mut CFString>() as u32;
 
@@ -456,7 +457,8 @@ impl Device {
         // SAFETY: Status was successful, meaning the API call succeeded.
         // We now check if the returned uid is non-null before use.
         if !uid.is_null() {
-            let uid_string = unsafe { CFString::wrap_under_create_rule(uid).to_string() };
+            let uid_string =
+                unsafe { CFRetained::from_raw(NonNull::new(uid).unwrap()).to_string() };
             Ok(DeviceId::new(
                 crate::platform::HostId::CoreAudio,
                 uid_string,
@@ -475,7 +477,7 @@ impl Device {
         let mut property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: scope,
-            mElement: kAudioObjectPropertyElementMaster,
+            mElement: kAudioObjectPropertyElementMain,
         };
 
         unsafe {
@@ -603,7 +605,7 @@ impl Device {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyStreamFormat,
             mScope: scope,
-            mElement: kAudioObjectPropertyElementMaster,
+            mElement: kAudioObjectPropertyElementMain,
         };
 
         unsafe {
@@ -703,9 +705,8 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
-        // The scope and element for working with a device's input stream.
-        let scope = Scope::Output;
-        let element = Element::Input;
+
+        // Input is not automatically rerouted, so its buffer depth is constant and its timestamp monotonic.
 
         // Set the physical stream format (bit depth + sample rate) on the hardware device.
         // This avoids unnecessary format conversions, which is especially important on aggregate
@@ -731,6 +732,10 @@ impl Device {
                 AudioUnitMode::Input,
             )?
         };
+
+        // The scope and element for working with a device's input stream.
+        let scope = Scope::Output;
+        let element = Element::Input;
 
         // Configure stream format and buffer size for predictable callback behavior.
         let effective_device_id = loopback_aggregate
@@ -813,7 +818,7 @@ impl Device {
         &self,
         config: StreamConfig,
         sample_format: SampleFormat,
-        mut data_callback: D,
+        data_callback: D,
         error_callback: E,
         timeout: Option<Duration>,
     ) -> Result<Stream, Error>
@@ -822,6 +827,11 @@ impl Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+
+        // Keep `playback` monotonic: a default output device reroute can lower the device buffer depth,
+        // pulling `playback` backward.
+        let mut data_callback = crate::host::monotonic_output_callback(data_callback);
+
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
         // it fails — the AudioUnit will handle format conversion as before.
@@ -865,6 +875,13 @@ impl Device {
         let (bytes_per_channel, sample_rate, device_buffer_frames, extra_latency_frames) =
             setup_callback_vars(&audio_unit, config, sample_format, Scope::Output);
 
+        // A DefaultOutput unit auto-reroutes to a new device without rebuilding the stream,
+        // which changes this depth, and is then refreshed by DefaultOutputMonitor.
+        let latency_frames = Arc::new(AtomicUsize::new(
+            device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
+        ));
+        let callback_latency_frames = latency_frames.clone();
+
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
@@ -887,10 +904,12 @@ impl Device {
                 }
                 Ok(cb) => cb,
             };
-            let buffer_frames = len / channels as usize;
-            // Use device buffer size for latency calculation if available
-            let latency_frames =
-                device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
+            let latency_frames = match callback_latency_frames.load(Ordering::Relaxed) {
+                // Depth unknown (query failed): estimate the device buffer from this callback, but
+                // still add the safety offset and device latency, matching the input path.
+                0 => len / channels as usize + extra_latency_frames,
+                n => n,
+            };
             let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let playback = callback + delay;
             let timestamp = OutputStreamTimestamp { callback, playback };
@@ -912,7 +931,12 @@ impl Device {
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
         let monitor: Box<dyn Monitor> = if matches!(mode, AudioUnitMode::DefaultOutput) {
-            Box::new(DefaultOutputMonitor::new(weak_inner, error_callback)?)
+            // Refresh the buffer depth whenever the default device reroutes automatically.
+            Box::new(DefaultOutputMonitor::new(
+                weak_inner,
+                error_callback,
+                Some((latency_frames, Scope::Output)),
+            )?)
         } else {
             Box::new(DisconnectManager::new(
                 self.audio_device_id,
@@ -1010,7 +1034,7 @@ fn configure_stream_format_and_buffer(
 }
 
 /// Returns the sum of the device latency and safety offset in frames.
-fn get_device_extra_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usize {
+pub(crate) fn get_device_extra_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usize {
     let device_latency: u32 = audio_unit
         .get_property(kAudioDevicePropertyLatency, scope, Element::Output)
         .unwrap_or(0);

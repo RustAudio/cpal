@@ -647,6 +647,28 @@ fn run_output(
         emit_error(error_callback, err);
     }
 
+    // The clock frequency is constant for the stream's lifetime.
+    let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
+        .context("Failed to get audio clock frequency")
+    {
+        Ok(0) => {
+            emit_error(
+                error_callback,
+                Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioClock::GetFrequency returned zero",
+                ),
+            );
+            return;
+        }
+        Ok(frequency) => frequency,
+        Err(err) => {
+            emit_error(error_callback, err);
+            return;
+        }
+    };
+    let mut frames_written: u64 = 0;
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             ControlFlow::Break(()) => break,
@@ -657,7 +679,13 @@ fn run_output(
             AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_output(&run_ctxt.stream, render_client, data_callback) {
+        if let Err(err) = process_output(
+            &run_ctxt.stream,
+            render_client,
+            data_callback,
+            clock_frequency,
+            &mut frames_written,
+        ) {
             emit_error(error_callback, err);
             break;
         }
@@ -783,6 +811,8 @@ fn process_output(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    clock_frequency: u64,
+    frames_written: &mut u64,
 ) -> Result<(), Error> {
     // The number of frames available for writing.
     let frames_available = match get_available_frames(stream)? {
@@ -791,9 +821,7 @@ fn process_output(
     };
 
     unsafe {
-        let buffer = render_client
-            .GetBuffer(frames_available)
-            .map_err(Error::from)?;
+        let buffer = render_client.GetBuffer(frames_available)?;
 
         debug_assert!(!buffer.is_null());
 
@@ -805,23 +833,22 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, frames_available, sample_rate)?;
+        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
 
-        render_client
-            .ReleaseBuffer(frames_available, 0)
-            .map_err(Error::from)?;
+        render_client.ReleaseBuffer(frames_available, 0)?;
+
+        *frames_written += frames_available as u64;
     }
 
     Ok(())
 }
 
-/// Use the stream's `IAudioClock` to produce the current stream instant.
-///
-/// Uses the QPC position produced via the `GetPosition` method.
+/// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback
+/// [`StreamInstant`] together with the device position from that same snapshot.
 #[inline]
-fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
+fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
@@ -836,7 +863,7 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    Ok(instant)
+    Ok((instant, position))
 }
 
 /// Produce the input stream timestamp.
@@ -855,26 +882,35 @@ fn input_timestamp(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    let callback = stream_instant(stream)?;
+    let (callback, _position) = clock_position(stream)?;
     Ok(InputStreamTimestamp { capture, callback })
 }
 
 /// Produce the output stream timestamp.
 ///
-/// `frames_available` is the number of frames available for writing as reported by subtracting the
-/// result of `GetCurrentPadding` from the maximum buffer size.
-///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
+///
+/// `clock_frequency` is the device clock's constant tick rate, used to convert the reported clock
+/// position into a played-out duration.
+///
+/// `frames_written` is the running total of frames submitted to the render buffer so far, used to
+/// derive how much audio is buffered ahead of the device position.
 #[inline]
 fn output_timestamp(
     stream: &StreamInner,
-    frames_available: FrameCount,
     sample_rate: SampleRate,
+    clock_frequency: u64,
+    frames_written: u64,
 ) -> Result<OutputStreamTimestamp, Error> {
-    let callback = stream_instant(stream)?;
-    // `padding` is the number of frames already queued in the endpoint buffer ahead of the
-    // frames we are about to write. Those frames must drain before ours are heard.
-    let padding = stream.max_frames_in_buffer - frames_available;
-    let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
+    let (callback, position) = clock_position(stream)?;
+    // `buffered` is the amount of audio we've already submitted that has not yet been consumed by
+    // the device at this instant; it determines when the next written frame will be heard.
+    let consumed_nanos = position as u128 * 1_000_000_000 / clock_frequency as u128;
+    let written_nanos = frames_written as u128 * 1_000_000_000 / sample_rate as u128;
+    let buffered_nanos =
+        u64::try_from(written_nanos.saturating_sub(consumed_nanos)).unwrap_or(u64::MAX);
+    let buffered = Duration::from_nanos(buffered_nanos);
+
+    let playback = callback + (buffered + stream.stream_latency);
     Ok(OutputStreamTimestamp { callback, playback })
 }

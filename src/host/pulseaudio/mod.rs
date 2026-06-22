@@ -374,6 +374,9 @@ impl DeviceTrait for Device {
             ..Default::default()
         };
 
+        // Keep `capture` monotonic: the latency can step up when the server switches
+        // to a different source, pulling `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         let client = client.clone();
         let stream = if let Some(dur) = timeout {
             // Run stream creation on a thread so we can bound the wait. If the PulseAudio server
@@ -466,6 +469,9 @@ impl DeviceTrait for Device {
             ..Default::default()
         };
 
+        // Keep `playback` monotonic: the latency can decrease when the server switches
+        // to a different sink, pulling `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let client = client.clone();
         let stream = if let Some(dur) = timeout {
             // Run stream creation on a thread so we can bound the wait. If the PulseAudio server

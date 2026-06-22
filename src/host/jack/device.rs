@@ -211,6 +211,9 @@ impl DeviceTrait for Device {
             ));
         }
 
+        // Keep `capture` monotonic: re-patching cpal's ports to a different hardware port
+        // can raise the capture port's latency, pulling `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         let name = self.name.clone();
         let start_server_automatically = self.start_server_automatically;
         let connect_ports_automatically = self.connect_ports_automatically;
@@ -292,6 +295,9 @@ impl DeviceTrait for Device {
             ));
         }
 
+        // Keep `playback` monotonic: re-patching cpal's ports to a different hardware port
+        // can lower the playback port's latency, pulling `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let name = self.name.clone();
         let start_server_automatically = self.start_server_automatically;
         let connect_ports_automatically = self.connect_ports_automatically;

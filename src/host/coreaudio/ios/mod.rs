@@ -3,7 +3,10 @@
 use std::{
     fmt,
     ptr::NonNull,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -174,21 +177,28 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        // Keep `capture` monotonic: a route change (e.g. the user connects a headset) can
+        // raise the input buffer depth, pulling `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
-
-        // Query device buffer size for latency calculation
-        let device_buffer_frames = Some(get_device_buffer_frames());
+        // Buffer depth used to offset capture timestamps. AVAudioSession auto-reroutes to a new device,
+        // which changes this depth, and is then refreshed by the session event manager.
+        let latency_frames = Arc::new(AtomicUsize::new(input_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(error_callback.clone(), Latch::new());
+        let session_manager = SessionEventManager::new(
+            error_callback.clone(),
+            Latch::new(),
+            Some((latency_frames.clone(), true)),
+        );
 
         // Set up input callback
         setup_input_callback(
             &mut audio_unit,
             sample_format,
             config.sample_rate,
-            device_buffer_frames,
+            latency_frames,
             data_callback,
             move |e| {
                 let _ = try_emit_error(&error_callback, e);
@@ -220,21 +230,30 @@ impl DeviceTrait for Device {
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
+        // Keep `playback` monotonic: a route change (e.g. the user disconnects a headset
+        // and audio falls back to the built-in speaker) can lower the output buffer
+        // depth, pulling `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         // Configure buffer size and create audio unit
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, false)?;
 
-        // Query device buffer size for latency calculation
-        let device_buffer_frames = Some(get_device_buffer_frames());
+        // Buffer depth used to offset playback timestamps. AVAudioSession auto-reroutes to a new device,
+        // which changes this depth, and is then refreshed by the session event manager.
+        let latency_frames = Arc::new(AtomicUsize::new(output_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(error_callback.clone(), Latch::new());
+        let session_manager = SessionEventManager::new(
+            error_callback.clone(),
+            Latch::new(),
+            Some((latency_frames.clone(), false)),
+        );
 
         // Set up output callback
         setup_output_callback(
             &mut audio_unit,
             sample_format,
             config.sample_rate,
-            device_buffer_frames,
+            latency_frames,
             data_callback,
             move |e| {
                 let _ = try_emit_error(&error_callback, e);
@@ -387,8 +406,30 @@ fn get_device_buffer_frames() -> usize {
         let audio_session = AVAudioSession::sharedInstance();
         let buffer_duration = audio_session.IOBufferDuration();
         let sample_rate = audio_session.sampleRate();
-        (buffer_duration * sample_rate) as usize
+        // Round: the duration comes from an integer frame count, so the product is a whole number
+        // that floating-point can render as N.9999, which truncation would drop to N-1.
+        (buffer_duration * sample_rate).round() as usize
     }
+}
+
+/// Total capture buffer depth in frames: the IO buffer plus the hardware input latency.
+pub(super) fn input_latency_frames() -> usize {
+    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
+    let extra = unsafe {
+        let audio_session = AVAudioSession::sharedInstance();
+        (audio_session.inputLatency() * audio_session.sampleRate()).round() as usize
+    };
+    get_device_buffer_frames() + extra
+}
+
+/// Total playback buffer depth in frames: the IO buffer plus the hardware output latency.
+pub(super) fn output_latency_frames() -> usize {
+    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
+    let extra = unsafe {
+        let audio_session = AVAudioSession::sharedInstance();
+        (audio_session.outputLatency() * audio_session.sampleRate()).round() as usize
+    };
+    get_device_buffer_frames() + extra
 }
 
 // Typical iOS hardware buffer frame limits according to Apple Technical Q&A QA1631.
@@ -520,7 +561,7 @@ fn setup_input_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
     sample_rate: SampleRate,
-    device_buffer_frames: Option<usize>,
+    latency_frames: Arc<AtomicUsize>,
     mut data_callback: D,
     mut error_callback: E,
 ) -> Result<(), Error>
@@ -544,10 +585,15 @@ where
             Ok(cb) => cb,
         };
 
-        let latency_frames = device_buffer_frames.unwrap_or_else(|| {
-            let channels = buffer.mNumberChannels as usize;
-            data.len().checked_div(channels).unwrap_or(0)
-        });
+        // Refreshed on route changes by the session event manager; fall back to this buffer's
+        // own frame count if the depth is unknown (zero).
+        let latency_frames = match latency_frames.load(Ordering::Relaxed) {
+            0 => {
+                let channels = buffer.mNumberChannels as usize;
+                data.len().checked_div(channels).unwrap_or(0)
+            }
+            n => n,
+        };
         let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
         let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
         let timestamp = InputStreamTimestamp { callback, capture };
@@ -565,7 +611,7 @@ fn setup_output_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
     sample_rate: SampleRate,
-    device_buffer_frames: Option<usize>,
+    latency_frames: Arc<AtomicUsize>,
     mut data_callback: D,
     mut error_callback: E,
 ) -> Result<(), Error>
@@ -589,10 +635,15 @@ where
             Ok(cb) => cb,
         };
 
-        let latency_frames = device_buffer_frames.unwrap_or_else(|| {
-            let channels = buffer.mNumberChannels as usize;
-            data.len().checked_div(channels).unwrap_or(0)
-        });
+        // Refreshed on route changes by the session event manager; fall back to this buffer's
+        // own frame count if the depth is unknown (zero).
+        let latency_frames = match latency_frames.load(Ordering::Relaxed) {
+            0 => {
+                let channels = buffer.mNumberChannels as usize;
+                data.len().checked_div(channels).unwrap_or(0)
+            }
+            n => n,
+        };
         let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
         let playback = callback + delay;
         let timestamp = OutputStreamTimestamp { callback, playback };

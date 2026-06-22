@@ -1,23 +1,3 @@
-use crate::{
-    BufferSize, COMMON_SAMPLE_RATES, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
-    error::ResultExt,
-    host::{ErrorCallbackArc, com::ComString},
-};
-
-impl From<Audio::EDataFlow> for DeviceDirection {
-    fn from(data_flow: Audio::EDataFlow) -> Self {
-        if data_flow == Audio::eCapture {
-            DeviceDirection::Input
-        } else if data_flow == Audio::eRender {
-            DeviceDirection::Output
-        } else {
-            DeviceDirection::Unknown
-        }
-    }
-}
 use std::{
     ffi::OsString,
     fmt,
@@ -27,6 +7,15 @@ use std::{
     ptr, slice,
     sync::{Arc, Mutex, MutexGuard, OnceLock},
     time::Duration,
+};
+
+use crate::{
+    BufferSize, COMMON_SAMPLE_RATES, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
+    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
+    error::ResultExt,
+    host::{ErrorCallbackArc, com::ComString},
 };
 
 use windows::{
@@ -157,6 +146,9 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        // Keep `playback` monotonic: an underrun can saturate `buffered` to zero, pulling
+        // `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let monitor = self.default_device_monitor()?;
@@ -931,7 +923,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Capture { capture_client };
 
-            let audio_clock = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -1044,7 +1038,9 @@ impl Device {
             // `run()` method and added to the `RunContext`.
             let client_flow = AudioClientFlow::Render { render_client };
 
-            let audio_clock = get_audio_clock(&audio_client)?;
+            let audio_clock = audio_client
+                .GetService::<Audio::IAudioClock>()
+                .context("Failed to get audio clock")?;
 
             let stream_latency = {
                 let hns = audio_client
@@ -1344,9 +1340,16 @@ pub fn default_output_device() -> Option<Device> {
     current_default_endpoint(Audio::eRender).map(|_| Device::default_output())
 }
 
-/// Get the audio clock used to produce `StreamInstant`s.
-unsafe fn get_audio_clock(audio_client: &Audio::IAudioClient) -> Result<Audio::IAudioClock, Error> {
-    unsafe { audio_client.GetService::<Audio::IAudioClock>() }.context("Failed to get audio clock")
+impl From<Audio::EDataFlow> for DeviceDirection {
+    fn from(data_flow: Audio::EDataFlow) -> Self {
+        if data_flow == Audio::eCapture {
+            DeviceDirection::Input
+        } else if data_flow == Audio::eRender {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Unknown
+        }
+    }
 }
 
 // Sample rate range supported by the Media Foundation Resampler MFT used by AUTOCONVERTPCM.
@@ -1456,11 +1459,16 @@ fn shared_mode_period_frames(
 
 fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) -> i64 {
     match buffer_size {
-        BufferSize::Fixed(frames) => *frames as i64 * (1_000_000_000 / 100) / sample_rate as i64,
+        // Round: a frame count and its 100ns duration are not exact multiples, so truncating here
+        // and again on the way back drops common sizes (512, 1024, ...) by one frame.
+        BufferSize::Fixed(frames) => {
+            let rate = sample_rate as i64;
+            (*frames as i64 * (1_000_000_000 / 100) + rate / 2) / rate
+        }
         BufferSize::Default => 0,
     }
 }
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
-    (buffer_duration * sample_rate as i64 * 100 / 1_000_000_000) as FrameCount
+    ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
 }

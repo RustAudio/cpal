@@ -1,6 +1,12 @@
 //! Monitors AVAudioSession lifecycle events and reports them as stream errors.
 
-use std::ptr::NonNull;
+use std::{
+    ptr::NonNull,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use block2::RcBlock;
 use objc2::runtime::AnyObject;
@@ -11,10 +17,15 @@ use objc2_avf_audio::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
+use super::{input_latency_frames, output_latency_frames};
 use crate::{
     Error, ErrorKind,
     host::{ErrorCallbackArc, emit_error, latch::Latch},
 };
+
+/// Shared buffer-depth value to refresh on route changes, paired with `is_input` to select the
+/// input or output latency. `true` means an input stream.
+type LatencyRefresh = (Arc<AtomicUsize>, bool);
 
 unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
     let user_info = notification.userInfo()?;
@@ -58,7 +69,11 @@ unsafe impl Send for SessionEventManager {}
 unsafe impl Sync for SessionEventManager {}
 
 impl SessionEventManager {
-    pub(super) fn new(error_callback: ErrorCallbackArc, latch: Latch) -> Self {
+    pub(super) fn new(
+        error_callback: ErrorCallbackArc,
+        latch: Latch,
+        latency_refresh: Option<LatencyRefresh>,
+    ) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
         let mut observers = Vec::new();
         let waiter = latch.waiter();
@@ -68,6 +83,16 @@ impl SessionEventManager {
             let w = waiter.clone();
             let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
                 if w.is_released() {
+                    // The route may have changed the active device; recompute the buffer depth so
+                    // capture/playback timestamps track the new latency.
+                    if let Some((frames, is_input)) = &latency_refresh {
+                        let depth = if *is_input {
+                            input_latency_frames()
+                        } else {
+                            output_latency_frames()
+                        };
+                        frames.store(depth, Ordering::Relaxed);
+                    }
                     if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
                         emit_error(&cb, err);
                     }

@@ -152,7 +152,7 @@ impl Drop for LoopbackDevice {
 
 fn to_cfstring(cstr: &'static CStr) -> CFRetained<CFString> {
     unsafe {
-        CFStringCreateWithCString(
+        CFString::with_c_string(
             kCFAllocatorDefault,
             cstr.as_ptr(),
             0x08000100, /* UTF8 */

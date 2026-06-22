@@ -152,7 +152,7 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
   "std",
   "CoreAudioBaseTypes",
 ] }
-objc2-core-foundation = { version = "0.3" }
+objc2-core-foundation = { version = "0.3.1" }
 objc2-foundation = { version = "0.3", default-features = false, features = [
   "std",
   "NSArray",

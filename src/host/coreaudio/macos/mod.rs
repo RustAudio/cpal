@@ -1,7 +1,10 @@
-#![allow(deprecated)]
-use std::sync::{Arc, Mutex, Weak, mpsc};
+use std::sync::{
+    Arc, Mutex, Weak,
+    atomic::{AtomicUsize, Ordering},
+    mpsc,
+};
 
-use coreaudio::audio_unit::AudioUnit;
+use coreaudio::audio_unit::{AudioUnit, Scope};
 use objc2_core_audio::{
     AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress, kAudioDevicePropertyDeviceIsAlive,
     kAudioDevicePropertyNominalSampleRate, kAudioHardwarePropertyDefaultOutputDevice,
@@ -23,7 +26,7 @@ mod loopback;
 mod property_listener;
 pub use device::Device;
 
-/// Coreaudio host, the default host on macOS.
+/// CoreAudio host, the default host on macOS.
 #[derive(Debug)]
 pub struct Host;
 
@@ -230,6 +233,7 @@ impl DefaultOutputMonitor {
     fn new(
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
+        latency_refresh: Option<(Arc<AtomicUsize>, Scope)>,
     ) -> Result<Self, Error> {
         let (change_rx, shutdown_tx) = spawn_property_listener_thread(
             kAudioObjectSystemObject as AudioObjectID,
@@ -250,11 +254,11 @@ impl DefaultOutputMonitor {
                     return;
                 }
                 while let Ok(()) = change_rx.recv() {
-                    let Some(arc) = stream_weak.upgrade() else {
+                    let Some(stream) = stream_weak.upgrade() else {
                         break;
                     };
                     if default_output_device().is_none() {
-                        if let Ok(mut inner) = arc.try_lock() {
+                        if let Ok(mut inner) = stream.try_lock() {
                             let _ = inner.pause();
                         }
                         emit_error(
@@ -265,7 +269,22 @@ impl DefaultOutputMonitor {
                             ),
                         );
                     } else {
-                        // DefaultOutput AudioUnit rerouted automatically; notify the caller.
+                        // DefaultOutput AudioUnit rerouted automatically: recompute and notify
+                        // the buffer depth for the new device.
+                        if let Some((frames, scope)) = &latency_refresh {
+                            if let Ok(inner) = stream.lock() {
+                                let depth = device::get_device_buffer_frame_size(&inner.audio_unit)
+                                    .ok()
+                                    .map_or(0, |buffer| {
+                                        buffer
+                                            + device::get_device_extra_latency_frames(
+                                                &inner.audio_unit,
+                                                *scope,
+                                            )
+                                    });
+                                frames.store(depth, Ordering::Relaxed);
+                            }
+                        }
                         emit_error(
                             &error_callback,
                             Error::with_message(
