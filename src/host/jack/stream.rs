@@ -291,7 +291,7 @@ struct LocalProcessHandler {
 }
 
 impl LocalProcessHandler {
-    #[expect(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "realtime", expect(clippy::too_many_arguments))]
     fn new(
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
