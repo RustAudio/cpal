@@ -20,9 +20,8 @@ use objc2_core_audio::{
     kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
 };
 use objc2_core_foundation::{
-    CFArray, CFDictionary, CFMutableDictionary, CFRetained, CFString, CFStringCreateWithCString,
-    kCFAllocatorDefault, kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks,
-    kCFTypeDictionaryValueCallBacks,
+    CFArray, CFDictionary, CFMutableDictionary, CFRetained, CFString, kCFAllocatorDefault,
+    kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks,
 };
 use objc2_foundation::{NSArray, NSNumber, NSString};
 

@@ -31,8 +31,8 @@ use objc2_core_audio::{
     kAudioDevicePropertyLatency, kAudioDevicePropertyNominalSampleRate,
     kAudioDevicePropertySafetyOffset, kAudioDevicePropertyStreamConfiguration,
     kAudioDevicePropertyStreamFormat, kAudioObjectPropertyClass, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,

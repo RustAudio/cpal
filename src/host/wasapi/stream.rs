@@ -21,10 +21,7 @@ use crate::{
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
     StreamInstant,
-    host::{
-        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
-        latch::Latch,
-    },
+    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch},
     traits::StreamTrait,
 };
 

@@ -44,11 +44,13 @@ impl fmt::Display for Device {
 
 pub struct Host;
 
+// `Stream`'s fields are all Send+Sync (a channel sender plus atomics).
+// Any JS-backed resource (e.g. `web_sys::Window`, `Closure`) must live as a local
+// inside the `spawn_local` task in `build_*_stream_raw`.
 pub struct Stream {
     command_tx: mpsc::UnboundedSender<Command>,
     current_time_bits: Arc<AtomicU64>,
     buffer_size_frames: Arc<AtomicU64>,
-    _latency_poller: Option<LatencyPoller>,
 }
 
 /// How often the main thread re-reads `outputLatency` to publish it to the worklet.
@@ -464,6 +466,28 @@ impl DeviceTrait for Device {
 
             current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
 
+            // outputLatency can change at runtime (e.g. an output-device switch) but is only
+            // readable on the main thread, so poll it here and publish it to the worklet via the
+            // shared atomic.
+            let _latency_poller = web_sys::window().and_then(|window| {
+                let poll_ctx = audio_context.clone();
+                let poll_latency = latency_nanos.clone();
+                let closure = Closure::<dyn FnMut()>::new(move || {
+                    poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
+                });
+                window
+                    .set_interval_with_callback_and_timeout_and_arguments_0(
+                        closure.as_ref().unchecked_ref(),
+                        LATENCY_POLL_INTERVAL.as_millis() as i32,
+                    )
+                    .ok()
+                    .map(|interval_id| LatencyPoller {
+                        window,
+                        interval_id,
+                        _closure: closure,
+                    })
+            });
+
             // Process play/pause commands from any thread until Stream is dropped.
             // Dropping Stream closes command_tx, which terminates this loop.
             while let Some(cmd) = command_rx.next().await {
@@ -491,32 +515,10 @@ impl DeviceTrait for Device {
             let _ = audio_context.close();
         });
 
-        // outputLatency can change at runtime (e.g. an output-device switch) but is only readable
-        // on the main thread, so poll it here and publish it to the worklet via the shared atomic.
-        let latency_poller = web_sys::window().and_then(|window| {
-            let poll_ctx = audio_context.clone();
-            let poll_latency = latency_nanos.clone();
-            let closure = Closure::<dyn FnMut()>::new(move || {
-                poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
-            });
-            window
-                .set_interval_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    LATENCY_POLL_INTERVAL.as_millis() as i32,
-                )
-                .ok()
-                .map(|interval_id| LatencyPoller {
-                    window,
-                    interval_id,
-                    _closure: closure,
-                })
-        });
-
         Ok(Self::Stream {
             command_tx,
             current_time_bits,
             buffer_size_frames,
-            _latency_poller: latency_poller,
         })
     }
 }
