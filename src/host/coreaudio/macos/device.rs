@@ -28,11 +28,11 @@ use objc2_core_audio::{
     kAudioDevicePropertyDeviceUID, kAudioDevicePropertyLatency,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertySafetyOffset,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioObjectPropertyClass, kAudioObjectPropertyElementMain, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyElementName, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID,
-    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-    AudioObjectPropertyAddress, AudioObjectPropertyScope, AudioObjectSetPropertyData,
+    kAudioObjectPropertyClass, kAudioObjectPropertyElementMain, kAudioObjectPropertyElementName,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, AudioClassID, AudioDeviceID, AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectPropertyScope, AudioObjectSetPropertyData,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -1138,7 +1138,7 @@ unsafe fn get_channel_name_for_device(
     check_os_status(status)?;
 
     if !channel_name.is_null() {
-        Ok(CFString::wrap_under_create_rule(channel_name).to_string())
+        Ok(CFRetained::from_raw(NonNull::new(channel_name).unwrap()).to_string())
     } else {
         Err(Error::with_message(
             ErrorKind::Other,
