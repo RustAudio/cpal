@@ -5,7 +5,11 @@
 //! When implementing custom hosts with the `custom` feature, use the [`assert_stream_send!`](crate::assert_stream_send)
 //! and [`assert_stream_sync!`](crate::assert_stream_sync) macros to verify your `Stream` type meets CPAL's requirements.
 
-use std::time::Duration;
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    time::Duration,
+};
 
 use crate::{
     Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, InputDevices, OutputCallbackInfo,
@@ -51,10 +55,10 @@ pub trait HostTrait {
     ///
     /// - [`ErrorKind::HostUnavailable`] if the host has become unreachable (e.g. the audio
     ///   daemon crashed or was stopped).
-    /// - [`ErrorKind::Other`] for unclassifiable backend failures.
+    /// - [`ErrorKind::BackendError`] for unclassifiable backend failures.
     ///
     /// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
-    /// [`ErrorKind::Other`]: crate::ErrorKind::Other
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
     fn devices(&self) -> Result<Self::Devices, Error>;
 
     /// Fetches a [`Device`](DeviceTrait) based on a [`DeviceId`] if available
@@ -105,7 +109,7 @@ pub trait HostTrait {
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
-pub trait DeviceTrait {
+pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
     /// The iterator type yielding supported input stream formats.
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.
@@ -116,25 +120,14 @@ pub trait DeviceTrait {
     /// [`build_output_stream_raw`]: Self::build_output_stream_raw
     type Stream: StreamTrait;
 
-    /// The human-readable name of the device.
-    #[deprecated(
-        since = "0.17.0",
-        note = "Use `description()` for comprehensive device information including name, \
-                manufacturer, and device type. Use `id()` for a unique, stable device identifier \
-                that persists across reboots and reconnections."
-    )]
-    fn name(&self) -> Result<String, Error> {
-        self.description().map(|desc| desc.name().to_string())
-    }
-
     /// Structured description of the device with metadata.
     ///
     /// This returns a [`DeviceDescription`] containing structured information about the device,
     /// including name, manufacturer (if available), device type, bus type, and other
     /// platform-specific metadata.
     ///
-    /// For simple string representation, use `device.description().to_string()` or
-    /// `device.description().name()`.
+    /// For the device name as a string, use `device.to_string()` or format it with `{}`. For the
+    /// full structured description, call `device.description()?` and format or inspect that.
     ///
     /// # Errors
     ///
@@ -440,12 +433,12 @@ pub trait DeviceTrait {
     fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error>;
 }
 
-/// A stream created from [`Device`](DeviceTrait), with methods to control playback.
+/// A stream created from [`Device`](DeviceTrait), with methods to control it.
 pub trait StreamTrait {
-    /// Run the stream.
+    /// Start the stream.
     ///
-    /// Note: Not all platforms automatically run the stream upon creation, so it is important to
-    /// call `play` after creation if it is expected that the stream should run immediately.
+    /// Streams returned by `build_*_stream` are always stopped, so `play` must be called before the
+    /// data callback will fire. Despite the name, this applies equally to input (capture) streams.
     ///
     /// # Errors
     ///
@@ -457,8 +450,8 @@ pub trait StreamTrait {
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn play(&self) -> Result<(), Error>;
 
-    /// Some devices support pausing the audio stream. This can be useful for saving energy in
-    /// moments of silence.
+    /// Pause the stream. Some devices support suspending at the hardware level (saving energy);
+    /// others stop only the data callback while the hardware keeps running.
     ///
     /// Note: Not all devices support suspending the stream at the hardware level. This method may
     /// fail in these cases.
@@ -484,7 +477,7 @@ pub trait StreamTrait {
     /// # Errors
     ///
     /// - [`ErrorKind::UnsupportedOperation`] if the backend cannot query the buffer size.
-    /// - [`ErrorKind::Other`] for unclassifiable backend failures.
+    /// - [`ErrorKind::BackendError`] for unclassifiable backend failures.
     ///
     /// # Implementation notes
     ///
@@ -496,7 +489,7 @@ pub trait StreamTrait {
     /// lead to memory safety violations.
     ///
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::Other`]: crate::ErrorKind::Other
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
     fn buffer_size(&self) -> Result<crate::FrameCount, Error>;
 
     /// Returns a [`StreamInstant`] representing the current moment on the stream's clock.

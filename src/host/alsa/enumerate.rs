@@ -38,6 +38,7 @@ impl Host {
                     // NULL IOID means both Input/Output. Whether a stream can actually open in a
                     // given direction can only be determined by attempting to open it.
                     let direction = hint.direction.map_or(DeviceDirection::Duplex, Into::into);
+                    seen_pcm_ids.insert(pcm_id.clone());
                     let device = Device {
                         pcm_id,
                         desc: hint.desc,
@@ -45,7 +46,6 @@ impl Host {
                         _context: self.inner.clone(),
                     };
 
-                    seen_pcm_ids.insert(device.pcm_id.clone());
                     devices.push(device);
                 }
             }
@@ -105,7 +105,7 @@ fn physical_devices() -> Vec<PhysicalDevice> {
         let card_name = ctl
             .card_info()
             .ok()
-            .and_then(|info| info.get_name().ok().map(|s| s.to_string()));
+            .and_then(|info| info.get_name().ok().map(|s| s.to_owned()));
 
         for device_index in alsa::ctl::DeviceIter::new(&ctl) {
             let device_index = device_index as u32;
@@ -117,15 +117,15 @@ fn physical_devices() -> Vec<PhysicalDevice> {
             let (direction, device_name) = match (&playback_info, &capture_info) {
                 (Some(p_info), Some(_c_info)) => (
                     DeviceDirection::Duplex,
-                    p_info.get_name().ok().map(|s| s.to_string()),
+                    p_info.get_name().ok().map(|s| s.to_owned()),
                 ),
                 (Some(p_info), None) => (
                     DeviceDirection::Output,
-                    p_info.get_name().ok().map(|s| s.to_string()),
+                    p_info.get_name().ok().map(|s| s.to_owned()),
                 ),
                 (None, Some(c_info)) => (
                     DeviceDirection::Input,
-                    c_info.get_name().ok().map(|s| s.to_string()),
+                    c_info.get_name().ok().map(|s| s.to_owned()),
                 ),
                 (None, None) => {
                     // Device doesn't exist - skip

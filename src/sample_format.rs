@@ -19,7 +19,6 @@ use std::{
 /// with the most significant byte unused. Use [`SampleFormat::bits_per_sample`] to get
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::I24;
-
 /// 24-bit unsigned integer sample type.
 ///
 /// Represents 24-bit audio with range `0..=((1 << 24) - 1)`, with origin at `1 << 23 == 8388608`.
@@ -29,8 +28,11 @@ pub use dasp_sample::I24;
 /// the actual bit depth (24) vs [`SampleFormat::sample_size`] for storage size (4 bytes).
 pub use dasp_sample::U24;
 pub use dasp_sample::{FromSample, Sample};
-
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
 use wasm_bindgen::prelude::*;
 
 // I48 and U48 are not currently supported by cpal but available in dasp_sample:
@@ -51,7 +53,14 @@ use wasm_bindgen::prelude::*;
 ///
 /// [`is_float`]: SampleFormat::is_float
 /// [`supported_input_configs`]: crate::traits::DeviceTrait::supported_input_configs
-#[cfg_attr(all(target_arch = "wasm32", feature = "wasm-bindgen"), wasm_bindgen)]
+#[cfg_attr(
+    all(
+        target_arch = "wasm32",
+        target_os = "unknown",
+        feature = "wasm-bindgen"
+    ),
+    wasm_bindgen
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum SampleFormat {

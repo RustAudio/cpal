@@ -62,9 +62,10 @@ impl From<ndk::audio::AudioError> for Error {
             Disconnected | Unavailable | NoService | InvalidHandle => {
                 Error::with_message(ErrorKind::DeviceNotAvailable, error.to_string())
             }
-            NoFreeHandles | NoMemory | WouldBlock | Timeout => {
-                Error::with_message(ErrorKind::DeviceBusy, error.to_string())
+            NoFreeHandles | NoMemory => {
+                Error::with_message(ErrorKind::ResourceExhausted, error.to_string())
             }
+            WouldBlock | Timeout => Error::with_message(ErrorKind::DeviceBusy, error.to_string()),
             InvalidFormat | InvalidRate => {
                 Error::with_message(ErrorKind::UnsupportedConfig, error.to_string())
             }
@@ -77,7 +78,7 @@ impl From<ndk::audio::AudioError> for Error {
             Unimplemented => {
                 Error::with_message(ErrorKind::UnsupportedOperation, error.to_string())
             }
-            _ => Error::with_message(ErrorKind::Other, error.to_string()),
+            _ => Error::with_message(ErrorKind::BackendError, error.to_string()),
         }
     }
 }

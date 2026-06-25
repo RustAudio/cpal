@@ -1,10 +1,13 @@
-#![allow(deprecated)]
-use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    mpsc, Arc, Mutex, Weak,
+};
 
-use coreaudio::audio_unit::AudioUnit;
+use coreaudio::audio_unit::{AudioUnit, Scope};
 use objc2_core_audio::{
     kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioDeviceID,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioDeviceID, AudioObjectID,
     AudioObjectPropertyAddress,
 };
 use property_listener::AudioObjectPropertyListener;
@@ -12,7 +15,7 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::coreaudio::macos::loopback::LoopbackDevice,
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -23,7 +26,7 @@ mod loopback;
 mod property_listener;
 pub use device::Device;
 
-/// Coreaudio host, the default host on macOS.
+/// CoreAudio host, the default host on macOS.
 #[derive(Debug)]
 pub struct Host;
 
@@ -56,30 +59,48 @@ impl HostTrait for Host {
 }
 
 /// Type alias for the error callback to reduce complexity
-type ErrorCallback = Box<dyn FnMut(Error) + Send + 'static>;
+type ErrorCallback = dyn FnMut(Error) + Send;
 
-/// Invoke error callback, recovering from poisoned mutex if needed.
-/// Returns true if callback was invoked, false if skipped due to WouldBlock.
-#[inline]
-fn invoke_error_callback<E>(error_callback: &Arc<Mutex<E>>, err: Error) -> bool
-where
-    E: FnMut(Error) + Send,
-{
-    match error_callback.try_lock() {
-        Ok(mut cb) => {
-            cb(err);
-            true
+/// Spawns a dedicated thread that registers a single property listener and signals a channel on
+/// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
+fn spawn_property_listener_thread(
+    object_id: AudioObjectID,
+    address: AudioObjectPropertyAddress,
+) -> Result<(mpsc::Receiver<()>, mpsc::Sender<()>), Error> {
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
+    let (change_tx, change_rx) = mpsc::channel::<()>();
+    let (ready_tx, ready_rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let listener = AudioObjectPropertyListener::new(object_id, address, move || {
+            let _ = change_tx.send(());
+        });
+        match listener {
+            Ok(_l) => {
+                let _ = ready_tx.send(Ok(()));
+                let _ = shutdown_rx.recv();
+            }
+            Err(e) => {
+                let _ = ready_tx.send(Err(e));
+            }
         }
-        Err(std::sync::TryLockError::Poisoned(guard)) => {
-            // Recover from poisoned lock to still report this error
-            guard.into_inner()(err);
-            true
-        }
-        Err(std::sync::TryLockError::WouldBlock) => {
-            // Skip if callback is busy
-            false
-        }
-    }
+    });
+
+    ready_rx.recv().map_err(|_| {
+        Error::with_message(
+            ErrorKind::StreamInvalidated,
+            "property listener thread terminated unexpectedly",
+        )
+    })??;
+
+    Ok((change_rx, shutdown_tx))
+}
+
+/// A device monitor that can signal when the owning `Stream` handle has been returned to the
+/// caller, allowing the delivery thread to start processing events.
+pub(super) trait Monitor: Send + Sync {
+    /// Unblocks the delivery thread. Called after `Stream::new()` and from `Stream::drop()`.
+    fn signal_ready(&self);
 }
 
 /// Manages device disconnection listener on a dedicated thread to ensure the
@@ -92,11 +113,11 @@ where
 ///
 /// The dedicated thread architecture ensures `Stream` can implement `Send`.
 struct DisconnectManager {
+    latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
 }
 
 impl DisconnectManager {
-    /// Create a new DisconnectManager that monitors device disconnection on a dedicated thread
     fn new(
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
@@ -120,7 +141,7 @@ impl DisconnectManager {
                 AudioObjectPropertyListener::new(device_id, alive_address, move || {
                     let _ = disconnect_tx_alive.send(Error::with_message(
                         ErrorKind::DeviceNotAvailable,
-                        "device disconnected",
+                        "Device disconnected",
                     ));
                 });
 
@@ -133,7 +154,7 @@ impl DisconnectManager {
                 AudioObjectPropertyListener::new(device_id, rate_address, move || {
                     let _ = disconnect_tx_rate.send(Error::with_message(
                         ErrorKind::StreamInvalidated,
-                        "device sample rate changed",
+                        "Device sample rate changed",
                     ));
                 });
 
@@ -149,47 +170,158 @@ impl DisconnectManager {
             }
         });
 
-        // Wait for listener creation to complete or fail
         ready_rx.recv().map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
-                "disconnect listener thread terminated unexpectedly",
+                "Stream monitor terminated unexpectedly",
             )
         })??;
 
-        // Handle disconnect events on the main thread pool
-        let stream_weak_clone = stream_weak.clone();
-        let error_callback_clone = error_callback.clone();
-        std::thread::spawn(move || {
-            while let Ok(err) = disconnect_rx.recv() {
-                if let Some(stream_arc) = stream_weak_clone.upgrade() {
-                    if let Ok(mut stream_inner) = stream_arc.try_lock() {
-                        let _ = stream_inner.pause();
-                    }
-                    invoke_error_callback(&error_callback_clone, err);
-                } else {
-                    break;
-                }
-            }
-        });
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
 
+        let handle = std::thread::Builder::new()
+            .name("cpal-coreaudio-disconnect".into())
+            .spawn(move || {
+                // If the Latch is dropped without being released (error path), exit cleanly.
+                if !waiter.wait() {
+                    return;
+                }
+                while let Ok(err) = disconnect_rx.recv() {
+                    if let Some(stream_arc) = stream_weak.upgrade() {
+                        if let Ok(mut stream_inner) = stream_arc.try_lock() {
+                            let _ = stream_inner.pause();
+                        }
+                        emit_error(&error_callback, err);
+                    } else {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to spawn disconnect thread: {e}"),
+                )
+            })?;
+
+        latch.add_thread(handle.thread().clone());
         Ok(DisconnectManager {
+            latch,
             _shutdown_tx: shutdown_tx,
         })
+    }
+}
+
+impl Monitor for DisconnectManager {
+    fn signal_ready(&self) {
+        self.latch.release();
+    }
+}
+
+/// Manages the system default output device change listener on a dedicated thread.
+///
+/// When the system default output device changes:
+/// - If a new valid default exists, AudioUnit reroutes and `DeviceChanged` is reported.
+/// - If there is no new default, the stream is paused and `DeviceNotAvailable` is reported.
+struct DefaultOutputMonitor {
+    latch: Latch,
+    _shutdown_tx: mpsc::Sender<()>,
+}
+
+impl DefaultOutputMonitor {
+    fn new(
+        stream_weak: Weak<Mutex<StreamInner>>,
+        error_callback: Arc<Mutex<ErrorCallback>>,
+        latency_refresh: Option<(Arc<AtomicUsize>, Scope)>,
+    ) -> Result<Self, Error> {
+        let (change_rx, shutdown_tx) = spawn_property_listener_thread(
+            kAudioObjectSystemObject as AudioObjectID,
+            AudioObjectPropertyAddress {
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            },
+        )?;
+
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
+
+        let handle = std::thread::Builder::new()
+            .name("cpal-coreaudio-default-output".into())
+            .spawn(move || {
+                if !waiter.wait() {
+                    return;
+                }
+                while let Ok(()) = change_rx.recv() {
+                    let Some(stream) = stream_weak.upgrade() else {
+                        break;
+                    };
+                    if default_output_device().is_none() {
+                        if let Ok(mut inner) = stream.try_lock() {
+                            let _ = inner.pause();
+                        }
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "no default output device",
+                            ),
+                        );
+                    } else {
+                        // DefaultOutput AudioUnit rerouted automatically: recompute and notify
+                        // the buffer depth for the new device.
+                        if let Some((frames, scope)) = &latency_refresh {
+                            if let Ok(inner) = stream.lock() {
+                                let depth = device::get_device_buffer_frame_size(&inner.audio_unit)
+                                    .ok()
+                                    .map_or(0, |buffer| {
+                                        buffer
+                                            + device::get_device_extra_latency_frames(
+                                                &inner.audio_unit,
+                                                *scope,
+                                            )
+                                    });
+                                frames.store(depth, Ordering::Relaxed);
+                            }
+                        }
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceChanged,
+                                "default output device changed",
+                            ),
+                        );
+                    }
+                }
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("failed to spawn default-output monitor thread: {e}"),
+                )
+            })?;
+
+        latch.add_thread(handle.thread().clone());
+        Ok(DefaultOutputMonitor {
+            latch,
+            _shutdown_tx: shutdown_tx,
+        })
+    }
+}
+
+impl Monitor for DefaultOutputMonitor {
+    fn signal_ready(&self) {
+        self.latch.release();
     }
 }
 
 struct StreamInner {
     playing: bool,
     audio_unit: AudioUnit,
-    // Track the device with which the audio unit was spawned.
-    //
-    // We must do this so that we can avoid changing the device sample rate if there is already
-    // a stream associated with the device.
-    #[allow(dead_code)]
-    device_id: AudioDeviceID,
-    /// Manage the lifetime of the aggregate device used
-    /// for loopback recording
+    // Track the device with which the audio unit was spawned
+    _device_id: AudioDeviceID,
+    /// Manage the lifetime of the aggregate device used for loopback recording
     _loopback_device: Option<LoopbackDevice>,
 }
 
@@ -198,7 +330,7 @@ impl StreamInner {
         if !self.playing {
             self.audio_unit
                 .start()
-                .context("failed to start audio unit")?;
+                .context("Failed to start audio unit")?;
             self.playing = true;
         }
         Ok(())
@@ -208,7 +340,7 @@ impl StreamInner {
         if self.playing {
             self.audio_unit
                 .stop()
-                .context("failed to stop audio unit")?;
+                .context("Failed to stop audio unit")?;
             self.playing = false;
         }
         Ok(())
@@ -217,24 +349,23 @@ impl StreamInner {
 
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
-    // Manages the device disconnection listener separately to allow Stream to be Send.
-    // The DisconnectManager contains the non-Send AudioObjectPropertyListener.
-    _disconnect_manager: DisconnectManager,
+    monitor: Box<dyn Monitor>,
 }
 
 impl Stream {
-    fn new(inner: StreamInner, error_callback: ErrorCallback) -> Result<Self, Error> {
-        let device_id = inner.device_id;
-        let inner_arc = Arc::new(Mutex::new(inner));
-        let weak_inner = Arc::downgrade(&inner_arc);
+    fn new(inner: Arc<Mutex<StreamInner>>, monitor: Box<dyn Monitor>) -> Self {
+        Self { inner, monitor }
+    }
 
-        let error_callback = Arc::new(Mutex::new(error_callback));
-        let disconnect_manager = DisconnectManager::new(device_id, weak_inner, error_callback)?;
+    fn signal_ready(&self) {
+        self.monitor.signal_ready();
+    }
+}
 
-        Ok(Self {
-            inner: inner_arc,
-            _disconnect_manager: disconnect_manager,
-        })
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // Unblock monitor delivery threads if the stream is dropped early.
+        self.monitor.signal_ready();
     }
 }
 
@@ -242,14 +373,14 @@ impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
         self.inner
             .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
             .play()
     }
 
     fn pause(&self) -> Result<(), Error> {
         self.inner
             .lock()
-            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned"))?
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
             .pause()
     }
 
@@ -260,11 +391,11 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         let stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "stream lock poisoned")
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
         device::get_device_buffer_frame_size(&stream.audio_unit)
             .map(|size| size as FrameCount)
-            .context("failed to get buffer frame size")
+            .context("Failed to get buffer frame size")
     }
 }
 
@@ -304,7 +435,7 @@ mod test {
     fn test_record() {
         let host = default_host();
         let device = host.default_input_device().unwrap();
-        println!("Device: {:?}", device.name());
+        println!("Device: {:?}", device.description());
 
         let mut supported_configs_range = device.supported_input_configs().unwrap();
         println!("Supported configs:");

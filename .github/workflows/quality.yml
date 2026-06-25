@@ -113,6 +113,33 @@ jobs:
           CPAL_ASIO_DIR: ${{ runner.os == 'Windows' && format('{0}/asio', github.workspace) || '' }}
         run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
 
+  docs:
+    strategy:
+      matrix:
+        include:
+          - name: Linux
+    name: docs-${{ matrix.name }}
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Linux audio packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+
+      - run: cargo doc --all-features --no-deps
+
   lints-nightly:
     strategy:
       fail-fast: false

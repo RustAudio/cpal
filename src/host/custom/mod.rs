@@ -4,6 +4,7 @@
 //! See `examples/custom.rs` for usage.
 
 use core::time::Duration;
+use std::fmt;
 
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -86,6 +87,35 @@ impl Clone for Device {
     }
 }
 
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        DeviceTrait::id(self).ok() == DeviceTrait::id(other).ok()
+    }
+}
+
+impl Eq for Device {}
+
+impl std::hash::Hash for Device {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        DeviceTrait::id(self).ok().hash(state);
+    }
+}
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = DeviceTrait::description(self).map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Device")
+            .field(&DeviceTrait::description(self).map(|d| d.name().to_owned()))
+            .finish()
+    }
+}
+
 /// A stream that can be used with custom [`StreamTrait`] implementations.
 pub struct Stream(Box<dyn StreamErased>);
 
@@ -145,7 +175,6 @@ type InputCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
 type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
 
 trait DeviceErased: Send + Sync {
-    fn name(&self) -> Result<String, Error>;
     fn description(&self) -> Result<DeviceDescription, Error>;
     fn id(&self) -> Result<DeviceId, Error>;
     fn supports_input(&self) -> bool;
@@ -223,11 +252,6 @@ where
     T::SupportedOutputConfigs: Clone + 'static,
     T::Stream: Send + Sync + 'static,
 {
-    #[allow(deprecated)]
-    fn name(&self) -> Result<String, Error> {
-        <T as DeviceTrait>::name(self)
-    }
-
     fn description(&self) -> Result<DeviceDescription, Error> {
         <T as DeviceTrait>::description(self)
     }
@@ -353,10 +377,6 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedConfigs;
 
     type Stream = Stream;
-
-    fn name(&self) -> Result<String, Error> {
-        self.0.name()
-    }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
         self.0.description()

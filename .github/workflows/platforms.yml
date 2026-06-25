@@ -25,16 +25,19 @@ on:
 env:
   # MSRV varies by backend due to platform-specific dependencies
   MSRV_AAUDIO: "1.85"
-  MSRV_ALSA: "1.82"
+  MSRV_ALSA: "1.85"
   MSRV_COREAUDIO: "1.85"
-  MSRV_JACK: "1.82"
+  MSRV_JACK: "1.85"
   MSRV_PIPEWIRE: "1.85"
   MSRV_PULSEAUDIO: "1.88"
-  MSRV_WASIP1: "1.78"
+  MSRV_WASIP1: "1.85"
   MSRV_WASM: "1.85"
-  MSRV_WINDOWS: "1.82"
+  MSRV_WINDOWS: "1.85"
 
-  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
+  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libdbus-1-dev libpipewire-0.3-dev
+
+  # System packages required by the docs.rs feature set and available on docs.rs build environment.
+  PACKAGES_DOCS_RS: libasound2-dev libjack-jackd2-dev libdbus-1-dev
 
   ANDROID_COMPILE_SDK: "30"
   ANDROID_BUILD_TOOLS: "30.0.3"
@@ -91,12 +94,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_ALSA }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_ALSA }} check --examples --no-default-features --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
 
@@ -148,17 +145,11 @@ jobs:
       - name: Check examples (default features)
         run: cross +${{ env.MSRV_ALSA }} check --examples --workspace --verbose --target ${{ env.TARGET }}
 
-      - name: Run tests (no default features)
-        run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Check examples (no default features)
-        run: cross +${{ env.MSRV_ALSA }} test --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
       - name: Run tests (all features)
         run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cross +${{ steps.msrv.outputs.all-features }} test --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
+        run: cross +${{ steps.msrv.outputs.all-features }} check --examples --features=jack,pulseaudio --workspace --verbose --target ${{ env.TARGET }}
 
   pipewire-bookworm:
     name: pipewire-bookworm
@@ -171,7 +162,7 @@ jobs:
       - name: Install audio packages
         run: |
           apt-get update -qq
-          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libpipewire-0.3-dev
+          apt-get install -y --no-install-recommends libclang-dev libasound2-dev libdbus-1-dev libpipewire-0.3-dev
 
       - name: Install Rust (${{ env.MSRV_PIPEWIRE }})
         uses: dtolnay/rust-toolchain@master
@@ -238,12 +229,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_WINDOWS }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --no-default-features --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
 
@@ -290,12 +275,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --workspace --verbose
 
-      - name: Run tests (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} test --no-default-features --workspace --verbose
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} check --no-default-features --examples --workspace --verbose
-
       - name: Run tests (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} test --all-features --workspace --verbose
 
@@ -338,9 +317,6 @@ jobs:
 
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_AAUDIO }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_AAUDIO }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
         run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
@@ -388,9 +364,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --workspace --verbose --target ${{ env.TARGET }}
 
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
-
       - name: Check examples (all features)
         run: cargo +${{ env.MSRV_COREAUDIO }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
 
@@ -426,9 +399,6 @@ jobs:
       - name: Check examples (default features)
         run: cargo +nightly check --examples --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
-      - name: Check examples (no default features)
-        run: cargo +nightly check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
-
       - name: Check examples (all features)
         run: cargo +nightly check --examples --all-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
@@ -456,8 +426,14 @@ jobs:
         with:
           key: wasm-bindgen
 
+      - name: Check examples (default features)
+        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
+
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
+
+      - name: Check all features (no atomics)
+        run: cargo +${{ env.MSRV_WASM }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
       - name: Build wasm-beep example
         working-directory: ./examples/wasm-beep
@@ -490,8 +466,14 @@ jobs:
         with:
           key: wasm-audioworklet
 
+      - name: Check examples (default features)
+        run: cargo +nightly check --examples --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
+
       - name: Check examples (audioworklet feature)
         run: cargo +nightly check --examples --features audioworklet --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
+
+      - name: Check all features
+        run: cargo +nightly check --workspace --all-features --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
       - name: Build audioworklet-beep example
         working-directory: ./examples/audioworklet-beep
@@ -521,48 +503,70 @@ jobs:
       - name: Check examples (default features)
         run: cargo +${{ env.MSRV_WASIP1 }} check --examples --workspace --target ${{ env.TARGET }} --verbose
 
-      - name: Check examples (no default features)
-        run: cargo +${{ env.MSRV_WASIP1 }} check --examples --no-default-features --workspace --verbose --target ${{ env.TARGET }}
+      - name: Check all features
+        run: cargo +${{ env.MSRV_WASIP1 }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
-  # Windows crate version compatibility
-  windows-versions:
-    runs-on: windows-latest
+  docs-cpal:
+    if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
-        version: ["0.59.0", "0.60.0", "0.61.3"]
-
-    name: windows-crate-v${{ matrix.version }}
+        include:
+          - name: Linux
+            target: x86_64-unknown-linux-gnu
+          - name: macOS
+            target: aarch64-apple-darwin
+          - name: Windows
+            target: x86_64-pc-windows-msvc
+          - name: WASM
+            target: wasm32-unknown-unknown
+          - name: Android
+            target: aarch64-linux-android
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install dependencies
-        run: choco install llvm
-
-      - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
-        uses: dtolnay/rust-toolchain@master
+      - name: Cache Linux audio packages
+        if: matrix.name == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          toolchain: ${{ env.MSRV_WINDOWS }}
+          packages: ${{ env.PACKAGES_DOCS_RS }}
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: dtolnay/install@cargo-docs-rs
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: windows-v${{ matrix.version }}
+          key: docs-${{ matrix.target }}
 
-      - name: Lock windows crate to specific version
-        shell: bash
-        run: |
-          cargo generate-lockfile
-          cargo update -p windows --precise ${{ matrix.version }}
-          echo "Locked windows crate version:"
-          cargo tree | grep "windows v" || echo "Windows crate not found in dependency tree"
-          echo "Cargo.lock entry:"
-          grep -A 5 "name = \"windows\"" Cargo.lock | head -10
+      - run: cargo docs-rs --target ${{ matrix.target }}
 
-      - name: Check WASAPI with windows v${{ matrix.version }}
-        run: cargo +${{ env.MSRV_WINDOWS }} check --workspace --verbose
+  docs-asio-sys:
+    if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
+    name: docs-asio-sys
+    runs-on: ubuntu-latest
+    env:
+      DOCS_RS: "1"
+      RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+    steps:
+      - uses: actions/checkout@v5
 
-  # cpal publishing (only on cpal release events)
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: dtolnay/install@cargo-docs-rs
+
+      - run: cargo docs-rs
+        working-directory: asio-sys
+
   publish-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
     needs:
@@ -577,7 +581,7 @@ jobs:
       - wasm-bindgen
       - wasm-audioworklet
       - wasm-wasip1
-      - windows-versions
+      - docs-cpal
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -606,11 +610,11 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
         run: cargo publish
 
-  # asio-sys publishing (only on asio-sys release events)
   publish-asio-sys:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/asio-sys-v')
     needs:
       - windows
+      - docs-asio-sys
     runs-on: windows-latest
     env:
       CPAL_ASIO_DIR: ${{ github.workspace }}/asio

@@ -134,7 +134,12 @@ where
         (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
+    };
 
     let stream = device.build_output_stream(
         config,

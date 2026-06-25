@@ -120,8 +120,11 @@ fn main() -> Result<(), anyhow::Error> {
     // Run the input stream on a separate thread.
     let writer_2 = writer.clone();
 
-    let err_fn = move |err| {
-        eprintln!("an error occurred on stream: {err}");
+    let err_fn = move |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
     };
 
     let stream = match config.sample_format() {

@@ -6,7 +6,7 @@ use super::{
         call_method_no_args_ret_bool, call_method_no_args_ret_char_sequence,
         call_method_no_args_ret_int, call_method_no_args_ret_int_array,
         call_method_no_args_ret_string, get_context, get_devices, get_system_service,
-        with_attached, JNIEnv, JObject, JResult,
+        with_attached, Env, JObject, JResult,
     },
     AudioDeviceInfo, AudioDeviceType, Context,
 };
@@ -21,7 +21,11 @@ impl AudioDeviceInfo {
 
         with_attached(context, |env, context| {
             let sdk_version = env
-                .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?
+                .get_static_field(
+                    jni::jni_str!("android/os/Build$VERSION"),
+                    jni::jni_str!("SDK_INT"),
+                    jni::jni_sig!("I"),
+                )?
                 .i()?;
 
             if sdk_version >= 23 {
@@ -38,7 +42,7 @@ impl AudioDeviceInfo {
 }
 
 fn try_request_devices_info<'j>(
-    env: &mut JNIEnv<'j>,
+    env: &mut Env<'j>,
     context: &JObject<'j>,
     direction: DeviceDirection,
 ) -> JResult<Vec<AudioDeviceInfo>> {
@@ -46,17 +50,17 @@ fn try_request_devices_info<'j>(
 
     let devices = get_devices(env, &audio_manager, android_device_flags(direction))?;
 
-    let length = env.get_array_length(&devices)?;
+    let length = devices.len(env)?;
 
     (0..length)
         .map(|index| {
-            let device = env.get_object_array_element(&devices, index)?;
+            let device = devices.get_element(env, index)?;
             let id = call_method_no_args_ret_int(env, &device, "getId")?;
             let address = call_method_no_args_ret_string(env, &device, "getAddress")?;
-            let address = String::from(env.get_string(&address)?);
+            let address = String::from(address.mutf8_chars(env)?);
             let product_name =
                 call_method_no_args_ret_char_sequence(env, &device, "getProductName")?;
-            let product_name = String::from(env.get_string(&product_name)?);
+            let product_name = String::from(product_name.mutf8_chars(env)?);
             let device_type =
                 FromPrimitive::from_i32(call_method_no_args_ret_int(env, &device, "getType")?)
                     .unwrap_or(AudioDeviceType::Unsupported);
@@ -65,12 +69,14 @@ fn try_request_devices_info<'j>(
             let is_sink = call_method_no_args_ret_bool(env, &device, "isSink")?;
             let direction = crate::device_description::direction_from_caps(is_source, is_sink);
             let channel_counts =
-                call_method_no_args_ret_int_array(env, &device, "getChannelCounts")?;
-            let sample_rates = call_method_no_args_ret_int_array(env, &device, "getSampleRates")?;
+                call_method_no_args_ret_int_array(env, &device, "getChannelCounts")?
+                    .into_boxed_slice();
+            let sample_rates = call_method_no_args_ret_int_array(env, &device, "getSampleRates")?
+                .into_boxed_slice();
             let formats = call_method_no_args_ret_int_array(env, &device, "getEncodings")?
                 .into_iter()
                 .filter_map(SampleFormat::from_encoding)
-                .collect::<Vec<_>>();
+                .collect::<Box<[_]>>();
 
             Ok(AudioDeviceInfo {
                 id,

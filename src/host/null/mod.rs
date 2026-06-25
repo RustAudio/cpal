@@ -2,6 +2,7 @@
 //!
 //! Fallback no-op backend for unsupported platforms.
 
+use std::fmt;
 use std::time::Duration;
 
 use crate::{
@@ -11,11 +12,17 @@ use crate::{
     SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-#[derive(Default)]
 pub struct Devices;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Device;
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
+    }
+}
 
 pub struct Host;
 
@@ -38,12 +45,6 @@ impl Host {
     }
 }
 
-impl Devices {
-    pub fn new() -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -54,7 +55,7 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId(crate::platform::HostId::Null, String::new()))
+        Ok(DeviceId::new(crate::platform::HostId::Null, ""))
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
@@ -118,7 +119,7 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        Devices::new()
+        Ok(Devices)
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {

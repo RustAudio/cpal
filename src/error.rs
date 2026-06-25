@@ -12,6 +12,10 @@ pub enum ErrorKind {
     /// is using the device. Retrying after a short delay may succeed.
     DeviceBusy,
 
+    /// The active audio route changed and the stream was automatically rerouted.
+    /// The stream remains active and no rebuild is required.
+    DeviceChanged,
+
     /// The requested audio device is not available.
     ///
     /// This can happen if the device has been disconnected while the program is running, or if
@@ -41,6 +45,17 @@ pub enum ErrorKind {
     /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     PermissionDenied,
 
+    /// A real-time scheduling promotion or equivalent platform performance mode was refused.
+    /// Audio will still play, but may be subject to increased latency or glitches under load.
+    ///
+    /// Absence of this error does **not** mean real-time quality is active: the check may not
+    /// have been attempted (feature flag disabled, device ineligible, or the host manages
+    /// scheduling internally).
+    RealtimeDenied,
+
+    /// An OS resource limit was reached, such as a system or process thread or memory limit.
+    ResourceExhausted,
+
     /// The stream configuration is no longer valid and must be rebuilt.
     StreamInvalidated,
 
@@ -56,6 +71,10 @@ pub enum ErrorKind {
     /// A buffer underrun or overrun occurred, causing a potential audio glitch.
     Xrun,
 
+    /// The underlying platform audio API returned an error that CPAL cannot map to a more
+    /// specific error kind.
+    BackendError,
+
     /// A catch-all for errors that do not fall under any other CPAL error kind.
     ///
     /// CPAL itself emits this variant only for genuinely unclassifiable conditions. Treat them as
@@ -69,26 +88,39 @@ pub enum ErrorKind {
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HostUnavailable => f.write_str(
-                "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
+            Self::DeviceBusy => f.write_str(
+                "The requested device is temporarily busy. Another application or stream may be using it.",
+            ),
+            Self::DeviceChanged => f.write_str(
+                "The audio route changed. The stream was automatically rerouted to a different device.",
             ),
             Self::DeviceNotAvailable => f.write_str(
                 "The requested audio device is not available. It may have been disconnected.",
             ),
-            Self::DeviceBusy => f.write_str(
-                "The requested device is temporarily busy. Another application or stream may be using it.",
+            Self::HostUnavailable => f.write_str(
+                "The requested audio host is not available. The subsystem or daemon may not be installed or running.",
             ),
+            Self::InvalidInput => f.write_str("Invalid input or argument."),
+            Self::PermissionDenied => f.write_str(
+                "Permission denied. Grant the required access and retry.",
+            ),
+            Self::RealtimeDenied => f.write_str(
+                "Real-time scheduling was refused for the audio thread. \
+                 Audio may be subject to increased latency or glitches under load.",
+            ),
+            Self::ResourceExhausted => f.write_str(
+                "An OS resource limit was reached. Freeing resources and retrying may succeed.",
+            ),
+            Self::StreamInvalidated => {
+                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
+            }
             Self::UnsupportedConfig => f.write_str(
                 "The requested stream configuration is not supported by the device.",
             ),
             Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
-            Self::InvalidInput => f.write_str("Invalid input or argument."),
-            Self::StreamInvalidated => {
-                f.write_str("The stream configuration is no longer valid and must be rebuilt.")
-            }
             Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
-            Self::PermissionDenied => f.write_str(
-                "Permission denied. Grant the required access and retry.",
+            Self::BackendError => f.write_str(
+                "The audio backend returned an unclassified error.",
             ),
             Self::Other => f.write_str("An error occurred."),
         }
@@ -144,6 +176,30 @@ impl StdError for Error {}
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
         Self::new(kind)
+    }
+}
+
+#[cfg(all(
+    feature = "realtime",
+    any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "android"
+    )
+))]
+impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
+    fn from(err: audio_thread_priority::AudioThreadPriorityError) -> Self {
+        use std::error::Error as StdError;
+        let msg = match err.source() {
+            Some(inner) => {
+                format!("Failed to promote audio thread to real-time priority: {err}: {inner}")
+            }
+            None => format!("Failed to promote audio thread to real-time priority: {err}"),
+        };
+        Error::with_message(ErrorKind::RealtimeDenied, msg)
     }
 }
 

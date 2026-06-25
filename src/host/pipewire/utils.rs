@@ -1,5 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 pub const METADATA_NAME: &str = "metadata.name";
 
@@ -21,6 +23,12 @@ pub mod clock {
 pub mod node {
     pub const RATE: &str = "node.rate";
     pub const LATENCY: &str = "node.latency";
+}
+
+pub mod default {
+    pub const NAME: &str = "default";
+    pub const SINK: &str = "default.audio.sink";
+    pub const SOURCE: &str = "default.audio.source";
 }
 
 pub mod audio {
