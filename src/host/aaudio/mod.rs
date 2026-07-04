@@ -7,7 +7,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
     },
     time::Duration,
     vec::IntoIter as VecIntoIter,
@@ -138,6 +138,7 @@ pub struct Device(Option<AudioDeviceInfo>);
 pub struct Stream {
     inner: Arc<Mutex<AudioStream>>,
     direction: DeviceDirection,
+    draining: Arc<AtomicBool>,
 }
 
 // SAFETY: AudioStream can be safely sent between threads. The AAudio C API is thread-safe
@@ -319,6 +320,9 @@ where
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
 
+    let draining = Arc::new(AtomicBool::new(false));
+    let draining_for_data = draining.clone();
+
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
     #[cfg(feature = "realtime")]
@@ -358,16 +362,18 @@ where
                 );
                 return ndk::audio::AudioCallbackResult::Stop;
             };
-            let cb_info = InputCallbackInfo {
-                timestamp: InputStreamTimestamp {
-                    callback: now_stream_instant(),
-                    capture: input_stream_instant(stream, sample_rate),
-                },
-            };
-            (data_callback)(
-                &unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
-                &cb_info,
-            );
+            if !draining_for_data.load(Ordering::Relaxed) {
+                let cb_info = InputCallbackInfo {
+                    timestamp: InputStreamTimestamp {
+                        callback: now_stream_instant(),
+                        capture: input_stream_instant(stream, sample_rate),
+                    },
+                };
+                (data_callback)(
+                    &unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
+                    &cb_info,
+                );
+            }
             ndk::audio::AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(move |_stream, error| {
@@ -382,6 +388,7 @@ where
     Ok(Stream {
         inner: Arc::new(Mutex::new(stream)),
         direction: DeviceDirection::Input,
+        draining,
     })
 }
 
@@ -408,6 +415,9 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
+
+    let draining = Arc::new(AtomicBool::new(false));
+    let draining_for_data = draining.clone();
 
     #[cfg(feature = "realtime")]
     let mut rt_checked = false;
@@ -456,17 +466,18 @@ where
                 std::slice::from_raw_parts_mut(data as *mut u8, byte_count).fill(0);
             }
 
-            // Deliver audio data to user callback
-            let cb_info = OutputCallbackInfo {
-                timestamp: OutputStreamTimestamp {
-                    callback: now_stream_instant(),
-                    playback: output_stream_instant(stream, sample_rate),
-                },
-            };
-            (data_callback)(
-                &mut unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
-                &cb_info,
-            );
+            if !draining_for_data.load(Ordering::Relaxed) {
+                let cb_info = OutputCallbackInfo {
+                    timestamp: OutputStreamTimestamp {
+                        callback: now_stream_instant(),
+                        playback: output_stream_instant(stream, sample_rate),
+                    },
+                };
+                (data_callback)(
+                    &mut unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
+                    &cb_info,
+                );
+            }
 
             // Dynamic buffer tuning for output streams
             // See: https://developer.android.com/ndk/guides/audio/aaudio/aaudio#tuning-buffers
@@ -539,6 +550,7 @@ where
     Ok(Stream {
         inner: Arc::new(Mutex::new(stream)),
         direction: DeviceDirection::Output,
+        draining,
     })
 }
 
@@ -760,7 +772,8 @@ impl Hash for Device {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        self.draining.store(false, Ordering::Relaxed);
         let stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
@@ -796,6 +809,38 @@ impl StreamTrait for Stream {
                 "Pause is not supported on input streams",
             )),
         }
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+
+        let stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
+        })?;
+
+        if self.direction != DeviceDirection::Output {
+            stream.request_stop().context("Failed to stop stream")?;
+            return Ok(());
+        }
+
+        // Duration::ZERO: flush (discard) instead of drain; return immediately.
+        if timeout == Some(Duration::ZERO) {
+            stream.request_flush().context("Failed to flush stream")?;
+            return Ok(());
+        }
+
+        // AAudio output drains remaining audio during the Stopping state.
+        stream.request_stop().context("Failed to stop stream")?;
+        let wait_nanos = timeout.map_or(i64::MAX, |t| t.as_nanos().min(i64::MAX as u128) as i64);
+
+        // Best effort past this point: the stop already succeeded above.
+        if stream
+            .wait_for_state_change(ndk::audio::AudioStreamState::Stopping, wait_nanos)
+            .is_err()
+        {
+            let _ = stream.request_flush();
+        }
+        Ok(())
     }
 
     fn now(&self) -> StreamInstant {
