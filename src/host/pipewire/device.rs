@@ -32,7 +32,7 @@ use crate::{
     OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
-        emit_error,
+        Notify, emit_error,
         latch::Latch,
         pipewire::{
             stream::{
@@ -382,6 +382,8 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_clone = draining.clone();
         // Keep `capture` monotonic: pw_time delay() grows when another client joins
         // needing a larger buffer, which can pull `capture` backward.
         let data_callback = crate::host::monotonic_input_callback(data_callback);
@@ -400,6 +402,8 @@ impl DeviceTrait for Device {
                         last_quantum: last_quantum_clone,
                         start,
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
+                        draining: draining_clone,
+                        drained: None,
                     },
                     data_callback,
                     error_callback,
@@ -439,7 +443,7 @@ impl DeviceTrait for Device {
                         Err(e) => {
                             let _ = init_tx.send(Err(Error::with_message(
                                 ErrorKind::BackendError,
-                                format!("PipeWire: could not acquire registry: {e}"),
+                                format!("Could not acquire registry: {e}"),
                             )));
                             return;
                         }
@@ -458,18 +462,19 @@ impl DeviceTrait for Device {
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                    format!("Failed to set stream active ({state}): {e}"),
                                 ),
                             );
                         }
                     }
+                    StreamCommand::Drain => {}
                     StreamCommand::Stop => {
                         if let Err(e) = stream_clone.disconnect() {
                             emit_error(
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                    format!("Stream disconnect failed: {e}"),
                                 ),
                             );
                         }
@@ -514,7 +519,16 @@ impl DeviceTrait for Device {
         }
 
         latch.add_thread(handle.thread().clone());
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
+        let stream = Stream::new(
+            handle,
+            pw_play_tx,
+            last_quantum,
+            start,
+            latch,
+            false,
+            draining,
+            None,
+        );
         stream.signal_ready();
         Ok(stream)
     }
@@ -558,6 +572,11 @@ impl DeviceTrait for Device {
         };
         let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_clone = draining.clone();
+        let drained: Arc<Notify> = Arc::new(Notify::default());
+        let drained_clone = drained.clone();
+        let drained_cmd = drained.clone();
         // Keep `playback` monotonic: pw_time delay() shrinks when other clients that needed
         // a larger buffer leave the graph, which can pull `playback` backward.
         let data_callback = crate::host::monotonic_output_callback(data_callback);
@@ -576,6 +595,8 @@ impl DeviceTrait for Device {
                         last_quantum: last_quantum_clone,
                         start,
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
+                        draining: draining_clone,
+                        drained: Some(drained_clone),
                     },
                     data_callback,
                     error_callback,
@@ -615,7 +636,7 @@ impl DeviceTrait for Device {
                         Err(e) => {
                             let _ = init_tx.send(Err(Error::with_message(
                                 ErrorKind::BackendError,
-                                format!("PipeWire: could not acquire registry: {e}"),
+                                format!("Could not acquire registry: {e}"),
                             )));
                             return;
                         }
@@ -634,9 +655,23 @@ impl DeviceTrait for Device {
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                    format!("Failed to set stream active ({state}): {e}"),
                                 ),
                             );
+                        }
+                    }
+                    StreamCommand::Drain => {
+                        if let Err(e) = stream_clone.flush(true) {
+                            emit_error(
+                                &error_callback_cmd,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Stream flush failed: {e}"),
+                                ),
+                            );
+                            let (mutex, cvar) = drained_cmd.as_ref();
+                            *mutex.lock().unwrap_or_else(|g| g.into_inner()) = true;
+                            cvar.notify_one();
                         }
                     }
                     StreamCommand::Stop => {
@@ -645,7 +680,7 @@ impl DeviceTrait for Device {
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                    format!("Stream disconnect failed: {e}"),
                                 ),
                             );
                         }
@@ -689,7 +724,16 @@ impl DeviceTrait for Device {
         }
 
         latch.add_thread(handle.thread().clone());
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
+        let stream = Stream::new(
+            handle,
+            pw_play_tx,
+            last_quantum,
+            start,
+            latch,
+            true,
+            draining,
+            Some(drained),
+        );
         stream.signal_ready();
         Ok(stream)
     }
