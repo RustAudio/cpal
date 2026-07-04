@@ -689,7 +689,7 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         #[cfg(not(target_feature = "atomics"))]
         {
             let window = web_sys::window().unwrap();
@@ -744,6 +744,10 @@ impl StreamTrait for Stream {
                 "WebAudio context task stopped unexpectedly",
             )
         })
+    }
+
+    fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        self.pause()
     }
 
     fn now(&self) -> StreamInstant {

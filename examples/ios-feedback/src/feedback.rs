@@ -76,8 +76,8 @@ pub fn run_example() -> Result<(), anyhow::Error> {
 
     // Play the streams.
     println!("Starting the input and output streams with `{LATENCY_MS}` milliseconds of latency.");
-    input_stream.play()?;
-    output_stream.play()?;
+    input_stream.start()?;
+    output_stream.start()?;
 
     // for the purposes of this demo, leak these so that after returning the audio units will
     // keep running

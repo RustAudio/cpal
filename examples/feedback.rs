@@ -145,8 +145,8 @@ fn main() -> anyhow::Result<()> {
         "Starting the input and output streams with `{}` milliseconds of latency.",
         opt.latency
     );
-    input_stream.play()?;
-    output_stream.play()?;
+    input_stream.start()?;
+    output_stream.start()?;
 
     // Run for 10 seconds before closing.
     println!("Playing for 10 seconds... ");

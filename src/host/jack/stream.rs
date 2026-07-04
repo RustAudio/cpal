@@ -248,13 +248,35 @@ impl Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         StreamState::Playing.store(&self.state, Ordering::Relaxed);
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
         StreamState::Paused.store(&self.state, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        StreamState::Paused.store(&self.state, Ordering::Relaxed);
+
+        let is_output = !self.output_port_names.is_empty();
+        if is_output && timeout != Some(std::time::Duration::ZERO) {
+            let client = self.async_client.as_client();
+            let ports: Vec<_> = self
+                .output_port_names
+                .iter()
+                .filter_map(|name| client.port_by_name(name))
+                .collect();
+            let latency_frames = hardware_latency_frames(&ports, jack::LatencyType::Playback)
+                .unwrap_or(client.buffer_size() as FrameCount);
+            let buffered = frames_to_duration(latency_frames, client.sample_rate() as SampleRate);
+            let wait = timeout.map_or(buffered, |t| buffered.min(t));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+        }
         Ok(())
     }
 

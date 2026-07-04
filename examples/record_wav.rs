@@ -159,7 +159,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    stream.play()?;
+    stream.start()?;
 
     // Let recording go for roughly three seconds.
     std::thread::sleep(std::time::Duration::from_secs(opt.duration));

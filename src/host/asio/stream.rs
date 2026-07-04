@@ -94,7 +94,7 @@ impl Stream {
         self.time_base.to_stream_instant(ms as u64 * 1_000_000)
     }
 
-    pub fn play(&self) -> Result<(), Error> {
+    pub fn start(&self) -> Result<(), Error> {
         StreamState::Playing.store(&self.state, Ordering::Relaxed);
         Ok(())
     }

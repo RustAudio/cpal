@@ -124,11 +124,15 @@ impl HostTrait for Host {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         unimplemented!()
     }
 
     fn pause(&self) -> Result<(), Error> {
+        unimplemented!()
+    }
+
+    fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
         unimplemented!()
     }
 

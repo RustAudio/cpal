@@ -65,7 +65,7 @@ where
         err_fn,
         None,
     )?;
-    stream.play()?;
+    stream.start()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
 

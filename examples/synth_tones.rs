@@ -14,7 +14,7 @@ use cpal::{
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for()?;
-    stream.play()?;
+    stream.start()?;
     std::thread::sleep(std::time::Duration::from_millis(4000));
     Ok(())
 }
