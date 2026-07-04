@@ -5,7 +5,10 @@ use std::{
     mem,
     os::windows::ffi::OsStringExt,
     ptr, slice,
-    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicBool, AtomicU64},
+    },
     time::Duration,
 };
 
@@ -946,6 +949,8 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
+                draining: Arc::new(AtomicBool::new(false)),
+                fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
     }
@@ -1061,6 +1066,8 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
+                draining: Arc::new(AtomicBool::new(false)),
+                fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
     }
