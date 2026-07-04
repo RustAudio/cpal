@@ -50,8 +50,18 @@ impl LatencyHandle {
 }
 
 enum StreamInner {
-    Playback(pulseaudio::PlaybackStream, Instant, LatencyHandle),
-    Record(pulseaudio::RecordStream, Instant, LatencyHandle),
+    Playback {
+        stream: pulseaudio::PlaybackStream,
+        start: Instant,
+        handle: LatencyHandle,
+        draining: Arc<AtomicBool>,
+        fill_usec: Arc<AtomicU64>,
+    },
+    Record {
+        stream: pulseaudio::RecordStream,
+        start: Instant,
+        handle: LatencyHandle,
+    },
 }
 
 pub struct Stream {
@@ -63,7 +73,7 @@ pub struct Stream {
 impl Drop for Stream {
     fn drop(&mut self) {
         match &mut self.inner {
-            StreamInner::Playback(stream, _, handle) => {
+            StreamInner::Playback { stream, handle, .. } => {
                 handle.cancel();
                 // Help the play_all driver thread terminate by
                 // queueing a delete, which causes the reactor to drop
@@ -71,7 +81,7 @@ impl Drop for Stream {
                 // poll_read always reports a non-empty buffer.
                 let _ = stream.clone().delete().now_or_never();
             }
-            StreamInner::Record(_, _, handle) => {
+            StreamInner::Record { handle, .. } => {
                 handle.cancel();
             }
         }
@@ -91,13 +101,20 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         match &self.inner {
-            StreamInner::Playback(stream, _, handle) => {
+            StreamInner::Playback {
+                stream,
+                handle,
+                draining,
+                ..
+            } => {
+                // Clear any pending drain so the write callback resumes pulling real audio.
+                draining.store(false, Ordering::Relaxed);
                 block_on(stream.uncork()).map_err(Error::from)?;
                 handle.notify();
             }
-            StreamInner::Record(stream, _, handle) => {
+            StreamInner::Record { stream, handle, .. } => {
                 block_on(stream.uncork()).map_err(Error::from)?;
                 block_on(stream.started()).map_err(Error::from)?;
                 handle.notify();
@@ -108,13 +125,44 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), Error> {
         let res = match &self.inner {
-            StreamInner::Playback(stream, _, _) => block_on(stream.cork()),
-            StreamInner::Record(stream, _, _) => block_on(stream.cork()),
+            StreamInner::Playback { stream, .. } => block_on(stream.cork()),
+            StreamInner::Record { stream, .. } => block_on(stream.cork()),
         };
         res.map_err(Error::from)?;
         match &self.inner {
-            StreamInner::Playback(_, _, handle) | StreamInner::Record(_, _, handle) => {
-                handle.notify()
+            StreamInner::Playback { handle, .. } | StreamInner::Record { handle, .. } => {
+                handle.notify();
+            }
+        }
+        Ok(())
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        match &self.inner {
+            StreamInner::Playback {
+                stream,
+                handle,
+                draining,
+                fill_usec,
+                ..
+            } => {
+                // TODO: use PulseAudio's drain() when https://github.com/colinmarc/pulseaudio-rs/pull/9 is merged.
+                draining.store(true, Ordering::Relaxed);
+                if timeout != Some(Duration::ZERO) {
+                    let buffered = Duration::from_micros(fill_usec.load(Ordering::Relaxed));
+                    let wait = timeout.map_or(buffered, |t| buffered.min(t));
+                    if !wait.is_zero() {
+                        std::thread::sleep(wait);
+                    }
+                }
+                block_on(stream.cork()).map_err(Error::from)?;
+                block_on(stream.flush()).map_err(Error::from)?;
+                handle.notify();
+            }
+            StreamInner::Record { stream, handle, .. } => {
+                block_on(stream.cork()).map_err(Error::from)?;
+                block_on(stream.flush()).map_err(Error::from)?;
+                handle.notify();
             }
         }
         Ok(())
@@ -122,7 +170,7 @@ impl StreamTrait for Stream {
 
     fn now(&self) -> StreamInstant {
         let start = match &self.inner {
-            StreamInner::Playback(_, start, _) | StreamInner::Record(_, start, _) => *start,
+            StreamInner::Playback { start, .. } | StreamInner::Record { start, .. } => *start,
         };
         let elapsed = start.elapsed();
         StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos())
@@ -130,13 +178,14 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         let (spec, bytes) = match &self.inner {
-            StreamInner::Playback(s, _, _) => (
-                s.sample_spec(),
-                s.buffer_attr().minimum_request_length as usize,
+            StreamInner::Playback { stream, .. } => (
+                stream.sample_spec(),
+                stream.buffer_attr().minimum_request_length as usize,
             ),
-            StreamInner::Record(s, _, _) => {
-                (s.sample_spec(), s.buffer_attr().fragment_size as usize)
-            }
+            StreamInner::Record { stream, .. } => (
+                stream.sample_spec(),
+                stream.buffer_attr().fragment_size as usize,
+            ),
         };
         let frame_size = spec.channels as usize * spec.format.bytes_per_sample();
         Ok((bytes / frame_size) as _)
@@ -185,50 +234,65 @@ impl Stream {
         let handle = LatencyHandle::new();
         let update_callback = handle.update.clone();
 
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_callback = draining.clone();
+
+        let fill_usec = Arc::new(AtomicU64::new(0));
+        let fill_usec_clone = fill_usec.clone();
+
         // Wrap the write callback to match the pulseaudio signature.
         let callback = move |buf: &mut [u8]| {
-            let elapsed = Instant::now().saturating_duration_since(start);
-            let elapsed_usec = elapsed.as_micros() as u64;
-
-            // Interpolate the latency based on elapsed time since the last
-            // poll: as audio plays, the DAC drains the buffer at a constant
-            // rate, so the latency decreases linearly between polls.
-            let stored_latency = latency_clone.load(Ordering::Relaxed);
-            let poll_usec = poll_clone.load(Ordering::Relaxed);
-            // Cap to LATENCY_MAX_INTERVAL: the linear-drain assumption is only valid for that
-            // window, and a stale poll_usec (e.g. after cork/uncork where timing_info blocks)
-            // would otherwise saturate latency to zero.
-            let elapsed_since_poll = elapsed_usec
-                .saturating_sub(poll_usec)
-                .min(LATENCY_MAX_INTERVAL.as_micros() as u64);
-            let latency = stored_latency.saturating_sub(elapsed_since_poll);
-
-            let playback_time = elapsed + Duration::from_micros(latency);
-
-            let timestamp = OutputStreamTimestamp {
-                callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
-                playback: StreamInstant::new(playback_time.as_secs(), playback_time.subsec_nanos()),
-            };
-
             // Preemptively fill the buffer with silence in case the user
             // callback doesn't fill it completely (cpal's API doesn't allow
             // short writes).
             buf.fill(silence_byte);
 
-            let bps = sample_spec.format.bytes_per_sample();
-            let n_samples = buf.len() / bps;
+            // While draining (set by stop()), leave the buffer at the silence fill above and skip
+            // the user callback, so previously queued audio plays out and new output is silence
+            // until start() clears the flag. Still report the buffer as fully written (never 0,
+            // which the reactor treats as source EOF) so the stream keeps being serviced normally.
+            if !draining_callback.load(Ordering::Relaxed) {
+                let elapsed = Instant::now().saturating_duration_since(start);
+                let elapsed_usec = elapsed.as_micros() as u64;
 
-            // SAFETY: we calculated the number of samples based on
-            // `sample_spec.format`, and `format` is directly derived from (and
-            // equivalent to) `sample_spec.format`.
-            let mut data = unsafe { Data::from_parts(buf.as_mut_ptr().cast(), n_samples, format) };
+                // Interpolate the latency based on elapsed time since the last
+                // poll: as audio plays, the DAC drains the buffer at a constant
+                // rate, so the latency decreases linearly between polls.
+                let stored_latency = latency_clone.load(Ordering::Relaxed);
+                let poll_usec = poll_clone.load(Ordering::Relaxed);
+                // Cap to LATENCY_MAX_INTERVAL: the linear-drain assumption is only valid for that
+                // window, and a stale poll_usec (e.g. after cork/uncork where timing_info blocks)
+                // would otherwise saturate latency to zero.
+                let elapsed_since_poll = elapsed_usec
+                    .saturating_sub(poll_usec)
+                    .min(LATENCY_MAX_INTERVAL.as_micros() as u64);
+                let latency = stored_latency.saturating_sub(elapsed_since_poll);
 
-            data_callback(&mut data, &OutputCallbackInfo { timestamp });
+                let playback_time = elapsed + Duration::from_micros(latency);
+                let timestamp = OutputStreamTimestamp {
+                    callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
+                    playback: StreamInstant::new(
+                        playback_time.as_secs(),
+                        playback_time.subsec_nanos(),
+                    ),
+                };
 
-            // Notify the latency thread that audio was written, so it updates timing info.
-            let (lock, cvar) = &*update_callback;
-            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
-            cvar.notify_one();
+                let bps = sample_spec.format.bytes_per_sample();
+                let n_samples = buf.len() / bps;
+
+                // SAFETY: we calculated the number of samples based on
+                // `sample_spec.format`, and `format` is directly derived from (and
+                // equivalent to) `sample_spec.format`.
+                let mut data =
+                    unsafe { Data::from_parts(buf.as_mut_ptr().cast(), n_samples, format) };
+
+                data_callback(&mut data, &OutputCallbackInfo { timestamp });
+
+                // Notify the latency thread that audio was written, so it updates timing info.
+                let (lock, cvar) = &*update_callback;
+                *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                cvar.notify_one();
+            }
 
             // We always consider the full buffer filled, because cpal's
             // user-facing API doesn't allow short writes.
@@ -293,6 +357,7 @@ impl Stream {
 
                 store_latency(
                     &latency_clone,
+                    Some(&fill_usec_clone),
                     sample_spec,
                     timing_info.sink_usec,
                     timing_info.write_offset,
@@ -312,7 +377,13 @@ impl Stream {
         latch.add_thread(driver_handle.thread().clone());
         latch.add_thread(latency_handle.thread().clone());
         Ok(Self {
-            inner: StreamInner::Playback(stream, start, handle),
+            inner: StreamInner::Playback {
+                stream,
+                start,
+                handle,
+                draining,
+                fill_usec,
+            },
             workers: vec![driver_handle, latency_handle],
             latch,
         })
@@ -429,6 +500,7 @@ impl Stream {
 
                 store_latency(
                     &latency_clone,
+                    None,
                     sample_spec,
                     timing_info.source_usec,
                     timing_info.write_offset,
@@ -447,7 +519,11 @@ impl Stream {
 
         latch.add_thread(latency_handle.thread().clone());
         Ok(Self {
-            inner: StreamInner::Record(stream, start, handle),
+            inner: StreamInner::Record {
+                stream,
+                start,
+                handle,
+            },
             workers: vec![latency_handle],
             latch,
         })
@@ -461,18 +537,27 @@ impl Stream {
 
 fn store_latency(
     latency_micros: &AtomicU64,
+    fill_usec: Option<&AtomicU64>,
     sample_spec: protocol::SampleSpec,
     device_latency_usec: u64,
     write_offset: i64,
     read_offset: i64,
 ) {
     let offset = (write_offset - read_offset).max(0) as u64;
+    let buffer_usec: u64 = sample_spec
+        .bytes_to_duration(offset as usize)
+        .as_micros()
+        .try_into()
+        .unwrap_or(u64::MAX);
 
-    let latency =
-        Duration::from_micros(device_latency_usec) + sample_spec.bytes_to_duration(offset as usize);
-
+    if let Some(fill) = fill_usec {
+        fill.store(
+            device_latency_usec.saturating_add(buffer_usec),
+            Ordering::Relaxed,
+        );
+    }
     latency_micros.store(
-        latency.as_micros().try_into().unwrap_or(u64::MAX),
+        device_latency_usec.saturating_add(buffer_usec),
         Ordering::Relaxed,
     );
 }
