@@ -5,7 +5,7 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -28,7 +28,10 @@ use crate::{
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
     OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    host::{ErrorCallbackArc, frames_to_duration, latch::Latch, try_emit_error},
+    host::{
+        ErrorCallbackArc, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
+        try_emit_error,
+    },
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -193,12 +196,15 @@ impl DeviceTrait for Device {
             Some((latency_frames.clone(), true)),
         );
 
+        let draining = Arc::new(AtomicBool::new(false));
+
         // Set up input callback
         setup_input_callback(
             &mut audio_unit,
             sample_format,
             config.sample_rate,
             latency_frames,
+            draining.clone(),
             data_callback,
             move |e| {
                 let _ = try_emit_error(&error_callback, e);
@@ -211,6 +217,9 @@ impl DeviceTrait for Device {
                 audio_unit,
             },
             session_manager,
+            // Draining is meaningless for capture, so the drain window is zero.
+            draining,
+            Duration::ZERO,
         );
         stream.signal_ready();
         Ok(stream)
@@ -248,12 +257,17 @@ impl DeviceTrait for Device {
             Some((latency_frames.clone(), false)),
         );
 
+        let draining = Arc::new(AtomicBool::new(false));
+        let drain_window =
+            frames_to_duration(get_device_buffer_frames() as FrameCount, config.sample_rate);
+
         // Set up output callback
         setup_output_callback(
             &mut audio_unit,
             sample_format,
             config.sample_rate,
             latency_frames,
+            draining.clone(),
             data_callback,
             move |e| {
                 let _ = try_emit_error(&error_callback, e);
@@ -266,6 +280,8 @@ impl DeviceTrait for Device {
                 audio_unit,
             },
             session_manager,
+            draining,
+            drain_window,
         );
         stream.signal_ready();
         Ok(stream)
@@ -275,13 +291,22 @@ impl DeviceTrait for Device {
 pub struct Stream {
     inner: Mutex<StreamInner>,
     session_manager: SessionEventManager,
+    draining: Arc<AtomicBool>,
+    drain_window: Duration,
 }
 
 impl Stream {
-    fn new(inner: StreamInner, session_manager: SessionEventManager) -> Self {
+    fn new(
+        inner: StreamInner,
+        session_manager: SessionEventManager,
+        draining: Arc<AtomicBool>,
+        drain_window: Duration,
+    ) -> Self {
         Self {
             inner: Mutex::new(inner),
             session_manager,
+            draining,
+            drain_window,
         }
     }
 
@@ -297,8 +322,26 @@ impl Drop for Stream {
     }
 }
 
+impl Stream {
+    fn halt(&self) -> Result<(), Error> {
+        let mut stream = self.inner.lock().map_err(|_| {
+            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
+        })?;
+        if stream.playing {
+            stream
+                .audio_unit
+                .stop()
+                .context("Failed to stop audio unit")?;
+            stream.playing = false;
+        }
+        Ok(())
+    }
+}
+
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        // Clear any pending drain so the render callback resumes pulling real audio.
+        self.draining.store(false, Ordering::Relaxed);
         let mut stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
@@ -313,17 +356,20 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
-        let mut stream = self.inner.lock().map_err(|_| {
-            Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
-        })?;
-        if stream.playing {
-            stream
-                .audio_unit
-                .stop()
-                .context("Failed to stop audio unit")?;
-            stream.playing = false;
+        self.halt()
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+
+        if timeout != Some(Duration::ZERO) {
+            let wait = timeout.map_or(self.drain_window, |t| self.drain_window.min(t));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
         }
-        Ok(())
+
+        self.halt()
     }
 
     fn now(&self) -> StreamInstant {
@@ -562,6 +608,7 @@ fn setup_input_callback<D, E>(
     sample_format: SampleFormat,
     sample_rate: SampleRate,
     latency_frames: Arc<AtomicUsize>,
+    draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
 ) -> Result<(), Error>
@@ -577,29 +624,29 @@ where
         let (buffer, data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, true) };
 
-        let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
-            Err(err) => {
-                error_callback(err);
-                return Err(());
-            }
-            Ok(cb) => cb,
-        };
+        if !draining.load(Ordering::Relaxed) {
+            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                Err(err) => {
+                    error_callback(err);
+                    return Err(());
+                }
+                Ok(cb) => cb,
+            };
 
-        // Refreshed on route changes by the session event manager; fall back to this buffer's
-        // own frame count if the depth is unknown (zero).
-        let latency_frames = match latency_frames.load(Ordering::Relaxed) {
-            0 => {
-                let channels = buffer.mNumberChannels as usize;
-                data.len().checked_div(channels).unwrap_or(0)
-            }
-            n => n,
-        };
-        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-        let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
-        let timestamp = InputStreamTimestamp { callback, capture };
-
-        let info = InputCallbackInfo { timestamp };
-        data_callback(&data, &info);
+            // Refreshed on route changes by the session event manager; fall back to this buffer's
+            // own frame count if the depth is unknown (zero).
+            let latency_frames = match latency_frames.load(Ordering::Relaxed) {
+                0 => {
+                    let channels = buffer.mNumberChannels as usize;
+                    data.len().checked_div(channels).unwrap_or(0)
+                }
+                n => n,
+            };
+            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+            let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
+            let timestamp = InputStreamTimestamp { callback, capture };
+            data_callback(&data, &InputCallbackInfo { timestamp });
+        }
         Ok(())
     })?;
 
@@ -612,6 +659,7 @@ fn setup_output_callback<D, E>(
     sample_format: SampleFormat,
     sample_rate: SampleRate,
     latency_frames: Arc<AtomicUsize>,
+    draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
 ) -> Result<(), Error>
@@ -626,6 +674,20 @@ where
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
         let (buffer, mut data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, false) };
+
+        if !buffer.mData.is_null() {
+            let bytes = unsafe {
+                std::slice::from_raw_parts_mut(
+                    buffer.mData as *mut u8,
+                    buffer.mDataByteSize as usize,
+                )
+            };
+            fill_equilibrium(bytes, sample_format);
+        }
+
+        if draining.load(Ordering::Relaxed) {
+            return Ok(());
+        }
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
