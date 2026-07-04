@@ -35,7 +35,7 @@ use crate::{
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
     host::{
-        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
+        ErrorCallbackArc, Notify, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
         latch::Latch, try_emit_error,
     },
     traits::StreamTrait,
@@ -75,6 +75,7 @@ impl Drop for PwInitGuard {
 
 pub(super) enum StreamCommand {
     Toggle(bool),
+    Drain,
     Stop,
 }
 
@@ -84,15 +85,22 @@ pub struct Stream {
     last_quantum: Arc<AtomicU64>,
     start: Instant,
     latch: Latch,
+    is_output: bool,
+    draining: Arc<AtomicBool>,
+    drained: Option<Arc<Notify>>,
 }
 
 impl Stream {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
         last_quantum: Arc<AtomicU64>,
         start: Instant,
         latch: Latch,
+        is_output: bool,
+        draining: Arc<AtomicBool>,
+        drained: Option<Arc<Notify>>,
     ) -> Self {
         Self {
             handle: Some(handle),
@@ -100,6 +108,9 @@ impl Stream {
             last_quantum,
             start,
             latch,
+            is_output,
+            draining,
+            drained,
         }
     }
 
@@ -125,7 +136,8 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        self.draining.store(false, Ordering::Relaxed);
         self.controller
             .send(StreamCommand::Toggle(true))
             .map_err(|_| {
@@ -137,6 +149,56 @@ impl StreamTrait for Stream {
         Ok(())
     }
     fn pause(&self) -> Result<(), Error> {
+        self.controller
+            .send(StreamCommand::Toggle(false))
+            .map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
+            })?;
+        Ok(())
+    }
+
+    fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+        let do_drain = self.is_output && timeout != Some(std::time::Duration::ZERO);
+        if do_drain {
+            if let Some(drained) = &self.drained {
+                let (mutex, _) = drained.as_ref();
+                *mutex.lock().unwrap_or_else(|e| e.into_inner()) = false;
+            }
+            self.controller.send(StreamCommand::Drain).map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
+            })?;
+            if let Some(drained) = &self.drained {
+                let (mutex, cvar) = drained.as_ref();
+                let guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
+                match timeout {
+                    None => {
+                        let _guard = cvar.wait_while(guard, |done| !*done).map_err(|_| {
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Drain condvar poisoned",
+                            )
+                        })?;
+                    }
+                    Some(t) => {
+                        let _guard =
+                            cvar.wait_timeout_while(guard, t, |done| !*done)
+                                .map_err(|_| {
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        "Drain condvar poisoned",
+                                    )
+                                })?;
+                    }
+                }
+            }
+        }
         self.controller
             .send(StreamCommand::Toggle(false))
             .map_err(|_| {
@@ -226,6 +288,7 @@ pub struct UserData<D> {
     format: AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
     start: Instant,
+    draining: Arc<AtomicBool>,
     is_default_device: Arc<AtomicBool>,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
@@ -303,28 +366,30 @@ where
         #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
 
-        let (callback, capture) = match pw_stream_time(stream) {
-            Some(t) => {
-                // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
-                let now = t.now() as u64;
-                let delay_ns = (t.delay() * 1_000_000_000i64 / t.rate().denom as i64).max(0) as u64;
-                (
-                    StreamInstant::from_nanos(now),
-                    StreamInstant::from_nanos(now.saturating_sub(delay_ns)),
-                )
-            }
-            None => {
-                let cb = monotonic_stream_instant()
-                    .unwrap_or_else(|| stream_instant_from_start(self.start));
-                let capture = cb
-                    .checked_sub(frames_to_duration(frames as FrameCount, self.format.rate()))
-                    .unwrap_or(StreamInstant::ZERO);
-                (cb, capture)
-            }
-        };
-        let timestamp = InputStreamTimestamp { callback, capture };
-        let info = InputCallbackInfo { timestamp };
-        (self.data_callback)(data, &info);
+        if !self.draining.load(Ordering::Relaxed) {
+            let (callback, capture) = match pw_stream_time(stream) {
+                Some(t) => {
+                    // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                    let now = t.now() as u64;
+                    let delay_ns =
+                        (t.delay() * 1_000_000_000 / t.rate().denom as i64).max(0) as u64;
+                    (
+                        StreamInstant::from_nanos(now),
+                        StreamInstant::from_nanos(now.saturating_sub(delay_ns)),
+                    )
+                }
+                None => {
+                    let cb = monotonic_stream_instant()
+                        .unwrap_or_else(|| stream_instant_from_start(self.start));
+                    let capture = cb
+                        .checked_sub(frames_to_duration(frames as FrameCount, self.format.rate()))
+                        .unwrap_or(StreamInstant::ZERO);
+                    (cb, capture)
+                }
+            };
+            let timestamp = InputStreamTimestamp { callback, capture };
+            (self.data_callback)(data, &InputCallbackInfo { timestamp });
+        }
     }
 }
 
@@ -344,26 +409,28 @@ where
         #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u64, Ordering::Relaxed);
 
-        let (callback, playback) = match pw_stream_time(stream) {
-            Some(t) => {
-                // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
-                let now = t.now() as u64;
-                let delay_ns = (t.delay() * 1_000_000_000i64 / t.rate().denom as i64).max(0) as u64;
-                (
-                    StreamInstant::from_nanos(now),
-                    StreamInstant::from_nanos(now.saturating_add(delay_ns)),
-                )
-            }
-            None => {
-                let cb = monotonic_stream_instant()
-                    .unwrap_or_else(|| stream_instant_from_start(self.start));
-                let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
-                (cb, pl)
-            }
-        };
-        let timestamp = OutputStreamTimestamp { callback, playback };
-        let info = OutputCallbackInfo { timestamp };
-        (self.data_callback)(data, &info);
+        if !self.draining.load(Ordering::Relaxed) {
+            let (callback, playback) = match pw_stream_time(stream) {
+                Some(t) => {
+                    // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                    let now = t.now() as u64;
+                    let delay_ns =
+                        (t.delay() * 1_000_000_000 / t.rate().denom as i64).max(0) as u64;
+                    (
+                        StreamInstant::from_nanos(now),
+                        StreamInstant::from_nanos(now.saturating_add(delay_ns)),
+                    )
+                }
+                None => {
+                    let cb = monotonic_stream_instant()
+                        .unwrap_or_else(|| stream_instant_from_start(self.start));
+                    let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
+                    (cb, pl)
+                }
+            };
+            let timestamp = OutputStreamTimestamp { callback, playback };
+            (self.data_callback)(data, &OutputCallbackInfo { timestamp });
+        }
     }
 }
 
@@ -458,7 +525,7 @@ impl DefaultDeviceMonitor {
                             &error_callback,
                             Error::with_message(
                                 ErrorKind::BackendError,
-                                format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
+                                format!("Failed to bind metadata object; device change notifications may be incomplete: {e}"),
                             ),
                         );
                         return;
@@ -526,6 +593,8 @@ pub struct ConnectParams {
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
     pub connect_automatically: bool,
+    pub draining: Arc<AtomicBool>,
+    pub drained: Option<Arc<Notify>>,
 }
 
 pub fn connect_output<D, E>(
@@ -544,6 +613,8 @@ where
         last_quantum,
         start,
         connect_automatically,
+        draining,
+        drained,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -582,6 +653,7 @@ where
         format: Default::default(),
         last_quantum,
         start,
+        draining,
         invalidated: invalidated.clone(),
         is_default_device: is_default_device.clone(),
         has_connected: false,
@@ -647,7 +719,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -659,7 +731,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
+                                format!("Failed to parse negotiated audio format: {e}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -667,7 +739,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -730,6 +802,13 @@ where
                 *chunk.size_mut() = (frames * stride) as u32;
             }
         })
+        .drained(move |_stream, _user_data| {
+            if let Some(drained) = &drained {
+                let (mutex, cvar) = drained.as_ref();
+                *mutex.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                cvar.notify_one();
+            }
+        })
         .register()?;
     let mut audio_info = AudioInfoRaw::new();
     audio_info.set_format(sample_format.into());
@@ -790,6 +869,8 @@ where
         last_quantum,
         start,
         connect_automatically,
+        draining,
+        drained: _,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -828,6 +909,7 @@ where
         format: Default::default(),
         last_quantum,
         start,
+        draining,
         invalidated: invalidated.clone(),
         is_default_device: is_default_device.clone(),
         has_connected: false,
@@ -894,7 +976,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -906,7 +988,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
+                                format!("Failed to parse negotiated audio format: {e}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -914,7 +996,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
