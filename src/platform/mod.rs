@@ -627,12 +627,12 @@ macro_rules! impl_platform_host {
         }
 
         impl crate::traits::StreamTrait for Stream {
-            fn play(&self) -> Result<(), crate::Error> {
+            fn start(&self) -> Result<(), crate::Error> {
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
                         StreamInner::$HostVariant(ref s) => {
-                            s.play()
+                            s.start()
                         }
                     )*
                 }
@@ -644,6 +644,17 @@ macro_rules! impl_platform_host {
                         $(#[cfg($feat)])?
                         StreamInner::$HostVariant(ref s) => {
                             s.pause()
+                        }
+                    )*
+                }
+            }
+
+            fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), crate::Error> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        StreamInner::$HostVariant(ref s) => {
+                            s.stop(timeout)
                         }
                     )*
                 }

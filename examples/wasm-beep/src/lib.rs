@@ -91,7 +91,7 @@ where
             None,
         )
         .unwrap();
-    stream.play().unwrap();
+    stream.start().unwrap();
     stream
 }
 

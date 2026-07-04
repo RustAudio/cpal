@@ -194,12 +194,18 @@ impl fmt::Display for MyDevice {
 }
 
 impl StreamTrait for MyStream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         self.controls.pause.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
+        self.controls.pause.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        // This example has no audio buffered outside the callback, so stop is an immediate halt.
         self.controls.pause.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -232,7 +238,7 @@ fn main() {
     let config = device.default_output_config().unwrap();
 
     let stream = make_stream(&device, config.into()).unwrap();
-    stream.play().unwrap();
+    stream.start().unwrap();
     std::thread::sleep(std::time::Duration::from_millis(4000));
 }
 

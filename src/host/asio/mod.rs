@@ -146,8 +146,8 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
-        Stream::play(self)
+    fn start(&self) -> Result<(), Error> {
+        Stream::start(self)
     }
 
     fn pause(&self) -> Result<(), Error> {

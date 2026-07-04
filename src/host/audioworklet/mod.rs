@@ -258,7 +258,7 @@ impl DeviceTrait for Device {
     /// delivered to `error_callback` after the caller already holds a [`Stream`]. There is no
     /// way to surface such errors synchronously given the Web Audio API's design.
     ///
-    /// [`play`](crate::traits::StreamTrait::play) and [`pause`](crate::traits::StreamTrait::pause)
+    /// [`start`](crate::traits::StreamTrait::start) and [`pause`](crate::traits::StreamTrait::pause)
     /// calls made before initialization completes return `Ok` immediately and are queued. If
     /// initialization succeeds, then the queued commands take effect; if it fails they are
     /// discarded and the error is delivered to `error_callback`.
@@ -510,7 +510,7 @@ impl StreamTrait for Stream {
         Ok(self.buffer_size_frames.load(Ordering::Relaxed) as FrameCount)
     }
 
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
         self.command_tx.unbounded_send(Command::Play).map_err(|_| {
             Error::with_message(
                 ErrorKind::HostUnavailable,

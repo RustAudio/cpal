@@ -202,8 +202,9 @@ trait DeviceErased: Send + Sync {
 }
 
 trait StreamErased: Send + Sync {
-    fn play(&self) -> Result<(), Error>;
+    fn start(&self) -> Result<(), Error>;
     fn pause(&self) -> Result<(), Error>;
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error>;
     fn now(&self) -> StreamInstant;
     fn buffer_size(&self) -> Result<FrameCount, Error>;
 }
@@ -329,12 +330,16 @@ impl<T> StreamErased for T
 where
     T: StreamTrait,
 {
-    fn play(&self) -> Result<(), Error> {
-        <T as StreamTrait>::play(self)
+    fn start(&self) -> Result<(), Error> {
+        <T as StreamTrait>::start(self)
     }
 
     fn pause(&self) -> Result<(), Error> {
         <T as StreamTrait>::pause(self)
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        <T as StreamTrait>::stop(self, timeout)
     }
 
     fn now(&self) -> StreamInstant {
@@ -452,12 +457,16 @@ impl DeviceTrait for Device {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
-        self.0.play()
+    fn start(&self) -> Result<(), Error> {
+        self.0.start()
     }
 
     fn pause(&self) -> Result<(), Error> {
         self.0.pause()
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.0.stop(timeout)
     }
 
     fn now(&self) -> StreamInstant {

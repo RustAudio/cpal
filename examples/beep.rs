@@ -147,9 +147,12 @@ where
         err_fn,
         None,
     )?;
-    stream.play()?;
+    stream.start()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Let buffered audio finish playing (up to 200 ms) before halting, instead of cutting it off.
+    stream.stop(Some(std::time::Duration::from_millis(200)))?;
 
     Ok(())
 }

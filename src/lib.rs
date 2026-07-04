@@ -83,8 +83,8 @@
 //! );
 //! ```
 //!
-//! Streams are returned in a paused state. Once the stream has been started with
-//! [`Stream::play`](traits::StreamTrait::play), the selected audio device will periodically call
+//! Streams are not running when returned. Once started with
+//! [`Stream::start`](traits::StreamTrait::start), the selected audio device will periodically call
 //! the data callback that was passed to the function. For input streams, the callback receives
 //! `&`[`Data`] containing captured audio samples. For output streams, the callback receives
 //! `&mut`[`Data`] to be filled with audio samples for playback.
@@ -123,8 +123,8 @@
 //! }
 //! ```
 //!
-//! Streams are always returned in a paused state, so we must call
-//! [`Stream::play`](traits::StreamTrait::play) to start running the data callback.
+//! Streams are not running when returned; call
+//! [`Stream::start`](traits::StreamTrait::start) to begin.
 //!
 //! ```no_run
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -136,11 +136,18 @@
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
-//! stream.play().unwrap();
+//! stream.start().unwrap();
 //! ```
 //!
-//! Some devices support pausing the audio stream. This can be useful for saving energy in moments
-//! of silence.
+//! A running stream can be halted in two ways:
+//!
+//! 1. [`pause`](traits::StreamTrait::pause) stops the data callback as soon as possible without
+//!    waiting for any buffered audio to finish.
+//! 2. [`stop`](traits::StreamTrait::stop) drains: it lets audio that has already been buffered
+//!    finish playing, blocking up to the given timeout, before halting.
+//!
+//! Both leave the stream resumable with [`start`](traits::StreamTrait::start); dropping the stream
+//! halts it immediately without draining.
 //!
 //! ```no_run
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -152,7 +159,25 @@
 //! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
+//! stream.start().unwrap();
+//! // Halt immediately without waiting for buffered audio to drain.
 //! stream.pause().unwrap();
+//! ```
+//!
+//! ```no_run
+//! # use std::time::Duration;
+//! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+//! # let host = cpal::default_host();
+//! # let device = host.default_output_device().unwrap();
+//! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
+//! # let config = supported_config.into();
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let err_fn = move |_err| {};
+//! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
+//! stream.start().unwrap();
+//! // End gracefully, letting buffered audio play out (up to 1 second).
+//! stream.stop(Some(Duration::from_secs(1))).unwrap();
 //! ```
 //!
 //! [`default_input_device()`]: traits::HostTrait::default_input_device

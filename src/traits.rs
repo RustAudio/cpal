@@ -525,10 +525,14 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control it.
 pub trait StreamTrait: Send + Sync {
-    /// Start the stream.
+    /// Start (or resume) the stream.
     ///
-    /// Streams returned by `build_*_stream` are always stopped, so `play` must be called before the
-    /// data callback will fire. Despite the name, this applies equally to input (capture) streams.
+    /// Streams returned by `build_*_stream` are always stopped, so `start` must be called before
+    /// the data callback will fire.
+    ///
+    /// `start` also resumes a stream that was halted with [`pause`](Self::pause) or
+    /// [`stop`](Self::stop): after a [`stop`](Self::stop) the backend re-prepares the device as
+    /// needed, so the same stream can be cycled through start/stop without being rebuilt.
     ///
     /// # Errors
     ///
@@ -538,17 +542,31 @@ pub trait StreamTrait: Send + Sync {
     ///
     /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
-    fn play(&self) -> Result<(), Error>;
+    fn start(&self) -> Result<(), Error> {
+        #[allow(deprecated)]
+        self.play()
+    }
 
-    /// Pause the stream. Some devices support suspending at the hardware level (saving energy);
-    /// others stop only the data callback while the hardware keeps running.
+    /// Deprecated alias for [`start`](Self::start).
+    #[deprecated(since = "0.19.0", note = "renamed to `start`")]
+    fn play(&self) -> Result<(), Error> {
+        self.start()
+    }
+
+    /// Pause the stream, halting the data callback as soon as possible.
     ///
-    /// Note: Not all devices support suspending the stream at the hardware level. This method may
-    /// fail in these cases.
+    /// Pausing halts audio immediately without waiting for buffered output to finish. On backends
+    /// that support hardware-level suspend, frames already queued in the device are preserved and
+    /// resume playing after the next [`start`](Self::start); on other backends the buffer may be
+    /// flushed. To let buffered audio play out before halting, use [`stop`](Self::stop) instead. A
+    /// paused stream is resumed with [`start`](Self::start).
+    ///
+    /// Some devices support suspending at the hardware level (saving energy); others stop only the
+    /// data callback while the hardware keeps running.
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not support pausing streams.
+    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not support pausing this stream.
     /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
     /// - [`ErrorKind::StreamInvalidated`] if the stream configuration has changed and the stream
     ///   must be rebuilt.
@@ -557,6 +575,41 @@ pub trait StreamTrait: Send + Sync {
     /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn pause(&self) -> Result<(), Error>;
+
+    /// Stop the stream gracefully, draining buffered audio before halting.
+    ///
+    /// Unlike [`pause`](Self::pause), `stop` lets audio that has already been buffered finish:
+    /// on an output stream it blocks the calling thread until the device has played out its queued
+    /// frames (or `timeout` elapses), then halts.
+    ///
+    /// The stream remains valid after `stop`; calling [`start`](Self::start) again resumes it,
+    /// re-preparing the device if the backend requires it.
+    ///
+    /// # Parameters
+    ///
+    /// * `timeout` - How long to wait for buffered audio to drain. `None` waits until the drain
+    ///   completes; `Some(duration)` halts after the duration even if frames remain;
+    ///   `Some(Duration::ZERO)` halts immediately. Independent of the timeout passed to
+    ///   `build_*_stream`.
+    ///
+    /// # Backend support
+    ///
+    /// Draining is only meaningful for output streams. Backends may drain natively or approximate
+    /// it by sleeping for an estimated buffer depth; if a backend has no drain support at all,
+    /// `stop` halts immediately like `pause`. On input (capture) streams, `stop` always halts
+    /// immediately and `timeout` is ignored.
+    ///
+    /// Dropping a stream without calling `stop` halts it immediately, without draining.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::StreamInvalidated`] if the stream configuration has changed and the stream
+    ///   must be rebuilt.
+    ///
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error>;
 
     /// Returns the backend's best available estimate of the number of frames per callback.
     ///
