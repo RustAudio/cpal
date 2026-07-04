@@ -89,7 +89,7 @@ impl Stream {
             .activate_async(notification_handler, input_process_handler)
             .context("Failed to activate client")?;
 
-        StreamState::Paused.store(&state, Ordering::Release);
+        StreamState::Paused.store(&state, Ordering::Relaxed);
         Ok(Self {
             state,
             async_client,
@@ -145,7 +145,7 @@ impl Stream {
             .activate_async(notification_handler, output_process_handler)
             .context("Failed to activate client")?;
 
-        StreamState::Paused.store(&state, Ordering::Release);
+        StreamState::Paused.store(&state, Ordering::Relaxed);
         Ok(Self {
             state,
             async_client,
@@ -574,7 +574,7 @@ impl JackNotificationHandler {
 
 impl jack::NotificationHandler for JackNotificationHandler {
     unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
-        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Starting {
+        if StreamState::load(&self.state, Ordering::Relaxed) == StreamState::Starting {
             return;
         }
         emit_error(
@@ -591,7 +591,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
             // One of these notifications is sent every time a client is started.
             return jack::Control::Continue;
         }
-        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
+        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Starting {
             emit_error(
                 &self.error_callback_ptr,
                 Error::with_message(
@@ -604,7 +604,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
+        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Starting {
             let _ = try_emit_error(&self.error_callback_ptr, ErrorKind::Xrun.into());
         }
         jack::Control::Continue
