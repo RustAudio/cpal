@@ -4,7 +4,7 @@ use std::{
     ptr::{NonNull, null},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{RecvTimeoutError, channel},
     },
     time::{Duration, Instant},
@@ -52,6 +52,7 @@ use crate::{
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
+        equilibrium::fill_equilibrium,
         frames_to_duration, try_emit_error,
     },
     traits::DeviceTrait,
@@ -759,6 +760,9 @@ impl Device {
         let (bytes_per_channel, sample_rate, device_buffer_frames, extra_latency_frames) =
             setup_callback_vars(&audio_unit, config, sample_format, Scope::Input);
 
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_input = draining.clone();
+
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
@@ -774,22 +778,22 @@ impl Device {
             let len = data_byte_size as usize / bytes_per_channel;
             let data = Data::from_parts(data, len, sample_format);
 
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
-                Err(err) => {
-                    let _ = try_emit_error(&error_callback, err);
-                    return Err(());
-                }
-                Ok(cb) => cb,
-            };
-            let buffer_frames = len / channels as usize;
-            let latency_frames =
-                device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
-            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-            let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
-            let timestamp = InputStreamTimestamp { callback, capture };
-
-            let info = InputCallbackInfo { timestamp };
-            data_callback(&data, &info);
+            if !draining_input.load(Ordering::Relaxed) {
+                let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                    Err(err) => {
+                        let _ = try_emit_error(&error_callback, err);
+                        return Err(());
+                    }
+                    Ok(cb) => cb,
+                };
+                let buffer_frames = len / channels as usize;
+                let latency_frames =
+                    device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
+                let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+                let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
+                let timestamp = InputStreamTimestamp { callback, capture };
+                data_callback(&data, &InputCallbackInfo { timestamp });
+            }
             Ok(())
         })?;
 
@@ -809,7 +813,7 @@ impl Device {
             weak_inner,
             error_callback_disconnect,
         )?);
-        let stream = Stream::new(inner_arc, monitor);
+        let stream = Stream::new(inner_arc, monitor, draining, Duration::ZERO);
         stream.signal_ready();
         Ok(stream)
     }
@@ -881,6 +885,12 @@ impl Device {
             device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
         ));
         let callback_latency_frames = latency_frames.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_render = draining.clone();
+        let drain_window = frames_to_duration(
+            (device_buffer_frames.unwrap_or(0) + extra_latency_frames) as FrameCount,
+            sample_rate,
+        );
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
@@ -895,6 +905,14 @@ impl Device {
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;
+
+            let bytes = std::slice::from_raw_parts_mut(data as *mut u8, data_byte_size as usize);
+            fill_equilibrium(bytes, sample_format);
+
+            if draining_render.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
             let mut data = Data::from_parts(data, len, sample_format);
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
@@ -944,7 +962,7 @@ impl Device {
                 error_callback,
             )?)
         };
-        let stream = Stream::new(inner_arc, monitor);
+        let stream = Stream::new(inner_arc, monitor, draining, drain_window);
         stream.signal_ready();
         Ok(stream)
     }

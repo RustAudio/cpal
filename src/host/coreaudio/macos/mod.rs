@@ -1,7 +1,10 @@
-use std::sync::{
-    Arc, Mutex, Weak,
-    atomic::{AtomicUsize, Ordering},
-    mpsc,
+use std::{
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
+    time::Duration,
 };
 
 use coreaudio::audio_unit::{AudioUnit, Scope};
@@ -326,7 +329,7 @@ struct StreamInner {
 }
 
 impl StreamInner {
-    fn play(&mut self) -> Result<(), Error> {
+    fn start(&mut self) -> Result<(), Error> {
         if !self.playing {
             self.audio_unit
                 .start()
@@ -350,11 +353,23 @@ impl StreamInner {
 pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
     monitor: Box<dyn Monitor>,
+    draining: Arc<AtomicBool>,
+    drain_window: Duration,
 }
 
 impl Stream {
-    fn new(inner: Arc<Mutex<StreamInner>>, monitor: Box<dyn Monitor>) -> Self {
-        Self { inner, monitor }
+    fn new(
+        inner: Arc<Mutex<StreamInner>>,
+        monitor: Box<dyn Monitor>,
+        draining: Arc<AtomicBool>,
+        drain_window: Duration,
+    ) -> Self {
+        Self {
+            inner,
+            monitor,
+            draining,
+            drain_window,
+        }
     }
 
     fn signal_ready(&self) {
@@ -370,14 +385,31 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        self.draining.store(false, Ordering::Relaxed);
         self.inner
             .lock()
             .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
-            .play()
+            .start()
     }
 
     fn pause(&self) -> Result<(), Error> {
+        self.inner
+            .lock()
+            .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
+            .pause()
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+
+        if timeout != Some(Duration::ZERO) {
+            let wait = timeout.map_or(self.drain_window, |t| self.drain_window.min(t));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+        }
+
         self.inner
             .lock()
             .map_err(|_| Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned"))?
@@ -426,7 +458,7 @@ mod test {
                 None, // None=blocking, Some(Duration)=timeout
             )
             .unwrap();
-        stream.play().unwrap();
+        stream.start().unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
@@ -458,7 +490,7 @@ mod test {
                 None, // None=blocking, Some(Duration)=timeout
             )
             .unwrap();
-        stream.play().unwrap();
+        stream.start().unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
@@ -491,7 +523,7 @@ mod test {
                 None, // None=blocking, Some(Duration)=timeout
             )
             .unwrap();
-        stream.play().unwrap();
+        stream.start().unwrap();
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 

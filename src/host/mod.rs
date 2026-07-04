@@ -4,6 +4,7 @@
     target_os = "freebsd",
     target_os = "netbsd",
     target_os = "windows",
+    target_vendor = "apple",
 ))]
 pub(crate) mod equilibrium;
 
