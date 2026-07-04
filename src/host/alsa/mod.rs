@@ -9,13 +9,13 @@ extern crate libc;
 
 use std::{
     collections::HashMap,
-    fmt,
+    fmt, mem,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
     vec::IntoIter as VecIntoIter,
 };
 
@@ -28,6 +28,7 @@ use crate::{
     SampleFormat, SampleRate, StreamConfig, StreamInstant, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
+        Notify,
         equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
         frames_to_duration,
         latch::Latch,
@@ -91,6 +92,9 @@ mod enumerate;
 
 const DEFAULT_DEVICE: &str = "default";
 const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
+
+const POLL_INFINITE: i32 = -1; // "block until an event arrives"
+const TRIGGER_PAYLOAD_SIZE: libc::ssize_t = mem::size_of::<u64>() as libc::ssize_t;
 
 // Some ALSA plugins (e.g. alsaequal, certain USB drivers) are not reentrant.
 static ALSA_OPEN_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -314,10 +318,16 @@ struct TriggerReceiver(libc::c_int);
 
 impl TriggerSender {
     fn wakeup(&self) {
-        let buf = 1u64;
+        let buf = !0u64; // any non-zero value wakes poll()
         loop {
-            let ret = unsafe { libc::write(self.0, &buf as *const u64 as *const _, 8) };
-            if ret == 8 {
+            let ret = unsafe {
+                libc::write(
+                    self.0,
+                    &buf as *const u64 as *const _,
+                    TRIGGER_PAYLOAD_SIZE as _,
+                )
+            };
+            if ret == TRIGGER_PAYLOAD_SIZE {
                 return;
             }
             // write() can be interrupted by a signal before writing any bytes; retry.
@@ -334,8 +344,14 @@ impl TriggerReceiver {
     fn clear_pipe(&self) {
         let mut out = 0u64;
         loop {
-            let ret = unsafe { libc::read(self.0, &mut out as *mut u64 as *mut _, 8) };
-            if ret == 8 {
+            let ret = unsafe {
+                libc::read(
+                    self.0,
+                    &mut out as *mut u64 as *mut _,
+                    TRIGGER_PAYLOAD_SIZE as _,
+                )
+            };
+            if ret == TRIGGER_PAYLOAD_SIZE {
                 return;
             }
             // read() can be interrupted by a signal before reading any bytes; retry.
@@ -420,6 +436,9 @@ impl Device {
 
         let stream_inner = StreamInner {
             dropping: AtomicBool::new(false),
+            draining: AtomicBool::new(false),
+            parked: AtomicBool::new(false),
+            park: Notify::default(),
             direction: stream_type.into(),
             handle,
             sample_format,
@@ -716,6 +735,13 @@ struct StreamInner {
     // (e.g. broken due to a disconnected device).
     dropping: AtomicBool,
 
+    // Whether the user callback is currently suppressed.
+    draining: AtomicBool,
+
+    // Set by stop() to request the worker pause for exclusive PCM access during drain.
+    parked: AtomicBool,
+    park: Notify,
+
     // Stream direction.
     direction: DeviceDirection,
 
@@ -847,6 +873,51 @@ impl StreamInner {
                 | SND_PCM_TYPE_IEC958
         )
     }
+
+    // Signals the worker to pause at the top of its next loop iteration and waits for it to
+    // acknowledge. Returns early if the worker has already exited. The caller holds exclusive
+    // PCM access until unpark_worker() is called.
+    fn park_worker(&self) {
+        self.parked.store(true, Ordering::Relaxed);
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // Exit if the worker acknowledged the park OR if the worker has exited (dropping=true).
+        while !*guard && !self.dropping.load(Ordering::Relaxed) {
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    // Called by the worker when it sees parked=true: acknowledges the park, then sleeps
+    // until the caller calls unpark_worker().
+    fn acknowledge_park(&self) {
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = true;
+        cvar.notify_one();
+        while self.parked.load(Ordering::Relaxed) {
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+        *guard = false;
+    }
+
+    // Called by the worker on any exit that is not a normal drop: marks the stream dead and
+    // wakes any thread blocked in park_worker() so it doesn't hang indefinitely.
+    fn signal_worker_exit(&self) {
+        self.dropping.store(true, Ordering::Relaxed);
+        let (lock, cvar) = &self.park;
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        cvar.notify_one();
+    }
+
+    // Releases the park: clears parked and wakes the worker from acknowledge_park().
+    fn unpark_worker(&self) {
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = false;
+        self.parked.store(false, Ordering::Relaxed);
+        drop(guard);
+        cvar.notify_one();
+    }
 }
 
 struct StreamWorkerContext {
@@ -862,7 +933,7 @@ impl StreamWorkerContext {
             // but an explicit Duration::ZERO stays 0 so a non-blocking poll can still be requested.
             d.as_nanos().div_ceil(1_000_000).min(i32::MAX as u128) as i32
         } else {
-            -1 // Don't timeout, wait forever.
+            POLL_INFINITE
         };
 
         // Pre-allocate a period-sized working buffer. Contents are overwritten each callback.
@@ -925,8 +996,11 @@ fn input_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
-        if stream.dropping.load(Ordering::Acquire) {
+        if stream.dropping.load(Ordering::Relaxed) {
             return;
+        }
+        if stream.parked.load(Ordering::Relaxed) {
+            stream.acknowledge_park();
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
@@ -954,6 +1028,7 @@ fn input_stream_worker(
                 }
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
+                    stream.signal_worker_exit();
                     return;
                 }
                 _ => error_callback(err),
@@ -983,8 +1058,11 @@ fn output_stream_worker(
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
     loop {
-        if stream.dropping.load(Ordering::Acquire) {
+        if stream.dropping.load(Ordering::Relaxed) {
             return;
+        }
+        if stream.parked.load(Ordering::Relaxed) {
+            stream.acknowledge_park();
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
@@ -1013,6 +1091,7 @@ fn output_stream_worker(
                 }
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
+                    stream.signal_worker_exit();
                     return;
                 }
                 _ => error_callback(err),
@@ -1193,19 +1272,20 @@ fn process_input(
             Err(err) => return Err(err.into()),
         }
     }
-    let data = buffer.as_mut_ptr() as *mut ();
-    let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback_instant = stream.callback_instant(&status);
-    let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
-    let capture = callback_instant
-        .checked_sub(delay_duration)
-        .unwrap_or(StreamInstant::ZERO);
-    let timestamp = InputStreamTimestamp {
-        callback: callback_instant,
-        capture,
-    };
-    let info = InputCallbackInfo { timestamp };
-    data_callback(&data, &info);
+    if !stream.draining.load(Ordering::Relaxed) {
+        let data = buffer.as_mut_ptr() as *mut ();
+        let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
+        let callback_instant = stream.callback_instant(&status);
+        let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
+        let capture = callback_instant
+            .checked_sub(delay_duration)
+            .unwrap_or(StreamInstant::ZERO);
+        let timestamp = InputStreamTimestamp {
+            callback: callback_instant,
+            capture,
+        };
+        data_callback(&data, &InputCallbackInfo { timestamp });
+    }
 
     Ok(())
 }
@@ -1221,17 +1301,19 @@ fn process_output(
     // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
     stream.equilibrium.fill(buffer);
 
-    let data = buffer.as_mut_ptr() as *mut ();
-    let mut data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
-    let callback_instant = stream.callback_instant(&status);
-    let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
-    let playback = callback_instant + delay_duration;
-    let timestamp = OutputStreamTimestamp {
-        callback: callback_instant,
-        playback,
-    };
-    let info = OutputCallbackInfo { timestamp };
-    data_callback(&mut data, &info);
+    if !stream.draining.load(Ordering::Relaxed) {
+        let data = buffer.as_mut_ptr() as *mut ();
+        let mut data =
+            unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
+        let callback_instant = stream.callback_instant(&status);
+        let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
+        let playback = callback_instant + delay_duration;
+        let timestamp = OutputStreamTimestamp {
+            callback: callback_instant,
+            playback,
+        };
+        data_callback(&mut data, &OutputCallbackInfo { timestamp });
+    }
 
     let mut frames_written = 0;
     while frames_written < stream.period_size {
@@ -1288,9 +1370,13 @@ fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> Stream
 }
 
 impl Stream {
-    /// Releases the latch so the worker thread can begin processing audio callbacks.
-    fn signal_ready(&self) {
+    /// Parks the worker and gets exclusive access to the PCM handle.
+    fn park_worker(&self) {
         self.latch.release();
+        // Must be true before the trigger fires, so the worker sees it on the next loop iteration.
+        self.inner.parked.store(true, Ordering::Relaxed);
+        self.trigger.wakeup();
+        self.inner.park_worker();
     }
 
     fn new_input<D, E>(
@@ -1378,15 +1464,132 @@ impl Stream {
             latch,
         }
     }
+
+    fn suspend_pcm(&self) -> Result<(), Error> {
+        let hw_params = self.inner.handle.hw_params_current()?;
+        if hw_params.can_pause() {
+            if self.inner.handle.state() != alsa::pcm::State::Paused {
+                self.inner.handle.pause(true)?;
+            }
+        } else {
+            self.park_worker();
+            let result = if self.inner.handle.state() == alsa::pcm::State::Running {
+                self.inner
+                    .handle
+                    .drop()
+                    .and_then(|_| self.inner.handle.prepare())
+                    .map_err(Error::from)
+            } else {
+                Ok(())
+            };
+            self.inner.unpark_worker();
+            return result;
+        }
+        Ok(())
+    }
+
+    // Drops buffered PCM data so a resumed stream doesn't deliver stale audio.
+    fn discard_pcm(&self) -> Result<(), Error> {
+        self.park_worker();
+        let result = if self.inner.handle.state() != alsa::pcm::State::Setup {
+            self.inner
+                .handle
+                .drop()
+                .and_then(|_| self.inner.handle.prepare())
+                .map_err(Error::from)
+        } else {
+            Ok(())
+        };
+        self.inner.unpark_worker();
+        result
+    }
+
+    // Drains a parked output PCM: caller holds exclusive access via park_worker()/unpark_worker().
+    fn drain_output(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        if timeout == Some(Duration::ZERO) {
+            self.inner.handle.drop().ok();
+            return self.inner.handle.prepare().map_err(Into::into);
+        }
+
+        // Non-blocking drain: the PCM is opened non-blocking, so snd_pcm_drain returns EAGAIN
+        // immediately. Poll the ALSA fds until drain completes or the deadline expires.
+        let deadline = timeout.and_then(|t| Instant::now().checked_add(t));
+        let mut fds = self.inner.handle.get()?;
+        let mut result: Result<(), Error> = Ok(());
+
+        'drain: loop {
+            match self.inner.handle.drain() {
+                Ok(()) => break,
+                Err(e) if e.errno() == libc::EAGAIN => {
+                    let timeout_ms = match deadline {
+                        None => POLL_INFINITE,
+                        Some(deadline) => {
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                self.inner.handle.drop().ok();
+                                break 'drain;
+                            }
+                            remaining.as_millis().min(i32::MAX as u128) as i32
+                        }
+                    };
+                    match alsa::poll::poll(&mut fds, timeout_ms) {
+                        Ok(0) => {
+                            self.inner.handle.drop().ok();
+                            break 'drain;
+                        }
+                        Ok(_) => continue,
+                        Err(e) => {
+                            result = Err(e.into());
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    result = Err(e.into());
+                    break;
+                }
+            }
+        }
+
+        // Leave PCM in PREPARED so the worker can resume normally.
+        match self.inner.handle.state() {
+            alsa::pcm::State::Setup => {
+                // Drain completed or drop-on-timeout succeeded.
+                if let Err(e) = self.inner.handle.prepare() {
+                    result = result.and(Err(e.into()));
+                }
+            }
+            alsa::pcm::State::Draining => {
+                // A poll error interrupted an in-progress drain; abort it.
+                self.inner.handle.drop().ok();
+                if let Err(e) = self.inner.handle.prepare() {
+                    result = result.and(Err(e.into()));
+                }
+            }
+            _ => {} // XRun, Running, Disconnected: worker's own recovery handles it
+        }
+
+        result
+    }
+}
+
+impl Stream {
+    // Signals the worker to exit: marks it dropping, unblocks it from acknowledge_park()
+    // if parked, and wakes it from poll_for_period(). dropping must be set first so the
+    // worker exits on re-entry rather than polling again.
+    fn shutdown_worker(&self) {
+        self.inner.dropping.store(true, Ordering::Relaxed);
+        self.inner.unpark_worker();
+        self.trigger.wakeup();
+    }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        // Unblock the worker in case the stream is dropped before play() was called.
+        // Unblock the worker in case the stream is dropped before start() was called.
         // Idempotent: no effect if the worker is already running.
-        self.signal_ready();
-        self.inner.dropping.store(true, Ordering::Release);
-        self.trigger.wakeup();
+        self.latch.release();
+        self.shutdown_worker();
         if let Some(handle) = self.thread.take() {
             let _ = handle.join();
         }
@@ -1394,8 +1597,10 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
-        self.signal_ready(); // idempotent: no-op after first call
+    fn start(&self) -> Result<(), Error> {
+        self.inner.draining.store(false, Ordering::Relaxed);
+        self.latch.release(); // idempotent: no-op after first call
+        self.inner.unpark_worker(); // resume if stop() left it parked; no-op otherwise
         match self.inner.handle.state() {
             // Calling start() on an empty output buffer would trigger an immediate XRUN.
             alsa::pcm::State::Prepared if self.inner.direction == DeviceDirection::Input => {
@@ -1404,24 +1609,35 @@ impl StreamTrait for Stream {
             alsa::pcm::State::Paused => {
                 self.inner.handle.pause(false)?;
             }
+            // Guard against Setup in case prepare() in stop() failed silently.
+            alsa::pcm::State::Setup => {
+                self.inner.handle.prepare()?;
+                if self.inner.direction == DeviceDirection::Input {
+                    self.inner.handle.start()?;
+                }
+            }
             _ => {}
         }
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        let hw_params = self.inner.handle.hw_params_current()?;
-        if !hw_params.can_pause() {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedOperation,
-                "Device does not support pausing",
-            ));
+        self.inner.draining.store(true, Ordering::Relaxed);
+        self.suspend_pcm()
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.inner.draining.store(true, Ordering::Relaxed);
+
+        if self.inner.direction != DeviceDirection::Output {
+            // Unlike pause(), stop() discards rather than preserves buffered samples.
+            return self.discard_pcm();
         }
-        if self.inner.handle.state() != alsa::pcm::State::Paused {
-            self.inner.handle.pause(true)?;
-        }
-        // TODO: when can_pause() is false, considering implementing a software fallback
-        Ok(())
+
+        self.park_worker();
+        let result = self.drain_output(timeout);
+        self.inner.unpark_worker();
+        result
     }
 
     fn now(&self) -> StreamInstant {

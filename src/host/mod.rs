@@ -121,6 +121,17 @@ pub(crate) mod null;
 ))]
 pub(crate) mod latch;
 
+/// Mutex-guarded bool with Condvar for cross-thread signaling.
+///
+/// The bool tracks whether the notified side has acknowledged the signal.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+))]
+pub(crate) type Notify = (std::sync::Mutex<bool>, std::sync::Condvar);
+
 /// Shared error-callback type that hands the callback across thread boundaries.
 #[allow(dead_code)]
 pub(crate) type ErrorCallbackArc = std::sync::Arc<std::sync::Mutex<dyn FnMut(crate::Error) + Send>>;
