@@ -542,10 +542,7 @@ pub trait StreamTrait: Send + Sync {
     ///
     /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
-    fn start(&self) -> Result<(), Error> {
-        #[allow(deprecated)]
-        self.play()
-    }
+    fn start(&self) -> Result<(), Error>;
 
     /// Deprecated alias for [`start`](Self::start).
     #[deprecated(since = "0.19.0", note = "renamed to `start`")]
