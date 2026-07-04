@@ -7,7 +7,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] If you implement a custom host, ensure your `Device` and `Stream` types are `Send + Sync`.
 - [ ] Remove any calls to the deprecated `assert_stream_send!` and `assert_stream_sync!` macros.
 - [ ] Rename `StreamTrait::play` calls to `start` (the old name still works but is deprecated).
-- [ ] If you implement a custom host, consider overriding `StreamTrait::stop` for true draining support (the default falls back to `pause`).
+- [ ] If you implement a custom host, add a `StreamTrait::stop` implementation.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -24,17 +24,17 @@ This only affects authors of `custom` host implementations. Users of built-in ho
 `start`, `pause`, and `stop` now form the transport controls:
 
 - `start` begins or resumes the stream (the rename reflects that it applies to capture streams too, not just playback).
-- `pause` halts the data callback as soon as possible, discarding any audio already buffered.
-- `stop(timeout)` drains: on output streams it lets buffered audio finish playing, blocking the calling thread until the buffer empties or `timeout` elapses, then halts. `None` waits indefinitely; `Some(Duration::ZERO)` halts immediately without draining. All three leave the stream resumable; dropping the stream still halts immediately without draining.
+- `pause` halts the data callback as soon as possible without waiting for buffered audio to finish.
+- `stop(timeout)` drains: on output streams it lets buffered audio finish playing, blocking the calling thread until the buffer empties or `timeout` elapses, then halts. `None` waits until drained; `Some(Duration::ZERO)` halts immediately without draining. All three leave the stream resumable; dropping the stream still halts immediately without draining.
 
 **Impact (built-in host users):** Replace `stream.play()` with `stream.start()`. Optionally adopt `stream.stop(timeout)` where you want playback to end cleanly rather than be cut off.
 
-**Impact (custom host authors):** Rename your `StreamTrait::play` implementation to `start`. `stop` has a default that falls back to `pause`; override it if your host has audio buffered outside the data callback.
+**Impact (custom host authors):** Rename your `StreamTrait::play` implementation to `start`. Add a `stop` implementation; if your host has no audio buffered outside the data callback, it can simply call `self.pause()`.
 
 Draining is best-effort and varies by backend: most built-in output backends respect the drain window. The exceptions are WebAudio, AudioWorklet, and ASIO, where `stop` halts immediately and `timeout` is ignored. On capture streams, `stop` also halts immediately.
 
 [`start`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.start
-[`stop`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#method.stop
+[`stop`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.stop
 
 ---
 
