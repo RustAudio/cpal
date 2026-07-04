@@ -4,7 +4,7 @@ use std::{
     ptr,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{Receiver, SendError, Sender, channel},
     },
     thread::{self, JoinHandle},
@@ -215,25 +215,27 @@ pub struct Stream {
 
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
     latch: Latch,
+
+    // Raised by `stop()` so the audio loop emits silence while buffered audio drains.
+    draining: Arc<AtomicBool>,
+
+    // Latency + buffer fill in microseconds, updated each output callback; zero for input.
+    fill_usec: Arc<AtomicU64>,
 }
 
-// SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
-// synchronization. All fields of Stream are Send:
-// - JoinHandle<()> is Send
-// - Sender<Command> is Send
-// - Foundation::HANDLE is Send (Windows synchronization primitive)
-// - Latch is Send
-// See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
+// SAFETY: All fields of Stream are Send:
+// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
+//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Send
+// - Foundation::HANDLE: Windows event HANDLEs are safe to send between threads
+//   (see https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa)
+// - Option<DefaultDeviceMonitor>: has its own unsafe impl Send
 unsafe impl Send for Stream {}
 
-// SAFETY: Windows Event HANDLEs are safe to access from multiple threads simultaneously.
-// All synchronization operations (SetEvent, WaitForSingleObject) are thread-safe.
-// All fields of Stream are Sync:
-// - JoinHandle<()> is Sync
-// - Sender<Command> is Sync (uses internal synchronization)
-// - Foundation::HANDLE for event objects supports concurrent access
-// - Latch is Sync
-// The audio thread owns all COM objects, so no cross-thread COM access occurs.
+// SAFETY: All fields of Stream are Sync:
+// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
+//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Sync
+// - Foundation::HANDLE: SetEvent/WaitForSingleObject are thread-safe
+// - Option<DefaultDeviceMonitor>: has its own unsafe impl Sync
 unsafe impl Sync for Stream {}
 
 struct RunContext {
@@ -268,6 +270,7 @@ unsafe impl Send for RunContext {}
 pub enum Command {
     PlayStream,
     PauseStream,
+    StopStream,
     Terminate,
 }
 
@@ -300,6 +303,10 @@ pub struct StreamInner {
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
     pub stream_latency: Duration,
+    // Raised by `stop()` so the audio loop writes silence or skips delivering.
+    pub draining: Arc<AtomicBool>,
+    // Updated each output callback: latency + current buffer fill in microseconds.
+    pub fill_usec: Arc<AtomicU64>,
 }
 
 impl Stream {
@@ -319,6 +326,8 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let draining = stream_inner.draining.clone();
+        let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
@@ -369,6 +378,8 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
+            draining,
+            fill_usec,
         };
         Ok(stream)
     }
@@ -389,6 +400,8 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let draining = stream_inner.draining.clone();
+        let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
@@ -439,6 +452,8 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
+            draining,
+            fill_usec,
         };
         Ok(stream)
     }
@@ -476,7 +491,9 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        // Clear any pending drain so the audio loop resumes calling the user callback.
+        self.draining.store(false, Ordering::Relaxed);
         self.push_command(Command::PlayStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
@@ -488,6 +505,26 @@ impl StreamTrait for Stream {
 
     fn pause(&self) -> Result<(), Error> {
         self.push_command(Command::PauseStream).map_err(|_| {
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "Stream command channel closed",
+            )
+        })?;
+        Ok(())
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+
+        if timeout != Some(Duration::ZERO) {
+            let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
+            let wait = timeout.map_or(fill, |t| fill.min(t));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+        }
+
+        self.push_command(Command::StopStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
                 "Stream command channel closed",
@@ -542,7 +579,7 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                     run_context.stream.playing = true;
                 }
             },
-            Command::PauseStream => unsafe {
+            Command::PauseStream | Command::StopStream => unsafe {
                 if run_context.stream.playing {
                     run_context
                         .stream
@@ -550,6 +587,14 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .Stop()
                         .context("Failed to stop audio client")?;
                     run_context.stream.playing = false;
+                }
+                if matches!(command, Command::StopStream) {
+                    // Reset discards the render buffer so a future Start() plays no stale frames.
+                    run_context
+                        .stream
+                        .audio_client
+                        .Reset()
+                        .context("Failed to reset audio client")?;
                 }
             },
             Command::Terminate => {
@@ -790,10 +835,11 @@ fn process_input(
                 / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
-            // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-            let timestamp = input_timestamp(stream, qpc_position)?;
-            let info = InputCallbackInfo { timestamp };
-            data_callback(&data, &info);
+            if !stream.draining.load(Ordering::Relaxed) {
+                // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+                let timestamp = input_timestamp(stream, qpc_position)?;
+                data_callback(&data, &InputCallbackInfo { timestamp });
+            }
 
             // Release the buffer.
             capture_client
@@ -817,6 +863,19 @@ fn process_output(
         n => n,
     };
 
+    let padding = stream.max_frames_in_buffer - frames_available;
+    let fill_usec = (padding as u64)
+        .saturating_mul(1_000_000)
+        .saturating_div(stream.config.sample_rate as u64)
+        .saturating_add(
+            stream
+                .stream_latency
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+    stream.fill_usec.store(fill_usec, Ordering::Relaxed);
+
     unsafe {
         let buffer = render_client.GetBuffer(frames_available)?;
 
@@ -829,10 +888,12 @@ fn process_output(
         let data = buffer as *mut ();
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
-        let info = OutputCallbackInfo { timestamp };
-        data_callback(&mut data, &info);
+        if !stream.draining.load(Ordering::Relaxed) {
+            let sample_rate = stream.config.sample_rate;
+            let timestamp =
+                output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+            data_callback(&mut data, &OutputCallbackInfo { timestamp });
+        }
 
         render_client.ReleaseBuffer(frames_available, 0)?;
 
