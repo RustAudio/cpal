@@ -95,12 +95,12 @@ impl Stream {
     }
 
     pub fn play(&self) -> Result<(), Error> {
-        StreamState::Playing.store(&self.state, Ordering::Release);
+        StreamState::Playing.store(&self.state, Ordering::Relaxed);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), Error> {
-        StreamState::Paused.store(&self.state, Ordering::Release);
+        StreamState::Paused.store(&self.state, Ordering::Relaxed);
         Ok(())
     }
 
@@ -213,7 +213,7 @@ impl Device {
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
+            if StreamState::load(&state_cb, Ordering::Relaxed) != StreamState::Playing {
                 return;
             }
 
@@ -446,7 +446,7 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::Paused.store(&state, Ordering::Release);
+        StreamState::Paused.store(&state, Ordering::Relaxed);
         Ok(Stream {
             state,
             driver,
@@ -551,7 +551,7 @@ impl Device {
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb, Ordering::Acquire) != StreamState::Playing {
+            if StreamState::load(&state_cb, Ordering::Relaxed) != StreamState::Playing {
                 return;
             }
 
@@ -836,7 +836,7 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::Paused.store(&state, Ordering::Release);
+        StreamState::Paused.store(&state, Ordering::Relaxed);
         Ok(Stream {
             state,
             driver,
@@ -1012,7 +1012,7 @@ impl Device {
                     sys::AsioMessageSelectors::kAsioResetRequest => {
                         // Guard on Starting: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.)
                         // fire spurious reset/resync requests during driver.start().
-                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
+                        if StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream reset was requested by the ASIO driver",
@@ -1024,7 +1024,7 @@ impl Device {
                         // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
                         // means the driver needs a full stop/reinit/start. It is *not* a simple
                         // xrun notification.
-                        if StreamState::load(&state, Ordering::Acquire) != StreamState::Starting {
+                        if StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream resynchronization was requested by the ASIO driver",
@@ -1033,7 +1033,7 @@ impl Device {
                         true
                     }
                     sys::AsioMessageSelectors::kAsioOverload => {
-                        if StreamState::load(&state, Ordering::Acquire) == StreamState::Playing {
+                        if StreamState::load(&state, Ordering::Relaxed) == StreamState::Playing {
                             let _ =
                                 try_emit_error(&error_callback_shared, Error::new(ErrorKind::Xrun));
                         }
@@ -1077,7 +1077,7 @@ impl Device {
                         }
                     };
                     if should_notify
-                        && StreamState::load(&state, Ordering::Acquire) != StreamState::Starting
+                        && StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting
                     {
                         let _ = timer_tx.send(Error::with_message(
                             ErrorKind::StreamInvalidated,
