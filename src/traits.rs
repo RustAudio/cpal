@@ -432,7 +432,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `data_callback` - Called periodically with captured input and a mutable output buffer.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
-    ///   indefinitely. Note: not all backends honor this value.
+    ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
+    ///   this value.
     ///
     /// # Errors
     ///
@@ -517,7 +518,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     {
         Err(Error::with_message(
             ErrorKind::UnsupportedOperation,
-            "duplex streams are not supported by this host",
+            "duplex streams are not supported by this device",
         ))
     }
 }
