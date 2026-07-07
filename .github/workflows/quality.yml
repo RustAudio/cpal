@@ -56,7 +56,7 @@ jobs:
           # Android - Oboe backend
           - target: armv7-linux-androideabi
             name: Android
-            features: ""
+            features: --features realtime
             os: ubuntu-latest
 
           # iOS - CoreAudio (iOS) backend
