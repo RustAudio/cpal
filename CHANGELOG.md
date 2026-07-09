@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Migrated to Rust 2024.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
+- **ALSA**: Update `alsa` dependency to 0.12.
 - **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
 
 ### Deprecated
