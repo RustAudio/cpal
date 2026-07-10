@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   started flagging in Rust 1.97.
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
+- **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 
 ## [0.18.1] - 2026-06-07

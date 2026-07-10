@@ -24,6 +24,7 @@ For higher-level audio playback and capture, consider [Rodio](https://github.com
 | Linux | ALSA | JACK, PipeWire, PulseAudio |
 | macOS | CoreAudio | JACK |
 | tvOS | CoreAudio | - |
+| visionOS | CoreAudio | - |
 | WebAssembly | Web Audio API | Audio Worklet |
 | Windows | WASAPI | ASIO, JACK |
 
@@ -46,6 +47,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | CoreAudio | macOS | 1.85 | macOS 14.2 (loopback recording requires 14.6+) |
 | CoreAudio | iOS | 1.85 | — |
 | CoreAudio | tvOS | nightly | — |
+| CoreAudio | visionOS | 1.85 | — |
 | JACK | Linux, BSD, macOS, Windows | 1.85 | — |
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
