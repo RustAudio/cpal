@@ -607,10 +607,7 @@ impl Device {
     // ALSA does not offer default stream formats, so instead we compare all supported formats by
     // the `SupportedStreamConfigRange::cmp_default_heuristics` order and select the greatest.
     fn default_config(&self, stream_t: alsa::Direction) -> Result<SupportedStreamConfig, Error> {
-        let mut formats: Vec<_> = match self.supported_configs(stream_t) {
-            Err(err) => return Err(err),
-            Ok(fmts) => fmts.collect(),
-        };
+        let mut formats: Vec<_> = self.supported_configs(stream_t)?.collect();
 
         formats.sort_by(|a, b| a.cmp_default_heuristics(b));
 
