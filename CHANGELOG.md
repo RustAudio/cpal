@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ALSA**, **ASIO**: Two `match` expressions are replaced with `?`, which `clippy::question_mark`
+  started flagging in Rust 1.97.
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
