@@ -158,31 +158,16 @@ impl Stream {
         })
     }
 
-    /// Connect stream output ports to the standard JACK system playback ports.
-    /// Must be called after the client is activated.
+    /// Connects the stream's output ports to as many system playback ports as are available;
+    /// must be called after the client is activated. A stream may have more output channels
+    /// than physical ports (e.g. feeding a downstream JACK client); the surplus is simply left
+    /// unconnected for manual patching.
     ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if every stream channel was connected to a system playback port.
-    /// - `Err` if there are fewer system playback ports than stream channels, or if any
-    ///   individual port-connection call fails.
-    ///
-    /// On error, connections that were made before the failure are rolled back on a best-effort
-    /// basis so the JACK graph is left unchanged.
+    /// Returns `Err` only if an individual port-connection call fails, rolling back any
+    /// connections already made so the JACK graph is left unchanged.
     pub fn connect_to_system_outputs(&mut self) -> Result<(), Error> {
         let client = self.async_client.as_client();
         let system_ports = client.ports(Some("system:playback_.*"), None, jack::PortFlags::empty());
-
-        let n_our = self.output_port_names.len();
-        let n_sys = system_ports.len();
-        if n_sys < n_our {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Only {n_sys} system playback port(s) available, but the stream has {n_our} output channel(s)"
-                ),
-            ));
-        }
 
         // Connect outputs from this client to the system playback inputs.
         for (i, (our_port, system_port)) in
@@ -204,31 +189,16 @@ impl Stream {
         Ok(())
     }
 
-    /// Connect stream input ports to the standard JACK system capture ports.
-    /// Must be called after the client is activated.
+    /// Connects the stream's input ports to as many system capture ports as are available; must
+    /// be called after the client is activated. A stream may have more input channels than
+    /// physical ports (e.g. sourced from an upstream JACK client); the surplus is simply left
+    /// unconnected for manual patching.
     ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if every stream channel was connected to a system capture port.
-    /// - `Err` if there are fewer system capture ports than stream channels, or if any individual
-    ///   port-connection call fails.
-    ///
-    /// On error, connections that were made before the failure are rolled back on a best-effort
-    /// basis so the JACK graph is left unchanged.
+    /// Returns `Err` only if an individual port-connection call fails, rolling back any
+    /// connections already made so the JACK graph is left unchanged.
     pub fn connect_to_system_inputs(&mut self) -> Result<(), Error> {
         let client = self.async_client.as_client();
         let system_ports = client.ports(Some("system:capture_.*"), None, jack::PortFlags::empty());
-
-        let n_our = self.input_port_names.len();
-        let n_sys = system_ports.len();
-        if n_sys < n_our {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Only {n_sys} system capture port(s) available, but the stream has {n_our} input channel(s)"
-                ),
-            ));
-        }
 
         // Connect inputs from system capture ports to this client.
         for (i, (system_port, our_port)) in

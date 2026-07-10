@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
+- **JACK**: Streams with more channels than physical system ports no longer fail to build.
 - **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
