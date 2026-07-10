@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
+- **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
 
 ## [0.18.1] - 2026-06-07
 

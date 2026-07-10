@@ -4,7 +4,7 @@ use std::{
     ptr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, SendError, Sender},
+        mpsc::{channel, Receiver, Sender},
         Arc,
     },
     thread::{self, JoinHandle},
@@ -452,10 +452,17 @@ impl Stream {
         self.latch.release();
     }
 
-    fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
-        self.commands.send(command)?;
+    fn push_command(&self, command: Command) -> Result<(), Error> {
+        let invalidated = || {
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "Stream command channel closed",
+            )
+        };
+        self.commands.send(command).map_err(|_| invalidated())?;
         unsafe {
-            Threading::SetEvent(self.pending_scheduled_event).unwrap();
+            // The worker thread may have already closed this handle on exit.
+            Threading::SetEvent(self.pending_scheduled_event).map_err(|_| invalidated())?;
         }
         Ok(())
     }
@@ -481,23 +488,11 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn play(&self) -> Result<(), Error> {
-        self.push_command(Command::PlayStream).map_err(|_| {
-            Error::with_message(
-                ErrorKind::StreamInvalidated,
-                "Stream command channel closed",
-            )
-        })?;
-        Ok(())
+        self.push_command(Command::PlayStream)
     }
 
     fn pause(&self) -> Result<(), Error> {
-        self.push_command(Command::PauseStream).map_err(|_| {
-            Error::with_message(
-                ErrorKind::StreamInvalidated,
-                "Stream command channel closed",
-            )
-        })?;
-        Ok(())
+        self.push_command(Command::PauseStream)
     }
 
     fn now(&self) -> StreamInstant {
