@@ -805,7 +805,7 @@ fn process_input(
             }
 
             let flags = flags.assume_init();
-            if flags.0 & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 != 0 {
+            if flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
                 let _ = try_emit_error(error_callback, ErrorKind::Xrun.into());
             }
 
