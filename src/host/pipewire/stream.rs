@@ -24,7 +24,7 @@ use pipewire::{
             format_utils, ParamType,
         },
         pod::{serialize::PodSerializer, Object, Pod, Value},
-        sys::{spa_io_clock, SPA_IO_Clock, SPA_IO_CLOCK_FLAG_XRUN_RECOVER},
+        sys::{spa_io_clock, SPA_IO_Clock},
         utils::{Direction, SpaTypes},
     },
     stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
@@ -281,6 +281,8 @@ impl<D> UserData<D> {
         if self.spa_io_clock.is_null() {
             return;
         }
+        // spa/node/io.h; not present in bindgen output on all libspa versions.
+        const SPA_IO_CLOCK_FLAG_XRUN_RECOVER: u32 = 1 << 1;
         // io_changed and process run on the same thread.
         let flags = unsafe { (*self.spa_io_clock).flags };
         let recovering = flags & SPA_IO_CLOCK_FLAG_XRUN_RECOVER != 0;
