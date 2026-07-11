@@ -18,7 +18,9 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{emit_error, equilibrium::fill_equilibrium, latch::Latch, ErrorCallbackArc},
+    host::{
+        emit_error, equilibrium::fill_equilibrium, latch::Latch, try_emit_error, ErrorCallbackArc,
+    },
     traits::StreamTrait,
     Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
     OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
@@ -629,7 +631,12 @@ fn run_input(
             AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_input(&run_ctxt.stream, capture_client, data_callback) {
+        if let Err(err) = process_input(
+            &run_ctxt.stream,
+            capture_client,
+            data_callback,
+            error_callback,
+        ) {
             emit_error(error_callback, err);
             break;
         }
@@ -769,6 +776,7 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
+    error_callback: &ErrorCallbackArc,
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -794,6 +802,11 @@ fn process_input(
                 Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
                 Err(e) => return Err(Error::from(e)),
                 Ok(_) => (),
+            }
+
+            let flags = flags.assume_init();
+            if flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
+                let _ = try_emit_error(error_callback, ErrorKind::Xrun.into());
             }
 
             debug_assert!(!buffer.is_null());
