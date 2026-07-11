@@ -25,6 +25,7 @@ use pipewire::{
             format_utils,
         },
         pod::{Object, Pod, Value, serialize::PodSerializer},
+        sys::{SPA_IO_Clock, spa_io_clock},
         utils::{Direction, SpaTypes},
     },
     stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
@@ -289,10 +290,12 @@ pub struct UserData<D> {
     last_quantum: Arc<AtomicU64>,
     start: Instant,
     draining: Arc<AtomicBool>,
-    is_default_device: Arc<AtomicBool>,
+    is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
+    spa_io_clock: *const spa_io_clock,
+    xrun_recovering: bool,
     #[cfg(feature = "realtime")]
     rt_promoted: bool,
 }
@@ -317,7 +320,7 @@ impl<D> UserData<D> {
             StreamState::Unconnected => {
                 // Let the metadata monitor fire for default-device streams
                 if self.has_connected
-                    && !self.is_default_device.load(Ordering::Relaxed)
+                    && !self.is_default_device
                     && !self.invalidated.swap(true, Ordering::Relaxed)
                 {
                     emit_error(
@@ -336,6 +339,21 @@ impl<D> UserData<D> {
             }
             StreamState::Paused | StreamState::Connecting => {}
         }
+    }
+
+    fn check_xrun(&mut self) {
+        if self.spa_io_clock.is_null() {
+            return;
+        }
+        // spa/node/io.h; not present in bindgen output on all libspa versions.
+        const SPA_IO_CLOCK_FLAG_XRUN_RECOVER: u32 = 1 << 1;
+        // io_changed and process run on the same thread.
+        let flags = unsafe { (*self.spa_io_clock).flags };
+        let recovering = flags & SPA_IO_CLOCK_FLAG_XRUN_RECOVER != 0;
+        if recovering && !self.xrun_recovering {
+            let _ = try_emit_error(&self.error_callback, ErrorKind::Xrun.into());
+        }
+        self.xrun_recovering = recovering;
     }
 }
 
@@ -444,7 +462,6 @@ pub struct StreamData<D> {
     pub error_callback: ErrorCallbackArc,
     pub pending_device_changed: Arc<AtomicBool>,
     pub invalidated: Arc<AtomicBool>,
-    pub is_default_device: Arc<AtomicBool>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -595,6 +612,7 @@ pub struct ConnectParams {
     pub connect_automatically: bool,
     pub draining: Arc<AtomicBool>,
     pub drained: Option<Arc<Notify>>,
+    pub is_default_device: bool,
 }
 
 pub fn connect_output<D, E>(
@@ -615,6 +633,7 @@ where
         connect_automatically,
         draining,
         drained,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -625,7 +644,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -655,9 +673,11 @@ where
         start,
         draining,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted: false,
     };
@@ -750,6 +770,11 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
@@ -760,6 +785,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -836,6 +862,9 @@ where
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
 
     stream.connect(Direction::Output, None, flags, &mut params)?;
 
@@ -849,7 +878,6 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }
 
@@ -871,6 +899,7 @@ where
         connect_automatically,
         draining,
         drained: _,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -881,7 +910,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -911,9 +939,11 @@ where
         start,
         draining,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted: false,
     };
@@ -1007,6 +1037,11 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
@@ -1017,6 +1052,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -1068,6 +1104,9 @@ where
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
 
     stream.connect(Direction::Input, None, flags, &mut params)?;
 
@@ -1081,6 +1120,5 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }

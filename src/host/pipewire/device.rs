@@ -404,6 +404,10 @@ impl DeviceTrait for Device {
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
                         draining: draining_clone,
                         drained: None,
+                        is_default_device: matches!(
+                            device.class(),
+                            Class::DefaultSink | Class::DefaultInput | Class::DefaultOutput
+                        ),
                     },
                     data_callback,
                     error_callback,
@@ -428,7 +432,6 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
-                    is_default_device,
                 } = stream_data;
 
                 let default_monitor = if let Some(key) = device.default_metadata_key() {
@@ -451,7 +454,6 @@ impl DeviceTrait for Device {
                 } else {
                     None
                 };
-                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
                 let error_callback_cmd = error_callback.clone();
@@ -597,6 +599,10 @@ impl DeviceTrait for Device {
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
                         draining: draining_clone,
                         drained: Some(drained_clone),
+                        is_default_device: matches!(
+                            device.class(),
+                            Class::DefaultSink | Class::DefaultInput | Class::DefaultOutput
+                        ),
                     },
                     data_callback,
                     error_callback,
@@ -621,7 +627,6 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
-                    is_default_device,
                 } = stream_data;
 
                 let default_monitor = if let Some(key) = device.default_metadata_key() {
@@ -644,7 +649,6 @@ impl DeviceTrait for Device {
                 } else {
                     None
                 };
-                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
                 let error_callback_cmd = error_callback.clone();

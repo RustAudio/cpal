@@ -25,7 +25,6 @@ use crate::{
 
 extern crate ndk;
 use self::ndk::audio::AudioStream;
-#[cfg(feature = "realtime")]
 use crate::host::try_emit_error;
 
 mod convert;
@@ -319,6 +318,8 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
+    let error_callback_for_xrun = error_callback.clone();
+    let last_xrun_count = Arc::new(AtomicI32::new(0));
 
     let draining = Arc::new(AtomicBool::new(false));
     let draining_for_data = draining.clone();
@@ -344,6 +345,11 @@ where
                 } else {
                     rt_checked = true;
                 }
+            }
+
+            let xrun_count = stream.x_run_count();
+            if last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count {
+                let _ = try_emit_error(&error_callback_for_xrun, ErrorKind::Xrun.into());
             }
 
             let Some(n_samples) = u64::try_from(num_frames)
@@ -415,6 +421,8 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
+    let error_callback_for_xrun = error_callback.clone();
+    let last_xrun_count = Arc::new(AtomicI32::new(0));
 
     let draining = Arc::new(AtomicBool::new(false));
     let draining_for_data = draining.clone();
@@ -440,6 +448,11 @@ where
                 } else {
                     rt_checked = true;
                 }
+            }
+
+            let xrun_count = stream.x_run_count();
+            if last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count {
+                let _ = try_emit_error(&error_callback_for_xrun, ErrorKind::Xrun.into());
             }
 
             let Some(n_samples) = u64::try_from(num_frames)

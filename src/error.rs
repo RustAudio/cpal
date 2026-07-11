@@ -14,6 +14,12 @@ pub enum ErrorKind {
 
     /// The active audio route changed and the stream was automatically rerouted.
     /// The stream remains active and no rebuild is required.
+    ///
+    /// Only fires for a stream built from the default device, on backends that support following
+    /// it. A stream built from a specific device does not follow a replacement; if that device
+    /// disappears, it reports [`DeviceNotAvailable`] instead.
+    ///
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     DeviceChanged,
 
     /// The requested audio device is not available.

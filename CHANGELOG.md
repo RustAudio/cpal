@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
+- **AAudio**: Xruns are now reported as `ErrorKind::Xrun`.
+- **CoreAudio**: Xruns are now reported as `ErrorKind::Xrun`.
+- **PipeWire**: Xruns are now reported as `ErrorKind::Xrun`.
+- **WASAPI**: Capture xruns are now reported as `ErrorKind::Xrun`.
 
 ### Changed
 
@@ -33,8 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
+- **JACK**: Streams with more channels than physical system ports no longer fail to build.
+- **JACK**: Channel enumeration is no longer capped at the physical system port count.
 - **PipeWire**: Fix streams starting audio before `start()` is called.
+- **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
+- **visionOS**: The CoreAudio backend now builds.
+- **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
+- **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
 
