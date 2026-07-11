@@ -24,6 +24,7 @@ use pipewire::{
             format_utils, ParamType,
         },
         pod::{serialize::PodSerializer, Object, Pod, Value},
+        sys::{spa_io_clock, SPA_IO_Clock, SPA_IO_CLOCK_FLAG_XRUN_RECOVER},
         utils::{Direction, SpaTypes},
     },
     stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
@@ -229,6 +230,8 @@ pub struct UserData<D> {
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
+    spa_io_clock: *const spa_io_clock,
+    xrun_recovering: bool,
     #[cfg(feature = "realtime")]
     rt_promoted: bool,
 }
@@ -272,6 +275,19 @@ impl<D> UserData<D> {
             }
             StreamState::Paused | StreamState::Connecting => {}
         }
+    }
+
+    fn check_xrun(&mut self) {
+        if self.spa_io_clock.is_null() {
+            return;
+        }
+        // io_changed and process run on the same thread.
+        let flags = unsafe { (*self.spa_io_clock).flags };
+        let recovering = flags & SPA_IO_CLOCK_FLAG_XRUN_RECOVER != 0;
+        if recovering && !self.xrun_recovering {
+            let _ = try_emit_error(&self.error_callback, ErrorKind::Xrun.into());
+        }
+        self.xrun_recovering = recovering;
     }
 }
 
@@ -585,6 +601,8 @@ where
         is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted: false,
     };
@@ -677,6 +695,11 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
@@ -687,6 +710,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -833,6 +857,8 @@ where
         is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted: false,
     };
@@ -926,6 +952,11 @@ where
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
         })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
                 && try_emit_error(
@@ -936,6 +967,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {

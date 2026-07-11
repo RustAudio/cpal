@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AAudio**: Xruns are now reported as `ErrorKind::Xrun`.
+- **CoreAudio**: Xruns are now reported as `ErrorKind::Xrun`.
+- **PipeWire**: Xruns are now reported as `ErrorKind::Xrun`.
+- **WASAPI**: Capture xruns are now reported as `ErrorKind::Xrun`.
+
 ### Changed
 
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.

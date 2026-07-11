@@ -5,17 +5,17 @@ use std::sync::{
 
 use coreaudio::audio_unit::{AudioUnit, Scope};
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioDeviceID, AudioObjectID,
-    AudioObjectPropertyAddress,
+    kAudioDeviceProcessorOverload, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyNominalSampleRate, kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+    AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress,
 };
 use property_listener::AudioObjectPropertyListener;
 
 pub use self::enumerate::{default_input_device, default_output_device, Devices};
 use super::{asbd_from_config, check_os_status, host_time_to_stream_instant, OSStatus};
 use crate::{
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch, try_emit_error},
     traits::{HostTrait, StreamTrait},
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
 };
@@ -127,10 +127,11 @@ impl DisconnectManager {
         let (disconnect_tx, disconnect_rx) = mpsc::channel::<Error>();
         let (ready_tx, ready_rx) = mpsc::channel();
 
-        // Spawn a dedicated thread to own both listeners. CoreAudio requires that
+        // Spawn a dedicated thread to own all listeners. CoreAudio requires that
         // AudioObjectPropertyListeners are added and removed on the same thread.
         let disconnect_tx_alive = disconnect_tx.clone();
         let disconnect_tx_rate = disconnect_tx;
+        let error_callback_overload = error_callback.clone();
         std::thread::spawn(move || {
             let alive_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyDeviceIsAlive,
@@ -158,13 +159,24 @@ impl DisconnectManager {
                     ));
                 });
 
-            match (alive_listener, rate_listener) {
-                (Ok(_alive), Ok(_rate)) => {
+            // Overload notifications fire on the RT thread.
+            let overload_address = AudioObjectPropertyAddress {
+                mSelector: kAudioDeviceProcessorOverload,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+            let overload_listener =
+                AudioObjectPropertyListener::new(device_id, overload_address, move || {
+                    let _ = try_emit_error(&error_callback_overload, ErrorKind::Xrun.into());
+                });
+
+            match (alive_listener, rate_listener, overload_listener) {
+                (Ok(_alive), Ok(_rate), Ok(_overload)) => {
                     let _ = ready_tx.send(Ok(()));
                     // Block until the stream is dropped; listeners are removed on drop.
                     let _ = shutdown_rx.recv();
                 }
-                (Err(e), _) | (_, Err(e)) => {
+                (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
                     let _ = ready_tx.send(Err(e));
                 }
             }
