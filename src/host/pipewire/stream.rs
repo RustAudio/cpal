@@ -225,7 +225,7 @@ pub struct UserData<D> {
     format: AudioInfoRaw,
     last_quantum: Arc<AtomicU64>,
     start: Instant,
-    is_default_device: Arc<AtomicBool>,
+    is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
@@ -253,7 +253,7 @@ impl<D> UserData<D> {
             StreamState::Unconnected => {
                 // Let the metadata monitor fire for default-device streams
                 if self.has_connected
-                    && !self.is_default_device.load(Ordering::Relaxed)
+                    && !self.is_default_device
                     && !self.invalidated.swap(true, Ordering::Relaxed)
                 {
                     emit_error(
@@ -376,7 +376,6 @@ pub struct StreamData<D> {
     pub error_callback: ErrorCallbackArc,
     pub pending_device_changed: Arc<AtomicBool>,
     pub invalidated: Arc<AtomicBool>,
-    pub is_default_device: Arc<AtomicBool>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -525,6 +524,7 @@ pub struct ConnectParams {
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
     pub connect_automatically: bool,
+    pub is_default_device: bool,
 }
 
 pub fn connect_output<D, E>(
@@ -543,6 +543,7 @@ where
         last_quantum,
         start,
         connect_automatically,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -553,7 +554,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -582,7 +582,7 @@ where
         last_quantum,
         start,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
@@ -756,6 +756,9 @@ where
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
 
     stream.connect(Direction::Output, None, flags, &mut params)?;
 
@@ -769,7 +772,6 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }
 
@@ -789,6 +791,7 @@ where
         last_quantum,
         start,
         connect_automatically,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -799,7 +802,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -828,7 +830,7 @@ where
         last_quantum,
         start,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
         #[cfg(feature = "realtime")]
@@ -985,6 +987,9 @@ where
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
 
     stream.connect(Direction::Input, None, flags, &mut params)?;
 
@@ -998,6 +1003,5 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }
