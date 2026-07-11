@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
+- **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.

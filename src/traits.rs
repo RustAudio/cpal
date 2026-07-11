@@ -73,11 +73,27 @@ pub trait HostTrait {
     /// The default input audio device on the system.
     ///
     /// Returns `None` if no input device is available.
+    ///
+    /// Some backends reroute a stream built from this device to the new default device when it
+    /// changes; capture continues there, and [`ErrorKind::DeviceChanged`] is reported. Other
+    /// backends report [`ErrorKind::DeviceNotAvailable`] instead, and the caller must rebuild the
+    /// stream.
+    ///
+    /// [`ErrorKind::DeviceChanged`]: crate::ErrorKind::DeviceChanged
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     fn default_input_device(&self) -> Option<Self::Device>;
 
     /// The default output audio device on the system.
     ///
     /// Returns `None` if no output device is available.
+    ///
+    /// Some backends reroute a stream built from this device to the new default device when it
+    /// changes; playback continues there, and [`ErrorKind::DeviceChanged`] is reported. Other
+    /// backends report [`ErrorKind::DeviceNotAvailable`] instead, and the caller must rebuild the
+    /// stream.
+    ///
+    /// [`ErrorKind::DeviceChanged`]: crate::ErrorKind::DeviceChanged
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     fn default_output_device(&self) -> Option<Self::Device>;
 
     /// An iterator yielding all `Device`s currently available to the system that support one or more
