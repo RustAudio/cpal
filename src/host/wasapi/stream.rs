@@ -36,12 +36,12 @@ fn get_current_default(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
     super::device::current_default_endpoint(flow)
 }
 
-/// Fires a Windows auto-reset event when the system default audio device changes, allowing
-/// the stream run loop to deliver `ErrorKind::DeviceChanged` to the caller.
+/// Fires a Windows auto-reset event when the system default audio device changes.
 pub(crate) struct DefaultDeviceMonitor {
     enumerator: Audio::IMMDeviceEnumerator,
     client: Audio::IMMNotificationClient,
     event: Foundation::HANDLE,
+    pub(crate) flow: Audio::EDataFlow,
     pub(crate) pending_device_changed: Arc<AtomicBool>,
 }
 
@@ -77,6 +77,7 @@ impl DefaultDeviceMonitor {
             enumerator,
             client,
             event,
+            flow,
             pending_device_changed,
         })
     }
@@ -208,9 +209,8 @@ pub struct Stream {
     // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
     qpc_frequency: u64,
 
-    // Present for default-device streams; fires `ErrorKind::DeviceChanged` when the system
-    // default changes. Dropped after the run thread joins, ensuring the HANDLE is not
-    // waited on when it is closed.
+    // Present for default-device streams. Dropped after the run thread joins, ensuring the
+    // HANDLE is not waited on when it is closed.
     _default_device_monitor: Option<DefaultDeviceMonitor>,
 
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
@@ -250,9 +250,11 @@ struct RunContext {
 
     commands: Receiver<Command>,
 
-    // Set by a device-change notification callback when SetEvent fails. The audio loop delivers
-    // DeviceChanged on its next iteration.
+    // Set by a device-change notification callback when SetEvent fails.
     pending_device_changed: Option<Arc<AtomicBool>>,
+
+    // Set when this stream tracks the default device, rather than a pinned one.
+    default_device_flow: Option<Audio::EDataFlow>,
 
     // Owned here so the worker thread closes it on exit in a self-join case.
     pending_scheduled_event: Foundation::HANDLE,
@@ -338,11 +340,13 @@ impl Stream {
         let pending_device_changed = default_device_monitor
             .as_ref()
             .map(|m| m.pending_device_changed.clone());
+        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            default_device_flow,
             pending_scheduled_event,
         };
 
@@ -408,11 +412,13 @@ impl Stream {
         let pending_device_changed = default_device_monitor
             .as_ref()
             .map(|m| m.pending_device_changed.clone());
+        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            default_device_flow,
             pending_scheduled_event,
         };
 
@@ -704,6 +710,14 @@ fn boost_current_thread_priority(
     }
 }
 
+// WASAPI never rebinds the IAudioClient, so report what's actually true instead of DeviceChanged.
+fn default_device_change_error(flow: Option<Audio::EDataFlow>) -> Error {
+    match flow.and_then(get_current_default) {
+        None => ErrorKind::DeviceNotAvailable.into(),
+        Some(_) => ErrorKind::StreamInvalidated.into(),
+    }
+}
+
 fn process_commands_and_await_signal(
     run_context: &mut RunContext,
     error_callback: &ErrorCallbackArc,
@@ -722,7 +736,7 @@ fn process_commands_and_await_signal(
         if flag.swap(false, Ordering::Relaxed) {
             emit_error(
                 error_callback,
-                Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
+                default_device_change_error(run_context.default_device_flow),
             );
         }
     }
@@ -743,7 +757,7 @@ fn process_commands_and_await_signal(
     if handle_idx >= 2 {
         emit_error(
             error_callback,
-            Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
+            default_device_change_error(run_context.default_device_flow),
         );
         return ControlFlow::Continue(false);
     }
