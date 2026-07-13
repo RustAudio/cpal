@@ -196,7 +196,35 @@ pub(crate) mod error_emit;
         )
     ),
 ))]
-pub(crate) use error_emit::{emit_error, try_emit_error};
+pub(crate) use error_emit::emit_error;
+
+// Unlike `emit_error`, PulseAudio has no RT callback path and never calls this.
+#[cfg(any(
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "windows",
+    all(
+        feature = "jack",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) use error_emit::try_emit_error;
 
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(
