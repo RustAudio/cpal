@@ -449,6 +449,7 @@ impl Device {
             timestamp_mode,
             creation_ts,
             creation_instant: std::time::Instant::now(),
+            pending_xrun: AtomicBool::new(false),
             _context: self._context.clone(),
         };
 
@@ -767,6 +768,9 @@ struct StreamInner {
     // mode and last-resort fallback if the status query in now() fails.
     creation_instant: std::time::Instant,
 
+    // Xrun pending delivery to the data callback.
+    pending_xrun: AtomicBool,
+
     // Keep ALSA context alive to prevent premature ALSA config cleanup.
     _context: Arc<AlsaContext>,
 }
@@ -1000,6 +1004,7 @@ fn input_stream_worker(
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
+            Ok(Poll::Recover) => recover_input(stream),
             Ok(Poll::Ready {
                 status,
                 delay_frames,
@@ -1014,14 +1019,6 @@ fn input_stream_worker(
         };
         if let Err(err) = result {
             match err.kind() {
-                ErrorKind::Xrun => {
-                    error_callback(err);
-                    if let Err(err) = stream.handle.prepare() {
-                        error_callback(err.into());
-                    } else if let Err(err) = stream.handle.start() {
-                        error_callback(err.into());
-                    }
-                }
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
                     stream.signal_worker_exit();
@@ -1062,6 +1059,7 @@ fn output_stream_worker(
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
+            Ok(Poll::Recover) => recover_output(stream),
             Ok(Poll::Ready {
                 status,
                 delay_frames,
@@ -1076,15 +1074,6 @@ fn output_stream_worker(
         };
         if let Err(err) = result {
             match err.kind() {
-                ErrorKind::Xrun => {
-                    error_callback(err);
-                    if let Err(err) = stream.handle.prepare() {
-                        error_callback(err.into());
-                    }
-                    // No need to call start() for output streams after prepare();
-                    // ALSA automatically restarts them when the buffer is refilled
-                    // and the stream is triggered again.
-                }
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
                     stream.signal_worker_exit();
@@ -1097,13 +1086,14 @@ fn output_stream_worker(
 }
 
 /// Attempt hardware resume from a suspend event (`ESTRPIPE`).
-fn try_resume(handle: &alsa::PCM) -> Result<Poll, Error> {
+fn try_resume(stream: &StreamInner) -> Result<Poll, Error> {
+    let handle = &stream.handle;
+
     let hw_params = handle.hw_params_current()?;
     if !hw_params.can_resume() {
-        return Err(Error::with_message(
-            ErrorKind::Xrun, // treat as xrun so the worker calls prepare()
-            "Device does not support suspend/resume",
-        ));
+        // Hardware doesn't support suspend/resume: fall back to full recovery.
+        stream.pending_xrun.store(true, Ordering::Relaxed);
+        return Ok(Poll::Recover);
     }
 
     match handle.resume() {
@@ -1126,8 +1116,11 @@ fn try_resume(handle: &alsa::PCM) -> Result<Poll, Error> {
         }
         // device is still resuming; poll again until it is ready.
         Err(e) if e.errno() == libc::EAGAIN => Ok(Poll::Pending),
-        // hardware does not support soft resume; treat as xrun so the worker calls prepare()
-        Err(e) if e.errno() == libc::ENOSYS => Err(ErrorKind::Xrun.into()),
+        // hardware does not support soft resume: fall back to full recovery.
+        Err(e) if e.errno() == libc::ENOSYS => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            Ok(Poll::Recover)
+        }
         Err(e) => Err(e.into()),
     }
 }
@@ -1138,6 +1131,8 @@ enum Poll {
         status: alsa::pcm::Status,
         delay_frames: usize,
     },
+    // An xrun was detected; the worker should call prepare() (+ start() for input) and loop.
+    Recover,
 }
 
 // This block is shared between both input and output stream worker functions.
@@ -1166,10 +1161,11 @@ fn poll_for_period(
             }
             // Xrun with POLLERR missed: recover the same way the POLLERR path does.
             alsa::pcm::State::XRun => {
-                return Err(ErrorKind::Xrun.into());
+                stream.pending_xrun.store(true, Ordering::Relaxed);
+                return Ok(Poll::Recover);
             }
             // Suspend with POLLHUP/POLLERR missed: attempt hardware resume.
-            alsa::pcm::State::Suspended => return try_resume(&stream.handle),
+            alsa::pcm::State::Suspended => return try_resume(stream),
             // No events and no error state: spurious wakeup, poll again.
             _ => {}
         }
@@ -1199,9 +1195,12 @@ fn poll_for_period(
     // POLLIN/POLLOUT: data is ready, fall through to process it.
     let (avail_frames, delay_frames) = match stream.handle.avail_delay() {
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
-        Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
+        Err(err) if err.errno() == libc::EPIPE => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            return Ok(Poll::Recover);
+        }
         // Suspend: try hardware resume first; fall back to prepare() if unsupported.
-        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(&stream.handle),
+        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(stream),
         res => res,
     }?;
     // ALSA can have spurious wakeups where poll returns but avail < avail_min.
@@ -1233,6 +1232,14 @@ fn poll_for_period(
     })
 }
 
+// Full input underrun recovery: mark the xrun, then prepare + start the stream.
+fn recover_input(stream: &StreamInner) -> Result<(), Error> {
+    stream.pending_xrun.store(true, Ordering::Relaxed);
+    stream.handle.prepare()?;
+    stream.handle.start()?;
+    Ok(())
+}
+
 // Read input data from ALSA and deliver it to the user.
 fn process_input(
     stream: &StreamInner,
@@ -1251,19 +1258,18 @@ fn process_input(
             Ok(n) => frames_read += n,
             // EAGAIN = no frames available: skip this cycle if no progress was made,
             // otherwise treat as an underrun (partial period cannot be delivered safely).
-            Err(err) if err.errno() == libc::EAGAIN => {
-                if frames_read == 0 {
-                    return Ok(());
-                } else {
-                    return Err(ErrorKind::Xrun.into());
-                }
+            Err(err) if err.errno() == libc::EAGAIN && frames_read == 0 => return Ok(()),
+            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_input(stream);
             }
-            // EPIPE = xrun: full underrun recovery (prepare + start) required.
-            Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
-                return try_resume(&stream.handle).map(|_| ());
+                return match try_resume(stream)? {
+                    Poll::Recover => recover_input(stream),
+                    _ => Ok(()),
+                };
             }
             Err(err) => return Err(err.into()),
         }
@@ -1280,19 +1286,23 @@ fn process_input(
             callback: callback_instant,
             device: capture,
         };
-        data_callback(
-            &data,
-            &CallbackInfo {
-                timestamp,
-                xrun: false,
-            },
-        );
+        let xrun = stream.pending_xrun.swap(false, Ordering::Relaxed);
+        data_callback(&data, &CallbackInfo { timestamp, xrun });
     }
 
     Ok(())
 }
 
 // Request data from the user's function and write it via ALSA.
+// Full output underrun recovery: mark the xrun, then prepare the stream. No need to call
+// start(): ALSA automatically restarts output streams once the buffer is refilled and
+// triggered again.
+fn recover_output(stream: &StreamInner) -> Result<(), Error> {
+    stream.pending_xrun.store(true, Ordering::Relaxed);
+    stream.handle.prepare()?;
+    Ok(())
+}
+
 fn process_output(
     stream: &StreamInner,
     buffer: &mut [u8],
@@ -1314,13 +1324,8 @@ fn process_output(
             callback: callback_instant,
             device: playback,
         };
-        data_callback(
-            &mut data,
-            &CallbackInfo {
-                timestamp,
-                xrun: false,
-            },
-        );
+        let xrun = stream.pending_xrun.swap(false, Ordering::Relaxed);
+        data_callback(&mut data, &CallbackInfo { timestamp, xrun });
     }
 
     let mut frames_written = 0;
@@ -1334,19 +1339,18 @@ fn process_output(
             // EAGAIN = device cannot currently accept more frames: skip this cycle if no
             // progress was made, otherwise treat as an underrun (partial period cannot be
             // completed safely).
-            Err(err) if err.errno() == libc::EAGAIN => {
-                if frames_written == 0 {
-                    return Ok(());
-                } else {
-                    return Err(ErrorKind::Xrun.into());
-                }
+            Err(err) if err.errno() == libc::EAGAIN && frames_written == 0 => return Ok(()),
+            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_output(stream);
             }
-            // EPIPE = xrun: full underrun recovery (prepare) required.
-            Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
             // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
             // recovery if the hardware doesn't support it.
             Err(err) if err.errno() == libc::ESTRPIPE => {
-                return try_resume(&stream.handle).map(|_| ());
+                return match try_resume(stream)? {
+                    Poll::Recover => recover_output(stream),
+                    _ => Ok(()),
+                };
             }
             Err(err) => return Err(err.into()),
         }
@@ -1940,7 +1944,6 @@ impl From<alsa::Error> for Error {
             libc::EBUSY | libc::EAGAIN => ErrorKind::DeviceBusy.into(),
             libc::EINVAL => ErrorKind::UnsupportedConfig.into(),
             libc::ENOSYS => ErrorKind::UnsupportedOperation.into(),
-            libc::EPIPE => ErrorKind::Xrun.into(),
             _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
         }
     }
