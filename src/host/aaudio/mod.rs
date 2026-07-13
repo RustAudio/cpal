@@ -18,7 +18,7 @@ use crate::{
     DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InterfaceType, ResultExt,
     SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
-    host::{ErrorCallbackArc, emit_error},
+    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium},
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -470,7 +470,10 @@ where
             let byte_count = n_samples * sample_format.sample_size();
             // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
             unsafe {
-                std::slice::from_raw_parts_mut(data as *mut u8, byte_count).fill(0);
+                fill_equilibrium(
+                    std::slice::from_raw_parts_mut(data as *mut u8, byte_count),
+                    sample_format,
+                );
             }
 
             if !draining_for_data.load(Ordering::Relaxed) {
