@@ -4,7 +4,7 @@ extern crate num_traits;
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
         mpsc,
     },
     time::Duration,
@@ -15,11 +15,7 @@ use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, StreamTimestamp,
-    host::{
-        com,
-        error_emit::{emit_error, try_emit_error},
-        frames_to_duration,
-    },
+    host::{com, error_emit::emit_error, frames_to_duration},
 };
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
@@ -76,7 +72,7 @@ impl StreamState {
 }
 
 pub struct Stream {
-    state: Arc<AtomicU8>,
+    playback_state: Arc<AtomicU8>,
     driver: Arc<sys::Driver>,
     asio_streams: Arc<Mutex<sys::AsioStreams>>,
     callback_id: sys::BufferCallbackId,
@@ -94,12 +90,12 @@ impl Stream {
     }
 
     pub fn start(&self) -> Result<(), Error> {
-        StreamState::Playing.store(&self.state, Ordering::Relaxed);
+        StreamState::Playing.store(&self.playback_state, Ordering::Relaxed);
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), Error> {
-        StreamState::Paused.store(&self.state, Ordering::Relaxed);
+        StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
         Ok(())
     }
 
@@ -184,14 +180,16 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let pending_xrun = Arc::new(AtomicBool::new(false));
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
                 error_callback,
                 Arc::clone(&hardware_input_latency),
                 true,
-                Arc::clone(&state),
+                Arc::clone(&playback_state),
+                Arc::clone(&pending_xrun),
             )
             .inspect_err(|_| {
                 // Roll back the input stream stored by get_or_create_input_stream.
@@ -200,7 +198,8 @@ impl Device {
                 }
             })?;
 
-        let state_cb = Arc::clone(&state);
+        let playback_state_cb = Arc::clone(&playback_state);
+        let pending_xrun_cb = Arc::clone(&pending_xrun);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
@@ -212,7 +211,7 @@ impl Device {
         // This is most performance critical part of the ASIO bindings.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb, Ordering::Relaxed) != StreamState::Playing {
+            if StreamState::load(&playback_state_cb, Ordering::Relaxed) != StreamState::Playing {
                 return;
             }
 
@@ -246,6 +245,7 @@ impl Device {
             let hardware_input_latency = hardware_input_latency.load(Ordering::Relaxed) as usize;
 
             let callback_instant = time_base_cb.to_stream_instant(callback_info.system_time);
+            let xrun = pending_xrun_cb.swap(false, Ordering::Relaxed);
 
             /// 1. Write from the ASIO buffer to the interleaved CPAL buffer.
             /// 2. Deliver the CPAL buffer to the user callback.
@@ -260,6 +260,7 @@ impl Device {
                 from_endianness: F,
                 hardware_latency_frames: usize,
                 callback_instant: StreamInstant,
+                xrun: bool,
             ) where
                 A: Copy,
                 D: FnMut(&Data, &CallbackInfo) + Send + 'static,
@@ -287,6 +288,7 @@ impl Device {
                         sample_rate,
                         format,
                         hardware_latency_frames,
+                        xrun,
                     );
                 }
             }
@@ -303,6 +305,7 @@ impl Device {
                         from_le,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt16MSB, SampleFormat::I16) => {
@@ -316,6 +319,7 @@ impl Device {
                         from_be,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -330,6 +334,7 @@ impl Device {
                         from_le,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat32MSB, SampleFormat::F32) => {
@@ -343,6 +348,7 @@ impl Device {
                         from_be,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -357,6 +363,7 @@ impl Device {
                         from_le,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt32MSB, SampleFormat::I32) => {
@@ -370,6 +377,7 @@ impl Device {
                         from_be,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -384,6 +392,7 @@ impl Device {
                         from_le,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTFloat64MSB, SampleFormat::F64) => {
@@ -397,6 +406,7 @@ impl Device {
                         from_be,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -410,6 +420,7 @@ impl Device {
                         true,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (&sys::AsioSampleType::ASIOSTInt24MSB, SampleFormat::I24) => {
@@ -422,6 +433,7 @@ impl Device {
                         false,
                         hardware_input_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -445,9 +457,9 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::Paused.store(&state, Ordering::Relaxed);
+        StreamState::Paused.store(&playback_state, Ordering::Relaxed);
         Ok(Stream {
-            state,
+            playback_state,
             driver,
             asio_streams,
             callback_id,
@@ -524,14 +536,16 @@ impl Device {
                 .unwrap_or(0),
         ));
 
-        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let pending_xrun = Arc::new(AtomicBool::new(false));
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
                 error_callback,
                 Arc::clone(&hardware_output_latency),
                 false,
-                Arc::clone(&state),
+                Arc::clone(&playback_state),
+                Arc::clone(&pending_xrun),
             )
             .inspect_err(|_| {
                 // Roll back the output stream stored by get_or_create_output_stream.
@@ -540,7 +554,8 @@ impl Device {
                 }
             })?;
 
-        let state_cb = Arc::clone(&state);
+        let playback_state_cb = Arc::clone(&playback_state);
+        let pending_xrun_cb = Arc::clone(&pending_xrun);
         let asio_streams = self.asio_streams.clone();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
@@ -550,7 +565,7 @@ impl Device {
 
         let callback_id = driver.add_callback(move |callback_info| unsafe {
             // If not playing, return early.
-            if StreamState::load(&state_cb, Ordering::Relaxed) != StreamState::Playing {
+            if StreamState::load(&playback_state_cb, Ordering::Relaxed) != StreamState::Playing {
                 return;
             }
 
@@ -584,6 +599,7 @@ impl Device {
             let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed) as usize;
 
             let callback_instant = time_base_cb.to_stream_instant(callback_info.system_time);
+            let xrun = pending_xrun_cb.swap(false, Ordering::Relaxed);
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -612,6 +628,7 @@ impl Device {
                 mix_samples: F,
                 hardware_latency_frames: usize,
                 callback_instant: StreamInstant,
+                xrun: bool,
             ) where
                 A: Copy,
                 D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
@@ -626,6 +643,7 @@ impl Device {
                         sample_rate,
                         format,
                         hardware_latency_frames,
+                        xrun,
                     );
                 }
                 let n_channels = interleaved.len() / asio_stream.buffer_size as usize;
@@ -661,6 +679,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16MSB) => {
@@ -677,6 +696,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (SampleFormat::F32, &sys::AsioSampleType::ASIOSTFloat32LSB) => {
@@ -695,6 +715,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -714,6 +735,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -731,6 +753,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
                 (SampleFormat::I32, &sys::AsioSampleType::ASIOSTInt32MSB) => {
@@ -747,6 +770,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -766,6 +790,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -785,6 +810,7 @@ impl Device {
                         },
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -799,6 +825,7 @@ impl Device {
                         config.sample_rate,
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -813,6 +840,7 @@ impl Device {
                         config.sample_rate,
                         hardware_output_latency,
                         callback_instant,
+                        xrun,
                     );
                 }
 
@@ -835,9 +863,9 @@ impl Device {
             return Err(build_stream_err(e));
         }
 
-        StreamState::Paused.store(&state, Ordering::Relaxed);
+        StreamState::Paused.store(&playback_state, Ordering::Relaxed);
         Ok(Stream {
-            state,
+            playback_state,
             driver,
             asio_streams,
             callback_id,
@@ -938,7 +966,8 @@ impl Device {
         error_callback: E,
         hardware_latency: Arc<AtomicU32>,
         is_input: bool,
-        state: Arc<AtomicU8>,
+        playback_state: Arc<AtomicU8>,
+        pending_xrun: Arc<AtomicBool>,
     ) -> Result<sys::DriverEventCallbackId, Error>
     where
         E: FnMut(Error) + Send + 'static,
@@ -1011,7 +1040,9 @@ impl Device {
                     sys::AsioMessageSelectors::kAsioResetRequest => {
                         // Guard on Starting: some USB ASIO drivers (ASIO4ALL, Focusrite, etc.)
                         // fire spurious reset/resync requests during driver.start().
-                        if StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting {
+                        if StreamState::load(&playback_state, Ordering::Relaxed)
+                            != StreamState::Starting
+                        {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream reset was requested by the ASIO driver",
@@ -1023,7 +1054,9 @@ impl Device {
                         // Per the ASIO spec (and matching JUCE's behavior), kAsioResyncRequest
                         // means the driver needs a full stop/reinit/start. It is *not* a simple
                         // xrun notification.
-                        if StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting {
+                        if StreamState::load(&playback_state, Ordering::Relaxed)
+                            != StreamState::Starting
+                        {
                             let _ = timer_tx.send(Error::with_message(
                                 ErrorKind::StreamInvalidated,
                                 "Stream resynchronization was requested by the ASIO driver",
@@ -1032,9 +1065,10 @@ impl Device {
                         true
                     }
                     sys::AsioMessageSelectors::kAsioOverload => {
-                        if StreamState::load(&state, Ordering::Relaxed) == StreamState::Playing {
-                            let _ =
-                                try_emit_error(&error_callback_shared, Error::new(ErrorKind::Xrun));
+                        if StreamState::load(&playback_state, Ordering::Relaxed)
+                            == StreamState::Playing
+                        {
+                            pending_xrun.store(true, Ordering::Relaxed);
                         }
                         true
                     }
@@ -1076,7 +1110,8 @@ impl Device {
                         }
                     };
                     if should_notify
-                        && StreamState::load(&state, Ordering::Relaxed) != StreamState::Starting
+                        && StreamState::load(&playback_state, Ordering::Relaxed)
+                            != StreamState::Starting
                     {
                         let _ = timer_tx.send(Error::with_message(
                             ErrorKind::StreamInvalidated,
@@ -1287,6 +1322,7 @@ unsafe fn process_output_callback_i24<D>(
     sample_rate: SampleRate,
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
+    xrun: bool,
 ) where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
 {
@@ -1300,6 +1336,7 @@ unsafe fn process_output_callback_i24<D>(
             sample_rate,
             format,
             hardware_latency_frames,
+            xrun,
         );
     }
 
@@ -1363,6 +1400,7 @@ unsafe fn process_input_callback_i24<D>(
     little_endian: bool,
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
+    xrun: bool,
 ) where
     D: FnMut(&Data, &CallbackInfo) + Send + 'static,
 {
@@ -1405,6 +1443,7 @@ unsafe fn process_input_callback_i24<D>(
             sample_rate,
             format,
             hardware_latency_frames,
+            xrun,
         );
     }
 }
@@ -1418,6 +1457,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
     sample_rate: SampleRate,
     sample_format: SampleFormat,
     hardware_latency_frames: usize,
+    xrun: bool,
 ) where
     A: Copy,
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
@@ -1435,10 +1475,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
         callback: callback_instant,
         device: playback,
     };
-    let info = CallbackInfo {
-        timestamp,
-        xrun: false,
-    };
+    let info = CallbackInfo { timestamp, xrun };
     data_callback(&mut data, &info);
 }
 
@@ -1451,6 +1488,7 @@ unsafe fn apply_input_callback_to_data<A, D>(
     sample_rate: SampleRate,
     format: SampleFormat,
     hardware_latency_frames: usize,
+    xrun: bool,
 ) where
     A: Copy,
     D: FnMut(&Data, &CallbackInfo) + Send + 'static,
@@ -1470,9 +1508,6 @@ unsafe fn apply_input_callback_to_data<A, D>(
         callback: callback_instant,
         device: capture,
     };
-    let info = CallbackInfo {
-        timestamp,
-        xrun: false,
-    };
+    let info = CallbackInfo { timestamp, xrun };
     data_callback(&data, &info);
 }
