@@ -30,16 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Breaking: `ErrorKind::Xrun` (see UPGRADING.md).
 
-### Fixed
-
-- **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
-- **CoreAudio**: Default-output streams now report xrun status.
-- **CoreAudio**: Fix stale audio output when a data callback wrote a partial buffer.
-- **PipeWire**: Fix streams starting audio before `start()` is called.
-- **PulseAudio**: `NoData` errors are no longer misreported as buffer xruns.
-- **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
-- **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
-
 ## [Unreleased] (v0.18.2)
 
 ### Added
@@ -60,13 +50,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
+- **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
+- **AudioWorklet**: Fix stale audio output when a data callback wrote a partial buffer.
+- **CoreAudio**: Default-output streams now report xrun status.
+- **CoreAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **JACK**: Streams with more channels than physical system ports no longer fail to build.
 - **JACK**: Channel enumeration is no longer capped at the physical system port count.
+- **PipeWire**: Fix streams starting audio before `play()` is called.
 - **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
+- **PulseAudio**: `NoData` errors are no longer misreported as buffer xruns.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
+- **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
+- **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
+- **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
 
 ## [0.18.1] - 2026-06-07
 
