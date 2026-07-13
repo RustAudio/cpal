@@ -276,8 +276,8 @@ impl LocalProcessHandler {
         state: Arc<AtomicU8>,
         #[cfg(feature = "realtime")] error_callback: ErrorCallbackArc,
     ) -> Self {
-        let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
-        let temp_output_buffer = vec![0.0; out_ports.len() * buffer_size];
+        let temp_input_buffer = vec![f32::EQUILIBRIUM; in_ports.len() * buffer_size];
+        let temp_output_buffer = vec![f32::EQUILIBRIUM; out_ports.len() * buffer_size];
 
         Self {
             out_ports,
@@ -494,8 +494,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
         let new_size = size as usize;
         if new_size != self.buffer_size {
             self.buffer_size = new_size;
-            self.temp_input_buffer = vec![0.0; self.in_ports.len() * new_size];
-            self.temp_output_buffer = vec![0.0; self.out_ports.len() * new_size];
+            self.temp_input_buffer = vec![f32::EQUILIBRIUM; self.in_ports.len() * new_size];
+            self.temp_output_buffer = vec![f32::EQUILIBRIUM; self.out_ports.len() * new_size];
         }
 
         jack::Control::Continue

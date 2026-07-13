@@ -579,7 +579,7 @@ impl WasmAudioProcessor {
         let interleaved_buffer_size = channels as usize * frame_size;
         self.interleaved_buffer.resize(
             interleaved_buffer_size.max(self.interleaved_buffer.len()),
-            0.0,
+            f32::EQUILIBRIUM,
         );
 
         self.interleaved_buffer[..interleaved_buffer_size].fill(f32::EQUILIBRIUM);

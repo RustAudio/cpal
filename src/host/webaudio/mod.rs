@@ -392,8 +392,8 @@ impl DeviceTrait for Device {
             let current_time_bits_handle = current_time_bits.clone();
 
             // A set of temporary buffers to be used for intermediate sample transformation steps.
-            let mut temporary_buffer = vec![0f32; buffer_size_samples];
-            let mut temporary_channel_buffer = vec![0f32; buffer_size_frames];
+            let mut temporary_buffer = vec![f32::EQUILIBRIUM; buffer_size_samples];
+            let mut temporary_channel_buffer = vec![f32::EQUILIBRIUM; buffer_size_frames];
 
             #[cfg(target_feature = "atomics")]
             let temporary_channel_array_view: js_sys::Float32Array;
