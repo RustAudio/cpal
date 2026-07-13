@@ -94,7 +94,6 @@ impl From<pulseaudio::ClientError> for Error {
                 ConnectionTerminated | Killed | Protocol | BadState | Io => {
                     ErrorKind::StreamInvalidated
                 }
-                NoData => ErrorKind::Xrun,
                 _ => ErrorKind::BackendError,
             }
         }
