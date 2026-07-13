@@ -13,8 +13,8 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp,
+    BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,
+    SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
     host::{com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration},
 };
 
@@ -630,7 +630,7 @@ impl Device {
                 callback_instant: StreamInstant,
                 xrun: bool,
             ) where
-                A: Copy,
+                A: Copy + Sample,
                 D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
                 F: Fn(A, A) -> A,
             {
@@ -655,7 +655,7 @@ impl Device {
                         asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix, None)
                     };
                     if silence_asio_buffer {
-                        unsafe { asio_channel.align_to_mut::<u8>() }.1.fill(0);
+                        asio_channel.fill(A::EQUILIBRIUM);
                     }
                     for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
                         *s_asio = mix_samples(*s_asio, frame[ch_ix]);
@@ -1358,7 +1358,7 @@ unsafe fn process_output_callback_i24<D>(
         };
 
         if silence_asio_buffer {
-            unsafe { asio_channel.align_to_mut::<u8>() }.1.fill(0);
+            fill_equilibrium(asio_channel, format);
         }
 
         // Fill in every channel from the interleaved vector
