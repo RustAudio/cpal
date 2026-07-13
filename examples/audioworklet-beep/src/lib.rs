@@ -80,7 +80,7 @@ where
     };
 
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             console::log_1(&format!("{err}").into())
         }
         _ => console::error_1(&format!("Stream error: {err}").into()),

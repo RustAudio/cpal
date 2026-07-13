@@ -94,9 +94,7 @@ pub fn run_example() -> Result<(), anyhow::Error> {
 
 fn err_fn(err: Error) {
     match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
-            eprintln!("{err}")
-        }
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => eprintln!("{err}"),
         _ => eprintln!("Stream error: {err}"),
     }
 }

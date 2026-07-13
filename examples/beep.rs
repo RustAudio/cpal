@@ -135,7 +135,7 @@ where
     };
 
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             eprintln!("{err}")
         }
         _ => eprintln!("Stream error: {err}"),
