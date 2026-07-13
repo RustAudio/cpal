@@ -61,20 +61,21 @@ impl HostTrait for Host {
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = dyn FnMut(Error) + Send;
 
-/// Spawns a dedicated thread that registers a single property listener and signals a channel on
-/// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
-fn spawn_property_listener_thread(
+/// Spawns a dedicated thread that registers a single property listener, calling `on_change` on
+/// each firing. The listener is deregistered when the returned `Sender<()>` is dropped.
+fn spawn_property_listener_thread<F>(
     object_id: AudioObjectID,
     address: AudioObjectPropertyAddress,
-) -> Result<(mpsc::Receiver<()>, mpsc::Sender<()>), Error> {
+    on_change: F,
+) -> Result<mpsc::Sender<()>, Error>
+where
+    F: FnMut() + Send + 'static,
+{
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
-    let (change_tx, change_rx) = mpsc::channel::<()>();
     let (ready_tx, ready_rx) = mpsc::channel();
 
     std::thread::spawn(move || {
-        let listener = AudioObjectPropertyListener::new(object_id, address, move || {
-            let _ = change_tx.send(());
-        });
+        let listener = AudioObjectPropertyListener::new(object_id, address, on_change);
         match listener {
             Ok(_l) => {
                 let _ = ready_tx.send(Ok(()));
@@ -93,7 +94,27 @@ fn spawn_property_listener_thread(
         )
     })??;
 
-    Ok((change_rx, shutdown_tx))
+    Ok(shutdown_tx)
+}
+
+/// Registers a `kAudioDeviceProcessorOverload` listener on `device_id`, reporting `Xrun` through
+/// `error_callback` on each firing (overload notifications fire on the RT thread).
+fn spawn_overload_listener(
+    device_id: AudioDeviceID,
+    error_callback: &Arc<Mutex<ErrorCallback>>,
+) -> Result<mpsc::Sender<()>, Error> {
+    let error_callback = error_callback.clone();
+    spawn_property_listener_thread(
+        device_id,
+        AudioObjectPropertyAddress {
+            mSelector: kAudioDeviceProcessorOverload,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        },
+        move || {
+            let _ = try_emit_error(&error_callback, ErrorKind::Xrun.into());
+        },
+    )
 }
 
 /// A device monitor that can signal when the owning `Stream` handle has been returned to the
@@ -247,14 +268,26 @@ impl DefaultOutputMonitor {
         error_callback: Arc<Mutex<ErrorCallback>>,
         latency_refresh: Option<(Arc<AtomicUsize>, Scope)>,
     ) -> Result<Self, Error> {
-        let (change_rx, shutdown_tx) = spawn_property_listener_thread(
+        let (change_tx, change_rx) = mpsc::channel::<()>();
+        let shutdown_tx = spawn_property_listener_thread(
             kAudioObjectSystemObject as AudioObjectID,
             AudioObjectPropertyAddress {
                 mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain,
             },
+            move || {
+                let _ = change_tx.send(());
+            },
         )?;
+
+        // The overload (xrun) listener targets a specific device, so it must be re-registered
+        // against whatever device is current whenever the default output reroutes. Held only to
+        // shut down the previous listener thread on drop when reassigned below.
+        let overload_error_callback = error_callback.clone();
+        let mut _overload_shutdown_tx = default_output_device()
+            .map(|device| spawn_overload_listener(device.audio_device_id, &overload_error_callback))
+            .transpose()?;
 
         let mut latch = Latch::new();
         let waiter = latch.waiter();
@@ -269,41 +302,51 @@ impl DefaultOutputMonitor {
                     let Some(stream) = stream_weak.upgrade() else {
                         break;
                     };
-                    if default_output_device().is_none() {
-                        if let Ok(mut inner) = stream.try_lock() {
-                            let _ = inner.pause();
-                        }
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
-                                "no default output device",
-                            ),
-                        );
-                    } else {
-                        // DefaultOutput AudioUnit rerouted automatically: recompute and notify
-                        // the buffer depth for the new device.
-                        if let Some((frames, scope)) = &latency_refresh {
-                            if let Ok(inner) = stream.lock() {
-                                let depth = device::get_device_buffer_frame_size(&inner.audio_unit)
-                                    .ok()
-                                    .map_or(0, |buffer| {
-                                        buffer
-                                            + device::get_device_extra_latency_frames(
-                                                &inner.audio_unit,
-                                                *scope,
-                                            )
-                                    });
-                                frames.store(depth, Ordering::Relaxed);
+                    match default_output_device() {
+                        None => {
+                            _overload_shutdown_tx = None;
+                            if let Ok(mut inner) = stream.try_lock() {
+                                let _ = inner.pause();
                             }
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::DeviceNotAvailable,
+                                    "no default output device",
+                                ),
+                            );
                         }
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::DeviceChanged,
-                                "default output device changed",
-                            ),
-                        );
+                        Some(device) => {
+                            // DefaultOutput AudioUnit rerouted automatically: recompute and notify
+                            // the buffer depth for the new device.
+                            if let Some((frames, scope)) = &latency_refresh {
+                                if let Ok(inner) = stream.lock() {
+                                    let depth =
+                                        device::get_device_buffer_frame_size(&inner.audio_unit)
+                                            .ok()
+                                            .map_or(0, |buffer| {
+                                                buffer
+                                                    + device::get_device_extra_latency_frames(
+                                                        &inner.audio_unit,
+                                                        *scope,
+                                                    )
+                                            });
+                                    frames.store(depth, Ordering::Relaxed);
+                                }
+                            }
+                            _overload_shutdown_tx = spawn_overload_listener(
+                                device.audio_device_id,
+                                &overload_error_callback,
+                            )
+                            .ok();
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::DeviceChanged,
+                                    "default output device changed",
+                                ),
+                            );
+                        }
                     }
                 }
             })
