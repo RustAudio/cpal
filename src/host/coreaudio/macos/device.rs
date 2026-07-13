@@ -754,6 +754,8 @@ impl Device {
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_disconnect = error_callback.clone();
+        let pending_xrun = Arc::new(AtomicBool::new(false));
+        let pending_xrun_overload = pending_xrun.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
@@ -795,13 +797,8 @@ impl Device {
                     callback,
                     device: capture,
                 };
-                data_callback(
-                    &data,
-                    &CallbackInfo {
-                        timestamp,
-                        xrun: false,
-                    },
-                );
+                let xrun = pending_xrun.swap(false, Ordering::Relaxed);
+                data_callback(&data, &CallbackInfo { timestamp, xrun });
             }
             Ok(())
         })?;
@@ -821,6 +818,7 @@ impl Device {
             self.audio_device_id,
             weak_inner,
             error_callback_disconnect,
+            pending_xrun_overload,
         )?);
         let stream = Stream::new(inner_arc, monitor, draining, Duration::ZERO);
         stream.signal_ready();
@@ -882,6 +880,8 @@ impl Device {
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let error_callback_for_render = error_callback.clone();
+        let pending_xrun = Arc::new(AtomicBool::new(false));
+        let pending_xrun_overload = pending_xrun.clone();
 
         // Register the callback that is being called by coreaudio whenever it needs data to be
         // fed to the audio buffer.
@@ -943,11 +943,9 @@ impl Device {
                 callback,
                 device: playback,
             };
+            let xrun = pending_xrun.swap(false, Ordering::Relaxed);
 
-            let info = CallbackInfo {
-                timestamp,
-                xrun: false,
-            };
+            let info = CallbackInfo { timestamp, xrun };
             data_callback(&mut data, &info);
             Ok(())
         })?;
@@ -969,12 +967,14 @@ impl Device {
                 weak_inner,
                 error_callback,
                 Some((latency_frames, Scope::Output)),
+                pending_xrun_overload,
             )?)
         } else {
             Box::new(DisconnectManager::new(
                 self.audio_device_id,
                 weak_inner,
                 error_callback,
+                pending_xrun_overload,
             )?)
         };
         let stream = Stream::new(inner_arc, monitor, draining, drain_window);

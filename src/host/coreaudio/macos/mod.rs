@@ -20,7 +20,7 @@ pub use self::enumerate::{Devices, default_input_device, default_output_device};
 use super::{OSStatus, asbd_from_config, check_os_status, host_time_to_stream_instant};
 use crate::{
     Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch, try_emit_error},
+    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
     traits::{HostTrait, StreamTrait},
 };
 
@@ -65,20 +65,21 @@ impl HostTrait for Host {
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = dyn FnMut(Error) + Send;
 
-/// Spawns a dedicated thread that registers a single property listener and signals a channel on
-/// each change. The listener is deregistered when the returned `Sender<()>` is dropped.
-fn spawn_property_listener_thread(
+/// Spawns a dedicated thread that registers a single property listener, calling `on_change` on
+/// each firing. The listener is deregistered when the returned `Sender<()>` is dropped.
+fn spawn_property_listener_thread<F>(
     object_id: AudioObjectID,
     address: AudioObjectPropertyAddress,
-) -> Result<(mpsc::Receiver<()>, mpsc::Sender<()>), Error> {
+    on_change: F,
+) -> Result<mpsc::Sender<()>, Error>
+where
+    F: FnMut() + Send + 'static,
+{
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
-    let (change_tx, change_rx) = mpsc::channel::<()>();
     let (ready_tx, ready_rx) = mpsc::channel();
 
     std::thread::spawn(move || {
-        let listener = AudioObjectPropertyListener::new(object_id, address, move || {
-            let _ = change_tx.send(());
-        });
+        let listener = AudioObjectPropertyListener::new(object_id, address, on_change);
         match listener {
             Ok(_l) => {
                 let _ = ready_tx.send(Ok(()));
@@ -97,7 +98,7 @@ fn spawn_property_listener_thread(
         )
     })??;
 
-    Ok((change_rx, shutdown_tx))
+    Ok(shutdown_tx)
 }
 
 /// A device monitor that can signal when the owning `Stream` handle has been returned to the
@@ -126,6 +127,7 @@ impl DisconnectManager {
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
+        pending_xrun: Arc<AtomicBool>,
     ) -> Result<Self, Error> {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let (disconnect_tx, disconnect_rx) = mpsc::channel::<Error>();
@@ -135,7 +137,6 @@ impl DisconnectManager {
         // AudioObjectPropertyListeners are added and removed on the same thread.
         let disconnect_tx_alive = disconnect_tx.clone();
         let disconnect_tx_rate = disconnect_tx;
-        let error_callback_overload = error_callback.clone();
         std::thread::spawn(move || {
             let alive_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyDeviceIsAlive,
@@ -171,7 +172,7 @@ impl DisconnectManager {
             };
             let overload_listener =
                 AudioObjectPropertyListener::new(device_id, overload_address, move || {
-                    let _ = try_emit_error(&error_callback_overload, ErrorKind::Xrun.into());
+                    pending_xrun.store(true, Ordering::Relaxed);
                 });
 
             match (alive_listener, rate_listener, overload_listener) {
@@ -250,15 +251,41 @@ impl DefaultOutputMonitor {
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
         latency_refresh: Option<(Arc<AtomicUsize>, Scope)>,
+        pending_xrun: Arc<AtomicBool>,
     ) -> Result<Self, Error> {
-        let (change_rx, shutdown_tx) = spawn_property_listener_thread(
+        let (change_tx, change_rx) = mpsc::channel::<()>();
+        let shutdown_tx = spawn_property_listener_thread(
             kAudioObjectSystemObject as AudioObjectID,
             AudioObjectPropertyAddress {
                 mSelector: kAudioHardwarePropertyDefaultOutputDevice,
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain,
             },
+            move || {
+                let _ = change_tx.send(());
+            },
         )?;
+
+        // The overload listener targets a specific device, so it must be re-registered against
+        // whatever device is current whenever the default output reroutes.
+        // Held only to shut down the previous listener thread on drop when reassigned below.
+        let mut _overload_shutdown_tx = match default_output_device() {
+            Some(device) => Some(spawn_property_listener_thread(
+                device.audio_device_id,
+                AudioObjectPropertyAddress {
+                    mSelector: kAudioDeviceProcessorOverload,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain,
+                },
+                {
+                    let pending_xrun = pending_xrun.clone();
+                    move || {
+                        pending_xrun.store(true, Ordering::Relaxed);
+                    }
+                },
+            )?),
+            None => None,
+        };
 
         let mut latch = Latch::new();
         let waiter = latch.waiter();
@@ -273,41 +300,61 @@ impl DefaultOutputMonitor {
                     let Some(stream) = stream_weak.upgrade() else {
                         break;
                     };
-                    if default_output_device().is_none() {
-                        if let Ok(mut inner) = stream.try_lock() {
-                            let _ = inner.pause();
-                        }
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
-                                "no default output device",
-                            ),
-                        );
-                    } else {
-                        // DefaultOutput AudioUnit rerouted automatically: recompute and notify
-                        // the buffer depth for the new device.
-                        if let Some((frames, scope)) = &latency_refresh {
-                            if let Ok(inner) = stream.lock() {
-                                let depth = device::get_device_buffer_frame_size(&inner.audio_unit)
-                                    .ok()
-                                    .map_or(0, |buffer| {
-                                        buffer
-                                            + device::get_device_extra_latency_frames(
-                                                &inner.audio_unit,
-                                                *scope,
-                                            )
-                                    });
-                                frames.store(depth, Ordering::Relaxed);
+                    match default_output_device() {
+                        None => {
+                            _overload_shutdown_tx = None;
+                            if let Ok(mut inner) = stream.try_lock() {
+                                let _ = inner.pause();
                             }
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::DeviceNotAvailable,
+                                    "no default output device",
+                                ),
+                            );
                         }
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::DeviceChanged,
-                                "default output device changed",
-                            ),
-                        );
+                        Some(device) => {
+                            // DefaultOutput AudioUnit rerouted automatically: recompute and notify
+                            // the buffer depth for the new device.
+                            if let Some((frames, scope)) = &latency_refresh {
+                                if let Ok(inner) = stream.lock() {
+                                    let depth =
+                                        device::get_device_buffer_frame_size(&inner.audio_unit)
+                                            .ok()
+                                            .map_or(0, |buffer| {
+                                                buffer
+                                                    + device::get_device_extra_latency_frames(
+                                                        &inner.audio_unit,
+                                                        *scope,
+                                                    )
+                                            });
+                                    frames.store(depth, Ordering::Relaxed);
+                                }
+                            }
+                            _overload_shutdown_tx = spawn_property_listener_thread(
+                                device.audio_device_id,
+                                AudioObjectPropertyAddress {
+                                    mSelector: kAudioDeviceProcessorOverload,
+                                    mScope: kAudioObjectPropertyScopeGlobal,
+                                    mElement: kAudioObjectPropertyElementMain,
+                                },
+                                {
+                                    let pending_xrun = pending_xrun.clone();
+                                    move || {
+                                        pending_xrun.store(true, Ordering::Relaxed);
+                                    }
+                                },
+                            )
+                            .ok();
+                            emit_error(
+                                &error_callback,
+                                Error::with_message(
+                                    ErrorKind::DeviceChanged,
+                                    "default output device changed",
+                                ),
+                            );
+                        }
                     }
                 }
             })
