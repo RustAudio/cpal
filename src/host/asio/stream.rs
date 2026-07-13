@@ -14,6 +14,7 @@ use super::Device;
 use crate::{
     host::{
         com,
+        equilibrium::fill_equilibrium,
         error_emit::{emit_error, try_emit_error},
         frames_to_duration,
     },
@@ -644,7 +645,7 @@ impl Device {
                 }
             }
 
-            interleaved.fill(0);
+            fill_equilibrium(&mut interleaved, sample_format);
             match (sample_format, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
                     process_output_callback::<i16, _, _>(
