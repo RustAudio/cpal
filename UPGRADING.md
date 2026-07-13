@@ -8,6 +8,9 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Remove any calls to the deprecated `assert_stream_send!` and `assert_stream_sync!` macros.
 - [ ] Rename `StreamTrait::play` calls to `start` (the old name still works but is deprecated).
 - [ ] If you implement a custom host, add a `StreamTrait::stop` implementation.
+- [ ] Replace `InputCallbackInfo`/`OutputCallbackInfo` with `CallbackInfo`.
+- [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
+- [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -35,6 +38,59 @@ Draining is best-effort and varies by backend: most built-in output backends res
 
 [`start`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.start
 [`stop`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.stop
+
+## 3. `InputCallbackInfo`/`OutputCallbackInfo` and timestamp types merged
+
+**What changed:** `InputCallbackInfo` and `OutputCallbackInfo` are replaced by a single [`CallbackInfo`]. `InputStreamTimestamp` and `OutputStreamTimestamp` are replaced by a single [`StreamTimestamp`]; its `capture`/`playback` field is renamed `device`.
+
+```rust
+// Before (v0.18)
+let data_fn = move |data: &mut [f32], info: &OutputCallbackInfo| {
+    let playback = info.timestamp().playback;
+    // ...
+};
+
+// After (v0.19)
+let data_fn = move |data: &mut [f32], info: &CallbackInfo| {
+    let playback = info.timestamp().device;
+    // ...
+};
+```
+
+**Impact:** Update data callback signatures to `&CallbackInfo`, and `.playback`/`.capture` reads to `.device`. The type system still stops you from wiring an output closure to an input stream: `build_output_stream` requires `&mut Data`, `build_input_stream` requires `&Data`.
+
+**Why:** The two structs were identical in shape, distinguished only by name.
+
+[`CallbackInfo`]: https://docs.rs/cpal/latest/cpal/struct.CallbackInfo.html
+[`StreamTimestamp`]: https://docs.rs/cpal/latest/cpal/struct.StreamTimestamp.html
+
+## 4. Buffer over/underrun reported via `CallbackInfo::xrun()`, not `ErrorKind::Xrun`
+
+**What changed:** `ErrorKind::Xrun` is removed. Buffer overruns and underruns are now reported through the data callback's info struct instead of `error_callback`, via [`CallbackInfo::xrun()`].
+
+```rust
+// Before (v0.18): delivered asynchronously through error_callback
+let err_fn = |err: Error| match err.kind() {
+    ErrorKind::Xrun => eprintln!("xrun"),
+    _ => eprintln!("Stream error: {err}"),
+};
+
+// After (v0.19): delivered with the data callback, tied to the affected block of samples
+let data_fn = move |data: &mut [f32], info: &CallbackInfo| {
+    if info.xrun() {
+        eprintln!("underrun");
+    }
+    // ...
+};
+```
+
+**Impact:** Remove `ErrorKind::Xrun` from `error_callback` match arms. Read `info.xrun()` in the data callback instead.
+
+**Why:** `error_callback` has no ordering guarantee relative to the data callback. On several hosts the xrun notification arrives through a separate system-level callback entirely. An engine that needs to know exactly which block of samples was affected by a glitch, e.g. to skip forward and stay in sync with something else running in real time, needs that information delivered alongside the data itself.
+
+Ordering of `xrun()` relative to the glitch it reports varies by host; see [`CallbackInfo`]'s docs for the per-host table. WASAPI render and iOS have no xrun signal at all, so `xrun()` is always `false` there.
+
+[`CallbackInfo::xrun()`]: https://docs.rs/cpal/latest/cpal/struct.CallbackInfo.html#method.xrun
 
 ---
 
