@@ -10,7 +10,8 @@ use std::{
 
 use clap::Parser;
 use cpal::{
-    Error, ErrorKind, FromSample, HostId, Sample, SampleFormat, SupportedStreamConfig,
+    CallbackInfo, Error, ErrorKind, FromSample, HostId, Sample, SampleFormat,
+    SupportedStreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -130,25 +131,37 @@ fn main() -> Result<(), anyhow::Error> {
     let stream = match config.sample_format() {
         SampleFormat::I8 => device.build_input_stream(
             config.into(),
-            move |data, _: &_| write_input_data::<i8, i8>(data, &writer_2),
+            move |data, info: &CallbackInfo| {
+                warn_on_xrun(info);
+                write_input_data::<i8, i8>(data, &writer_2)
+            },
             err_fn,
             None,
         )?,
         SampleFormat::I16 => device.build_input_stream(
             config.into(),
-            move |data, _: &_| write_input_data::<i16, i16>(data, &writer_2),
+            move |data, info: &CallbackInfo| {
+                warn_on_xrun(info);
+                write_input_data::<i16, i16>(data, &writer_2)
+            },
             err_fn,
             None,
         )?,
         SampleFormat::I32 => device.build_input_stream(
             config.into(),
-            move |data, _: &_| write_input_data::<i32, i32>(data, &writer_2),
+            move |data, info: &CallbackInfo| {
+                warn_on_xrun(info);
+                write_input_data::<i32, i32>(data, &writer_2)
+            },
             err_fn,
             None,
         )?,
         SampleFormat::F32 => device.build_input_stream(
             config.into(),
-            move |data, _: &_| write_input_data::<f32, f32>(data, &writer_2),
+            move |data, info: &CallbackInfo| {
+                warn_on_xrun(info);
+                write_input_data::<f32, f32>(data, &writer_2)
+            },
             err_fn,
             None,
         )?,
@@ -189,6 +202,12 @@ fn wav_spec_from_config(config: &SupportedStreamConfig) -> hound::WavSpec {
 }
 
 type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
+
+fn warn_on_xrun(info: &CallbackInfo) {
+    if info.xrun() {
+        eprintln!("input overrun: recording has a gap");
+    }
+}
 
 fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
 where
