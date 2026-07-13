@@ -208,7 +208,35 @@ pub(crate) mod error_emit;
         )
     ),
 ))]
-pub(crate) use error_emit::{emit_error, try_emit_error};
+pub(crate) use error_emit::emit_error;
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "android",
+    all(target_os = "windows", feature = "asio"),
+    all(
+        feature = "jack",
+        feature = "realtime",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "macos",
+            target_os = "windows",
+        )
+    ),
+    all(
+        feature = "pipewire",
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ),
+))]
+pub(crate) use error_emit::try_emit_error;
 
 /// Convert a frame count at a given sample rate to a [`std::time::Duration`].
 #[cfg(any(
