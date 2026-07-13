@@ -15,7 +15,7 @@ use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, StreamTimestamp,
-    host::{com, error_emit::emit_error, frames_to_duration},
+    host::{com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration},
 };
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
@@ -663,7 +663,7 @@ impl Device {
                 }
             }
 
-            interleaved.fill(0);
+            fill_equilibrium(&mut interleaved, sample_format);
             match (sample_format, &stream_type) {
                 (SampleFormat::I16, &sys::AsioSampleType::ASIOSTInt16LSB) => {
                     process_output_callback::<i16, _, _>(
