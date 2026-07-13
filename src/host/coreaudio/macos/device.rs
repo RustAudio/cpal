@@ -46,6 +46,7 @@ use super::{
 use crate::{
     host::{
         coreaudio::macos::{loopback::LoopbackDevice, StreamInner},
+        equilibrium::fill_equilibrium,
         frames_to_duration, try_emit_error, ErrorCallbackArc,
     },
     traits::DeviceTrait,
@@ -896,6 +897,10 @@ impl Device {
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;
+
+            let bytes = std::slice::from_raw_parts_mut(data as *mut u8, data_byte_size as usize);
+            fill_equilibrium(bytes, sample_format);
+
             let mut data = Data::from_parts(data, len, sample_format);
 
             let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {

@@ -24,7 +24,10 @@ use self::enumerate::{
 };
 use super::{asbd_from_config, host_time_to_stream_instant};
 use crate::{
-    host::{frames_to_duration, latch::Latch, try_emit_error, ErrorCallbackArc},
+    host::{
+        equilibrium::fill_equilibrium, frames_to_duration, latch::Latch, try_emit_error,
+        ErrorCallbackArc,
+    },
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
     ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
@@ -623,6 +626,16 @@ where
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
         let (buffer, mut data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, false) };
+
+        if !buffer.mData.is_null() {
+            let bytes = unsafe {
+                std::slice::from_raw_parts_mut(
+                    buffer.mData as *mut u8,
+                    buffer.mDataByteSize as usize,
+                )
+            };
+            fill_equilibrium(bytes, sample_format);
+        }
 
         let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
