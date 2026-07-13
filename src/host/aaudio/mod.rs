@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    host::{emit_error, ErrorCallbackArc},
+    host::{emit_error, equilibrium::fill_equilibrium, ErrorCallbackArc},
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
@@ -470,7 +470,10 @@ where
             let byte_count = n_samples * sample_format.sample_size();
             // SAFETY: `data` is the buffer pointer provided by AAudio for this callback.
             unsafe {
-                std::slice::from_raw_parts_mut(data as *mut u8, byte_count).fill(0);
+                fill_equilibrium(
+                    std::slice::from_raw_parts_mut(data as *mut u8, byte_count),
+                    sample_format,
+                );
             }
 
             // Deliver audio data to user callback

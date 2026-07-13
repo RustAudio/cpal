@@ -5,6 +5,7 @@
     target_os = "netbsd",
     target_os = "windows",
     target_vendor = "apple",
+    target_os = "android",
 ))]
 pub(crate) mod equilibrium;
 
