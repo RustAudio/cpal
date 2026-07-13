@@ -79,7 +79,12 @@ pulseaudio = ["dep:pulseaudio", "dep:futures"]
 # Required for any WebAssembly audio support
 # Platform: WebAssembly (wasm32-unknown-unknown)
 # Note: This is typically enabled automatically when targeting wasm32
-wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+wasm-bindgen = [
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:futures-channel",
+    "dep:futures-util",
+]
 
 [dependencies]
 dasp_sample = "0.11"
@@ -174,6 +179,10 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+futures-channel = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true, features = [
+    "alloc",
+] }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
     "AudioContext",
