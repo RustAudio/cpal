@@ -72,7 +72,7 @@
 //! # let config = device.default_output_config().unwrap().into();
 //! let stream = device.build_output_stream(
 //!     config,
-//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+//!     move |data: &mut [f32], _: &cpal::CallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -116,7 +116,7 @@
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
+//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::CallbackInfo) {
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::EQUILIBRIUM;
 //!     }
@@ -133,7 +133,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.start().unwrap();
@@ -156,7 +156,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.start().unwrap();
@@ -172,7 +172,7 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
 //! stream.start().unwrap();
@@ -551,10 +551,7 @@ pub struct Data {
 }
 
 pub use duplex::{DuplexCallbackInfo, DuplexStreamConfig};
-pub use timestamp::{
-    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    StreamInstant,
-};
+pub use timestamp::{CallbackInfo, StreamInstant, StreamTimestamp};
 
 impl SupportedStreamConfig {
     pub fn new(

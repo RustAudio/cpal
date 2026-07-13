@@ -7,7 +7,7 @@ extern crate clap;
 extern crate cpal;
 
 use cpal::{
-    Device, Error, ErrorKind, FromSample, Host, I24, OutputCallbackInfo, Sample, SampleFormat,
+    CallbackInfo, Device, Error, ErrorKind, FromSample, Host, I24, Sample, SampleFormat,
     SizedSample, Stream, StreamConfig, SupportedStreamConfig, U24,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -151,7 +151,7 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |output: &mut [T], _: &OutputCallbackInfo| {
+        move |output: &mut [T], _: &CallbackInfo| {
             // for 0-1s play sine, 1-2s play square, 2-3s play saw, 3-4s play triangle_wave
             let time_since_start = std::time::Instant::now()
                 .duration_since(time_at_start)

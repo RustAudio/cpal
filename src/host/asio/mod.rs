@@ -15,8 +15,8 @@ pub use self::{
     stream::Stream,
 };
 use crate::{
-    Data, DeviceDescription, DeviceId, Error, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    CallbackInfo, Data, DeviceDescription, DeviceId, Error, FrameCount, SampleFormat, StreamConfig,
+    StreamInstant, SupportedStreamConfig,
     host::com,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -109,7 +109,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Device::build_input_stream_raw(
@@ -131,7 +131,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Device::build_output_stream_raw(

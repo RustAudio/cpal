@@ -24,10 +24,10 @@ use self::enumerate::{
 };
 use super::{asbd_from_config, host_time_to_stream_instant};
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo,
-    OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceId, Error, ErrorKind, FrameCount, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
         try_emit_error,
@@ -176,7 +176,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -235,7 +235,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -613,7 +613,7 @@ fn setup_input_callback<D, E>(
     mut error_callback: E,
 ) -> Result<(), Error>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
@@ -644,8 +644,18 @@ where
             };
             let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
-            let timestamp = InputStreamTimestamp { callback, capture };
-            data_callback(&data, &InputCallbackInfo { timestamp });
+            let timestamp = StreamTimestamp {
+                callback,
+                device: capture,
+            };
+            // iOS exposes no xrun signal.
+            data_callback(
+                &data,
+                &CallbackInfo {
+                    timestamp,
+                    xrun: false,
+                },
+            );
         }
         Ok(())
     })?;
@@ -664,7 +674,7 @@ fn setup_output_callback<D, E>(
     mut error_callback: E,
 ) -> Result<(), Error>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let bytes_per_channel = sample_format.sample_size();
@@ -708,9 +718,16 @@ where
         };
         let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
         let playback = callback + delay;
-        let timestamp = OutputStreamTimestamp { callback, playback };
+        let timestamp = StreamTimestamp {
+            callback,
+            device: playback,
+        };
 
-        let info = OutputCallbackInfo { timestamp };
+        // iOS exposes no xrun signal.
+        let info = CallbackInfo {
+            timestamp,
+            xrun: false,
+        };
         data_callback(&mut data, &info);
         Ok(())
     })?;
@@ -735,7 +752,7 @@ mod tests {
 
         let result = device.build_output_stream(
             &config,
-            |_data: &mut [f32], _info: &OutputCallbackInfo| {},
+            |_data: &mut [f32], _info: &CallbackInfo| {},
             |_err| {},
             None,
         );

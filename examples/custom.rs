@@ -8,14 +8,13 @@ use std::{
 };
 
 use cpal::{
-    ChannelCount, Data, Device, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, FromSample, InputCallbackInfo, OutputCallbackInfo,
-    OutputStreamTimestamp, Sample, SampleFormat, Stream, StreamConfig, StreamInstant,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    CallbackInfo, ChannelCount, Data, Device, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceId, Error, ErrorKind, FrameCount, FromSample, Sample, SampleFormat, Stream, StreamConfig,
+    StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
-#[allow(dead_code)]
 #[derive(Clone)] // Clone, Send+Sync are required
 struct MyHost;
 
@@ -117,7 +116,7 @@ impl DeviceTrait for MyDevice {
         _: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Err(Error::new(ErrorKind::UnsupportedConfig))
@@ -136,7 +135,7 @@ impl DeviceTrait for MyDevice {
         _: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let controls = Arc::new(StreamControls {
@@ -167,11 +166,11 @@ impl DeviceTrait for MyDevice {
                 let secs = duration.as_nanos() / 1_000_000_000;
                 let subsec_nanos = duration.as_nanos() - secs * 1_000_000_000;
                 let stream_instant = StreamInstant::new(secs as _, subsec_nanos as _);
-                let timestamp = OutputStreamTimestamp {
+                let timestamp = StreamTimestamp {
                     callback: stream_instant,
-                    playback: stream_instant,
+                    device: stream_instant,
                 };
-                data_callback(&mut data, &OutputCallbackInfo::new(timestamp));
+                data_callback(&mut data, &CallbackInfo::new(timestamp, false));
 
                 let avg = buffer.iter().sum::<f32>() / buffer.len() as f32;
                 println!("avg: {avg}");
@@ -228,7 +227,6 @@ impl Drop for MyStream {
     }
 }
 
-#[cfg(feature = "custom")]
 fn main() {
     let custom_host = cpal::platform::CustomHost::from_host(MyHost);
     // alternatively, use cpal::platform::CustomDevice and skip enumerating devices
@@ -240,11 +238,6 @@ fn main() {
     let stream = make_stream(&device, config.into()).unwrap();
     stream.start().unwrap();
     std::thread::sleep(std::time::Duration::from_millis(4000));
-}
-
-#[cfg(not(feature = "custom"))]
-fn main() {
-    panic!("please run with -F custom to try this example")
 }
 
 // rest of this example is mostly based off of synth_tones.rs
@@ -329,7 +322,7 @@ pub fn make_stream(device: &Device, config: StreamConfig) -> Result<Stream, anyh
         frequency_hz: 440.0,
     };
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             eprintln!("{err}")
         }
         _ => eprintln!("Stream error: {err}"),
@@ -340,7 +333,7 @@ pub fn make_stream(device: &Device, config: StreamConfig) -> Result<Stream, anyh
 
     let stream = device.build_output_stream(
         config,
-        move |output: &mut [f32], _: &OutputCallbackInfo| {
+        move |output: &mut [f32], _: &CallbackInfo| {
             // for 0-1s play sine, 1-2s play square, 2-3s play saw, 3-4s play triangle_wave
             let time_since_start = Instant::now().duration_since(time_at_start).as_secs_f32();
             if time_since_start < 1.0 {

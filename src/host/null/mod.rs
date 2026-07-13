@@ -6,9 +6,8 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::{
-    Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
-    InputCallbackInfo, OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant,
-    SupportedStreamConfig, SupportedStreamConfigRange,
+    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
+    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -79,7 +78,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         unimplemented!()
@@ -95,7 +94,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         unimplemented!()

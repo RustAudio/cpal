@@ -224,6 +224,10 @@ name = "record_wav"
 [[example]]
 name = "synth_tones"
 
+[[example]]
+name = "custom"
+required-features = ["custom"]
+
 [package.metadata.docs.rs]
 # The docs.rs build environment does not have all the dependencies for all features
 features = [

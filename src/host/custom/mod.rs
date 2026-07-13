@@ -7,9 +7,8 @@ use core::time::Duration;
 use std::fmt;
 
 use crate::{
-    Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    CallbackInfo, Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount, SampleFormat,
+    StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -169,8 +168,8 @@ impl Clone for SupportedConfigs {
 }
 
 type ErrorCallback = Box<dyn FnMut(Error) + Send + 'static>;
-type InputCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
-type OutputCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
+type InputCallback = Box<dyn FnMut(&Data, &CallbackInfo) + Send + 'static>;
+type OutputCallback = Box<dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static>;
 
 trait DeviceErased: Send + Sync {
     fn description(&self) -> Result<DeviceDescription, Error>;
@@ -422,7 +421,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         self.0.build_input_stream_raw(
@@ -443,7 +442,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         self.0.build_output_stream_raw(

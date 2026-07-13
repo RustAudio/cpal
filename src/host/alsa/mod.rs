@@ -22,10 +22,9 @@ use std::{
 use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 use crate::{
-    BufferSize, COMMON_SAMPLE_RATES, ChannelCount, Data, DeviceDescription,
+    BufferSize, COMMON_SAMPLE_RATES, CallbackInfo, ChannelCount, Data, DeviceDescription,
     DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, FrameCount,
-    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    SampleFormat, SampleRate, StreamConfig, StreamInstant, SupportedBufferSize,
+    SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         Notify,
@@ -266,7 +265,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         // Keep `capture` monotonic: avail_delay() varies between cycles, and a capture overrun
@@ -292,7 +291,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         // Keep `playback` monotonic: avail_delay() varies between cycles, and a playback
@@ -976,7 +975,7 @@ impl StreamWorkerContext {
 fn input_stream_worker(
     rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data, &CallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
@@ -1037,7 +1036,7 @@ fn input_stream_worker(
 fn output_stream_worker(
     rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static),
     error_callback: &mut (dyn FnMut(Error) + Send + 'static),
     timeout: Option<Duration>,
 ) {
@@ -1240,7 +1239,7 @@ fn process_input(
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&Data, &CallbackInfo) + Send + 'static),
 ) -> Result<(), Error> {
     let mut frames_read = 0;
     while frames_read < stream.period_size {
@@ -1277,11 +1276,17 @@ fn process_input(
         let capture = callback_instant
             .checked_sub(delay_duration)
             .unwrap_or(StreamInstant::ZERO);
-        let timestamp = InputStreamTimestamp {
+        let timestamp = StreamTimestamp {
             callback: callback_instant,
-            capture,
+            device: capture,
         };
-        data_callback(&data, &InputCallbackInfo { timestamp });
+        data_callback(
+            &data,
+            &CallbackInfo {
+                timestamp,
+                xrun: false,
+            },
+        );
     }
 
     Ok(())
@@ -1293,7 +1298,7 @@ fn process_output(
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static),
+    data_callback: &mut (dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static),
 ) -> Result<(), Error> {
     // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
     stream.equilibrium.fill(buffer);
@@ -1305,11 +1310,17 @@ fn process_output(
         let callback_instant = stream.callback_instant(&status);
         let delay_duration = frames_to_duration(delay_frames as FrameCount, stream.sample_rate);
         let playback = callback_instant + delay_duration;
-        let timestamp = OutputStreamTimestamp {
+        let timestamp = StreamTimestamp {
             callback: callback_instant,
-            playback,
+            device: playback,
         };
-        data_callback(&mut data, &OutputCallbackInfo { timestamp });
+        data_callback(
+            &mut data,
+            &CallbackInfo {
+                timestamp,
+                xrun: false,
+            },
+        );
     }
 
     let mut frames_written = 0;
@@ -1383,7 +1394,7 @@ impl Stream {
         timeout: Option<Duration>,
     ) -> Stream
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let (tx, rx) = trigger();
@@ -1426,7 +1437,7 @@ impl Stream {
         timeout: Option<Duration>,
     ) -> Stream
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let (tx, rx) = trigger();

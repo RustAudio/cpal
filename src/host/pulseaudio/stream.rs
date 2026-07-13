@@ -11,8 +11,7 @@ use futures_util::FutureExt as _;
 use pulseaudio::{AsPlaybackSource, protocol};
 
 use crate::{
-    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamInstant,
+    CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamInstant, StreamTimestamp,
     host::{ErrorCallbackArc, emit_error, latch::Latch},
     traits::StreamTrait,
 };
@@ -200,7 +199,7 @@ impl Stream {
         error_callback: E,
     ) -> Result<Self, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let start = Instant::now();
@@ -269,9 +268,9 @@ impl Stream {
                 let latency = stored_latency.saturating_sub(elapsed_since_poll);
 
                 let playback_time = elapsed + Duration::from_micros(latency);
-                let timestamp = OutputStreamTimestamp {
+                let timestamp = StreamTimestamp {
                     callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
-                    playback: StreamInstant::new(
+                    device: StreamInstant::new(
                         playback_time.as_secs(),
                         playback_time.subsec_nanos(),
                     ),
@@ -286,7 +285,14 @@ impl Stream {
                 let mut data =
                     unsafe { Data::from_parts(buf.as_mut_ptr().cast(), n_samples, format) };
 
-                data_callback(&mut data, &OutputCallbackInfo { timestamp });
+                // TODO: real underrun status when https://github.com/colinmarc/pulseaudio-rs/pull/10 is merged.
+                data_callback(
+                    &mut data,
+                    &CallbackInfo {
+                        timestamp,
+                        xrun: false,
+                    },
+                );
 
                 // Notify the latency thread that audio was written, so it updates timing info.
                 let (lock, cvar) = &*update_callback;
@@ -396,7 +402,7 @@ impl Stream {
         mut error_callback: E,
     ) -> Result<Self, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let start = Instant::now();
@@ -441,9 +447,9 @@ impl Stream {
                 .checked_sub(Duration::from_micros(latency))
                 .unwrap_or_default();
 
-            let timestamp = InputStreamTimestamp {
+            let timestamp = StreamTimestamp {
                 callback: StreamInstant::new(elapsed.as_secs(), elapsed.subsec_nanos()),
-                capture: StreamInstant::new(capture_time.as_secs(), capture_time.subsec_nanos()),
+                device: StreamInstant::new(capture_time.as_secs(), capture_time.subsec_nanos()),
             };
 
             let bps = sample_spec.format.bytes_per_sample();
@@ -456,7 +462,14 @@ impl Stream {
             // exposes shared references (&[T]), so no mutation occurs.
             let data = unsafe { Data::from_parts(buf.as_ptr() as *mut _, n_samples, format) };
 
-            data_callback(&data, &InputCallbackInfo { timestamp });
+            // TODO: real overrun status when https://github.com/colinmarc/pulseaudio-rs/pull/10 is merged.
+            data_callback(
+                &data,
+                &CallbackInfo {
+                    timestamp,
+                    xrun: false,
+                },
+            );
 
             // Notify the latency thread that audio was read, so it updates timing info.
             let (lock, cvar) = &*update_callback;

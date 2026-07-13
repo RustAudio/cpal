@@ -18,12 +18,9 @@ use windows::Win32::{
 };
 
 use crate::{
-    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant,
-    host::{
-        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch, try_emit_error,
-    },
+    CallbackInfo, Data, Error, ErrorKind, FrameCount, ResultExt, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp,
+    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch},
     traits::StreamTrait,
 };
 
@@ -321,7 +318,7 @@ impl Stream {
         default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
             Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
@@ -397,7 +394,7 @@ impl Stream {
         default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
             Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
@@ -657,7 +654,7 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
 
 fn run_input(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
+    data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
@@ -678,12 +675,7 @@ fn run_input(
             AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_input(
-            &run_ctxt.stream,
-            capture_client,
-            data_callback,
-            error_callback,
-        ) {
+        if let Err(err) = process_input(&run_ctxt.stream, capture_client, data_callback) {
             emit_error(error_callback, err);
             break;
         }
@@ -692,7 +684,7 @@ fn run_input(
 
 fn run_output(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
@@ -822,8 +814,7 @@ fn process_commands_and_await_signal(
 fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
-    error_callback: &ErrorCallbackArc,
+    data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -852,9 +843,7 @@ fn process_input(
             }
 
             let flags = flags.assume_init();
-            if flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
-                let _ = try_emit_error(error_callback, ErrorKind::Xrun.into());
-            }
+            let xrun = flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
             debug_assert!(!buffer.is_null());
 
@@ -866,7 +855,7 @@ fn process_input(
             if !stream.draining.load(Ordering::Relaxed) {
                 // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
                 let timestamp = input_timestamp(stream, qpc_position)?;
-                data_callback(&data, &InputCallbackInfo { timestamp });
+                data_callback(&data, &CallbackInfo { timestamp, xrun });
             }
 
             // Release the buffer.
@@ -881,7 +870,7 @@ fn process_input(
 fn process_output(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
     clock_frequency: u64,
     frames_written: &mut u64,
 ) -> Result<(), Error> {
@@ -920,7 +909,14 @@ fn process_output(
             let sample_rate = stream.config.sample_rate;
             let timestamp =
                 output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
-            data_callback(&mut data, &OutputCallbackInfo { timestamp });
+            // WASAPI exposes no render-side xrun signal.
+            data_callback(
+                &mut data,
+                &CallbackInfo {
+                    timestamp,
+                    xrun: false,
+                },
+            );
         }
 
         render_client.ReleaseBuffer(frames_available, 0)?;
@@ -961,7 +957,7 @@ fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
 fn input_timestamp(
     stream: &StreamInner,
     buffer_qpc_position: u64,
-) -> Result<InputStreamTimestamp, Error> {
+) -> Result<StreamTimestamp, Error> {
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = buffer_qpc_position as u128 * 100;
     let capture = StreamInstant::new(
@@ -969,7 +965,10 @@ fn input_timestamp(
         (nanos % 1_000_000_000) as u32,
     );
     let (callback, _position) = clock_position(stream)?;
-    Ok(InputStreamTimestamp { capture, callback })
+    Ok(StreamTimestamp {
+        device: capture,
+        callback,
+    })
 }
 
 /// Produce the output stream timestamp.
@@ -987,7 +986,7 @@ fn output_timestamp(
     sample_rate: SampleRate,
     clock_frequency: u64,
     frames_written: u64,
-) -> Result<OutputStreamTimestamp, Error> {
+) -> Result<StreamTimestamp, Error> {
     let (callback, position) = clock_position(stream)?;
     // `buffered` is the amount of audio we've already submitted that has not yet been consumed by
     // the device at this instant; it determines when the next written frame will be heard.
@@ -998,5 +997,8 @@ fn output_timestamp(
     let buffered = Duration::from_nanos(buffered_nanos);
 
     let playback = callback + (buffered + stream.stream_latency);
-    Ok(OutputStreamTimestamp { callback, playback })
+    Ok(StreamTimestamp {
+        callback,
+        device: playback,
+    })
 }

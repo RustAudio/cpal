@@ -447,7 +447,7 @@ impl StreamTrait for Stream {
 #[cfg(test)]
 mod test {
     use crate::{
-        InputCallbackInfo, OutputCallbackInfo, Sample, default_host,
+        CallbackInfo, Sample, default_host,
         traits::{DeviceTrait, HostTrait, StreamTrait},
     };
 
@@ -495,7 +495,7 @@ mod test {
         let stream = device
             .build_input_stream(
                 config,
-                move |data: &[f32], _: &InputCallbackInfo| {
+                move |data: &[f32], _: &CallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
                 },
@@ -528,7 +528,7 @@ mod test {
         let stream = device
             .build_input_stream(
                 config,
-                move |data: &[f32], _: &InputCallbackInfo| {
+                move |data: &[f32], _: &CallbackInfo| {
                     // react to stream events and read or write stream data here.
                     println!("Got data: {:?}", &data[..25]);
                 },
@@ -540,7 +540,7 @@ mod test {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    fn write_silence<T: Sample>(data: &mut [T], _: &OutputCallbackInfo) {
+    fn write_silence<T: Sample>(data: &mut [T], _: &CallbackInfo) {
         for sample in data.iter_mut() {
             *sample = Sample::EQUILIBRIUM;
         }

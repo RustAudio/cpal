@@ -23,17 +23,17 @@ use futures_channel::mpsc;
 #[cfg(target_feature = "atomics")]
 use futures_util::StreamExt as _;
 
-type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send>>;
+type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &CallbackInfo) + Send>>;
 
 use self::{
     wasm_bindgen::{JsCast, prelude::*},
     web_sys::{AudioContext, AudioContextOptions},
 };
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, Error, ErrorKind, FrameCount, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     host::ErrorCallbackArc,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -251,7 +251,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Err(Error::with_message(
@@ -270,7 +270,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -318,8 +318,8 @@ impl DeviceTrait for Device {
         })?;
         let buffer_time_step_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
-        // Keep `playback` monotonic: outputLatency can drop (e.g. the page calls `setSinkId()` to
-        // switch output devices), which would pull `playback` backward.
+        // Keep `device` monotonic: outputLatency can drop (e.g. the page calls `setSinkId()` to
+        // switch output devices), which would pull `device` backward.
         let data_callback = crate::host::monotonic_output_callback(data_callback);
         let data_callback: OutputDataCallbackArc = Arc::new(Mutex::new(data_callback));
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
@@ -466,11 +466,14 @@ impl DeviceTrait for Device {
                                     if sum.is_finite() { sum.max(0.0) } else { 0.0 }
                                 };
                                 let callback = StreamInstant::from_secs_f64(now);
-                                let playback = StreamInstant::from_secs_f64(
+                                let device = StreamInstant::from_secs_f64(
                                     time_at_start_of_buffer + total_hw_latency_secs,
                                 );
-                                let timestamp = OutputStreamTimestamp { callback, playback };
-                                let info = OutputCallbackInfo { timestamp };
+                                let timestamp = StreamTimestamp { callback, device };
+                                let info = CallbackInfo {
+                                    timestamp,
+                                    xrun: false,
+                                };
                                 (data_callback.deref_mut())(&mut data, &info);
                             }
                             Err(_) => {

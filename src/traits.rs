@@ -12,9 +12,9 @@ use std::{
 };
 
 use crate::{
-    Data, DeviceDescription, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
-    InputCallbackInfo, InputDevices, OutputCallbackInfo, OutputDevices, SampleFormat, SizedSample,
-    StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
+    CallbackInfo, Data, DeviceDescription, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error,
+    ErrorKind, InputDevices, OutputDevices, SampleFormat, SizedSample, StreamConfig, StreamInstant,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -275,7 +275,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ) -> Result<Self::Stream, Error>
     where
         T: SizedSample,
-        D: FnMut(&[T], &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&[T], &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         self.build_input_stream_raw(
@@ -331,7 +331,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ) -> Result<Self::Stream, Error>
     where
         T: SizedSample,
-        D: FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut [T], &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         self.build_output_stream_raw(
@@ -390,7 +390,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static;
 
     /// Create a dynamically typed output stream.
@@ -435,7 +435,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static;
 
     /// Create a synchronized duplex stream whose input and output share the same clock
@@ -655,8 +655,8 @@ pub trait StreamTrait: Send + Sync {
     /// `capture`, or `playback` instant already delivered to the stream's data callback.
     ///
     /// The returned value shares the same time base as the [`StreamInstant`]s delivered to the
-    /// stream's data callback via [`crate::InputStreamTimestamp::callback`] and
-    /// [`crate::OutputStreamTimestamp::callback`], so durations between them are meaningful.
+    /// stream's data callback via [`crate::StreamTimestamp::callback`] and
+    /// [`crate::StreamTimestamp::callback`], so durations between them are meaningful.
     fn now(&self) -> StreamInstant;
 }
 

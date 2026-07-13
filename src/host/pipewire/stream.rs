@@ -33,8 +33,8 @@ use pipewire::{
 };
 
 use crate::{
-    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
+    CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig, StreamInstant,
+    StreamTimestamp,
     host::{
         ErrorCallbackArc, Notify, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
         latch::Latch, try_emit_error,
@@ -341,19 +341,18 @@ impl<D> UserData<D> {
         }
     }
 
-    fn check_xrun(&mut self) {
+    fn check_xrun(&mut self) -> bool {
         if self.spa_io_clock.is_null() {
-            return;
+            return false;
         }
         // spa/node/io.h; not present in bindgen output on all libspa versions.
         const SPA_IO_CLOCK_FLAG_XRUN_RECOVER: u32 = 1 << 1;
         // io_changed and process run on the same thread.
         let flags = unsafe { (*self.spa_io_clock).flags };
         let recovering = flags & SPA_IO_CLOCK_FLAG_XRUN_RECOVER != 0;
-        if recovering && !self.xrun_recovering {
-            let _ = try_emit_error(&self.error_callback, ErrorKind::Xrun.into());
-        }
+        let xrun = recovering && !self.xrun_recovering;
         self.xrun_recovering = recovering;
+        xrun
     }
 }
 
@@ -370,9 +369,15 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<Time> {
 
 impl<D> UserData<D>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
 {
-    fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
+    fn publish_data_in(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data: &Data,
+        xrun: bool,
+    ) {
         #[cfg(feature = "realtime")]
         {
             let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
@@ -405,17 +410,26 @@ where
                     (cb, capture)
                 }
             };
-            let timestamp = InputStreamTimestamp { callback, capture };
-            (self.data_callback)(data, &InputCallbackInfo { timestamp });
+            let timestamp = StreamTimestamp {
+                callback,
+                device: capture,
+            };
+            (self.data_callback)(data, &CallbackInfo { timestamp, xrun });
         }
     }
 }
 
 impl<D> UserData<D>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
 {
-    fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
+    fn publish_data_out(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data: &mut Data,
+        xrun: bool,
+    ) {
         #[cfg(feature = "realtime")]
         {
             let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
@@ -446,8 +460,11 @@ where
                     (cb, pl)
                 }
             };
-            let timestamp = OutputStreamTimestamp { callback, playback };
-            (self.data_callback)(data, &OutputCallbackInfo { timestamp });
+            let timestamp = StreamTimestamp {
+                callback,
+                device: playback,
+            };
+            (self.data_callback)(data, &CallbackInfo { timestamp, xrun });
         }
     }
 }
@@ -621,7 +638,7 @@ pub fn connect_output<D, E>(
     error_callback: E,
 ) -> Result<StreamData<D>, pw::Error>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let ConnectParams {
@@ -785,7 +802,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
-            user_data.check_xrun();
+            let xrun = user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -821,7 +838,7 @@ where
                 let data = active.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
-                user_data.publish_data_out(stream, frames, &mut data);
+                user_data.publish_data_out(stream, frames, &mut data, xrun);
                 let chunk = buf_data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = stride as i32;
@@ -887,7 +904,7 @@ pub fn connect_input<D, E>(
     error_callback: E,
 ) -> Result<StreamData<D>, pw::Error>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let ConnectParams {
@@ -1052,7 +1069,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
-            user_data.check_xrun();
+            let xrun = user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -1074,7 +1091,7 @@ where
                 let data = samples.as_mut_ptr() as *mut ();
                 let data =
                     unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                user_data.publish_data_in(stream, frames as usize, &data);
+                user_data.publish_data_in(stream, frames as usize, &data, xrun);
             }
         })
         .register()?;

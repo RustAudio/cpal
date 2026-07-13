@@ -8,7 +8,7 @@
 
 use clap::Parser;
 use cpal::{
-    Error, ErrorKind, HostId, InputCallbackInfo, OutputCallbackInfo, Sample, StreamConfig,
+    CallbackInfo, Error, ErrorKind, HostId, Sample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use ringbuf::{
@@ -120,13 +120,13 @@ fn main() -> anyhow::Result<()> {
         producer.try_push(f32::EQUILIBRIUM).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32], _: &InputCallbackInfo| {
+    let input_data_fn = move |data: &[f32], _: &CallbackInfo| {
         if producer.push_slice(data) < data.len() {
             eprintln!("output stream fell behind: try increasing latency");
         }
     };
 
-    let output_data_fn = move |data: &mut [f32], _: &OutputCallbackInfo| {
+    let output_data_fn = move |data: &mut [f32], _: &CallbackInfo| {
         let read = consumer.pop_slice(data);
         if read < data.len() {
             data[read..].fill(f32::EQUILIBRIUM);
