@@ -19,7 +19,7 @@ use crate::{
         frames_to_duration,
     },
     BufferSize, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
+    OutputCallbackInfo, OutputStreamTimestamp, Sample, SampleFormat, SampleRate, StreamConfig,
     StreamInstant, I24,
 };
 
@@ -616,7 +616,7 @@ impl Device {
                 hardware_latency_frames: usize,
                 callback_instant: StreamInstant,
             ) where
-                A: Copy,
+                A: Copy + Sample,
                 D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
                 F: Fn(A, A) -> A,
             {
@@ -637,7 +637,7 @@ impl Device {
                     let asio_channel =
                         asio_channel_slice_mut::<A>(asio_stream, buffer_index, ch_ix, None);
                     if silence_asio_buffer {
-                        asio_channel.align_to_mut::<u8>().1.fill(0);
+                        asio_channel.fill(A::EQUILIBRIUM);
                     }
                     for (frame, s_asio) in interleaved.chunks(n_channels).zip(asio_channel) {
                         *s_asio = mix_samples(*s_asio, frame[ch_ix]);
@@ -1315,7 +1315,7 @@ unsafe fn process_output_callback_i24<D>(
         );
 
         if silence_asio_buffer {
-            asio_channel.align_to_mut::<u8>().1.fill(0);
+            fill_equilibrium(asio_channel, format);
         }
 
         // Fill in every channel from the interleaved vector
