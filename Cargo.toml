@@ -41,6 +41,8 @@ asio = [
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
 # Platform: WebAssembly (wasm32-unknown-unknown)
 audioworklet = [
+    "dep:futures-channel",
+    "dep:futures-util",
     "wasm-bindgen",
     "web-sys/Blob",
     "web-sys/BlobPropertyBag",

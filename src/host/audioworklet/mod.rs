@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+use futures_channel::mpsc;
+use futures_util::StreamExt as _;
 use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
@@ -20,7 +22,7 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    OutputStreamTimestamp, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
@@ -42,10 +44,21 @@ impl fmt::Display for Device {
 
 pub struct Host;
 
+// `Stream`'s fields are all Send+Sync (a channel sender plus atomics).
+// Any JS-backed resource (e.g. `web_sys::Window`, `Closure`) must live as a local
+// inside the `spawn_local` task in `build_*_stream_raw`.
 pub struct Stream {
-    audio_context: web_sys::AudioContext,
+    command_tx: mpsc::UnboundedSender<Command>,
+    current_time_bits: Arc<AtomicU64>,
     buffer_size_frames: Arc<AtomicU64>,
-    _latency_poller: Option<LatencyPoller>,
+}
+
+crate::assert_stream_send!(Stream);
+crate::assert_stream_sync!(Stream);
+
+enum Command {
+    Play,
+    Pause,
 }
 
 /// How often the main thread re-reads `outputLatency` to publish it to the worklet.
@@ -353,6 +366,13 @@ impl DeviceTrait for Device {
         });
         let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
         let buffer_size_frames_cb = buffer_size_frames.clone();
+
+        let current_time_bits = Arc::new(AtomicU64::new(audio_context.current_time().to_bits()));
+        let current_time_bits_cb = current_time_bits.clone();
+        let current_time_bits_init = current_time_bits.clone();
+
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
         // The worklet realm cannot read AudioContext properties, so share the value via an atomic.
         let latency_nanos = Arc::new(AtomicU64::new(total_latency_nanos(&audio_context)));
         let latency_nanos_cb = latency_nanos.clone();
@@ -377,6 +397,7 @@ impl DeviceTrait for Device {
                     &WasmAudioProcessor::new(Box::new(
                         move |interleaved_data, frame_size, sample_rate, now| {
                             buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
+                            current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
                             let data = interleaved_data.as_mut_ptr() as *mut ();
                             let mut data = unsafe {
                                 Data::from_parts(data, interleaved_data.len(), sample_format)
@@ -412,35 +433,69 @@ impl DeviceTrait for Device {
                 error_callback(Error::with_message(
                     ErrorKind::UnsupportedOperation,
                     message,
-                ))
-            }
-        });
+                ));
 
-        // outputLatency can change at runtime (e.g. an output-device switch) but is only readable
-        // on the main thread, so poll it here and publish it to the worklet via the shared atomic.
-        let latency_poller = web_sys::window().and_then(|window| {
-            let poll_ctx = audio_context.clone();
-            let poll_latency = latency_nanos.clone();
-            let closure = Closure::<dyn FnMut()>::new(move || {
-                poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
+                // Close AudioContext and exit; dropping command_rx closes the channel,
+                // so subsequent play()/pause() calls return HostUnavailable.
+                let _ = audio_context.close();
+                return;
+            }
+
+            current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
+
+            // outputLatency can change at runtime (e.g. an output-device switch) but is only
+            // readable on the main thread, so poll it here and publish it to the worklet via the
+            // shared atomic.
+            let _latency_poller = web_sys::window().and_then(|window| {
+                let poll_ctx = audio_context.clone();
+                let poll_latency = latency_nanos.clone();
+                let closure = Closure::<dyn FnMut()>::new(move || {
+                    poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
+                });
+                window
+                    .set_interval_with_callback_and_timeout_and_arguments_0(
+                        closure.as_ref().unchecked_ref(),
+                        LATENCY_POLL_INTERVAL.as_millis() as i32,
+                    )
+                    .ok()
+                    .map(|interval_id| LatencyPoller {
+                        window,
+                        interval_id,
+                        _closure: closure,
+                    })
             });
-            window
-                .set_interval_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    LATENCY_POLL_INTERVAL.as_millis() as i32,
-                )
-                .ok()
-                .map(|interval_id| LatencyPoller {
-                    window,
-                    interval_id,
-                    _closure: closure,
-                })
+
+            // Process play/pause commands from any thread until Stream is dropped.
+            // Dropping Stream closes command_tx, which terminates this loop.
+            while let Some(cmd) = command_rx.next().await {
+                match cmd {
+                    Command::Play => {
+                        if audio_context.resume().is_err() {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to resume audio context",
+                            ));
+                        }
+                    }
+                    Command::Pause => {
+                        if audio_context.suspend().is_err() {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to suspend audio context",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Stream dropped: close the AudioContext on the main thread.
+            let _ = audio_context.close();
         });
 
         Ok(Self::Stream {
-            audio_context,
+            command_tx,
+            current_time_bits,
             buffer_size_frames,
-            _latency_poller: latency_poller,
         })
     }
 }
@@ -451,33 +506,27 @@ impl StreamTrait for Stream {
     }
 
     fn play(&self) -> Result<(), Error> {
-        match self.audio_context.resume() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to resume audio context",
-            )),
-        }
+        self.command_tx.unbounded_send(Command::Play).map_err(|_| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                "audio worklet initialization failed",
+            )
+        })
     }
 
     fn pause(&self) -> Result<(), Error> {
-        match self.audio_context.suspend() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Failed to suspend audio context",
-            )),
-        }
+        self.command_tx.unbounded_send(Command::Pause).map_err(|_| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                "audio worklet initialization failed",
+            )
+        })
     }
 
     fn now(&self) -> StreamInstant {
-        StreamInstant::from_secs_f64(self.audio_context.current_time())
-    }
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        let _ = self.audio_context.close();
+        StreamInstant::from_secs_f64(f64::from_bits(
+            self.current_time_bits.load(Ordering::Relaxed),
+        ))
     }
 }
 
@@ -532,6 +581,8 @@ impl WasmAudioProcessor {
             interleaved_buffer_size.max(self.interleaved_buffer.len()),
             0.0,
         );
+
+        self.interleaved_buffer[..interleaved_buffer_size].fill(f32::EQUILIBRIUM);
 
         (self.callback)(
             &mut self.interleaved_buffer[..interleaved_buffer_size],
