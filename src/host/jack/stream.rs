@@ -1,13 +1,15 @@
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
 use super::JACK_SAMPLE_FORMAT;
+#[cfg(feature = "realtime")]
+use crate::host::try_emit_error;
 use crate::{
     CallbackInfo, ChannelCount, Data, Error, ErrorKind, FrameCount, ResultExt, Sample, SampleRate,
     StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, frames_to_duration, try_emit_error},
+    host::{ErrorCallbackArc, emit_error, frames_to_duration},
     traits::StreamTrait,
 };
 
@@ -34,7 +36,7 @@ impl StreamState {
 }
 
 pub struct Stream {
-    state: Arc<AtomicU8>,
+    playback_state: Arc<AtomicU8>,
     async_client: jack::AsyncClient<JackNotificationHandler, LocalProcessHandler>,
     // Port names are stored in order to connect them to other ports in jack automatically
     input_port_names: Box<[String]>,
@@ -64,7 +66,8 @@ impl Stream {
             ports.push(port);
         }
 
-        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let pending_xrun = Arc::new(AtomicBool::new(false));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let input_process_handler = LocalProcessHandler::new(
@@ -74,24 +77,26 @@ impl Stream {
             client.buffer_size() as usize,
             Some(Box::new(data_callback)),
             None,
-            state.clone(),
+            playback_state.clone(),
+            pending_xrun.clone(),
             #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
         let notification_handler = JackNotificationHandler::new(
             error_callback_ptr,
-            state.clone(),
+            playback_state.clone(),
             client.sample_rate() as jack::Frames,
+            pending_xrun,
         );
 
         let async_client = client
             .activate_async(notification_handler, input_process_handler)
             .context("Failed to activate client")?;
 
-        StreamState::Paused.store(&state, Ordering::Relaxed);
+        StreamState::Paused.store(&playback_state, Ordering::Relaxed);
         Ok(Self {
-            state,
+            playback_state,
             async_client,
             input_port_names: port_names.into_boxed_slice(),
             output_port_names: Default::default(),
@@ -120,7 +125,8 @@ impl Stream {
             ports.push(port);
         }
 
-        let state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let pending_xrun = Arc::new(AtomicBool::new(false));
         let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
 
         let output_process_handler = LocalProcessHandler::new(
@@ -130,24 +136,26 @@ impl Stream {
             client.buffer_size() as usize,
             None,
             Some(Box::new(data_callback)),
-            state.clone(),
+            playback_state.clone(),
+            pending_xrun.clone(),
             #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
         let notification_handler = JackNotificationHandler::new(
             error_callback_ptr,
-            state.clone(),
+            playback_state.clone(),
             client.sample_rate() as jack::Frames,
+            pending_xrun,
         );
 
         let async_client = client
             .activate_async(notification_handler, output_process_handler)
             .context("Failed to activate client")?;
 
-        StreamState::Paused.store(&state, Ordering::Relaxed);
+        StreamState::Paused.store(&playback_state, Ordering::Relaxed);
         Ok(Self {
-            state,
+            playback_state,
             async_client,
             input_port_names: Box::default(),
             output_port_names: port_names.into_boxed_slice(),
@@ -219,17 +227,17 @@ impl Stream {
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        StreamState::Playing.store(&self.state, Ordering::Relaxed);
+        StreamState::Playing.store(&self.playback_state, Ordering::Relaxed);
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        StreamState::Paused.store(&self.state, Ordering::Relaxed);
+        StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
         Ok(())
     }
 
     fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), Error> {
-        StreamState::Paused.store(&self.state, Ordering::Relaxed);
+        StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
 
         let is_output = !self.output_port_names.is_empty();
         if is_output && timeout != Some(std::time::Duration::ZERO) {
@@ -275,7 +283,8 @@ struct LocalProcessHandler {
     // JACK audio samples are 32-bit float (unless you do some custom dark magic)
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
-    state: Arc<AtomicU8>,
+    playback_state: Arc<AtomicU8>,
+    pending_xrun: Arc<AtomicBool>,
     #[cfg(feature = "realtime")]
     error_callback: ErrorCallbackArc,
     #[cfg(feature = "realtime")]
@@ -283,7 +292,7 @@ struct LocalProcessHandler {
 }
 
 impl LocalProcessHandler {
-    #[cfg_attr(feature = "realtime", expect(clippy::too_many_arguments))]
+    #[expect(clippy::too_many_arguments)]
     fn new(
         out_ports: Vec<jack::Port<jack::AudioOut>>,
         in_ports: Vec<jack::Port<jack::AudioIn>>,
@@ -291,7 +300,8 @@ impl LocalProcessHandler {
         buffer_size: usize,
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
-        state: Arc<AtomicU8>,
+        playback_state: Arc<AtomicU8>,
+        pending_xrun: Arc<AtomicBool>,
         #[cfg(feature = "realtime")] error_callback: ErrorCallbackArc,
     ) -> Self {
         let temp_input_buffer = vec![0.0; in_ports.len() * buffer_size];
@@ -306,7 +316,8 @@ impl LocalProcessHandler {
             output_data_callback,
             temp_input_buffer,
             temp_output_buffer,
-            state,
+            playback_state,
+            pending_xrun,
             #[cfg(feature = "realtime")]
             error_callback,
             #[cfg(feature = "realtime")]
@@ -328,7 +339,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
         client: &jack::Client,
         process_scope: &jack::ProcessScope,
     ) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Playing {
+        if StreamState::load(&self.playback_state, Ordering::Relaxed) != StreamState::Playing {
             // JACK does not zero-fill output port buffers before calling the process handler
             for port in &mut self.out_ports {
                 port.as_mut_slice(process_scope).fill(f32::EQUILIBRIUM);
@@ -424,6 +435,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 self.sample_rate,
             );
 
+        let xrun = self.pending_xrun.swap(false, Ordering::Relaxed);
+
         if let Some(input_callback) = &mut self.input_data_callback {
             // Let's get the data from the input ports and run the callback
 
@@ -456,10 +469,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 callback,
                 device: capture,
             };
-            let info = CallbackInfo {
-                timestamp,
-                xrun: false,
-            };
+            let info = CallbackInfo { timestamp, xrun };
             input_callback(&data, &info);
         }
 
@@ -498,10 +508,7 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 callback,
                 device: playback,
             };
-            let info = CallbackInfo {
-                timestamp,
-                xrun: false,
-            };
+            let info = CallbackInfo { timestamp, xrun };
             output_callback(&mut data, &info);
 
             // Deinterlace
@@ -558,27 +565,30 @@ fn hardware_latency_frames<PS>(
 /// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
 struct JackNotificationHandler {
     error_callback_ptr: ErrorCallbackArc,
-    state: Arc<AtomicU8>,
+    playback_state: Arc<AtomicU8>,
     configured_sample_rate: jack::Frames,
+    pending_xrun: Arc<AtomicBool>,
 }
 
 impl JackNotificationHandler {
     pub fn new(
         error_callback_ptr: ErrorCallbackArc,
-        state: Arc<AtomicU8>,
+        playback_state: Arc<AtomicU8>,
         configured_sample_rate: jack::Frames,
+        pending_xrun: Arc<AtomicBool>,
     ) -> Self {
         JackNotificationHandler {
             error_callback_ptr,
-            state,
+            playback_state,
             configured_sample_rate,
+            pending_xrun,
         }
     }
 }
 
 impl jack::NotificationHandler for JackNotificationHandler {
     unsafe fn shutdown(&mut self, _status: jack::ClientStatus, reason: &str) {
-        if StreamState::load(&self.state, Ordering::Relaxed) == StreamState::Starting {
+        if StreamState::load(&self.playback_state, Ordering::Relaxed) == StreamState::Starting {
             return;
         }
         emit_error(
@@ -595,7 +605,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
             // One of these notifications is sent every time a client is started.
             return jack::Control::Continue;
         }
-        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Starting {
+        if StreamState::load(&self.playback_state, Ordering::Relaxed) != StreamState::Starting {
             emit_error(
                 &self.error_callback_ptr,
                 Error::with_message(
@@ -608,8 +618,8 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Relaxed) != StreamState::Starting {
-            let _ = try_emit_error(&self.error_callback_ptr, ErrorKind::Xrun.into());
+        if StreamState::load(&self.playback_state, Ordering::Relaxed) != StreamState::Starting {
+            self.pending_xrun.store(true, Ordering::Relaxed);
         }
         jack::Control::Continue
     }
