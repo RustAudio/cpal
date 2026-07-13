@@ -15,7 +15,6 @@ use cpal::{
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-#[allow(dead_code)]
 #[derive(Clone)] // Clone, Send+Sync are required
 struct MyHost;
 
