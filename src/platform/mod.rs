@@ -477,7 +477,7 @@ macro_rules! impl_platform_host {
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::Error>
             where
-                D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
+                D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
                 E: FnMut(crate::Error) + Send + 'static,
             {
                 match self.0 {
@@ -506,7 +506,7 @@ macro_rules! impl_platform_host {
                 timeout: Option<std::time::Duration>,
             ) -> Result<Self::Stream, crate::Error>
             where
-                D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
+                D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
                 E: FnMut(crate::Error) + Send + 'static,
             {
                 match self.0 {

@@ -1,35 +1,31 @@
-use crate::{BufferSize, ChannelCount, InputStreamTimestamp, OutputStreamTimestamp, SampleRate};
+use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate};
 
 /// Information relevant to a single call to the user's duplex stream data callback.
 ///
-/// Combines the input and output timestamps for the callback. Because a duplex stream's input and
-/// output share a single clock, both timestamps are drawn from the same time source.
+/// Because a duplex stream's input and output share a single clock, `input.timestamp()` and
+/// `output.timestamp()` are drawn from the same time source. The two directions have independent
+/// buffers, so `input.xrun()` and `output.xrun()` can each report a glitch independently for the
+/// same invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DuplexCallbackInfo {
-    input_timestamp: InputStreamTimestamp,
-    output_timestamp: OutputStreamTimestamp,
+    input: CallbackInfo,
+    output: CallbackInfo,
 }
 
 impl DuplexCallbackInfo {
-    /// Construct a `DuplexCallbackInfo` from its input and output timestamps.
-    pub fn new(
-        input_timestamp: InputStreamTimestamp,
-        output_timestamp: OutputStreamTimestamp,
-    ) -> Self {
-        Self {
-            input_timestamp,
-            output_timestamp,
-        }
+    /// Construct a `DuplexCallbackInfo` from its input and output callback info.
+    pub fn new(input: CallbackInfo, output: CallbackInfo) -> Self {
+        Self { input, output }
     }
 
-    /// The timestamp for the captured input data passed to the callback.
-    pub fn input_timestamp(&self) -> InputStreamTimestamp {
-        self.input_timestamp
+    /// The timestamp and xrun status for the captured input data passed to the callback.
+    pub fn input(&self) -> CallbackInfo {
+        self.input
     }
 
-    /// The timestamp for the output data written by the callback.
-    pub fn output_timestamp(&self) -> OutputStreamTimestamp {
-        self.output_timestamp
+    /// The timestamp and xrun status for the output data written by the callback.
+    pub fn output(&self) -> CallbackInfo {
+        self.output
     }
 }
 

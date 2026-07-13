@@ -13,7 +13,7 @@
 
 use clap::Parser;
 use cpal::{
-    Device, Error, ErrorKind, FromSample, HostId, I24, OutputCallbackInfo, Sample, SampleFormat,
+    CallbackInfo, Device, Error, ErrorKind, FromSample, HostId, I24, Sample, SampleFormat,
     SizedSample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -143,7 +143,7 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &OutputCallbackInfo| write_data(data, channels, &mut next_value),
+        move |data: &mut [T], _: &CallbackInfo| write_data(data, channels, &mut next_value),
         err_fn,
         None,
     )?;

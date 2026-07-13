@@ -5,8 +5,8 @@ use std::sync::{
 
 use super::JACK_SAMPLE_FORMAT;
 use crate::{
-    ChannelCount, Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, Sample, SampleRate, StreamInstant,
+    CallbackInfo, ChannelCount, Data, Error, ErrorKind, FrameCount, ResultExt, Sample, SampleRate,
+    StreamInstant, StreamTimestamp,
     host::{ErrorCallbackArc, emit_error, frames_to_duration, try_emit_error},
     traits::StreamTrait,
 };
@@ -49,7 +49,7 @@ impl Stream {
         error_callback: E,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let mut ports = vec![];
@@ -105,7 +105,7 @@ impl Stream {
         error_callback: E,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let mut ports = vec![];
@@ -259,8 +259,8 @@ impl StreamTrait for Stream {
     }
 }
 
-type InputDataCallback = Box<dyn FnMut(&Data, &InputCallbackInfo) + Send + 'static>;
-type OutputDataCallback = Box<dyn FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static>;
+type InputDataCallback = Box<dyn FnMut(&Data, &CallbackInfo) + Send + 'static>;
+type OutputDataCallback = Box<dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static>;
 
 struct LocalProcessHandler {
     /// No new ports are allowed to be created after the creation of the LocalProcessHandler as that would invalidate the buffer sizes
@@ -452,8 +452,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
             let capture = start_cycle_instant
                 .checked_sub(latency)
                 .unwrap_or(StreamInstant::ZERO);
-            let timestamp = InputStreamTimestamp { callback, capture };
-            let info = InputCallbackInfo { timestamp };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: capture,
+            };
+            let info = CallbackInfo {
+                timestamp,
+                xrun: false,
+            };
             input_callback(&data, &info);
         }
 
@@ -488,8 +494,14 @@ impl jack::ProcessHandler for LocalProcessHandler {
                         }
                     },
                 };
-            let timestamp = OutputStreamTimestamp { callback, playback };
-            let info = OutputCallbackInfo { timestamp };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: playback,
+            };
+            let info = CallbackInfo {
+                timestamp,
+                xrun: false,
+            };
             output_callback(&mut data, &info);
 
             // Deinterlace

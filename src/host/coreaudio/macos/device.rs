@@ -45,10 +45,10 @@ use super::{
     host_time_to_stream_instant,
 };
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp, InterfaceType,
-    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceId, Error, ErrorKind, FrameCount, InterfaceType, ResultExt, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
@@ -323,7 +323,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Device::build_input_stream_raw(
@@ -345,7 +345,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Device::build_output_stream_raw(
@@ -702,7 +702,7 @@ impl Device {
         timeout: Option<Duration>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -791,8 +791,17 @@ impl Device {
                     device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
                 let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
                 let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
-                let timestamp = InputStreamTimestamp { callback, capture };
-                data_callback(&data, &InputCallbackInfo { timestamp });
+                let timestamp = StreamTimestamp {
+                    callback,
+                    device: capture,
+                };
+                data_callback(
+                    &data,
+                    &CallbackInfo {
+                        timestamp,
+                        xrun: false,
+                    },
+                );
             }
             Ok(())
         })?;
@@ -827,7 +836,7 @@ impl Device {
         timeout: Option<Duration>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -930,9 +939,15 @@ impl Device {
             };
             let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let playback = callback + delay;
-            let timestamp = OutputStreamTimestamp { callback, playback };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: playback,
+            };
 
-            let info = OutputCallbackInfo { timestamp };
+            let info = CallbackInfo {
+                timestamp,
+                xrun: false,
+            };
             data_callback(&mut data, &info);
             Ok(())
         })?;

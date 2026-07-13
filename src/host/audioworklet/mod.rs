@@ -18,10 +18,10 @@ use js_sys::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig, StreamInstant,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, Error, ErrorKind, FrameCount, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     host::frames_to_duration,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -238,7 +238,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         Err(Error::with_message(
@@ -280,12 +280,12 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
-        // Keep `playback` monotonic: the polled outputLatency can drop when the
-        // page calls `setSinkId()` to switch output devices, pulling `playback` backward.
+        // Keep `device` monotonic: the polled outputLatency can drop when the
+        // page calls `setSinkId()` to switch output devices, pulling `device` backward.
         let mut data_callback = crate::host::monotonic_output_callback(data_callback);
         if config.channels > MAX_CHANNELS {
             return Err(Error::with_message(
@@ -416,9 +416,12 @@ impl DeviceTrait for Device {
                                 frames_to_duration(frame_size as FrameCount, sample_rate);
                             let latency =
                                 Duration::from_nanos(latency_nanos_cb.load(Ordering::Relaxed));
-                            let playback = callback + (buffer_duration + latency);
-                            let timestamp = OutputStreamTimestamp { callback, playback };
-                            let info = OutputCallbackInfo { timestamp };
+                            let device = callback + (buffer_duration + latency);
+                            let timestamp = StreamTimestamp { callback, device };
+                            let info = CallbackInfo {
+                                timestamp,
+                                xrun: false,
+                            };
                             (data_callback)(&mut data, &info);
                         },
                     ))

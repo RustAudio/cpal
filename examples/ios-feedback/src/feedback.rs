@@ -11,12 +11,12 @@ extern crate cpal;
 extern crate ringbuf;
 
 use cpal::{
+    CallbackInfo, Error, ErrorKind, Sample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, Sample, StreamConfig,
 };
 use ringbuf::{
-    traits::{Consumer, Producer, Split},
     HeapRb,
+    traits::{Consumer, Producer, Split},
 };
 
 const LATENCY_MS: f32 = 1000.0;
@@ -31,8 +31,14 @@ pub fn run_example() -> Result<(), anyhow::Error> {
     let output_device = host
         .default_output_device()
         .expect("failed to get default output device");
-    println!("Using default input device: \"{}\"", input_device.description()?.name());
-    println!("Using default output device: \"{}\"", output_device.description()?.name());
+    println!(
+        "Using default input device: \"{}\"",
+        input_device.description()?.name()
+    );
+    println!(
+        "Using default output device: \"{}\"",
+        output_device.description()?.name()
+    );
 
     // We'll try and use the same configuration between streams to keep it simple.
     let config: StreamConfig = input_device.default_input_config()?.into();
@@ -52,13 +58,13 @@ pub fn run_example() -> Result<(), anyhow::Error> {
         producer.try_push(f32::EQUILIBRIUM).unwrap();
     }
 
-    let input_data_fn = move |data: &[f32], _: &InputCallbackInfo| {
+    let input_data_fn = move |data: &[f32], _: &CallbackInfo| {
         if producer.push_slice(data) < data.len() {
             eprintln!("output stream fell behind: try increasing latency");
         }
     };
 
-    let output_data_fn = move |data: &mut [f32], _: &OutputCallbackInfo| {
+    let output_data_fn = move |data: &mut [f32], _: &CallbackInfo| {
         let read = consumer.pop_slice(data);
         if read < data.len() {
             data[read..].fill(f32::EQUILIBRIUM);
@@ -88,7 +94,9 @@ pub fn run_example() -> Result<(), anyhow::Error> {
 
 fn err_fn(err: Error) {
     match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => eprintln!("{err}"),
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
         _ => eprintln!("Stream error: {err}"),
     }
 }

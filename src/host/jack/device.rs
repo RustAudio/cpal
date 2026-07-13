@@ -7,10 +7,9 @@ use std::{
 use super::{JACK_SAMPLE_FORMAT, stream::Stream};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, InputCallbackInfo, OutputCallbackInfo, SampleFormat, SampleRate,
-    StreamConfig, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    traits::DeviceTrait,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, Error, ErrorKind, SampleFormat, SampleRate, StreamConfig,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, traits::DeviceTrait,
 };
 
 const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
@@ -183,7 +182,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         if self.is_output() {
@@ -267,7 +266,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         if self.is_input() {

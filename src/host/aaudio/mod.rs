@@ -14,11 +14,10 @@ use std::{
 };
 
 use crate::{
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    InterfaceType, OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InterfaceType, ResultExt,
+    SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     host::{ErrorCallbackArc, emit_error},
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -308,7 +307,7 @@ fn build_input_stream<D, E>(
     sample_format: SampleFormat,
 ) -> Result<Stream, Error>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
@@ -318,7 +317,6 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
-    let error_callback_for_xrun = error_callback.clone();
     let last_xrun_count = Arc::new(AtomicI32::new(0));
 
     let draining = Arc::new(AtomicBool::new(false));
@@ -348,9 +346,7 @@ where
             }
 
             let xrun_count = stream.x_run_count();
-            if last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count {
-                let _ = try_emit_error(&error_callback_for_xrun, ErrorKind::Xrun.into());
-            }
+            let xrun = last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count;
 
             let Some(n_samples) = u64::try_from(num_frames)
                 .ok()
@@ -369,11 +365,12 @@ where
                 return ndk::audio::AudioCallbackResult::Stop;
             };
             if !draining_for_data.load(Ordering::Relaxed) {
-                let cb_info = InputCallbackInfo {
-                    timestamp: InputStreamTimestamp {
+                let cb_info = CallbackInfo {
+                    timestamp: StreamTimestamp {
                         callback: now_stream_instant(),
-                        capture: input_stream_instant(stream, sample_rate),
+                        device: input_stream_instant(stream, sample_rate),
                     },
+                    xrun,
                 };
                 (data_callback)(
                     &unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
@@ -407,7 +404,7 @@ fn build_output_stream<D, E>(
     sample_format: SampleFormat,
 ) -> Result<Stream, Error>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let builder = configure_for_device(builder, device, config);
@@ -421,7 +418,6 @@ where
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let error_callback_for_stream = error_callback.clone();
     let error_callback_for_data = error_callback.clone();
-    let error_callback_for_xrun = error_callback.clone();
     let last_xrun_count = Arc::new(AtomicI32::new(0));
 
     let draining = Arc::new(AtomicBool::new(false));
@@ -451,9 +447,7 @@ where
             }
 
             let xrun_count = stream.x_run_count();
-            if last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count {
-                let _ = try_emit_error(&error_callback_for_xrun, ErrorKind::Xrun.into());
-            }
+            let xrun = last_xrun_count.swap(xrun_count, Ordering::Relaxed) < xrun_count;
 
             let Some(n_samples) = u64::try_from(num_frames)
                 .ok()
@@ -480,11 +474,12 @@ where
             }
 
             if !draining_for_data.load(Ordering::Relaxed) {
-                let cb_info = OutputCallbackInfo {
-                    timestamp: OutputStreamTimestamp {
+                let cb_info = CallbackInfo {
+                    timestamp: StreamTimestamp {
                         callback: now_stream_instant(),
-                        playback: output_stream_instant(stream, sample_rate),
+                        device: output_stream_instant(stream, sample_rate),
                     },
+                    xrun,
                 };
                 (data_callback)(
                     &mut unsafe { Data::from_parts(data as *mut _, n_samples, sample_format) },
@@ -673,7 +668,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -720,7 +715,7 @@ impl DeviceTrait for Device {
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;

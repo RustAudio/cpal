@@ -40,38 +40,31 @@ pub struct StreamInstant {
     nanos: u32,
 }
 
-/// A timestamp associated with a call to an input stream's data callback.
+/// A timestamp associated with a call to a stream's data callback.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct InputStreamTimestamp {
+pub struct StreamTimestamp {
     /// The instant the stream's data callback was invoked.
     pub callback: StreamInstant,
-    /// The instant that data was captured from the device.
-    ///
-    /// E.g. The instant data was read from an ADC.
-    pub capture: StreamInstant,
+    /// For an input stream, the instant data was captured from the device (e.g. read from an
+    /// ADC). For an output stream, the predicted instant data will be delivered to the device
+    /// (e.g. played by a DAC).
+    pub device: StreamInstant,
 }
 
-/// A timestamp associated with a call to an output stream's data callback.
+/// Information relevant to a single call to the user's stream data callback.
+///
+/// Whether [`xrun`][CallbackInfo::xrun] reflects a glitch from exactly this block of samples, or
+/// one detected up to a callback earlier, depends on the host:
+///
+/// | Guarantee | Hosts |
+/// | --------- | ----- |
+/// | Same-cycle | AAudio, ALSA, PipeWire, WASAPI (capture) |
+/// | Next-cycle | CoreAudio |
+/// | No ordering guarantee | ASIO, JACK |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct OutputStreamTimestamp {
-    /// The instant the stream's data callback was invoked.
-    pub callback: StreamInstant,
-    /// The predicted instant that data written will be delivered to the device for playback.
-    ///
-    /// E.g. The instant data will be played by a DAC.
-    pub playback: StreamInstant,
-}
-
-/// Information relevant to a single call to the user's input stream data callback.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct InputCallbackInfo {
-    pub(crate) timestamp: InputStreamTimestamp,
-}
-
-/// Information relevant to a single call to the user's output stream data callback.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct OutputCallbackInfo {
-    pub(crate) timestamp: OutputStreamTimestamp,
+pub struct CallbackInfo {
+    pub(crate) timestamp: StreamTimestamp,
+    pub(crate) xrun: bool,
 }
 
 impl StreamInstant {
@@ -244,25 +237,19 @@ impl std::ops::Sub<StreamInstant> for StreamInstant {
     }
 }
 
-impl InputCallbackInfo {
-    pub fn new(timestamp: InputStreamTimestamp) -> Self {
-        Self { timestamp }
+impl CallbackInfo {
+    pub fn new(timestamp: StreamTimestamp, xrun: bool) -> Self {
+        Self { timestamp, xrun }
     }
 
-    /// The timestamp associated with the call to an input stream's data callback.
-    pub fn timestamp(&self) -> InputStreamTimestamp {
+    /// The timestamp associated with the call to the stream's data callback.
+    pub fn timestamp(&self) -> StreamTimestamp {
         self.timestamp
     }
-}
 
-impl OutputCallbackInfo {
-    pub fn new(timestamp: OutputStreamTimestamp) -> Self {
-        Self { timestamp }
-    }
-
-    /// The timestamp associated with the call to an output stream's data callback.
-    pub fn timestamp(&self) -> OutputStreamTimestamp {
-        self.timestamp
+    /// Whether a buffer overrun/underrun occurred for this call to the data callback.
+    pub fn xrun(&self) -> bool {
+        self.xrun
     }
 }
 

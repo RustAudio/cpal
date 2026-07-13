@@ -13,9 +13,8 @@ use std::{
 use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
-    BufferSize, Data, Error, ErrorKind, FrameCount, I24, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant,
+    BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp,
     host::{
         com,
         error_emit::{emit_error, try_emit_error},
@@ -127,7 +126,7 @@ impl Device {
         _timeout: Option<Duration>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -263,7 +262,7 @@ impl Device {
                 callback_instant: StreamInstant,
             ) where
                 A: Copy,
-                D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+                D: FnMut(&Data, &CallbackInfo) + Send + 'static,
                 F: Fn(A) -> A,
             {
                 // 1. Write the ASIO channels to the CPAL buffer.
@@ -466,7 +465,7 @@ impl Device {
         _timeout: Option<Duration>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -615,7 +614,7 @@ impl Device {
                 callback_instant: StreamInstant,
             ) where
                 A: Copy,
-                D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+                D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
                 F: Fn(A, A) -> A,
             {
                 let interleaved: &mut [A] = unsafe { cast_slice_mut(interleaved) };
@@ -1289,7 +1288,7 @@ unsafe fn process_output_callback_i24<D>(
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
 ) where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
 {
     let format = SampleFormat::I24;
     let interleaved: &mut [I24] = unsafe { cast_slice_mut(interleaved) };
@@ -1365,7 +1364,7 @@ unsafe fn process_input_callback_i24<D>(
     hardware_latency_frames: usize,
     callback_instant: StreamInstant,
 ) where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
 {
     let format = SampleFormat::I24;
 
@@ -1421,7 +1420,7 @@ unsafe fn apply_output_callback_to_data<A, D>(
     hardware_latency_frames: usize,
 ) where
     A: Copy,
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
 {
     let mut data = unsafe {
         Data::from_parts(
@@ -1432,11 +1431,14 @@ unsafe fn apply_output_callback_to_data<A, D>(
     };
     let delay = frames_to_duration(hardware_latency_frames as FrameCount, sample_rate);
     let playback = callback_instant + delay;
-    let timestamp = OutputStreamTimestamp {
+    let timestamp = StreamTimestamp {
         callback: callback_instant,
-        playback,
+        device: playback,
     };
-    let info = OutputCallbackInfo { timestamp };
+    let info = CallbackInfo {
+        timestamp,
+        xrun: false,
+    };
     data_callback(&mut data, &info);
 }
 
@@ -1451,7 +1453,7 @@ unsafe fn apply_input_callback_to_data<A, D>(
     hardware_latency_frames: usize,
 ) where
     A: Copy,
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
 {
     let data = unsafe {
         Data::from_parts(
@@ -1464,10 +1466,13 @@ unsafe fn apply_input_callback_to_data<A, D>(
     let capture = callback_instant
         .checked_sub(delay)
         .unwrap_or(StreamInstant::ZERO);
-    let timestamp = InputStreamTimestamp {
+    let timestamp = StreamTimestamp {
         callback: callback_instant,
-        capture,
+        device: capture,
     };
-    let info = InputCallbackInfo { timestamp };
+    let info = CallbackInfo {
+        timestamp,
+        xrun: false,
+    };
     data_callback(&data, &info);
 }

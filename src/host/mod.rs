@@ -258,15 +258,15 @@ fn non_decreasing(floor: &mut u64, instant: crate::StreamInstant) -> crate::Stre
 #[allow(dead_code)]
 pub(crate) fn monotonic_input_callback<D>(
     mut data_callback: D,
-) -> impl FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static
+) -> impl FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static
 where
-    D: FnMut(&crate::Data, &crate::InputCallbackInfo) + Send + 'static,
+    D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
 {
     // FnMut runs on one thread at a time, so the floor needs no synchronization.
     let mut floor = 0u64;
     move |data, info| {
         let mut info = *info;
-        info.timestamp.capture = non_decreasing(&mut floor, info.timestamp.capture);
+        info.timestamp.device = non_decreasing(&mut floor, info.timestamp.device);
         data_callback(data, &info);
     }
 }
@@ -275,14 +275,14 @@ where
 #[allow(dead_code)]
 pub(crate) fn monotonic_output_callback<D>(
     mut data_callback: D,
-) -> impl FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static
+) -> impl FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static
 where
-    D: FnMut(&mut crate::Data, &crate::OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
 {
     let mut floor = 0u64;
     move |data, info| {
         let mut info = *info;
-        info.timestamp.playback = non_decreasing(&mut floor, info.timestamp.playback);
+        info.timestamp.device = non_decreasing(&mut floor, info.timestamp.device);
         data_callback(data, &info);
     }
 }

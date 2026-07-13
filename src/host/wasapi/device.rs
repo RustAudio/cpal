@@ -13,9 +13,9 @@ use std::{
 };
 
 use crate::{
-    BufferSize, COMMON_SAMPLE_RATES, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    BufferSize, COMMON_SAMPLE_RATES, CallbackInfo, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount,
+    InterfaceType, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
     SupportedStreamConfig, SupportedStreamConfigRange,
     error::ResultExt,
     host::{ErrorCallbackArc, com::ComString},
@@ -126,7 +126,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format, timeout)?;
@@ -146,7 +146,7 @@ impl DeviceTrait for Device {
         timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         // Keep `playback` monotonic: an underrun can saturate `buffered` to zero, pulling
