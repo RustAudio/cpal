@@ -74,9 +74,6 @@ pub enum ErrorKind {
     /// not implemented by the backend.
     UnsupportedOperation,
 
-    /// A buffer underrun or overrun occurred, causing a potential audio glitch.
-    Xrun,
-
     /// The underlying platform audio API returned an error that CPAL cannot map to a more
     /// specific error kind.
     BackendError,
@@ -124,7 +121,6 @@ impl Display for ErrorKind {
                 "The requested stream configuration is not supported by the device.",
             ),
             Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
-            Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
             Self::BackendError => f.write_str(
                 "The audio backend returned an unclassified error.",
             ),

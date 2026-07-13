@@ -121,7 +121,7 @@ fn main() -> Result<(), anyhow::Error> {
     let writer_2 = writer.clone();
 
     let err_fn = move |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             eprintln!("{err}")
         }
         _ => eprintln!("Stream error: {err}"),
