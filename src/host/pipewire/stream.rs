@@ -778,7 +778,7 @@ where
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // That thread promotes itself to RT from the process callback, once when the negotiated
     // quantum is known and again whenever PipeWire renegotiates it.
-    let mut flags = StreamFlags::MAP_BUFFERS;
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
@@ -1017,7 +1017,7 @@ where
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // That thread promotes itself to RT from the process callback, once when the negotiated
     // quantum is known and again whenever PipeWire renegotiates it.
-    let mut flags = StreamFlags::MAP_BUFFERS;
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
     }
