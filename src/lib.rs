@@ -895,6 +895,60 @@ impl From<SupportedStreamConfig> for StreamConfig {
     }
 }
 
+impl StreamConfig {
+    #[allow(dead_code)]
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.channels == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "channel count must be at least 1",
+            ));
+        }
+        if self.sample_rate == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "sample rate must be at least 1 Hz",
+            ));
+        }
+        if self.buffer_size == BufferSize::Fixed(0) {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "buffer size must be greater than 0",
+            ));
+        }
+        Ok(())
+    }
+}
+impl DuplexStreamConfig {
+    #[allow(dead_code)]
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.input_channels == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "channel count must be at least 1",
+            ));
+        }
+        if self.output_channels == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "channel count must be at least 1",
+            ));
+        }
+        if self.sample_rate == 0 {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "sample rate must be at least 1 Hz",
+            ));
+        }
+        if self.buffer_size == BufferSize::Fixed(0) {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                "buffer size must be greater than 0",
+            ));
+        }
+        Ok(())
+    }
+}
 #[allow(dead_code)]
 pub(crate) fn validate_stream_config(config: &StreamConfig) -> Result<(), Error> {
     if config.channels == 0 {
