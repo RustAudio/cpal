@@ -8,8 +8,8 @@ use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate};
 /// same invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DuplexCallbackInfo {
-    input: CallbackInfo,
-    output: CallbackInfo,
+    pub(crate) input: CallbackInfo,
+    pub(crate) output: CallbackInfo,
 }
 
 impl DuplexCallbackInfo {

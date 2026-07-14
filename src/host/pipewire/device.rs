@@ -28,9 +28,9 @@ use pipewire::{
 use super::stream::Stream;
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InterfaceType,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceDirection, DeviceId, DeviceType, DuplexStreamConfig, Error, ErrorKind, FrameCount,
+    HostId, InterfaceType, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         Notify, emit_error,
         latch::Latch,
@@ -152,7 +152,41 @@ impl Device {
             Class::Node => None,
         }
     }
+    pub(crate) fn pw_properties_duplx(
+        &self,
+        direction: DeviceDirection,
+        config: &DuplexStreamConfig,
+    ) -> PropertiesBox {
+        let mut properties = match direction {
+            DeviceDirection::Output => pw::properties::properties! {
+                *pw::keys::MEDIA_TYPE => "Audio",
+                *pw::keys::MEDIA_CATEGORY => "Playback",
+            },
+            DeviceDirection::Input => pw::properties::properties! {
+                *pw::keys::MEDIA_TYPE => "Audio",
+                *pw::keys::MEDIA_CATEGORY => "Capture",
+            },
+            _ => unreachable!(),
+        };
+        if matches!(self.role, Role::Sink) && matches!(direction, DeviceDirection::Input) {
+            properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
+        }
+        if matches!(self.class, Class::Node) {
+            properties.insert(*pw::keys::TARGET_OBJECT, self.object_serial.to_string());
+        }
 
+        // Group input and output nodes so PipeWire schedules them in the same quantum,
+        // preventing phase drift between simultaneous input/output streams.
+        properties.insert("node.group", format!("cpal-{}", std::process::id()));
+
+        if let BufferSize::Fixed(buffer_size) = config.buffer_size {
+            properties.insert(
+                *pw::keys::NODE_LATENCY,
+                format!("{buffer_size}/{rate}", rate = config.sample_rate),
+            );
+        }
+        properties
+    }
     pub(crate) fn pw_properties(
         &self,
         direction: DeviceDirection,
@@ -249,6 +283,10 @@ impl DeviceTrait for Device {
             self.direction,
             DeviceDirection::Output | DeviceDirection::Duplex
         )
+    }
+
+    fn supports_duplex(&self) -> bool {
+        matches!(self.direction, DeviceDirection::Duplex)
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
@@ -355,7 +393,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        crate::validate_stream_config(&config)?;
+        config.validate()?;
         if let BufferSize::Fixed(n) = config.buffer_size {
             // When max_quantum is 0 the server clock metadata has not been received yet.
             if self.max_quantum > 0 && !(self.min_quantum..=self.max_quantum).contains(&n) {
@@ -547,7 +585,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        crate::validate_stream_config(&config)?;
+        config.validate()?;
         if let BufferSize::Fixed(n) = config.buffer_size {
             // When max_quantum is 0 the server clock metadata has not been received yet.
             if self.max_quantum > 0 && !(self.min_quantum..=self.max_quantum).contains(&n) {
@@ -594,6 +632,216 @@ impl DeviceTrait for Device {
                         config,
                         properties,
                         sample_format,
+                        last_quantum: last_quantum_clone,
+                        start,
+                        connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
+                        draining: draining_clone,
+                        drained: Some(drained_clone),
+                        is_default_device: matches!(
+                            device.class(),
+                            Class::DefaultSink | Class::DefaultInput | Class::DefaultOutput
+                        ),
+                    },
+                    data_callback,
+                    error_callback,
+                ) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(Error::with_message(
+                            ErrorKind::UnsupportedConfig,
+                            format!("PipeWire stream connection failed: {e}"),
+                        )));
+                        return;
+                    }
+                };
+
+                let StreamData {
+                    mainloop,
+                    listener,
+                    stream,
+                    context,
+                    core,
+                    core_monitor,
+                    error_callback,
+                    pending_device_changed,
+                    invalidated,
+                } = stream_data;
+
+                let default_monitor = if let Some(key) = device.default_metadata_key() {
+                    match core.get_registry_rc() {
+                        Ok(registry) => Some(DefaultDeviceMonitor::new(
+                            registry,
+                            key,
+                            error_callback.clone(),
+                            invalidated,
+                            pending_device_changed,
+                        )),
+                        Err(e) => {
+                            let _ = init_tx.send(Err(Error::with_message(
+                                ErrorKind::BackendError,
+                                format!("Could not acquire registry: {e}"),
+                            )));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let stream_clone = stream.clone();
+                let mainloop_rc1 = mainloop.clone();
+                let error_callback_cmd = error_callback.clone();
+                let _receiver = pw_play_rx.attach(mainloop.loop_(), move |play| match play {
+                    StreamCommand::Toggle(state) => {
+                        if let Err(e) = stream_clone.set_active(state) {
+                            emit_error(
+                                &error_callback_cmd,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Failed to set stream active ({state}): {e}"),
+                                ),
+                            );
+                        }
+                    }
+                    StreamCommand::Drain => {
+                        if let Err(e) = stream_clone.flush(true) {
+                            emit_error(
+                                &error_callback_cmd,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Stream flush failed: {e}"),
+                                ),
+                            );
+                            let (mutex, cvar) = drained_cmd.as_ref();
+                            *mutex.lock().unwrap_or_else(|g| g.into_inner()) = true;
+                            cvar.notify_one();
+                        }
+                    }
+                    StreamCommand::Stop => {
+                        if let Err(e) = stream_clone.disconnect() {
+                            emit_error(
+                                &error_callback_cmd,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Stream disconnect failed: {e}"),
+                                ),
+                            );
+                        }
+                        mainloop_rc1.quit();
+                    }
+                });
+
+                if init_tx.send(Ok(())).is_err() {
+                    return;
+                }
+
+                // If the Latch is dropped without being released (error path), exit cleanly.
+                if !waiter.wait() {
+                    return;
+                }
+
+                mainloop.run();
+                drop(listener);
+                drop(default_monitor);
+                drop(core_monitor);
+                drop(core);
+                drop(context);
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create thread: {e}"),
+                )
+            })?;
+
+        let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
+            Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                "PipeWire timed out",
+            ))
+        });
+
+        if let Err(e) = init_result {
+            drop(latch);
+            return Err(e);
+        }
+
+        latch.add_thread(handle.thread().clone());
+        let stream = Stream::new(
+            handle,
+            pw_play_tx,
+            last_quantum,
+            start,
+            latch,
+            true,
+            draining,
+            Some(drained),
+        );
+        stream.signal_ready();
+        Ok(stream)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: crate::DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &crate::DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        config.validate()?;
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            // When max_quantum is 0 the server clock metadata has not been received yet.
+            if self.max_quantum > 0 && !(self.min_quantum..=self.max_quantum).contains(&n) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {n} is not in the supported quantum range {min}..={max}",
+                        min = self.min_quantum,
+                        max = self.max_quantum
+                    ),
+                ));
+            }
+        }
+        let (pw_play_tx, pw_play_rx) = pw::channel::channel::<StreamCommand>();
+
+        let (init_tx, init_rx) = mpsc::channel::<Result<(), Error>>();
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
+        let device = self.clone();
+        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
+        let initial_quantum = match config.buffer_size {
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => self.quantum as u64,
+        };
+        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum_clone = last_quantum.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_clone = draining.clone();
+
+        let drained: Arc<Notify> = Arc::new(Notify::default());
+        let drained_clone = drained.clone();
+        let drained_cmd = drained.clone();
+        // Keep `capture` monotonic: pw_time delay() grows when another client joins
+        // needing a larger buffer, which can pull `capture` backward.
+        let data_callback = crate::host::monotonic_duplex_callback(data_callback);
+        let start = std::time::Instant::now();
+        let handle = thread::Builder::new()
+            .name("pw_out".to_owned())
+            .spawn(move || {
+                let _pw = PwInitGuard::new();
+                let properties = device.pw_properties_duplx(DeviceDirection::Output, &config);
+
+                let stream_data = match super::stream::connect_duplex(
+                    super::stream::ConnectDuplexParams {
+                        config,
+                        properties,
+                        sample_format_in: input_sample_format,
+                        sample_format_out: output_sample_format,
                         last_quantum: last_quantum_clone,
                         start,
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
