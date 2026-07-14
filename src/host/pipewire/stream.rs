@@ -33,8 +33,8 @@ use pipewire::{
 };
 
 use crate::{
-    CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig, StreamInstant,
-    StreamTimestamp,
+    CallbackInfo, Data, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, FrameCount,
+    SampleFormat, StreamConfig, StreamInstant, StreamTimestamp,
     host::{
         ErrorCallbackArc, Notify, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
         latch::Latch, try_emit_error,
@@ -469,9 +469,107 @@ where
     }
 }
 
+impl<D> UserData<Arc<Mutex<D>>>
+where
+    D: FnMut(&Data, &mut Data, &crate::DuplexCallbackInfo) + Send + 'static,
+{
+    fn publish_data_duplex(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data_in: &Data,
+        data_out: &mut Data,
+        xrun: bool,
+    ) {
+        #[cfg(feature = "realtime")]
+        {
+            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
+            if !self.rt_promoted || frames as u64 != prev {
+                self.promote_realtime(frames as FrameCount);
+            }
+        }
+
+        let mut data_callback = self.data_callback.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(not(feature = "realtime"))]
+        self.last_quantum.store(frames as u64, Ordering::Relaxed);
+
+        if !self.draining.load(Ordering::Relaxed) {
+            let (callback, playback) = match pw_stream_time(stream) {
+                Some(t) => {
+                    // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                    let now = t.now() as u64;
+                    let delay_ns =
+                        (t.delay() * 1_000_000_000 / t.rate().denom as i64).max(0) as u64;
+                    (
+                        StreamInstant::from_nanos(now),
+                        StreamInstant::from_nanos(now.saturating_add(delay_ns)),
+                    )
+                }
+                None => {
+                    let cb = monotonic_stream_instant()
+                        .unwrap_or_else(|| stream_instant_from_start(self.start));
+                    let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
+                    (cb, pl)
+                }
+            };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: playback,
+            };
+            data_callback(
+                data_in,
+                data_out,
+                &DuplexCallbackInfo::new(
+                    CallbackInfo { timestamp, xrun },
+                    CallbackInfo { timestamp, xrun },
+                ),
+            )
+            //(self.data_callback)(data, &CallbackInfo { timestamp, xrun });
+        }
+    }
+
+    fn publish_data_duplex_in(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data_in: &Data,
+        xrun: bool,
+    ) {
+        let mut data_out_raw: Vec<u8> = vec![];
+        let data = data_out_raw.as_mut_ptr() as *mut ();
+
+        let mut data_out = unsafe { Data::from_parts(data, 0, self.sample_format) };
+
+        self.publish_data_duplex(stream, frames, data_in, &mut data_out, xrun);
+    }
+    fn publish_data_duplex_out(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data_out: &mut Data,
+        xrun: bool,
+    ) {
+        let data_in_raw: Vec<u8> = vec![];
+        let data = data_in_raw.as_ptr() as *mut ();
+
+        let data_in = unsafe { Data::from_parts(data, 0, self.sample_format) };
+
+        self.publish_data_duplex(stream, frames, &data_in, data_out, xrun);
+    }
+}
+
+#[allow(unused)]
+pub enum PwListener<D> {
+    Single(StreamListener<UserData<D>>),
+    Duplex {
+        input: StreamListener<UserData<D>>,
+        output: StreamListener<UserData<D>>,
+    },
+}
+
 pub struct StreamData<D> {
     pub mainloop: MainLoopRc,
-    pub listener: StreamListener<UserData<D>>,
+    pub listener: PwListener<D>,
     pub stream: StreamRc,
     pub context: ContextRc,
     pub core: CoreRc,
@@ -624,6 +722,19 @@ pub struct ConnectParams {
     pub config: StreamConfig,
     pub properties: PropertiesBox,
     pub sample_format: SampleFormat,
+    pub last_quantum: Arc<AtomicU64>,
+    pub start: Instant,
+    pub connect_automatically: bool,
+    pub draining: Arc<AtomicBool>,
+    pub drained: Option<Arc<Notify>>,
+    pub is_default_device: bool,
+}
+
+pub struct ConnectDuplexParams {
+    pub config: DuplexStreamConfig,
+    pub properties: PropertiesBox,
+    pub sample_format_in: SampleFormat,
+    pub sample_format_out: SampleFormat,
     pub last_quantum: Arc<AtomicU64>,
     pub start: Instant,
     pub connect_automatically: bool,
@@ -887,7 +998,7 @@ where
 
     Ok(StreamData {
         mainloop,
-        listener,
+        listener: PwListener::Single(listener),
         stream,
         context,
         core,
@@ -1129,7 +1240,453 @@ where
 
     Ok(StreamData {
         mainloop,
-        listener,
+        listener: PwListener::Single(listener),
+        stream,
+        context,
+        core,
+        core_monitor,
+        error_callback: error_callback_out,
+        pending_device_changed,
+        invalidated,
+    })
+}
+
+pub fn connect_duplex<D, E>(
+    params: ConnectDuplexParams,
+    data_callback: D,
+    error_callback: E,
+) -> Result<StreamData<Arc<Mutex<D>>>, pw::Error>
+where
+    D: FnMut(&Data, &mut Data, &crate::DuplexCallbackInfo) + Send + 'static,
+    E: FnMut(Error) + Send + 'static,
+{
+    let ConnectDuplexParams {
+        config,
+        properties,
+        sample_format_in,
+        sample_format_out,
+        last_quantum,
+        start,
+        connect_automatically,
+        draining,
+        drained,
+        is_default_device,
+    } = params;
+
+    let mainloop = MainLoopRc::new(None)?;
+    let context = ContextRc::new(&mainloop, None)?;
+    let core = context.connect_rc(remote_props())?;
+
+    let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+    let data_callback = Arc::new(Mutex::new(data_callback));
+    let invalidated = Arc::new(AtomicBool::new(false));
+
+    let pending_device_changed = Arc::new(AtomicBool::new(false));
+
+    let core_monitor = {
+        let invalidated_core = invalidated.clone();
+        let error_callback_core = error_callback.clone();
+        core.add_listener_local()
+            .error(move |id, _seq, _res, message| {
+                if id == PW_ID_CORE && !invalidated_core.swap(true, Ordering::Relaxed) {
+                    emit_error(
+                        &error_callback_core,
+                        Error::with_message(
+                            ErrorKind::StreamInvalidated,
+                            format!("PipeWire server error: {message}"),
+                        ),
+                    );
+                }
+            })
+            .register()
+    };
+
+    let error_callback_2 = error_callback.clone();
+    let error_callback_out = error_callback.clone();
+    let data_callback_2 = data_callback.clone();
+    let data_in = UserData {
+        data_callback,
+        error_callback,
+        sample_format: sample_format_in,
+        format: Default::default(),
+        last_quantum: last_quantum.clone(),
+        start,
+        draining: draining.clone(),
+        invalidated: invalidated.clone(),
+        is_default_device,
+        has_connected: false,
+        pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
+        #[cfg(feature = "realtime")]
+        rt_promoted: false,
+    };
+
+    let channels = config.input_channels as _;
+    let rate = config.sample_rate as _;
+    let stream = StreamRc::new(
+        core.clone(),
+        &format!("cpal-capture-{}", std::process::id()),
+        properties,
+    )?;
+    let listener_in = stream
+        .add_local_listener_with_user_data(data_in)
+        .param_changed(move |stream, user_data, id, param| {
+            let Some(param) = param else {
+                return;
+            };
+            if id != ParamType::Format.as_raw() {
+                return;
+            }
+
+            let (media_type, media_subtype) = match format_utils::parse_format(param) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+
+            // only accept raw audio
+            if media_type != MediaType::Audio || media_subtype != MediaSubtype::Raw {
+                return;
+            }
+
+            // call a helper function to parse the format for us.
+            // When the format update, we check the format first, in case it does not fit what we
+            // set
+            match user_data.format.parse(param) {
+                Ok(_) => {
+                    let current_channels = user_data.format.channels();
+                    let current_rate = user_data.format.rate();
+                    let expected_fmt =
+                        AudioFormat::from(user_data.sample_format);
+                    let current_fmt = user_data.format.format();
+                    let mismatch = current_channels != channels
+                        || current_rate != rate
+                        || current_fmt != expected_fmt;
+                    if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        let fmt_note = if current_fmt != expected_fmt {
+                            "; sample format differs"
+                        } else {
+                            ""
+                        };
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::UnsupportedConfig,
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz{fmt_note}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Failed to stop stream: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    if !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                format!("Failed to parse negotiated audio format: {e}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Failed to stop stream: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .state_changed(|_stream, user_data, _old, new| {
+            user_data.state_changed(new);
+        })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
+        .process(|stream, user_data| {
+            if user_data.pending_device_changed.load(Ordering::Relaxed)
+                && try_emit_error(
+                    &user_data.error_callback,
+                    Error::with_message(ErrorKind::DeviceChanged, "Default device changed"),
+                )
+                .is_ok()
+            {
+                user_data.pending_device_changed.store(false, Ordering::Relaxed);
+            }
+            let xrun = user_data.check_xrun();
+
+            let n_channels = user_data.format.channels();
+            if n_channels == 0 {
+                return; // format not yet negotiated by param_changed
+            }
+
+            if let Some(mut buffer) = stream.dequeue_buffer() {
+                let datas = buffer.datas_mut();
+                if datas.is_empty() {
+                    return;
+                }
+                let data = &mut datas[0];
+                let n_samples = data.chunk().size() / user_data.sample_format.sample_size() as u32;
+                let frames = n_samples / n_channels;
+
+                let Some(samples) = data.data() else {
+                    return;
+                };
+                let data = samples.as_mut_ptr() as *mut ();
+                let data =
+                    unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
+                user_data.publish_data_duplex_in(stream, frames as usize, &data, xrun);
+            }
+        })
+        .register()?;
+    let data_out = UserData {
+        data_callback: data_callback_2,
+        error_callback: error_callback_2,
+        sample_format: sample_format_out,
+        format: Default::default(),
+        last_quantum,
+        start,
+        draining,
+        invalidated: invalidated.clone(),
+        is_default_device,
+        has_connected: false,
+        pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
+        #[cfg(feature = "realtime")]
+        rt_promoted: false,
+    };
+    let channels = config.output_channels as _;
+    let rate = config.sample_rate as _;
+    let listener_out = stream
+        .add_local_listener_with_user_data(data_out)
+        .param_changed(move |stream, user_data, id, param| {
+            let Some(param) = param else {
+                return;
+            };
+            if id != ParamType::Format.as_raw() {
+                return;
+            }
+
+            let (media_type, media_subtype) = match format_utils::parse_format(param) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+
+            // only accept raw audio
+            if media_type != MediaType::Audio || media_subtype != MediaSubtype::Raw {
+                return;
+            }
+            // call a helper function to parse the format for us.
+            // When the format update, we check the format first, in case it does not fit what we
+            // set
+            match user_data.format.parse(param) {
+                Ok(_) => {
+                    let current_channels = user_data.format.channels();
+                    let current_rate = user_data.format.rate();
+                    let expected_fmt =
+                        AudioFormat::from(user_data.sample_format);
+                    let current_fmt = user_data.format.format();
+                    let mismatch = current_channels != channels
+                        || current_rate != rate
+                        || current_fmt != expected_fmt;
+                    if mismatch && !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        let fmt_note = if current_fmt != expected_fmt {
+                            "; sample format differs"
+                        } else {
+                            ""
+                        };
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::UnsupportedConfig,
+                                format!("Negotiated format mismatch: expected {channels} channels at {rate} Hz, got {current_channels} channels at {current_rate} Hz{fmt_note}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Failed to stop stream: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    if !user_data.invalidated.swap(true, Ordering::Relaxed) {
+                        emit_error(
+                            &user_data.error_callback,
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                format!("Failed to parse negotiated audio format: {e}"),
+                            ),
+                        );
+                        if let Err(e) = stream.set_active(false) {
+                            emit_error(
+                                &user_data.error_callback,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Failed to stop stream: {e}"),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .state_changed(|_stream, user_data, _old, new| {
+            user_data.state_changed(new);
+        })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
+        })
+        .process(|stream, user_data| {
+            if user_data.pending_device_changed.load(Ordering::Relaxed)
+                && try_emit_error(
+                    &user_data.error_callback,
+                    Error::with_message(ErrorKind::DeviceChanged, "Default device changed"),
+                )
+                .is_ok()
+            {
+                user_data.pending_device_changed.store(false, Ordering::Relaxed);
+            }
+            let xrun = user_data.check_xrun();
+
+            let n_channels = user_data.format.channels();
+            if n_channels == 0 {
+                return; // format not yet negotiated by param_changed
+            }
+
+            if let Some(mut buffer) = stream.dequeue_buffer() {
+                // Read the requested frame count before mutably borrowing datas_mut().
+                let requested = buffer.requested() as usize;
+                let datas = buffer.datas_mut();
+                if datas.is_empty() {
+                    return;
+                }
+                let buf_data = &mut datas[0];
+
+                let stride = user_data.sample_format.sample_size() * n_channels as usize;
+                // frames = samples / channels or frames = data_len / stride
+                // Honor the frame count PipeWire requests this cycle, capped by the
+                // mapped buffer capacity to guard against any mismatch.
+                let frames = requested.min(buf_data.as_raw().maxsize as usize / stride);
+                let Some(samples) = buf_data.data() else {
+                    return;
+                };
+
+                // samples = frames * channels or samples = data_len / sample_size
+                let n_samples = frames * n_channels as usize;
+
+                // Pre-fill only the active region with equilibrium before handing it to the
+                // callback.
+                let active = &mut samples[..frames * stride];
+                fill_equilibrium(active, user_data.sample_format);
+
+                let data = active.as_mut_ptr() as *mut ();
+                let mut data =
+                    unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
+                user_data.publish_data_duplex_out(stream, frames, &mut data, xrun);
+                let chunk = buf_data.chunk_mut();
+                *chunk.offset_mut() = 0;
+                *chunk.stride_mut() = stride as i32;
+                *chunk.size_mut() = (frames * stride) as u32;
+            }
+        })
+        .drained(move |_stream, _user_data| {
+            if let Some(drained) = &drained {
+                let (mutex, cvar) = drained.as_ref();
+                *mutex.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                cvar.notify_one();
+            }
+        })
+        .register()?;
+
+    let mut audio_info = AudioInfoRaw::new();
+    audio_info.set_format(sample_format_in.into());
+    audio_info.set_rate(rate);
+    audio_info.set_channels(channels);
+
+    let obj = Object {
+        type_: SpaTypes::ObjectParamFormat.as_raw(),
+        id: ParamType::EnumFormat.as_raw(),
+        properties: audio_info.into(),
+    };
+    let values: Vec<u8> =
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &Value::Object(obj))
+            .unwrap()
+            .0
+            .into_inner();
+
+    let mut params_in = [Pod::from_bytes(&values).unwrap()];
+
+    // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
+    // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
+    if connect_automatically {
+        flags |= StreamFlags::AUTOCONNECT;
+    }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
+
+    stream.connect(Direction::Input, None, flags, &mut params_in)?;
+    let mut audio_info = AudioInfoRaw::new();
+    audio_info.set_format(sample_format_out.into());
+    audio_info.set_rate(rate);
+    audio_info.set_channels(channels);
+
+    let obj = Object {
+        type_: SpaTypes::ObjectParamFormat.as_raw(),
+        id: ParamType::EnumFormat.as_raw(),
+        properties: audio_info.into(),
+    };
+    let values: Vec<u8> =
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &Value::Object(obj))
+            .unwrap()
+            .0
+            .into_inner();
+
+    let mut params_out = [Pod::from_bytes(&values).unwrap()];
+
+    // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
+    // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
+    if connect_automatically {
+        flags |= StreamFlags::AUTOCONNECT;
+    }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
+    }
+    stream.connect(Direction::Output, None, flags, &mut params_out)?;
+
+    Ok(StreamData {
+        mainloop,
+        listener: PwListener::Duplex {
+            input: listener_in,
+            output: listener_out,
+        },
         stream,
         context,
         core,

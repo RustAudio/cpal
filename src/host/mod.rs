@@ -299,6 +299,23 @@ where
     }
 }
 
+#[allow(dead_code)]
+pub(crate) fn monotonic_duplex_callback<D>(
+    mut data_callback: D,
+) -> impl FnMut(&crate::Data, &mut crate::Data, &crate::DuplexCallbackInfo) + Send + 'static
+where
+    D: FnMut(&crate::Data, &mut crate::Data, &crate::DuplexCallbackInfo) + Send + 'static,
+{
+    // FnMut runs on one thread at a time, so the floor needs no synchronization.
+    let mut floor = 0u64;
+    move |data_out, data_in, info| {
+        let mut info = *info;
+        info.input.timestamp.device = non_decreasing(&mut floor, info.input.timestamp.device);
+        info.output.timestamp.device = non_decreasing(&mut floor, info.output.timestamp.device);
+        data_callback(data_out, data_in, &info);
+    }
+}
+
 /// Wraps an output data callback so the `playback` timestamp never regresses across callbacks.
 #[allow(dead_code)]
 pub(crate) fn monotonic_output_callback<D>(
