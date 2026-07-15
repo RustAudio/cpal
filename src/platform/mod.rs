@@ -842,7 +842,6 @@ mod platform_impl {
     #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
-    use crate::traits::HostTrait as _;
 
     use crate::platform::HostId;
 

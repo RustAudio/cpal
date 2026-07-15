@@ -90,7 +90,7 @@ impl std::str::FromStr for HostId {
     /// # Errors
     ///
     /// - [`ErrorKind::UnsupportedOperation`] if the string does not name a
-    /// valid `HostId.
+    ///   valid `HostId.
     ///
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn from_str(s: &str) -> Result<Self, Self::Err> {
