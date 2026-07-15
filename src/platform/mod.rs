@@ -4,6 +4,10 @@
 //! type and its associated [`Device`], [`Stream`] and other associated types. These
 //! types are useful in the case that users require switching between audio host APIs at runtime.
 
+mod host_id;
+
+pub use host_id::{AvailableHostsIter, HostId, available_hosts, default_host, host_from_id};
+
 pub use self::platform_impl::*;
 
 #[cfg(all(
@@ -70,6 +74,35 @@ macro_rules! impl_platform_host {
             )*
         ];
 
+        pub(crate) const SUPPORTED_HOSTS: &[HostId] = &[
+            $(
+                $(#[cfg($feat)])?
+                HostId::$HostVariant,
+            )*
+        ];
+
+        pub(crate) const fn is_supported_impl(host_id: HostId) -> bool {
+            match host_id {
+                $(
+                    $(#[cfg($feat)])?
+                    HostId::$HostVariant => true,
+                )*
+
+                _ => false,
+            }
+        }
+
+        pub(crate) fn is_available_impl(host_id: HostId) -> bool {
+            match host_id {
+                $(
+                    $(#[cfg($feat)])?
+                    HostId::$HostVariant => <$Host as crate::traits::HostTrait>::is_available(),
+                )*
+
+                _ => false,
+            }
+        }
+
         /// The platform's dynamically dispatched `Host` type.
         ///
         /// An instance of this `Host` type may represent one of the `Host`s available
@@ -79,6 +112,9 @@ macro_rules! impl_platform_host {
         ///
         /// This type may be constructed via the [`host_from_id`] function. [`HostId`]s may
         /// be acquired via the [`ALL_HOSTS`] const, and the [`available_hosts`] function.
+        ///
+        /// [`host_from_id`]: super::host_from_id
+        /// [`available_hosts`]: super::available_hosts
         pub struct Host(HostInner);
 
         /// The `Device` implementation associated with the platform's dynamically dispatched
@@ -104,60 +140,6 @@ macro_rules! impl_platform_host {
         /// dispatched [`Host`] type.
         #[derive(Clone)]
         pub struct SupportedOutputConfigs(SupportedOutputConfigsInner);
-
-        /// Unique identifier for available hosts on the platform.
-        ///
-        /// Only the hosts supported by the current platform are available as enum variants.
-        /// For cross-platform code that needs to handle hosts from other platforms,
-        /// use the string representation via [`std::fmt::Display`]/[`std::str::FromStr`].
-        ///
-        /// # Available Host Strings
-        ///
-        /// For cross-platform matching, these host strings are available:
-        ///
-        /// - `"aaudio"` - Android Audio
-        /// - `"alsa"` - Advanced Linux Sound Architecture
-        /// - `"asio"` - ASIO
-        /// - `"audioworklet"` - Audio Worklet
-        /// - `"coreaudio"` - CoreAudio
-        /// - `"custom"` - Custom host (requires `custom` feature)
-        /// - `"jack"` - JACK Audio Connection Kit
-        /// - `"null"` - Null host
-        /// - `"wasapi"` - Windows Audio Session API
-        /// - `"webaudio"` - Web Audio API
-        ///
-        /// # Cross-Platform Example
-        ///
-        /// ```
-        /// use cpal::HostId;
-        /// use std::str::FromStr;
-        ///
-        /// fn handle_host_string(host_string: &str) {
-        ///     // String matching works on all platforms
-        ///     match host_string {
-        ///         "alsa" => println!("ALSA host"),
-        ///         "coreaudio" => println!("CoreAudio host"),
-        ///         "jack" => println!("JACK host"),
-        ///         "wasapi" => println!("WASAPI host"),
-        ///         "asio" => println!("ASIO host"),
-        ///         "aaudio" => println!("AAudio host"),
-        ///         _ => println!("Other host"),
-        ///     }
-        ///
-        ///     // Parse host string (may fail if host is not available on this platform)
-        ///     if let Ok(host_id) = HostId::from_str(host_string) {
-        ///         println!("Successfully parsed: {}", host_id);
-        ///     }
-        /// }
-        /// ```
-        #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-        pub enum HostId {
-            $(
-                $(#[cfg($feat)])?
-                $(#[cfg_attr(docsrs, doc(cfg($feat)))])?
-                $HostVariant,
-            )*
-        }
 
         /// Contains a platform-specific [`Device`] implementation.
         #[doc(hidden)]
@@ -211,54 +193,6 @@ macro_rules! impl_platform_host {
                 $(#[cfg($feat)])?
                 $HostVariant(<<$Host as crate::traits::HostTrait>::Device as crate::traits::DeviceTrait>::SupportedOutputConfigs),
             )*
-        }
-
-        impl HostId {
-            /// Returns the human-readable host name.
-            pub fn name(&self) -> &'static str {
-                match self {
-                    $(
-                        $(#[cfg($feat)])?
-                        HostId::$HostVariant => __cpal_select_host_name!($HostVariant, $($HostName)?),
-                    )*
-                }
-            }
-        }
-
-        impl std::fmt::Display for HostId {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.name().to_ascii_lowercase())
-            }
-        }
-
-        impl std::str::FromStr for HostId {
-            type Err = crate::Error;
-
-            /// Parse a host identifier from its string representation (e.g. `"alsa"`,
-            /// `"coreaudio"`).
-            ///
-            /// The comparison is case-insensitive. Only hosts compiled in for the current platform
-            /// are recognized; a host string that is valid on another platform is still an error
-            /// here.
-            ///
-            /// # Errors
-            ///
-            /// - [`ErrorKind::UnsupportedOperation`] if the string does not name a host available
-            ///   on this platform.
-            ///
-            /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                $(
-                    $(#[cfg($feat)])?
-                    if HostId::$HostVariant.name().eq_ignore_ascii_case(s) {
-                        return Ok(HostId::$HostVariant);
-                    }
-                )*
-                Err(crate::Error::with_message(
-                    crate::ErrorKind::UnsupportedOperation,
-                    format!("host \"{s}\" is not supported on this platform"),
-                ))
-            }
         }
 
         impl Devices {
@@ -808,29 +742,20 @@ macro_rules! impl_platform_host {
             }
         )*
 
-        /// Produces a list of hosts that are currently available on the system.
-        pub fn available_hosts() -> Vec<HostId> {
-            let mut host_ids = vec![];
-            $(
-                $(#[cfg($feat)])?
-                if <$Host as crate::traits::HostTrait>::is_available() {
-                    host_ids.push(HostId::$HostVariant);
-                }
-            )*
-            host_ids
-        }
-
         /// Given a unique host identifier, initialise and produce the host if it is available.
         ///
         /// # Errors
         ///
         /// - [`ErrorKind::HostUnavailable`] if the host identified by `id` is not currently
         ///   reachable (e.g. the audio daemon is not running).
+        /// - [`ErrorKind::UnsupportedOperation`] if the host identified by `id` is not
+        ///   supported by this configuration of CPAL.
         /// - [`ErrorKind::BackendError`] for unclassifiable initialization failures.
         ///
         /// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
+        /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
         /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
-        pub fn host_from_id(id: HostId) -> Result<Host, crate::Error> {
+        pub(crate) fn host_from_id_impl(id: HostId) -> Result<Host, crate::Error> {
             match id {
                 $(
                     $(#[cfg($feat)])?
@@ -840,23 +765,16 @@ macro_rules! impl_platform_host {
                             .map(Host::from)
                     }
                 )*
+
+                _ => Err(crate::Error::new(crate::ErrorKind::UnsupportedOperation)),
             }
         }
 
         impl Default for Host {
             fn default() -> Host {
-                default_host()
+                super::default_host()
             }
         }
-    };
-}
-
-macro_rules! __cpal_select_host_name {
-    ($variant:ident, $name:literal) => {
-        $name
-    };
-    ($variant:ident,) => {
-        stringify!($variant)
     };
 }
 
@@ -874,6 +792,9 @@ mod platform_impl {
     use crate::host::pipewire::Host as PipeWireHost;
     #[cfg(feature = "pulseaudio")]
     use crate::host::pulseaudio::Host as PulseAudioHost;
+
+    use crate::platform::HostId;
+
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
@@ -882,23 +803,14 @@ mod platform_impl {
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        #[cfg(feature = "pipewire")]
-        if <PipeWireHost as crate::traits::HostTrait>::is_available() {
-            if let Ok(host) = PipeWireHost::new() {
-                return host.into();
-            }
+    pub(crate) fn default_host_id() -> HostId {
+        if HostId::PipeWire.is_available() {
+            HostId::PipeWire
+        } else if HostId::PulseAudio.is_available() {
+            HostId::PulseAudio
+        } else {
+            HostId::Alsa
         }
-        #[cfg(feature = "pulseaudio")]
-        if <PulseAudioHost as crate::traits::HostTrait>::is_available() {
-            if let Ok(host) = PulseAudioHost::new() {
-                return host.into();
-            }
-        }
-        AlsaHost::new()
-            .expect("the default host should always be available")
-            .into()
     }
 }
 
@@ -908,17 +820,16 @@ mod platform_impl {
     use super::JackHost;
     use crate::host::coreaudio::Host as CoreAudioHost;
 
+    use crate::platform::HostId;
+
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
         #[cfg(all(feature = "jack", target_os = "macos"))] Jack "JACK" => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        CoreAudioHost::new()
-            .expect("the default host should always be available")
-            .into()
+    pub(crate) fn default_host_id() -> HostId {
+        HostId::CoreAudio
     }
 }
 
@@ -931,7 +842,8 @@ mod platform_impl {
     #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
-    use crate::traits::HostTrait as _;
+
+    use crate::platform::HostId;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
@@ -939,19 +851,8 @@ mod platform_impl {
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
-    /// The default host for the current compilation target platform.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called outside a Window context (e.g. from a Web Worker or Service Worker),
-    /// where `AudioContext` is unavailable.
-    pub fn default_host() -> Host {
-        assert!(
-            WebAudioHost::is_available(),
-            "WebAudio is not available in this context; \
-             AudioContext requires a Window (not a Worker or Service Worker)"
-        );
-        WebAudioHost::new().unwrap().into()
+    pub(crate) fn default_host_id() -> HostId {
+        HostId::WebAudio
     }
 }
 
@@ -963,6 +864,8 @@ mod platform_impl {
     use crate::host::asio::Host as AsioHost;
     use crate::host::wasapi::Host as WasapiHost;
 
+    use crate::platform::HostId;
+
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
         Wasapi "WASAPI" => WasapiHost,
@@ -970,27 +873,24 @@ mod platform_impl {
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        WasapiHost::new()
-            .expect("the default host should always be available")
-            .into()
+    pub(crate) fn default_host_id() -> HostId {
+        HostId::Wasapi
     }
 }
 
 #[cfg(target_os = "android")]
 mod platform_impl {
     use crate::host::aaudio::Host as AAudioHost;
+
+    use crate::platform::HostId;
+
     impl_platform_host!(
         AAudio => AAudioHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        AAudioHost::new()
-            .expect("the default host should always be available")
-            .into()
+    pub(crate) fn default_host_id() -> HostId {
+        HostId::AAudio
     }
 }
 
@@ -1011,15 +911,14 @@ mod platform_impl {
 mod platform_impl {
     use crate::host::null::Host as NullHost;
 
+    use crate::platform::HostId;
+
     impl_platform_host!(
         Null => NullHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
-    /// The default host for the current compilation target platform.
-    pub fn default_host() -> Host {
-        NullHost::new()
-            .expect("the default host should always be available")
-            .into()
+    pub(crate) fn default_host_id() -> HostId {
+        HostId::Null
     }
 }
