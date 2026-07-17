@@ -524,6 +524,14 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+))]
+pub use alsa::mixer::{Mixer, Selem, SelemChannelId, SelemId};
+
 pub use timestamp::{
     InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
     StreamInstant,
