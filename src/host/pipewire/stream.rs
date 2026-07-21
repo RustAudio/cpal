@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
     thread::JoinHandle,
@@ -81,7 +81,7 @@ pub(super) enum StreamCommand {
 pub struct Stream {
     handle: Option<JoinHandle<()>>,
     controller: pw::channel::Sender<StreamCommand>,
-    last_quantum: Arc<AtomicU64>,
+    last_quantum: Arc<AtomicU32>,
     start: Instant,
     latch: Latch,
 }
@@ -90,7 +90,7 @@ impl Stream {
     pub(super) fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
-        last_quantum: Arc<AtomicU64>,
+        last_quantum: Arc<AtomicU32>,
         start: Instant,
         latch: Latch,
     ) -> Self {
@@ -224,7 +224,7 @@ pub struct UserData<D> {
     error_callback: ErrorCallbackArc,
     sample_format: SampleFormat,
     format: AudioInfoRaw,
-    last_quantum: Arc<AtomicU64>,
+    last_quantum: Arc<AtomicU32>,
     start: Instant,
     is_default_device: bool,
     has_connected: bool,
@@ -311,14 +311,14 @@ where
     fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
         #[cfg(feature = "realtime")]
         {
-            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u64 != prev {
+            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
+            if !self.rt_promoted || frames as u32 != prev {
                 self.promote_realtime(frames as FrameCount);
             }
         }
 
         #[cfg(not(feature = "realtime"))]
-        self.last_quantum.store(frames as u64, Ordering::Relaxed);
+        self.last_quantum.store(frames as u32, Ordering::Relaxed);
 
         let (callback, capture) = match pw_stream_time(stream) {
             Some(t) => {
@@ -352,14 +352,14 @@ where
     fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
         #[cfg(feature = "realtime")]
         {
-            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u64 != prev {
+            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
+            if !self.rt_promoted || frames as u32 != prev {
                 self.promote_realtime(frames as FrameCount);
             }
         }
 
         #[cfg(not(feature = "realtime"))]
-        self.last_quantum.store(frames as u64, Ordering::Relaxed);
+        self.last_quantum.store(frames as u32, Ordering::Relaxed);
 
         let (callback, playback) = match pw_stream_time(stream) {
             Some(t) => {
@@ -539,7 +539,7 @@ pub struct ConnectParams {
     pub config: StreamConfig,
     pub properties: PropertiesBox,
     pub sample_format: SampleFormat,
-    pub last_quantum: Arc<AtomicU64>,
+    pub last_quantum: Arc<AtomicU32>,
     pub start: Instant,
     pub connect_automatically: bool,
     pub is_default_device: bool,
