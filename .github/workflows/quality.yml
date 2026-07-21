@@ -82,6 +82,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Refresh APT package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+
       - name: Cache Linux audio packages
         if: runner.os == 'Linux'
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -126,6 +130,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Refresh APT package lists
+        run: sudo apt-get update
+
       - name: Cache Linux audio packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
@@ -165,6 +172,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Refresh APT package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
 
       - name: Cache Linux audio packages
         if: runner.os == 'Linux'
