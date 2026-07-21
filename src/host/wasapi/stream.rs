@@ -789,11 +789,12 @@ fn process_input(
                 Err(err) => return Err(Error::from(err)),
             };
             let mut qpc_position: u64 = 0;
+            let mut device_position: u64 = 0;
             let result = capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
-                None,
+                Some(&mut device_position),
                 Some(&mut qpc_position),
             );
 
@@ -805,7 +806,11 @@ fn process_input(
             }
 
             let flags = flags.assume_init();
-            if flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
+            // The discontinuity flag is undefined on the first GetBuffer after Start,
+            // where device_position is still 0.
+            if device_position != 0
+                && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0
+            {
                 let _ = try_emit_error(error_callback, ErrorKind::Xrun.into());
             }
 
