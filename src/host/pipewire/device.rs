@@ -71,7 +71,6 @@ enum Role {
 #[derive(Clone, Debug, Default)]
 pub struct Device {
     node_name: String,
-    nick_name: String,
     description: String,
     direction: DeviceDirection,
     channels: ChannelCount,
@@ -98,7 +97,6 @@ impl Device {
     fn sink_default() -> Self {
         Self {
             node_name: "sink_default".to_owned(),
-            nick_name: "sink_default".to_owned(),
             description: "default_sink".to_owned(),
             direction: DeviceDirection::Duplex,
             channels: 2,
@@ -110,7 +108,6 @@ impl Device {
     fn input_default() -> Self {
         Self {
             node_name: "input_default".to_owned(),
-            nick_name: "input_default".to_owned(),
             description: "default_input".to_owned(),
             direction: DeviceDirection::Input,
             channels: 2,
@@ -122,7 +119,6 @@ impl Device {
     fn output_default() -> Self {
         Self {
             node_name: "output_default".to_owned(),
-            nick_name: "output_default".to_owned(),
             description: "default_output".to_owned(),
             direction: DeviceDirection::Output,
             channels: 2,
@@ -220,7 +216,7 @@ impl DeviceTrait for Device {
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        let mut builder = DeviceDescriptionBuilder::new(&self.nick_name)
+        let mut builder = DeviceDescriptionBuilder::new(&self.description)
             .direction(self.direction)
             .device_type(self.device_type())
             .interface_type(self.interface_type);
@@ -229,9 +225,6 @@ impl DeviceTrait for Device {
         }
         if let Some(driver) = self.driver.as_ref() {
             builder = builder.driver(driver);
-        }
-        if !self.description.is_empty() && self.description != self.nick_name {
-            builder = builder.add_extended_line(&self.description);
         }
         Ok(builder.build())
     }
@@ -938,10 +931,6 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 .get(*pw::keys::NODE_DESCRIPTION)
                                 .unwrap_or("unknown")
                                 .to_owned();
-                            let nick_name = props
-                                .get(*pw::keys::NODE_NICK)
-                                .unwrap_or(description.as_str())
-                                .to_owned();
                             let channels = props
                                 .get(*pw::keys::AUDIO_CHANNELS)
                                 .and_then(|channels| channels.parse().ok())
@@ -993,7 +982,6 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
 
                             let device = Device {
                                 node_name,
-                                nick_name,
                                 description,
                                 direction,
                                 role,
