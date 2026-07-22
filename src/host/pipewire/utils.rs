@@ -37,6 +37,11 @@ pub mod audio {
     pub const DUPLEX: &str = "Audio/Duplex";
     pub const STREAM_OUTPUT: &str = "Stream/Output/Audio";
     pub const STREAM_INPUT: &str = "Stream/Input/Audio";
+
+    // Hidden from "default device" pickers but still directly connectable.
+    pub const SINK_INTERNAL: &str = "Audio/Sink/Internal";
+    pub const SOURCE_INTERNAL: &str = "Audio/Source/Internal";
+    pub const DUPLEX_INTERNAL: &str = "Audio/Duplex/Internal";
 }
 
 /// Returns the path of the PipeWire socket, checking the standard locations
