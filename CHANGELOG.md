@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ALSA**: Bump `alsa` to 0.12 and `alsa-sys` to 0.6, pending the `time_t` segfault fix upstream.
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Timestamps now stay monotonic across device and graph changes.
 - **ALSA**: A nonzero but sub-millisecond stream timeout is no longer treated as a non-blocking poll.
+- **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
 - **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
 - **AudioWorklet**: Fix stale audio output when a data callback wrote a partial buffer.
 - **CoreAudio**: Default-output streams now report xrun status.
