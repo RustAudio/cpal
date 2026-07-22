@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ALSA**: Bump `alsa` to 0.12 and `alsa-sys` to 0.6, pending the `time_t` segfault fix upstream.
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
