@@ -736,7 +736,7 @@ struct StreamInner {
 
     // htstamp value from the status query at prepare() time.
     // Used as the creation-time anchor for SystemClock and AudioLink calculations.
-    creation_ts: libc::timespec,
+    creation_ts: alsa::timespec,
 
     // Monotonic instant captured at stream creation. Timestamp origin for CreationInstant
     // mode and last-resort fallback if the status query in now() fails.
@@ -1269,21 +1269,21 @@ fn process_output(
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 #[inline]
 #[allow(clippy::unnecessary_cast)]
-fn timespec_to_nanos(ts: libc::timespec) -> i64 {
+fn timespec_to_nanos(ts: alsa::timespec) -> i64 {
     ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
 }
 
 // Adapted from `timediff` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 #[inline]
-fn timespec_diff_nanos(a: libc::timespec, b: libc::timespec) -> i64 {
+fn timespec_diff_nanos(a: alsa::timespec, b: alsa::timespec) -> i64 {
     timespec_to_nanos(a) - timespec_to_nanos(b)
 }
 
 // StreamInstant representing how long htstamp is ahead of origin, clamped to zero.
 // Used as the creation-relative timestamp source for SystemClock and AudioLink fallback paths.
 #[inline]
-fn htstamp_elapsed(status: &alsa::pcm::Status, origin: libc::timespec) -> StreamInstant {
+fn htstamp_elapsed(status: &alsa::pcm::Status, origin: alsa::timespec) -> StreamInstant {
     let nanos = timespec_diff_nanos(status.get_htstamp(), origin);
     StreamInstant::from_nanos(nanos.max(0) as u64)
 }
