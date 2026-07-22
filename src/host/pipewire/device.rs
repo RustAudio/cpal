@@ -868,6 +868,9 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                         audio::SINK
                             | audio::SOURCE
                             | audio::DUPLEX
+                            | audio::SINK_INTERNAL
+                            | audio::SOURCE_INTERNAL
+                            | audio::DUPLEX_INTERNAL
                             | audio::STREAM_INPUT
                             | audio::STREAM_OUTPUT
                     ) {
@@ -895,9 +898,9 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 return;
                             };
                             let role = match media_class {
-                                audio::SINK => Role::Sink,
-                                audio::SOURCE => Role::Source,
-                                audio::DUPLEX => Role::Duplex,
+                                audio::SINK | audio::SINK_INTERNAL => Role::Sink,
+                                audio::SOURCE | audio::SOURCE_INTERNAL => Role::Source,
+                                audio::DUPLEX | audio::DUPLEX_INTERNAL => Role::Duplex,
                                 audio::STREAM_OUTPUT => Role::StreamOutput,
                                 audio::STREAM_INPUT => Role::StreamInput,
                                 _ => {
