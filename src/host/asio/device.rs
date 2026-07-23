@@ -7,12 +7,12 @@ use std::{
 use super::sys;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    host::com, ChannelCount, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    host::asio::stream::load_driver_err, host::com, ChannelCount, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceId, Error, ErrorKind, FrameCount, SampleFormat, SampleRate,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
-/// A ASIO Device
+/// An ASIO Device
 #[derive(Clone)]
 pub struct Device {
     name: String,
@@ -126,6 +126,18 @@ impl Device {
             }
         }
         configs
+    }
+
+    /// Opens the ASIO driver's control panel window.
+    pub fn open_control_panel(&self) -> Result<(), Error> {
+        com::com_initialized();
+        super::GLOBAL_ASIO
+            .get()
+            .expect("GLOBAL_ASIO is always set when an ASIO device exists")
+            .load_driver(&self.name)
+            .map_err(load_driver_err)?
+            .open_control_panel()
+            .map_err(|e| Error::with_message(ErrorKind::UnsupportedOperation, format!("{e:?}")))
     }
 }
 
