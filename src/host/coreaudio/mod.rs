@@ -14,7 +14,7 @@ use crate::{Error, ErrorKind, SampleFormat, StreamConfig, StreamInstant};
 #[cfg(not(target_os = "macos"))]
 mod ios;
 #[cfg(target_os = "macos")]
-mod macos;
+pub(crate) mod macos;
 
 #[cfg(not(target_os = "macos"))]
 #[allow(unused_imports)]

@@ -23,6 +23,7 @@ use crate::{
 mod device;
 pub mod enumerate;
 mod loopback;
+pub(crate) mod permissions;
 mod property_listener;
 pub use device::Device;
 

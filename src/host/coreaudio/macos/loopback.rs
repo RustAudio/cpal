@@ -84,6 +84,13 @@ impl LoopbackDevice {
     /// Create a [`LoopbackDevice`] that records the sound
     /// output of `device`.
     pub fn from_device(device: &Device) -> Result<Self, Error> {
+        if !super::permissions::check_system_audio_permission() {
+            return Err(Error::with_message(
+                ErrorKind::PermissionDenied,
+                "System audio recording permission is required for macOS loopback recording; call cpal::platform::request_system_audio_permission() or grant it in System Settings",
+            ));
+        }
+
         // 1 - Create tap
 
         let pid = std::process::id();
