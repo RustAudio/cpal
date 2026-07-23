@@ -74,7 +74,7 @@ pipewire = ["dep:pipewire"]
 # Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
 # Requires: PulseAudio server and client libraries installed on the system
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
-pulseaudio = ["dep:pulseaudio", "dep:futures"]
+pulseaudio = ["dep:pulseaudio", "dep:futures", "dep:portable-atomic"]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
@@ -90,6 +90,11 @@ wasm-bindgen = [
 
 [dependencies]
 dasp_sample = "0.11"
+
+# Polyfills 64-bit atomics on targets without native support (e.g. mips, powerpc,
+# riscv32); used by the pulseaudio backend's lock-free latency tracking.
+[target.'cfg(not(target_has_atomic = "64"))'.dependencies]
+portable-atomic = { version = "1", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
