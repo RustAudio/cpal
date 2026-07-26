@@ -34,10 +34,10 @@ env:
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
 
-  PACKAGES_LINUX: libasound2-dev libjack-jackd2-dev libdbus-1-dev libpipewire-0.3-dev
+  PACKAGES_LINUX: libasound2-dev libdbus-1-dev libjack-jackd2-dev libpipewire-0.3-dev
 
   # System packages required by the docs.rs feature set and available on docs.rs build environment.
-  PACKAGES_DOCS_RS: libasound2-dev libjack-jackd2-dev libdbus-1-dev
+  PACKAGES_DOCS_RS: libasound2-dev libdbus-1-dev libjack-jackd2-dev
 
   ANDROID_COMPILE_SDK: "30"
   ANDROID_BUILD_TOOLS: "30.0.3"
@@ -179,6 +179,41 @@ jobs:
 
       - name: Check PipeWire on Debian Bookworm
         run: cargo check --features pipewire --workspace --verbose
+
+  # MIPS (Tier 3 target, requires nightly + build-std; no native 64-bit atomics)
+  mipsel:
+    runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps:bookworm
+    env:
+      TARGET: mipsel-unknown-linux-gnu
+      PKG_CONFIG_ALLOW_CROSS: "1"
+      PKG_CONFIG_PATH: /usr/lib/mipsel-linux-gnu/pkgconfig/
+      CARGO_TARGET_MIPSEL_UNKNOWN_LINUX_GNU_LINKER: mipsel-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install mipsel cross-toolchain and audio libs
+        run: |
+          dpkg --add-architecture mipsel
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libclang-dev crossbuild-essential-mipsel $(for p in ${{ env.PACKAGES_LINUX }}; do echo "$p:mipsel"; done)
+
+      - name: Install Rust nightly (for build-std)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: mipsel
+
+      - name: Check examples (default features)
+        run: cargo +nightly check --examples --workspace --verbose --target ${{ env.TARGET }} -Z build-std
+
+      - name: Check examples (all features)
+        run: cargo +nightly check --examples --all-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
   # Windows (x86_64 and i686)
   windows:
@@ -577,18 +612,19 @@ jobs:
   publish-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
     needs:
+      - android
+      - docs-cpal
+      - ios
       - linux
       - linux-armv7
-      - pipewire-bookworm
-      - windows
       - macos
-      - android
-      - ios
+      - mipsel
+      - pipewire-bookworm
       - tvos
-      - wasm-bindgen
       - wasm-audioworklet
+      - wasm-bindgen
       - wasm-wasip1
-      - docs-cpal
+      - windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
