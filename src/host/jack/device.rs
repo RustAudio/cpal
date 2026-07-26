@@ -63,7 +63,12 @@ impl Device {
     }
 
     fn id(&self) -> Result<DeviceId, Error> {
-        Ok(DeviceId::new(crate::platform::HostId::Jack, &self.name))
+        // `self.name` carries the process ID (see `Host::new`) so that concurrent cpal
+        // instances get distinct JACK client names. It must not leak into `DeviceId`,
+        // which callers persist across restarts: a synthetic device's direction is the
+        // only part of its identity that's actually stable.
+        let id = if self.is_input() { "input" } else { "output" };
+        Ok(DeviceId::new(crate::platform::HostId::Jack, id))
     }
 
     pub fn default_output_device(
@@ -142,7 +147,14 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Ok(DeviceDescriptionBuilder::new(self.name.clone())
+        // Not `self.name`: that's the JACK client name, which carries a process ID
+        // uniquifier (see `Host::new`) and isn't meant as a user-facing device label.
+        let name = if self.is_input() {
+            "JACK Input"
+        } else {
+            "JACK Output"
+        };
+        Ok(DeviceDescriptionBuilder::new(name)
             .direction(self.direction)
             .build())
     }
