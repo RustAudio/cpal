@@ -190,11 +190,8 @@ impl DeviceTrait for Device {
         let latency_frames = Arc::new(AtomicUsize::new(input_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(
-            error_callback.clone(),
-            Latch::new(),
-            Some((latency_frames.clone(), true)),
-        );
+        let session_error_callback = error_callback.clone();
+        let session_latency_frames = latency_frames.clone();
 
         // Set up input callback
         setup_input_callback(
@@ -208,13 +205,21 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        let stream = Stream::new(
-            StreamInner {
-                playing: false,
-                audio_unit,
-            },
-            session_manager,
+        let inner = Arc::new(Mutex::new(StreamInner {
+            playing: false,
+            interrupted: false,
+            audio_unit,
+        }));
+        let session_manager = SessionEventManager::new(
+            session_error_callback,
+            Latch::new(),
+            Some((session_latency_frames, true)),
+            Arc::downgrade(&inner),
         );
+        let stream = Stream {
+            inner,
+            session_manager,
+        };
         stream.signal_ready();
         Ok(stream)
     }
@@ -245,11 +250,8 @@ impl DeviceTrait for Device {
         let latency_frames = Arc::new(AtomicUsize::new(output_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(
-            error_callback.clone(),
-            Latch::new(),
-            Some((latency_frames.clone(), false)),
-        );
+        let session_error_callback = error_callback.clone();
+        let session_latency_frames = latency_frames.clone();
 
         // Set up output callback
         setup_output_callback(
@@ -263,31 +265,32 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        let stream = Stream::new(
-            StreamInner {
-                playing: false,
-                audio_unit,
-            },
-            session_manager,
+        let inner = Arc::new(Mutex::new(StreamInner {
+            playing: false,
+            interrupted: false,
+            audio_unit,
+        }));
+        let session_manager = SessionEventManager::new(
+            session_error_callback,
+            Latch::new(),
+            Some((session_latency_frames, false)),
+            Arc::downgrade(&inner),
         );
+        let stream = Stream {
+            inner,
+            session_manager,
+        };
         stream.signal_ready();
         Ok(stream)
     }
 }
 
 pub struct Stream {
-    inner: Mutex<StreamInner>,
+    inner: Arc<Mutex<StreamInner>>,
     session_manager: SessionEventManager,
 }
 
 impl Stream {
-    fn new(inner: StreamInner, session_manager: SessionEventManager) -> Self {
-        Self {
-            inner: Mutex::new(inner),
-            session_manager,
-        }
-    }
-
     fn signal_ready(&self) {
         self.session_manager.signal_ready();
     }
@@ -341,7 +344,31 @@ impl StreamTrait for Stream {
 
 struct StreamInner {
     playing: bool,
+    /// Set while an interruption is what stopped the unit, so only those resume on its end.
+    interrupted: bool,
     audio_unit: AudioUnit,
+}
+
+impl StreamInner {
+    /// The OS already stopped the unit; resync `playing` so a later `play` actually starts it.
+    fn stop_for_interruption(&mut self) {
+        if !self.playing {
+            return;
+        }
+        let _ = self.audio_unit.stop();
+        self.playing = false;
+        self.interrupted = true;
+    }
+
+    /// Only resumes what the interruption stopped; a stream the caller had paused stays paused.
+    fn resume_after_interruption(&mut self) {
+        if !std::mem::take(&mut self.interrupted) {
+            return;
+        }
+        if self.audio_unit.start().is_ok() {
+            self.playing = true;
+        }
+    }
 }
 
 fn create_audio_unit() -> Result<AudioUnit, coreaudio::Error> {
