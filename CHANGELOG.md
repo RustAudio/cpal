@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
+- **WASAPI**: Capture streams no longer report a spurious xrun on the first buffer after starting.
 - **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
 - **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
