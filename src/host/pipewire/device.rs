@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc, Arc,
     },
     thread,
@@ -369,10 +369,10 @@ impl DeviceTrait for Device {
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            BufferSize::Fixed(n) => n as u64,
-            BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => self.quantum,
         };
-        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum = Arc::new(AtomicU32::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
         // Keep `capture` monotonic: pw_time delay() grows when another client joins
         // needing a larger buffer, which can pull `capture` backward.
@@ -547,10 +547,10 @@ impl DeviceTrait for Device {
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            BufferSize::Fixed(n) => n as u64,
-            BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => self.quantum,
         };
-        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum = Arc::new(AtomicU32::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
         // Keep `playback` monotonic: pw_time delay() shrinks when other clients that needed
         // a larger buffer leave the graph, which can pull `playback` backward.
