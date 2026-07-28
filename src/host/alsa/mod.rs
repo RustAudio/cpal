@@ -1191,16 +1191,19 @@ fn poll_for_period(
             "Device disconnected",
         ));
     }
-    // POLLERR signals an xrun or suspend; avail_delay() below returns EPIPE/ESTRPIPE accordingly.
+    // POLLERR signals an xrun or suspend; avail_delay() below returns an error accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
     let (avail_frames, delay_frames) = match stream.handle.avail_delay() {
+        // Suspend: try hardware resume first; fall back to prepare() if unsupported.
+        // BSD compat: check via PCM state rather than the Linux-specific ESTRPIPE errno.
+        Err(_) if matches!(stream.handle.state(), alsa::pcm::State::Suspended) => {
+            return try_resume(stream);
+        }
         // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
         Err(err) if err.errno() == libc::EPIPE => {
             stream.pending_xrun.store(true, Ordering::Relaxed);
             return Ok(Poll::Recover);
         }
-        // Suspend: try hardware resume first; fall back to prepare() if unsupported.
-        Err(err) if err.errno() == libc::ESTRPIPE => return try_resume(stream),
         res => res,
     }?;
     // ALSA can have spurious wakeups where poll returns but avail < avail_min.
@@ -1259,17 +1262,18 @@ fn process_input(
             // EAGAIN = no frames available: skip this cycle if no progress was made,
             // otherwise treat as an underrun (partial period cannot be delivered safely).
             Err(err) if err.errno() == libc::EAGAIN && frames_read == 0 => return Ok(()),
-            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
-            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
-                return recover_input(stream);
-            }
-            // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
-            // recovery if the hardware doesn't support it.
-            Err(err) if err.errno() == libc::ESTRPIPE => {
+            // Suspend: try soft resume first, falling back to underrun recovery if the
+            // hardware doesn't support it. BSD compat: check via PCM state rather than the
+            // Linux-specific ESTRPIPE errno.
+            Err(_) if matches!(stream.handle.state(), alsa::pcm::State::Suspended) => {
                 return match try_resume(stream)? {
                     Poll::Recover => recover_input(stream),
                     _ => Ok(()),
                 };
+            }
+            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_input(stream);
             }
             Err(err) => return Err(err.into()),
         }
@@ -1340,17 +1344,17 @@ fn process_output(
             // progress was made, otherwise treat as an underrun (partial period cannot be
             // completed safely).
             Err(err) if err.errno() == libc::EAGAIN && frames_written == 0 => return Ok(()),
-            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
-            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
-                return recover_output(stream);
-            }
-            // ESTRPIPE = hardware suspend: try soft resume first, falling back to underrun
-            // recovery if the hardware doesn't support it.
-            Err(err) if err.errno() == libc::ESTRPIPE => {
+            // Suspend: try soft resume first, falling back to underrun recovery if the
+            // hardware doesn't support it. BSD compat: check via PCM state rather than the Linux-specific ESTRPIPE errno.
+            Err(_) if matches!(stream.handle.state(), alsa::pcm::State::Suspended) => {
                 return match try_resume(stream)? {
                     Poll::Recover => recover_output(stream),
                     _ => Ok(()),
                 };
+            }
+            // EAGAIN with partial progress, or EPIPE: full underrun recovery required.
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_output(stream);
             }
             Err(err) => return Err(err.into()),
         }
