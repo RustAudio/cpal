@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Channel enumeration is no longer capped at the physical system port count.
 - **JACK**: `Device::id` no longer embeds the process ID, so `DeviceId` is now stable across application restarts.
 - **PipeWire**: Fix streams starting audio before `play()` is called.
+- **PipeWire**: Fix rtkit burst limit errors from repeated real-time promotion on quantum jitter.
 - **PipeWire**: Nodes with an `/Internal` media class are now enumerated as devices.
 - **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
 - **PipeWire**: Build on 32-bit targets without native 64-bit atomics.
