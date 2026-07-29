@@ -1,11 +1,4 @@
 //! Background real-time thread promotion.
-//!
-//! Defers `audio_thread_priority::promote_thread_to_real_time` to a background thread so the
-//! audio callback thread that requests it never blocks -- whether the call ends up going over
-//! D-Bus or making a syscall directly, since either could block.
-//!
-//! Only usable where the crate exposes a cross-thread promotion API at all, i.e. accepts a
-//! thread identity rather than always promoting the caller.
 
 use std::{
     sync::{

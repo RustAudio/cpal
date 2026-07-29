@@ -5,7 +5,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
     time::Instant,
 };
 
