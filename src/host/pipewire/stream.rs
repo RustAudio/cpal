@@ -31,6 +31,8 @@ use pipewire::{
     types::ObjectType,
 };
 
+#[cfg(all(target_os = "linux", feature = "realtime"))]
+use super::rt_promote::RtPromoter;
 use crate::{
     host::{
         emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
@@ -233,16 +235,24 @@ pub struct UserData<D> {
     spa_io_clock: *const spa_io_clock,
     xrun_recovering: bool,
     #[cfg(feature = "realtime")]
-    rt_promoted: bool,
+    rt_promoted_frames: FrameCount,
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    rt_promoter: Option<RtPromoter>,
 }
 
 impl<D> UserData<D> {
-    // `#[cold]` because it only runs on the first cycle and whenever PipeWire renegotiates the graph quantum.
     #[cfg(feature = "realtime")]
-    #[cold]
     fn promote_realtime(&mut self, frames: FrameCount) {
-        // Set regardless of success, so a failed promotion isn't retried until the quantum changes.
-        self.rt_promoted = true;
+        // Set regardless of success, so a failed promotion isn't retried until the quantum grows.
+        self.rt_promoted_frames = frames;
+
+        #[cfg(target_os = "linux")]
+        if let Some(promoter) = &self.rt_promoter {
+            promoter.request(frames);
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        // audio_thread_priority has no cross-thread promotion API on this target.
         if let Err(e) =
             audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
         {
@@ -308,17 +318,13 @@ impl<D> UserData<D>
 where
     D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
 {
-    fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
-        #[cfg(feature = "realtime")]
-        {
-            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u32 != prev {
-                self.promote_realtime(frames as FrameCount);
-            }
-        }
+    fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: FrameCount, data: &Data) {
+        self.last_quantum.store(frames, Ordering::Relaxed);
 
-        #[cfg(not(feature = "realtime"))]
-        self.last_quantum.store(frames as u32, Ordering::Relaxed);
+        #[cfg(feature = "realtime")]
+        if frames > self.rt_promoted_frames {
+            self.promote_realtime(frames);
+        }
 
         let (callback, capture) = match pw_stream_time(stream) {
             Some(t) => {
@@ -334,7 +340,7 @@ where
                 let cb = monotonic_stream_instant()
                     .unwrap_or_else(|| stream_instant_from_start(self.start));
                 let capture = cb
-                    .checked_sub(frames_to_duration(frames as FrameCount, self.format.rate()))
+                    .checked_sub(frames_to_duration(frames, self.format.rate()))
                     .unwrap_or(StreamInstant::ZERO);
                 (cb, capture)
             }
@@ -349,17 +355,18 @@ impl<D> UserData<D>
 where
     D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
 {
-    fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
-        #[cfg(feature = "realtime")]
-        {
-            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u32 != prev {
-                self.promote_realtime(frames as FrameCount);
-            }
-        }
+    fn publish_data_out(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: FrameCount,
+        data: &mut Data,
+    ) {
+        self.last_quantum.store(frames, Ordering::Relaxed);
 
-        #[cfg(not(feature = "realtime"))]
-        self.last_quantum.store(frames as u32, Ordering::Relaxed);
+        #[cfg(feature = "realtime")]
+        if frames > self.rt_promoted_frames {
+            self.promote_realtime(frames);
+        }
 
         let (callback, playback) = match pw_stream_time(stream) {
             Some(t) => {
@@ -374,7 +381,7 @@ where
             None => {
                 let cb = monotonic_stream_instant()
                     .unwrap_or_else(|| stream_instant_from_start(self.start));
-                let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
+                let pl = cb + frames_to_duration(frames, self.format.rate());
                 (cb, pl)
             }
         };
@@ -592,6 +599,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -606,7 +615,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -748,7 +759,7 @@ where
                 let data = active.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
-                user_data.publish_data_out(stream, frames, &mut data);
+                user_data.publish_data_out(stream, frames as FrameCount, &mut data);
                 let chunk = buf_data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = stride as i32;
@@ -777,7 +788,7 @@ where
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // That thread promotes itself to RT from the process callback, once when the negotiated
-    // quantum is known and again whenever PipeWire renegotiates it.
+    // quantum is known and again whenever it grows.
     let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
@@ -848,6 +859,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -862,7 +875,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
 
     let channels = config.channels as _;
@@ -991,7 +1006,7 @@ where
                 let data = samples.as_mut_ptr() as *mut ();
                 let data =
                     unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                user_data.publish_data_in(stream, frames as usize, &data);
+                user_data.publish_data_in(stream, frames, &data);
             }
         })
         .register()?;
@@ -1016,7 +1031,7 @@ where
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
     // That thread promotes itself to RT from the process callback, once when the negotiated
-    // quantum is known and again whenever PipeWire renegotiates it.
+    // quantum is known and again whenever it grows.
     let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
