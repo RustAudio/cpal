@@ -5,7 +5,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
     time::Instant,
 };
 
@@ -31,6 +31,8 @@ use pipewire::{
     types::ObjectType,
 };
 
+#[cfg(all(target_os = "linux", feature = "realtime"))]
+use super::rt_promote::RtPromoter;
 use crate::{
     host::{
         emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
@@ -234,6 +236,8 @@ pub struct UserData<D> {
     xrun_recovering: bool,
     #[cfg(feature = "realtime")]
     rt_promoted_frames: FrameCount,
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    rt_promoter: Option<RtPromoter>,
 }
 
 impl<D> UserData<D> {
@@ -241,6 +245,14 @@ impl<D> UserData<D> {
     fn promote_realtime(&mut self, frames: FrameCount) {
         // Set regardless of success, so a failed promotion isn't retried until the quantum grows.
         self.rt_promoted_frames = frames;
+
+        #[cfg(target_os = "linux")]
+        if let Some(promoter) = &self.rt_promoter {
+            promoter.request(frames);
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        // audio_thread_priority has no cross-thread promotion API on this target.
         if let Err(e) =
             audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
         {
@@ -587,6 +599,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -602,6 +616,8 @@ where
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -843,6 +859,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -858,6 +876,8 @@ where
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
         rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
 
     let channels = config.channels as _;
