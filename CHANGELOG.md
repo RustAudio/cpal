@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PipeWire**: Build on 32-bit targets without native 64-bit atomics.
 - **PulseAudio**: `NoData` errors are no longer misreported as buffer xruns.
 - **PulseAudio**: Build on 32-bit targets without native 64-bit atomics.
-- **PulseAudio**: The audio callback no longer blocks on a mutex to notify the latency thread.
+- **PulseAudio**: Latency calculation in the audio callback is now RT-safe.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
