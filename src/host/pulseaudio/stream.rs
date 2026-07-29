@@ -24,27 +24,53 @@ use crate::{
 
 const LATENCY_MAX_INTERVAL: Duration = Duration::from_millis(100);
 
+struct UpdateSignal {
+    notified: Mutex<bool>,
+    cvar: Condvar,
+}
+
+impl UpdateSignal {
+    fn new() -> Self {
+        Self {
+            notified: Mutex::new(false),
+            cvar: Condvar::new(),
+        }
+    }
+
+    fn notify(&self) {
+        *self.notified.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.cvar.notify_one();
+    }
+
+    fn try_notify(&self) {
+        match self.notified.try_lock() {
+            Ok(mut notified) => *notified = true,
+            Err(std::sync::TryLockError::Poisoned(e)) => *e.into_inner() = true,
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        }
+        self.cvar.notify_one();
+    }
+}
+
 // Coordinates the latency polling thread
 struct LatencyHandle {
     // Cancellation on drop
     cancel: Arc<AtomicBool>,
     // Event-driven early wakeup from callbacks and play/pause
-    update: Arc<(Mutex<bool>, Condvar)>,
+    update: Arc<UpdateSignal>,
 }
 
 impl LatencyHandle {
     fn new() -> Self {
         Self {
             cancel: Arc::new(AtomicBool::new(false)),
-            update: Arc::new((Mutex::new(false), Condvar::new())),
+            update: Arc::new(UpdateSignal::new()),
         }
     }
 
     // Trigger an early poll
     fn notify(&self) {
-        let (lock, cvar) = &*self.update;
-        *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
-        cvar.notify_one();
+        self.update.notify();
     }
 
     // Signal cancellation and wake the thread immediately
@@ -231,9 +257,7 @@ impl Stream {
             data_callback(&mut data, &OutputCallbackInfo { timestamp });
 
             // Notify the latency thread that audio was written, so it updates timing info.
-            let (lock, cvar) = &*update_callback;
-            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
-            cvar.notify_one();
+            update_callback.try_notify();
 
             // We always consider the full buffer filled, because cpal's
             // user-facing API doesn't allow short writes.
@@ -305,7 +329,7 @@ impl Stream {
                 );
 
                 // Wait until woken by a write/play/pause/drop event or until LATENCY_MAX_INTERVAL.
-                let (lock, cvar) = &*update_thread;
+                let (lock, cvar) = (&update_thread.notified, &update_thread.cvar);
                 let Ok(guard) = lock.lock() else { break };
                 let (mut guard, _) = cvar
                     .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
@@ -393,9 +417,7 @@ impl Stream {
             data_callback(&data, &InputCallbackInfo { timestamp });
 
             // Notify the latency thread that audio was read, so it updates timing info.
-            let (lock, cvar) = &*update_callback;
-            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
-            cvar.notify_one();
+            update_callback.try_notify();
         };
 
         let stream =
@@ -441,7 +463,7 @@ impl Stream {
                 );
 
                 // Wait until woken by a read/play/pause/drop event or until LATENCY_MAX_INTERVAL.
-                let (lock, cvar) = &*update_thread;
+                let (lock, cvar) = (&update_thread.notified, &update_thread.cvar);
                 let Ok(guard) = lock.lock() else { break };
                 let (mut guard, _) = cvar
                     .wait_timeout_while(guard, LATENCY_MAX_INTERVAL, |notified| !*notified)
