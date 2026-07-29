@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
+- **Linux**: Clarify that `realtime` alone is a no-op without `realtime-dbus`.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
 - **PipeWire**: Devices with multiple ports now get distinct, localized, per-port names.
