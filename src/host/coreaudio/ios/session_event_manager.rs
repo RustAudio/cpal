@@ -35,7 +35,7 @@ fn with_stream(stream: &Weak<Mutex<StreamInner>>, f: impl FnOnce(&mut StreamInne
 }
 
 /// Reads the number stored under `key` in a notification's `userInfo`.
-unsafe fn user_info_number(notification: &NSNotification, key: Option<&NSString>) -> Option<usize> {
+fn user_info_number(notification: &NSNotification, key: Option<&NSString>) -> Option<usize> {
     let user_info = notification.userInfo()?;
     let value = user_info.objectForKey(key?)?;
     Some(value.downcast::<NSNumber>().ok()?.unsignedIntegerValue())
@@ -45,10 +45,9 @@ unsafe fn user_info_number(notification: &NSNotification, key: Option<&NSString>
 /// input or output latency. `true` means an input stream.
 type LatencyRefresh = (Arc<AtomicUsize>, bool);
 
-unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
-    let reason = AVAudioSessionRouteChangeReason(unsafe {
-        user_info_number(notification, AVAudioSessionRouteChangeReasonKey)?
-    });
+fn route_change_error(notification: &NSNotification) -> Option<Error> {
+    let key = unsafe { AVAudioSessionRouteChangeReasonKey };
+    let reason = AVAudioSessionRouteChangeReason(user_info_number(notification, key)?);
     match reason {
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable => Some(Error::with_message(
             ErrorKind::DeviceChanged,
@@ -103,18 +102,17 @@ impl SessionEventManager {
                     return;
                 }
                 let notif = unsafe { notif.as_ref() };
-                let Some(kind) =
-                    (unsafe { user_info_number(notif, AVAudioSessionInterruptionTypeKey) })
-                else {
+                let interruption_type_key = unsafe { AVAudioSessionInterruptionTypeKey };
+                let Some(kind) = user_info_number(notif, interruption_type_key) else {
                     return;
                 };
                 if AVAudioSessionInterruptionType(kind) == AVAudioSessionInterruptionType::Began {
                     with_stream(&stream, StreamInner::stop_for_interruption);
                     return;
                 }
+                let interruption_option_key = unsafe { AVAudioSessionInterruptionOptionKey };
                 let options = AVAudioSessionInterruptionOptions(
-                    unsafe { user_info_number(notif, AVAudioSessionInterruptionOptionKey) }
-                        .unwrap_or(0),
+                    user_info_number(notif, interruption_option_key).unwrap_or(0),
                 );
                 if !options.contains(AVAudioSessionInterruptionOptions::ShouldResume) {
                     return;
@@ -147,7 +145,8 @@ impl SessionEventManager {
                         };
                         frames.store(depth, Ordering::Relaxed);
                     }
-                    if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
+                    let notif = unsafe { notif.as_ref() };
+                    if let Some(err) = route_change_error(notif) {
                         emit_error(&cb, err);
                     }
                 }

@@ -138,6 +138,40 @@ impl Device {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum PlaybackState {
+    #[default]
+    Stopped,
+    Playing,
+    Interrupted,
+}
+
+struct StreamInner {
+    state: PlaybackState,
+    audio_unit: AudioUnit,
+}
+
+impl StreamInner {
+    fn stop_for_interruption(&mut self) {
+        if self.state != PlaybackState::Playing {
+            return;
+        }
+        // Unlike pause(), the OS is the one that actually halted the unit here; this
+        // call only resyncs AudioUnit's own bookkeeping, so its result carries nothing.
+        let _ = self.audio_unit.stop();
+        self.state = PlaybackState::Interrupted;
+    }
+
+    fn resume_after_interruption(&mut self) {
+        if self.state != PlaybackState::Interrupted {
+            return;
+        }
+        if self.audio_unit.start().is_ok() {
+            self.state = PlaybackState::Playing;
+        }
+    }
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -206,8 +240,7 @@ impl DeviceTrait for Device {
         )?;
 
         let inner = Arc::new(Mutex::new(StreamInner {
-            playing: false,
-            interrupted: false,
+            state: PlaybackState::default(),
             audio_unit,
         }));
         let session_manager = SessionEventManager::new(
@@ -266,8 +299,7 @@ impl DeviceTrait for Device {
         )?;
 
         let inner = Arc::new(Mutex::new(StreamInner {
-            playing: false,
-            interrupted: false,
+            state: PlaybackState::default(),
             audio_unit,
         }));
         let session_manager = SessionEventManager::new(
@@ -308,12 +340,12 @@ impl StreamTrait for Stream {
         let mut stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
-        if !stream.playing {
+        if stream.state != PlaybackState::Playing {
             stream
                 .audio_unit
                 .start()
                 .context("Failed to start audio unit")?;
-            stream.playing = true;
+            stream.state = PlaybackState::Playing;
         }
         Ok(())
     }
@@ -322,13 +354,13 @@ impl StreamTrait for Stream {
         let mut stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
-        if stream.playing {
+        if stream.state == PlaybackState::Playing {
             stream
                 .audio_unit
                 .stop()
                 .context("Failed to stop audio unit")?;
-            stream.playing = false;
         }
+        stream.state = PlaybackState::Stopped;
         Ok(())
     }
 
@@ -339,35 +371,6 @@ impl StreamTrait for Stream {
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         Ok(get_device_buffer_frames() as FrameCount)
-    }
-}
-
-struct StreamInner {
-    playing: bool,
-    /// Set while an interruption is what stopped the unit, so only those resume on its end.
-    interrupted: bool,
-    audio_unit: AudioUnit,
-}
-
-impl StreamInner {
-    /// The OS already stopped the unit; resync `playing` so a later `play` actually starts it.
-    fn stop_for_interruption(&mut self) {
-        if !self.playing {
-            return;
-        }
-        let _ = self.audio_unit.stop();
-        self.playing = false;
-        self.interrupted = true;
-    }
-
-    /// Only resumes what the interruption stopped; a stream the caller had paused stays paused.
-    fn resume_after_interruption(&mut self) {
-        if !std::mem::take(&mut self.interrupted) {
-            return;
-        }
-        if self.audio_unit.start().is_ok() {
-            self.playing = true;
-        }
     }
 }
 
