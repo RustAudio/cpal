@@ -1,39 +1,53 @@
-//! Monitors AVAudioSession lifecycle events and reports them as stream errors.
+//! Monitors AVAudioSession lifecycle events, recovering the stream from an interruption and
+//! reporting the rest as stream errors.
 
 use std::{
     ptr::NonNull,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex, Weak,
     },
 };
 
 use block2::RcBlock;
-use objc2::runtime::AnyObject;
 use objc2_avf_audio::{
-    AVAudioSessionMediaServicesWereLostNotification,
+    AVAudioSession, AVAudioSessionInterruptionNotification, AVAudioSessionInterruptionOptionKey,
+    AVAudioSessionInterruptionOptions, AVAudioSessionInterruptionType,
+    AVAudioSessionInterruptionTypeKey, AVAudioSessionMediaServicesWereLostNotification,
     AVAudioSessionMediaServicesWereResetNotification, AVAudioSessionRouteChangeNotification,
     AVAudioSessionRouteChangeReason, AVAudioSessionRouteChangeReasonKey,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
-use super::{input_latency_frames, output_latency_frames};
+use super::{input_latency_frames, output_latency_frames, StreamInner};
 use crate::{
     host::{emit_error, latch::Latch, ErrorCallbackArc},
     Error, ErrorKind,
 };
 
+/// Runs `f` against the stream, if it is still alive and its lock is intact.
+fn with_stream(stream: &Weak<Mutex<StreamInner>>, f: impl FnOnce(&mut StreamInner)) {
+    if let Some(inner) = stream.upgrade() {
+        if let Ok(mut inner) = inner.lock() {
+            f(&mut inner);
+        }
+    }
+}
+
+/// Reads the number stored under `key` in a notification's `userInfo`.
+fn user_info_number(notification: &NSNotification, key: Option<&NSString>) -> Option<usize> {
+    let user_info = notification.userInfo()?;
+    let value = user_info.objectForKey(key?)?;
+    Some(value.downcast::<NSNumber>().ok()?.unsignedIntegerValue())
+}
+
 /// Shared buffer-depth value to refresh on route changes, paired with `is_input` to select the
 /// input or output latency. `true` means an input stream.
 type LatencyRefresh = (Arc<AtomicUsize>, bool);
 
-unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
-    let user_info = notification.userInfo()?;
-    let key = AVAudioSessionRouteChangeReasonKey?;
-    let dict = unsafe { user_info.cast_unchecked::<NSString, AnyObject>() };
-    let value = dict.objectForKey(key)?;
-    let number = value.downcast_ref::<NSNumber>()?;
-    let reason = AVAudioSessionRouteChangeReason(number.unsignedIntegerValue());
+fn route_change_error(notification: &NSNotification) -> Option<Error> {
+    let key = unsafe { AVAudioSessionRouteChangeReasonKey };
+    let reason = AVAudioSessionRouteChangeReason(user_info_number(notification, key)?);
     match reason {
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable => Some(Error::with_message(
             ErrorKind::DeviceChanged,
@@ -73,10 +87,48 @@ impl SessionEventManager {
         error_callback: ErrorCallbackArc,
         latch: Latch,
         latency_refresh: Option<LatencyRefresh>,
+        stream: Weak<Mutex<StreamInner>>,
     ) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
         let mut observers = Vec::new();
         let waiter = latch.waiter();
+
+        // The OS stops the unit itself, and the session it stops is inactive on the way back.
+        {
+            let w = waiter.clone();
+            let stream = stream.clone();
+            let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
+                if !w.is_released() {
+                    return;
+                }
+                let notif = unsafe { notif.as_ref() };
+                let interruption_type_key = unsafe { AVAudioSessionInterruptionTypeKey };
+                let Some(kind) = user_info_number(notif, interruption_type_key) else {
+                    return;
+                };
+                if AVAudioSessionInterruptionType(kind) == AVAudioSessionInterruptionType::Began {
+                    with_stream(&stream, StreamInner::stop_for_interruption);
+                    return;
+                }
+                let interruption_option_key = unsafe { AVAudioSessionInterruptionOptionKey };
+                let options = AVAudioSessionInterruptionOptions(
+                    user_info_number(notif, interruption_option_key).unwrap_or(0),
+                );
+                if !options.contains(AVAudioSessionInterruptionOptions::ShouldResume) {
+                    return;
+                }
+                let session = unsafe { AVAudioSession::sharedInstance() };
+                if unsafe { session.setActive_error(true) }.is_ok() {
+                    with_stream(&stream, StreamInner::resume_after_interruption);
+                }
+            });
+            if let Some(name) = unsafe { AVAudioSessionInterruptionNotification } {
+                let observer = unsafe {
+                    nc.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
+                };
+                observers.push(observer);
+            }
+        }
 
         {
             let cb = error_callback.clone();
@@ -93,7 +145,8 @@ impl SessionEventManager {
                         };
                         frames.store(depth, Ordering::Relaxed);
                     }
-                    if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
+                    let notif = unsafe { notif.as_ref() };
+                    if let Some(err) = route_change_error(notif) {
                         emit_error(&cb, err);
                     }
                 }
