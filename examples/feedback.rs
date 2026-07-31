@@ -38,17 +38,23 @@ struct Opt {
     /// Use the PulseAudio host. Requires `--features pulseaudio`.
     #[arg(long, default_value_t = false)]
     pulseaudio: bool,
+
+    /// Use the ASIO host. Requires `--features asio`.
+    #[arg(long, default_value_t = false)]
+    asio: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    // JACK/PulseAudio support must be enabled at compile time, and is
+    // JACK/PulseAudio/ASIO support must be enabled at compile time, and is
     // only available on some platforms.
     #[allow(unused_mut, unused_assignments)]
     let mut jack_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
     #[allow(unused_mut, unused_assignments)]
     let mut pulseaudio_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
+    #[allow(unused_mut, unused_assignments)]
+    let mut asio_host_id: Result<HostId, Error> = Err(ErrorKind::HostUnavailable.into());
 
     #[cfg(any(
         target_os = "linux",
@@ -68,6 +74,14 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        #[cfg(feature = "asio")]
+        {
+            asio_host_id = Ok(HostId::Asio);
+        }
+    }
+
     // Manually check for flags. Can be passed through cargo with -- e.g.
     // cargo run --release --example beep --features jack -- --jack
     let host = if opt.jack {
@@ -78,6 +92,10 @@ fn main() -> anyhow::Result<()> {
         pulseaudio_host_id
             .and_then(cpal::host_from_id)
             .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
+    } else if opt.asio {
+        asio_host_id
+            .and_then(cpal::host_from_id)
+            .expect("make sure `--features asio` is specified, and the platform is supported")
     } else {
         cpal::default_host()
     };
