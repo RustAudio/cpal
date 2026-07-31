@@ -313,16 +313,17 @@ let config = device
 
 ## 6. `audio_thread_priority` feature renamed to `realtime-dbus`
 
-**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, providing the same scheduling promotion without a D-Bus build dependency (suitable for headless or embedded targets).
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, without a D-Bus build dependency. It's functional on Windows and Android; on Linux/BSD it's currently a no-op, so use `realtime-dbus` there.
 
 ```toml
 # Before (v0.17)
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
 # After (v0.18): rename the feature
+# Android/Windows plus Linux/BSD with D-Bus
 cpal = { version = "0.18", features = ["realtime-dbus"] }
 
-# For systems without D-Bus (embedded, headless, containers):
+# Android/Windows only (no D-Bus dependency)
 cpal = { version = "0.18", features = ["realtime"] }
 ```
 

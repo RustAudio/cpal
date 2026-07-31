@@ -9,6 +9,8 @@ use stream::PwInitGuard;
 use crate::{Error, ErrorKind, traits::HostTrait};
 
 mod device;
+#[cfg(all(target_os = "linux", feature = "realtime"))]
+mod rt_promote;
 mod stream;
 mod utils;
 

@@ -68,8 +68,8 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
-| `realtime` | Linux, BSD, Windows, Android | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux/BSD, requires `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`) unless `realtime-dbus` is also enabled. |
-| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
+| `realtime` | Android, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. |
+| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
@@ -186,13 +186,9 @@ RT promotion is only attempted for a whitelist of PCM types: direct hardware PCM
 
 `RealtimeDenied` is emitted on the error callback only when promotion is attempted but fails, which happens when the process lacks the resource limits to acquire `SCHED_FIFO`. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
-With the `realtime-dbus` feature, `rtkit` arranges the necessary limits over D-Bus on typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the `audio` group:
+On Linux/BSD, use `realtime-dbus`: `rtkit` arranges the necessary limits over D-Bus.
 
-```text
-@audio - rtprio 95
-```
-
-then add the user to the `audio` group (`usermod -aG audio "$USER"`) and re-login. The same group may anyway be needed to grant access to ALSA device files via `udev` on systems that do not arrange this automatically via `logind`.
+Independently of RT scheduling, some systems need the user added to the `audio` group for ALSA device access via `udev` (`usermod -aG audio "$USER"`, then re-login).
 
 ### Build Errors
 

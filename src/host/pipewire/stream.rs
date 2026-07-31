@@ -32,6 +32,8 @@ use pipewire::{
     types::ObjectType,
 };
 
+#[cfg(all(target_os = "linux", feature = "realtime"))]
+use super::rt_promote::RtPromoter;
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig, StreamInstant,
     StreamTimestamp,
@@ -297,16 +299,24 @@ pub struct UserData<D> {
     spa_io_clock: *const spa_io_clock,
     xrun_recovering: bool,
     #[cfg(feature = "realtime")]
-    rt_promoted: bool,
+    rt_promoted_frames: FrameCount,
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    rt_promoter: Option<RtPromoter>,
 }
 
 impl<D> UserData<D> {
-    // `#[cold]` because it only runs on the first cycle and whenever PipeWire renegotiates the graph quantum.
     #[cfg(feature = "realtime")]
-    #[cold]
     fn promote_realtime(&mut self, frames: FrameCount) {
-        // Set regardless of success, so a failed promotion isn't retried until the quantum changes.
-        self.rt_promoted = true;
+        // Set regardless of success, so a failed promotion isn't retried until the quantum grows.
+        self.rt_promoted_frames = frames;
+
+        #[cfg(target_os = "linux")]
+        if let Some(promoter) = &self.rt_promoter {
+            promoter.request(frames);
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        // audio_thread_priority has no cross-thread promotion API on this target.
         if let Err(e) =
             audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
         {
@@ -378,16 +388,12 @@ where
         data: &Data,
         xrun: bool,
     ) {
-        #[cfg(feature = "realtime")]
-        {
-            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u32 != prev {
-                self.promote_realtime(frames as FrameCount);
-            }
-        }
-
-        #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u32, Ordering::Relaxed);
+
+        #[cfg(feature = "realtime")]
+        if frames as u32 > self.rt_promoted_frames {
+            self.promote_realtime(frames as FrameCount);
+        }
 
         if !self.draining.load(Ordering::Relaxed) {
             let (callback, capture) = match pw_stream_time(stream) {
@@ -430,16 +436,12 @@ where
         data: &mut Data,
         xrun: bool,
     ) {
-        #[cfg(feature = "realtime")]
-        {
-            let prev = self.last_quantum.swap(frames as u32, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u32 != prev {
-                self.promote_realtime(frames as FrameCount);
-            }
-        }
-
-        #[cfg(not(feature = "realtime"))]
         self.last_quantum.store(frames as u32, Ordering::Relaxed);
+
+        #[cfg(feature = "realtime")]
+        if frames as u32 > self.rt_promoted_frames {
+            self.promote_realtime(frames as FrameCount);
+        }
 
         if !self.draining.load(Ordering::Relaxed) {
             let (callback, playback) = match pw_stream_time(stream) {
@@ -681,6 +683,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -696,7 +700,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -947,6 +953,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -962,7 +970,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
 
     let channels = config.channels as _;

@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
+- **Linux**: Clarify that `realtime` alone is a no-op without `realtime-dbus`.
 - **PipeWire**: Devices with multiple ports now get distinct, localized, per-port names.
 - **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
 
@@ -64,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Channel enumeration is no longer capped at the physical system port count.
 - **JACK**: `Device::id` no longer embeds the process ID, so `DeviceId` is now stable across application restarts.
 - **PipeWire**: Fix streams starting audio before `play()` is called.
+- **PipeWire**: Fix rtkit burst limit errors from repeated real-time promotion on quantum jitter.
+- **PipeWire**: Fix real-time promotion blocking the audio callback thread on Linux.
 - **PipeWire**: Nodes with an `/Internal` media class are now enumerated as devices.
 - **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
 - **PipeWire**: Build on 32-bit targets without native 64-bit atomics.
