@@ -133,6 +133,7 @@ struct BufferCallback(Box<dyn FnMut(&CallbackInfo) + Send>);
 /// There is only ever max one input and one output.
 ///
 /// Only one is required.
+#[derive(Debug)]
 pub struct AsioStreams {
     pub input: Option<AsioStream>,
     pub output: Option<AsioStream>,
@@ -141,6 +142,7 @@ pub struct AsioStreams {
 /// A stream to ASIO.
 ///
 /// Contains the buffers.
+#[derive(Debug)]
 pub struct AsioStream {
     /// A Double buffer per channel
     pub buffer_infos: Vec<AsioBufferInfo>,
