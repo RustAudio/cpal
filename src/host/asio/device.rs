@@ -213,12 +213,8 @@ impl Iterator for Devices {
                         .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
                         .collect();
 
+                    let asio_streams = driver.streams();
                     self.current_driver = Some(driver);
-
-                    let asio_streams = Arc::new(Mutex::new(sys::AsioStreams {
-                        input: None,
-                        output: None,
-                    }));
 
                     return Some(Device {
                         name,

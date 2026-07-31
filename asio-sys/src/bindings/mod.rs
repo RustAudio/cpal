@@ -63,6 +63,8 @@ pub struct Driver {
 #[derive(Debug)]
 struct DriverInner {
     state: Mutex<DriverState>,
+    // Input/output buffer state, shared across every `Driver` handle for this driver.
+    streams: Arc<Mutex<AsioStreams>>,
     // The unique name associated with this driver.
     name: String,
     // Track whether or not the driver has been destroyed.
@@ -471,11 +473,16 @@ impl Asio {
                         CURRENT_SAMPLE_RATE.store(rate.to_bits(), Ordering::Release);
                     }
                     let state = Mutex::new(DriverState::Initialized);
+                    let streams = Arc::new(Mutex::new(AsioStreams {
+                        input: None,
+                        output: None,
+                    }));
                     let name = driver_name.to_string();
                     let destroyed = false;
                     let inner = Arc::new(DriverInner {
                         name,
                         state,
+                        streams,
                         destroyed,
                     });
                     *loaded = Arc::downgrade(&inner);
@@ -499,6 +506,11 @@ impl Driver {
     /// The name used to uniquely identify this driver.
     pub fn name(&self) -> &str {
         &self.inner.name
+    }
+
+    /// The shared input/output buffer state for this driver.
+    pub fn streams(&self) -> Arc<Mutex<AsioStreams>> {
+        self.inner.streams.clone()
     }
 
     /// Returns the number of input and output channels available on the driver.
