@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: Fix stale audio output when a data callback wrote a partial buffer.
 - **CoreAudio**: Default-output streams now report xrun status.
 - **CoreAudio**: Fix stale audio output when a data callback wrote a partial buffer.
+- **iOS**: Streams now resume automatically when an audio session interruption ends.
 - **JACK**: Streams with more channels than physical system ports no longer fail to build.
 - **JACK**: Channel enumeration is no longer capped at the physical system port count.
 - **JACK**: `Device::id` no longer embeds the process ID, so `DeviceId` is now stable across application restarts.

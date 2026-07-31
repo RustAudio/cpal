@@ -138,6 +138,40 @@ impl Device {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum PlaybackState {
+    #[default]
+    Stopped,
+    Playing,
+    Interrupted,
+}
+
+struct StreamInner {
+    state: PlaybackState,
+    audio_unit: AudioUnit,
+}
+
+impl StreamInner {
+    fn stop_for_interruption(&mut self) {
+        if self.state != PlaybackState::Playing {
+            return;
+        }
+        // Unlike pause(), the OS is the one that actually halted the unit here; this
+        // call only resyncs AudioUnit's own bookkeeping, so its result carries nothing.
+        let _ = self.audio_unit.stop();
+        self.state = PlaybackState::Interrupted;
+    }
+
+    fn resume_after_interruption(&mut self) {
+        if self.state != PlaybackState::Interrupted {
+            return;
+        }
+        if self.audio_unit.start().is_ok() {
+            self.state = PlaybackState::Playing;
+        }
+    }
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -190,11 +224,8 @@ impl DeviceTrait for Device {
         let latency_frames = Arc::new(AtomicUsize::new(input_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(
-            error_callback.clone(),
-            Latch::new(),
-            Some((latency_frames.clone(), true)),
-        );
+        let session_error_callback = error_callback.clone();
+        let session_latency_frames = latency_frames.clone();
 
         let draining = Arc::new(AtomicBool::new(false));
 
@@ -211,16 +242,23 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        let stream = Stream::new(
-            StreamInner {
-                playing: false,
-                audio_unit,
-            },
+        let inner = Arc::new(Mutex::new(StreamInner {
+            state: PlaybackState::default(),
+            audio_unit,
+        }));
+        let session_manager = SessionEventManager::new(
+            session_error_callback,
+            Latch::new(),
+            Some((session_latency_frames, true)),
+            Arc::downgrade(&inner),
+        );
+        let stream = Stream {
+            inner,
             session_manager,
             // Draining is meaningless for capture, so the drain window is zero.
             draining,
-            Duration::ZERO,
-        );
+            drain_window: Duration::ZERO,
+        };
         stream.signal_ready();
         Ok(stream)
     }
@@ -251,11 +289,8 @@ impl DeviceTrait for Device {
         let latency_frames = Arc::new(AtomicUsize::new(output_latency_frames()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let session_manager = SessionEventManager::new(
-            error_callback.clone(),
-            Latch::new(),
-            Some((latency_frames.clone(), false)),
-        );
+        let session_error_callback = error_callback.clone();
+        let session_latency_frames = latency_frames.clone();
 
         let draining = Arc::new(AtomicBool::new(false));
         let drain_window =
@@ -274,42 +309,35 @@ impl DeviceTrait for Device {
             },
         )?;
 
-        let stream = Stream::new(
-            StreamInner {
-                playing: false,
-                audio_unit,
-            },
+        let inner = Arc::new(Mutex::new(StreamInner {
+            state: PlaybackState::default(),
+            audio_unit,
+        }));
+        let session_manager = SessionEventManager::new(
+            session_error_callback,
+            Latch::new(),
+            Some((session_latency_frames, false)),
+            Arc::downgrade(&inner),
+        );
+        let stream = Stream {
+            inner,
             session_manager,
             draining,
             drain_window,
-        );
+        };
         stream.signal_ready();
         Ok(stream)
     }
 }
 
 pub struct Stream {
-    inner: Mutex<StreamInner>,
+    inner: Arc<Mutex<StreamInner>>,
     session_manager: SessionEventManager,
     draining: Arc<AtomicBool>,
     drain_window: Duration,
 }
 
 impl Stream {
-    fn new(
-        inner: StreamInner,
-        session_manager: SessionEventManager,
-        draining: Arc<AtomicBool>,
-        drain_window: Duration,
-    ) -> Self {
-        Self {
-            inner: Mutex::new(inner),
-            session_manager,
-            draining,
-            drain_window,
-        }
-    }
-
     fn signal_ready(&self) {
         self.session_manager.signal_ready();
     }
@@ -327,13 +355,13 @@ impl Stream {
         let mut stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
-        if stream.playing {
+        if stream.state == PlaybackState::Playing {
             stream
                 .audio_unit
                 .stop()
                 .context("Failed to stop audio unit")?;
-            stream.playing = false;
         }
+        stream.state = PlaybackState::Stopped;
         Ok(())
     }
 }
@@ -345,12 +373,12 @@ impl StreamTrait for Stream {
         let mut stream = self.inner.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
-        if !stream.playing {
+        if stream.state != PlaybackState::Playing {
             stream
                 .audio_unit
                 .start()
                 .context("Failed to start audio unit")?;
-            stream.playing = true;
+            stream.state = PlaybackState::Playing;
         }
         Ok(())
     }
@@ -380,11 +408,6 @@ impl StreamTrait for Stream {
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         Ok(get_device_buffer_frames() as FrameCount)
     }
-}
-
-struct StreamInner {
-    playing: bool,
-    audio_unit: AudioUnit,
 }
 
 fn create_audio_unit() -> Result<AudioUnit, coreaudio::Error> {
