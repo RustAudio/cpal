@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bump minimum Windows version to 10 (since 0.17.2).
+- Bump `audio_thread_priority` dependency to 0.36.
 - **CoreAudio**: `DeviceDescription::interface_type()` now reports the device transport instead of only marking aggregate devices.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
 
