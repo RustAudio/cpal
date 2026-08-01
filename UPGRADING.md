@@ -217,21 +217,21 @@ let config = device
 
 ## 6. `audio_thread_priority` feature renamed to `realtime-dbus`
 
-**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, without a D-Bus build dependency. It's functional on Windows and Android; on Linux/BSD it's currently a no-op, so use `realtime-dbus` there.
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, without a D-Bus build dependency. It's functional on Windows and Android; on Linux it's currently a no-op, so use `realtime-dbus` there.
 
 ```toml
 # Before (v0.17)
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
 # After (v0.18): rename the feature
-# Android/Windows plus Linux/BSD with D-Bus
+# Android/Windows plus Linux with D-Bus
 cpal = { version = "0.18", features = ["realtime-dbus"] }
 
 # Android/Windows only (no D-Bus dependency)
 cpal = { version = "0.18", features = ["realtime"] }
 ```
 
-On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel` (Fedora/RHEL), or equivalent at build time.
+On Linux, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel` (Fedora/RHEL), or equivalent at build time.
 
 For both features, promotion failures are non-fatal: the stream still starts and an `ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
 

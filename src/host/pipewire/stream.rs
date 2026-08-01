@@ -252,7 +252,7 @@ impl<D> UserData<D> {
         }
 
         #[cfg(not(target_os = "linux"))]
-        // audio_thread_priority has no cross-thread promotion API on this target.
+        // Currently a no-op outside Linux; kept in case audio_thread_priority adds a real backend.
         if let Err(e) =
             audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
         {

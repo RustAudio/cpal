@@ -69,7 +69,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
 | `realtime` | Android, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. |
-| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
+| `realtime-dbus` | Linux | Uses `rtkit` via D-Bus for RT scheduling on Linux desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
@@ -186,7 +186,7 @@ RT promotion is only attempted for a whitelist of PCM types: direct hardware PCM
 
 `RealtimeDenied` is emitted on the error callback only when promotion is attempted but fails, which happens when the process lacks the resource limits to acquire `SCHED_FIFO`. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
-On Linux/BSD, use `realtime-dbus`: `rtkit` arranges the necessary limits over D-Bus.
+On Linux, use `realtime-dbus`: `rtkit` arranges the necessary limits over D-Bus.
 
 Independently of RT scheduling, some systems need the user added to the `audio` group for ALSA device access via `udev` (`usermod -aG audio "$USER"`, then re-login).
 

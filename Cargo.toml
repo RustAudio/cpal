@@ -17,12 +17,12 @@ default = []
 
 # Real-time audio thread scheduling
 # Applies platform-specific real-time scheduling and performance modes to audio threads.
-# Platform: Android, Windows (see `realtime-dbus` for Linux/BSD)
+# Platform: Android, Windows (see `realtime-dbus` for Linux)
 realtime = ["dep:audio_thread_priority", "dep:alsa-sys"]
 
-# Enables `realtime` and adds D-Bus/rtkit support, for RT scheduling on Linux/BSD desktop systems
+# Enables `realtime` and adds D-Bus/rtkit support, for RT scheduling on Linux desktop systems
 # Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
+# Platform: Linux
 realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 
 # ASIO backend for Windows
