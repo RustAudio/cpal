@@ -15,11 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Migrated to Rust 2024.
+- Bump `audio_thread_priority` dependency to 0.36.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
 - `StreamTrait::play` is renamed to `start`.
 - `InputCallbackInfo`/`OutputCallbackInfo` merged into `CallbackInfo`.
 - `InputStreamTimestamp`/`OutputStreamTimestamp` merged into `StreamTimestamp`; `capture`/`playback` renamed `device`.
 - **ALSA**: Update `alsa` dependency to 0.12.
+- **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 
 ### Deprecated
 

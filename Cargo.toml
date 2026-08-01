@@ -17,7 +17,8 @@ default = []
 
 # Real-time audio thread scheduling
 # Applies platform-specific real-time scheduling and performance modes to audio threads.
-# Platform: Android, Windows (see `realtime-dbus` for Linux/BSD)
+# Requires: (Linux) `CAP_SYS_NICE`, root, or `rtprio` granted via `limits.conf` or systemd
+# Platform: Android, Linux, Windows (see `realtime-dbus` for rtkit on Linux/BSD)
 realtime = ["dep:audio_thread_priority", "dep:alsa-sys"]
 
 # Enables `realtime` and adds D-Bus/rtkit support, for RT scheduling on Linux/BSD desktop systems
@@ -115,7 +116,7 @@ windows = { version = "0.62", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 asio-sys = { version = "0.4.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13.5", optional = true }
@@ -124,7 +125,7 @@ jack = { version = "0.13.5", optional = true }
 alsa = "0.12.1"
 alsa-sys = { version = "0.6.1", optional = true }
 libc = "0.2"
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 jack = { version = "0.13.5", optional = true }
 pulseaudio = { version = "0.3", optional = true }
 futures-executor = { version = "0.3", optional = true }
@@ -205,7 +206,7 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 ndk = { version = "0.9", default-features = false, features = [
   "audio",
   "api-level-26",

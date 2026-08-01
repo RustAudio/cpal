@@ -68,7 +68,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
-| `realtime` | Android, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. |
+| `realtime` | Android, Linux, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux, requires `CAP_SYS_NICE`, root, or an `rtprio` limit granted via `limits.conf` or systemd, unless `realtime-dbus` is also enabled. |
 | `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
@@ -186,7 +186,7 @@ RT promotion is only attempted for a whitelist of PCM types: direct hardware PCM
 
 `RealtimeDenied` is emitted on the error callback only when promotion is attempted but fails, which happens when the process lacks the resource limits to acquire `SCHED_FIFO`. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
-On Linux/BSD, use `realtime-dbus`: `rtkit` arranges the necessary limits over D-Bus.
+On Linux, `realtime` alone promotes via `SCHED_FIFO` directly, requiring `CAP_SYS_NICE`, root, or an `rtprio` limit granted in `limits.conf` (e.g. `@audio - rtprio 95`) or systemd's `LimitRTPRIO`. Use `realtime-dbus` instead to have `rtkit` arrange this over D-Bus, without manual configuration.
 
 Independently of RT scheduling, some systems need the user added to the `audio` group for ALSA device access via `udev` (`usermod -aG audio "$USER"`, then re-login).
 
