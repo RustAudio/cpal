@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BSD**: Clarify that `realtime-dbus` has no effect there.
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.

@@ -69,7 +69,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
 | `realtime` | Android, Linux, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux, requires `CAP_SYS_NICE`, root, or an `rtprio` limit granted via `limits.conf` or systemd, unless `realtime-dbus` is also enabled. |
-| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
+| `realtime-dbus` | Linux | Uses `rtkit` via D-Bus for RT scheduling on Linux desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux. |
 | `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
