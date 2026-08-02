@@ -26,6 +26,8 @@ pub struct Device {
     input_sample_format: Option<SampleFormat>,
     output_sample_format: Option<SampleFormat>,
     supported_sample_rates: Box<[SampleRate]>,
+    input_channel_names: Box<[String]>,
+    output_channel_names: Box<[String]>,
 
     // Input and/or Output stream.
     // A driver can only have one of each.
@@ -127,6 +129,26 @@ impl Device {
         }
         configs
     }
+
+    pub fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        let names = if input {
+            &self.input_channel_names
+        } else {
+            &self.output_channel_names
+        };
+
+        names.get(channel_index as usize).cloned().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::InvalidInput,
+                format!(
+                    "channel index {} is out of range (device has {} {} channels)",
+                    channel_index,
+                    names.len(),
+                    if input { "input" } else { "output" },
+                ),
+            )
+        })
+    }
 }
 
 impl PartialEq for Device {
@@ -213,6 +235,13 @@ impl Iterator for Devices {
                         .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
                         .collect();
 
+                    let input_channel_names: Box<[String]> = (0..channels.ins)
+                        .map(|ch| driver.channel_name(ch, true).unwrap_or_default())
+                        .collect();
+                    let output_channel_names: Box<[String]> = (0..channels.outs)
+                        .map(|ch| driver.channel_name(ch, false).unwrap_or_default())
+                        .collect();
+
                     self.current_driver = Some(driver);
 
                     let asio_streams = Arc::new(Mutex::new(sys::AsioStreams {
@@ -230,6 +259,8 @@ impl Iterator for Devices {
                         input_sample_format,
                         output_sample_format,
                         supported_sample_rates,
+                        input_channel_names,
+                        output_channel_names,
                         asio_streams,
                         // Initialize with sentinel value so it never matches global flag state (0 or 1).
                         current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
