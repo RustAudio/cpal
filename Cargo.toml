@@ -88,6 +88,16 @@ wasm-bindgen = [
   "dep:wasm-bindgen-futures",
   "dep:futures-channel",
   "dep:futures-util",
+  "web-sys/Navigator",
+  "web-sys/MediaDevices",
+  "web-sys/MediaStream",
+  "web-sys/MediaStreamConstraints",
+  "web-sys/MediaStreamTrack",
+  "web-sys/MediaStreamAudioSourceNode",
+  "web-sys/ScriptProcessorNode",
+  "web-sys/AudioProcessingEvent",
+  "web-sys/GainNode",
+  "web-sys/AudioParam",
 ]
 
 [dependencies]

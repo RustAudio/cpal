@@ -306,3 +306,87 @@ where
         data_callback(data, &info);
     }
 }
+
+/// Maps a rejected `getUserMedia()` promise to a [`crate::Error`], based on the DOMException
+/// `name` the browser rejects with.
+///
+/// <https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#exceptions>
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
+pub(crate) fn get_user_media_error(js_err: &wasm_bindgen::JsValue) -> crate::Error {
+    use crate::{Error, ErrorKind};
+
+    let name = js_sys::Reflect::get(js_err, &wasm_bindgen::JsValue::from_str("name"))
+        .ok()
+        .and_then(|v| v.as_string());
+    let message = js_sys::Reflect::get(js_err, &wasm_bindgen::JsValue::from_str("message"))
+        .ok()
+        .and_then(|v| v.as_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| name.clone())
+        .unwrap_or_else(|| "unknown error".to_string());
+
+    let kind = match name.as_deref() {
+        Some("NotAllowedError" | "SecurityError") => ErrorKind::PermissionDenied,
+        Some("NotFoundError") => ErrorKind::DeviceNotAvailable,
+        Some("OverconstrainedError") => ErrorKind::UnsupportedConfig,
+        Some("NotReadableError") => ErrorKind::DeviceBusy,
+        Some("TypeError") => ErrorKind::InvalidInput,
+        _ => ErrorKind::BackendError,
+    };
+
+    Error::with_message(kind, format!("getUserMedia() failed: {message}"))
+}
+
+/// Requests microphone access via `getUserMedia()`.
+///
+/// <https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia>
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
+pub(crate) async fn request_microphone() -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
+    use wasm_bindgen::JsCast;
+
+    let constraints = web_sys::MediaStreamConstraints::new();
+    constraints.set_audio_bool(true);
+
+    let window =
+        web_sys::window().ok_or_else(|| wasm_bindgen::JsValue::from_str("No window available"))?;
+    let media_devices = window.navigator().media_devices()?;
+    let promise = media_devices.get_user_media_with_constraints(&constraints)?;
+    let media_stream = wasm_bindgen_futures::JsFuture::from(promise).await?;
+    Ok(media_stream.unchecked_into::<web_sys::MediaStream>())
+}
+
+/// Whether the current context can request microphone access. There is no way to know if a
+/// microphone is actually present without asking for permission first via getUserMedia().
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
+pub(crate) fn is_get_user_media_available() -> bool {
+    web_sys::window().is_some_and(|w| w.navigator().media_devices().is_ok())
+}
+
+/// Stops every audio track of `media_stream`, releasing the microphone and turning off the
+/// browser's capture indicator. Dropping a WebAudio graph alone does not do this.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-bindgen"
+))]
+pub(crate) fn stop_tracks(media_stream: &web_sys::MediaStream) {
+    use wasm_bindgen::JsCast;
+
+    for track in media_stream.get_audio_tracks().iter() {
+        if let Ok(track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
+            track.stop();
+        }
+    }
+}
