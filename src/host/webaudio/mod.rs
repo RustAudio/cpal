@@ -16,7 +16,7 @@ use std::{
 };
 
 #[cfg(not(target_feature = "atomics"))]
-use std::sync::atomic::AtomicBool;
+use std::{cell::Cell, rc::Rc, sync::atomic::AtomicBool};
 
 #[cfg(target_feature = "atomics")]
 use futures_channel::mpsc;
@@ -24,10 +24,25 @@ use futures_channel::mpsc;
 use futures_util::StreamExt as _;
 
 type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &CallbackInfo) + Send>>;
+type InputDataCallbackArc = Arc<Mutex<dyn FnMut(&Data, &CallbackInfo) + Send>>;
+type CaptureGraphResult = Result<
+    (
+        MediaStreamAudioSourceNode,
+        ScriptProcessorNode,
+        GainNode,
+        Closure<dyn FnMut(AudioProcessingEvent)>,
+    ),
+    JsValue,
+>;
 
+#[cfg(not(target_feature = "atomics"))]
+use self::web_sys::MediaStream;
 use self::{
     wasm_bindgen::{JsCast, prelude::*},
-    web_sys::{AudioContext, AudioContextOptions},
+    web_sys::{
+        AudioContext, AudioContextOptions, AudioProcessingEvent, GainNode,
+        MediaStreamAudioSourceNode, ScriptProcessorNode,
+    },
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
@@ -74,6 +89,10 @@ pub struct Stream {
     on_ended_closures: Vec<ClosureHandle>,
     #[cfg(not(target_feature = "atomics"))]
     is_started: Arc<AtomicBool>,
+    // Populated asynchronously once getUserMedia() resolves; empty for output streams. Never
+    // read: held only so Drop-ing the Stream drops CaptureHandles, which stops the mic tracks.
+    #[cfg(not(target_feature = "atomics"))]
+    _capture: Rc<Cell<Option<CaptureHandles>>>,
 
     // Multi-threaded WASM (+atomics): all fields are Send+Sync; JS types are owned by a
     // spawn_local future on the local thread and are never stored here.
@@ -89,6 +108,27 @@ unsafe impl Send for Stream {}
 #[cfg(not(target_feature = "atomics"))]
 unsafe impl Sync for Stream {}
 // With atomics, all Stream fields auto-derive Send+Sync.
+
+/// Keeps the getUserMedia() capture graph alive for the lifetime of an input [`Stream`].
+/// Stopping the underlying tracks on drop releases the microphone and turns off the browser's
+/// capture indicator; merely disconnecting the WebAudio graph does not.
+#[cfg(not(target_feature = "atomics"))]
+struct CaptureHandles {
+    media_stream: MediaStream,
+    _source: MediaStreamAudioSourceNode,
+    _processor: ScriptProcessorNode,
+    _mute_gain: GainNode,
+    _on_audio_process: Closure<dyn FnMut(AudioProcessingEvent)>,
+}
+
+#[cfg(not(target_feature = "atomics"))]
+impl Drop for CaptureHandles {
+    fn drop(&mut self) {
+        stop_tracks(&self.media_stream);
+    }
+}
+
+use crate::host::{is_get_user_media_available, request_microphone, stop_tracks};
 
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 
@@ -108,6 +148,12 @@ const DEFAULT_BUFFER_SIZE: usize = 2048;
 // Minimum initial timer delay mandated by the HTML spec.
 // https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timers
 const INITIAL_TIMEOUT_MS: i32 = 4;
+
+// https://webaudio.github.io/web-audio-api/#dom-baseaudiocontext-createscriptprocessor
+// createScriptProcessor() only accepts 0 (browser picks) or a power of two in this range.
+const SCRIPT_PROCESSOR_VALID_BUFFER_SIZES: [usize; 7] = [256, 512, 1024, 2048, 4096, 8192, 16384];
+const SCRIPT_PROCESSOR_MIN_BUFFER_SIZE: usize = 256;
+const SCRIPT_PROCESSOR_MAX_BUFFER_SIZE: usize = 16384;
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
@@ -151,8 +197,13 @@ impl Devices {
 
 impl Device {
     fn description(&self) -> Result<DeviceDescription, Error> {
+        let direction = if is_get_user_media_available() {
+            DeviceDirection::Duplex
+        } else {
+            DeviceDirection::Output
+        };
         Ok(DeviceDescriptionBuilder::new("Default Device")
-            .direction(DeviceDirection::Output)
+            .direction(direction)
             .build())
     }
 
@@ -161,8 +212,15 @@ impl Device {
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
-        // TODO
-        Ok(Vec::new().into_iter())
+        // The actual channel count and sample rate depend on the microphone getUserMedia()
+        // grants access to, which isn't known ahead of time; WebAudio resamples and up/downmixes
+        // whatever it gets to match, so this reports the same broad matrix as output, just with
+        // ScriptProcessorNode's narrower buffer-size range.
+        let buffer_size = SupportedBufferSize::Range {
+            min: SCRIPT_PROCESSOR_MIN_BUFFER_SIZE as FrameCount,
+            max: SCRIPT_PROCESSOR_MAX_BUFFER_SIZE as FrameCount,
+        };
+        Ok(supported_configs(buffer_size).into_iter())
     }
 
     fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
@@ -170,46 +228,21 @@ impl Device {
             min: 1,
             max: FrameCount::MAX,
         };
-        let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
-            .flat_map(|channels| {
-                crate::COMMON_SAMPLE_RATES
-                    .iter()
-                    .copied()
-                    .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
-                    .map(move |rate| SupportedStreamConfigRange {
-                        channels,
-                        min_sample_rate: rate,
-                        max_sample_rate: rate,
-                        buffer_size,
-                        sample_format: SUPPORTED_SAMPLE_FORMAT,
-                    })
-            })
-            .collect();
-        Ok(configs.into_iter())
+        Ok(supported_configs(buffer_size).into_iter())
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Err(Error::with_message(
-            ErrorKind::UnsupportedOperation,
-            "Device does not support input",
-        ))
+        default_config(
+            self.supported_input_configs()?,
+            "No supported input configuration",
+        )
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        let range = self
-            .supported_output_configs()?
-            .max_by(|a, b| a.cmp_default_heuristics(b))
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "No supported output configuration",
-                )
-            })?;
-        let config = range
-            .try_with_standard_sample_rate()
-            .unwrap_or_else(|| range.with_max_sample_rate());
-
-        Ok(config)
+        default_config(
+            self.supported_output_configs()?,
+            "No supported output configuration",
+        )
     }
 }
 
@@ -242,22 +275,280 @@ impl DeviceTrait for Device {
         Self::default_output_config(self)
     }
 
+    /// Create an input stream capturing microphone audio via `getUserMedia()`.
+    ///
+    /// # Async completion
+    ///
+    /// This function returns `Ok` synchronously once the [`AudioContext`] is created, before the
+    /// browser has granted or denied microphone access. Permission is requested asynchronously via
+    /// [`wasm_bindgen_futures::spawn_local`]; if the user denies access, no microphone is present,
+    /// or the browser rejects the capture graph, the error is delivered to `error_callback` after
+    /// the caller already holds a [`Stream`]. There is no way to surface such errors synchronously
+    /// given `getUserMedia()`'s async, permission-gated design.
+    ///
+    /// [`start`](crate::traits::StreamTrait::start) and [`pause`](crate::traits::StreamTrait::pause)
+    /// calls made before permission is granted return `Ok` immediately: they resume/suspend the
+    /// already-created [`AudioContext`], and the capture graph starts delivering callbacks as soon
+    /// as it connects, in step with whatever run state the context is already in.
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: StreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
+        config: StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        Err(Error::with_message(
-            ErrorKind::UnsupportedOperation,
-            "Device does not support input",
-        ))
+        validate_config(&config, sample_format)?;
+
+        let n_channels = config.channels as usize;
+
+        let buffer_size_frames = match config.buffer_size {
+            BufferSize::Fixed(v) => v as usize,
+            BufferSize::Default => DEFAULT_BUFFER_SIZE,
+        };
+        if !SCRIPT_PROCESSOR_VALID_BUFFER_SIZES.contains(&buffer_size_frames) {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Buffer size {buffer_size_frames} is not supported; must be one of {SCRIPT_PROCESSOR_VALID_BUFFER_SIZES:?}"
+                ),
+            ));
+        }
+        let buffer_duration_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
+
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
+        let data_callback: InputDataCallbackArc = Arc::new(Mutex::new(data_callback));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+
+        let stream_opts = AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate as f32);
+        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?;
+
+        // SAFETY: see the SAFETY note in `build_output_stream_raw` above; the same single-thread
+        // (or task-confined) reasoning applies here.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let ctx = Arc::new(ctx);
+        let ctx_task = ctx.clone();
+
+        #[cfg(not(target_feature = "atomics"))]
+        let is_started = Arc::new(AtomicBool::new(false));
+        #[cfg(not(target_feature = "atomics"))]
+        let capture: Rc<Cell<Option<CaptureHandles>>> = Rc::new(Cell::new(None));
+        #[cfg(not(target_feature = "atomics"))]
+        let capture_weak = Rc::downgrade(&capture);
+
+        #[cfg(target_feature = "atomics")]
+        let current_time_bits = Arc::new(AtomicU64::new(ctx.current_time().to_bits()));
+        #[cfg(target_feature = "atomics")]
+        let current_time_bits_stream = current_time_bits.clone();
+        #[cfg(target_feature = "atomics")]
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let media_stream = match request_microphone().await {
+                Ok(stream) => stream,
+                Err(js_err) => {
+                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                        crate::host::get_user_media_error(&js_err),
+                    );
+                    return;
+                }
+            };
+
+            #[cfg(not(target_feature = "atomics"))]
+            let capture = match capture_weak.upgrade() {
+                Some(capture) => capture,
+                None => {
+                    // The Stream was dropped while permission was pending; release the
+                    // microphone instead of leaving a live capture session behind.
+                    stop_tracks(&media_stream);
+                    return;
+                }
+            };
+
+            let build_graph = || -> CaptureGraphResult {
+                let source = ctx_task.create_media_stream_source(&media_stream)?;
+                let processor = ctx_task
+                    .create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(
+                        buffer_size_frames as u32,
+                        n_channels as u32,
+                        // A processor with 0 output channels never fires `onaudioprocess` in
+                        // some browsers, so it is given a single silent output instead.
+                        1,
+                    )?;
+                let mute_gain = GainNode::new(&ctx_task)?;
+                mute_gain.gain().set_value(0.0);
+                source.connect_with_audio_node(&processor)?;
+                processor.connect_with_audio_node(&mute_gain)?;
+                mute_gain.connect_with_audio_node(&ctx_task.destination())?;
+
+                let mut temporary_buffer = vec![f32::EQUILIBRIUM; n_channels * buffer_size_frames];
+                let mut temporary_channel_buffer = vec![f32::EQUILIBRIUM; buffer_size_frames];
+                let ctx_cb = ctx_task.clone();
+                let data_callback_cb = data_callback.clone();
+                let error_callback_cb = error_callback.clone();
+                #[cfg(target_feature = "atomics")]
+                let current_time_bits_cb = current_time_bits.clone();
+
+                let on_audio_process = Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                    let now = ctx_cb.current_time();
+                    #[cfg(target_feature = "atomics")]
+                    current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
+
+                    let input_buffer = match event.input_buffer() {
+                        Ok(b) => b,
+                        Err(_) => {
+                            (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    "Failed to read captured audio",
+                                ),
+                            );
+                            return;
+                        }
+                    };
+
+                    // Deinterleave from the browser's per-channel buffers into our interleaved
+                    // scratch buffer; the mirror image of the deinterleave loop in
+                    // `build_output_stream_raw`.
+                    for channel in 0..n_channels {
+                        if input_buffer
+                            .copy_from_channel(&mut temporary_channel_buffer, channel as i32)
+                            .is_err()
+                        {
+                            (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    "Failed to copy captured audio",
+                                ),
+                            );
+                            return;
+                        }
+                        for i in 0..buffer_size_frames {
+                            temporary_buffer[n_channels * i + channel] =
+                                temporary_channel_buffer[i];
+                        }
+                    }
+
+                    let data = temporary_buffer.as_mut_ptr() as *mut ();
+                    let data =
+                        unsafe { Data::from_parts(data, temporary_buffer.len(), sample_format) };
+
+                    let callback = StreamInstant::from_secs_f64(now);
+                    let device =
+                        StreamInstant::from_secs_f64((now - buffer_duration_secs).max(0.0));
+                    let info = CallbackInfo {
+                        timestamp: StreamTimestamp { callback, device },
+                        xrun: false,
+                    };
+
+                    match data_callback_cb.lock() {
+                        Ok(mut data_callback) => (data_callback.deref_mut())(&data, &info),
+                        Err(_) => (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Stream lock poisoned",
+                            ),
+                        ),
+                    }
+                })
+                    as Box<dyn FnMut(AudioProcessingEvent)>);
+
+                processor.set_onaudioprocess(Some(on_audio_process.as_ref().unchecked_ref()));
+
+                Ok((source, processor, mute_gain, on_audio_process))
+            };
+
+            let (source, processor, mute_gain, on_audio_process) = match build_graph() {
+                Ok(handles) => handles,
+                Err(js_err) => {
+                    stop_tracks(&media_stream);
+                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!("Failed to initialize capture graph: {js_err:?}"),
+                    ));
+                    return;
+                }
+            };
+
+            #[cfg(not(target_feature = "atomics"))]
+            {
+                capture.set(Some(CaptureHandles {
+                    media_stream,
+                    _source: source,
+                    _processor: processor,
+                    _mute_gain: mute_gain,
+                    _on_audio_process: on_audio_process,
+                }));
+            }
+
+            #[cfg(target_feature = "atomics")]
+            {
+                let _source = source;
+                let _processor = processor;
+                let _mute_gain = mute_gain;
+                let _on_audio_process = on_audio_process;
+                // Process play/pause commands from any thread until Stream is dropped.
+                // Dropping Stream closes command_tx, which terminates this loop.
+                while let Some(cmd) = command_rx.next().await {
+                    match cmd {
+                        Command::Play => {
+                            if ctx_task.resume().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to resume audio context",
+                                    ),
+                                );
+                            }
+                        }
+                        Command::Pause => {
+                            if ctx_task.suspend().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to suspend audio context",
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Stream dropped: release the microphone and close the AudioContext.
+                stop_tracks(&media_stream);
+                let _ = ctx_task.close();
+            }
+        });
+
+        #[cfg(not(target_feature = "atomics"))]
+        {
+            Ok(Self::Stream {
+                ctx,
+                on_ended_closures: Vec::new(),
+                config,
+                buffer_size_frames,
+                is_started,
+                _capture: capture,
+            })
+        }
+
+        #[cfg(target_feature = "atomics")]
+        {
+            Ok(Self::Stream {
+                command_tx,
+                current_time_bits: current_time_bits_stream,
+                buffer_size_frames,
+            })
+        }
     }
 
     /// Create an output stream.
@@ -273,33 +564,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        crate::validate_stream_config(&config)?;
-        if config.channels > MAX_CHANNELS {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
-                    config.channels
-                ),
-            ));
-        }
-        if sample_format != SUPPORTED_SAMPLE_FORMAT {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
-                ),
-            ));
-        }
-        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
-                    config.sample_rate
-                ),
-            ));
-        }
+        validate_config(&config, sample_format)?;
 
         let n_channels = config.channels as usize;
 
@@ -628,6 +893,7 @@ impl DeviceTrait for Device {
                 config,
                 buffer_size_frames,
                 is_started,
+                _capture: Rc::new(Cell::new(None)),
             })
         }
 
@@ -790,9 +1056,78 @@ impl Iterator for Devices {
     }
 }
 
+/// Checks shared by both `build_input_stream_raw` and `build_output_stream_raw`. Buffer-size
+/// validation differs between the two (`ScriptProcessorNode`'s discrete sizes only apply to
+/// input) and stays in each caller.
+fn validate_config(config: &StreamConfig, sample_format: SampleFormat) -> Result<(), Error> {
+    crate::validate_stream_config(config)?;
+    if config.channels > MAX_CHANNELS {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
+                config.channels
+            ),
+        ));
+    }
+    if sample_format != SUPPORTED_SAMPLE_FORMAT {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
+            ),
+        ));
+    }
+    if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
+                config.sample_rate
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The full matrix of channel counts x sample rates for a given buffer-size range.
+fn supported_configs(buffer_size: SupportedBufferSize) -> Vec<SupportedStreamConfigRange> {
+    (MIN_CHANNELS..=MAX_CHANNELS)
+        .flat_map(|channels| {
+            crate::COMMON_SAMPLE_RATES
+                .iter()
+                .copied()
+                .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
+                .map(move |rate| SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rate,
+                    max_sample_rate: rate,
+                    buffer_size,
+                    sample_format: SUPPORTED_SAMPLE_FORMAT,
+                })
+        })
+        .collect()
+}
+
+/// Picks the best default from a supported-config iterator via the standard heuristics.
+fn default_config(
+    configs: impl Iterator<Item = SupportedStreamConfigRange>,
+    none_supported_message: &'static str,
+) -> Result<SupportedStreamConfig, Error> {
+    let range = configs
+        .max_by(|a, b| a.cmp_default_heuristics(b))
+        .ok_or_else(|| Error::with_message(ErrorKind::UnsupportedConfig, none_supported_message))?;
+    Ok(range
+        .try_with_standard_sample_rate()
+        .unwrap_or_else(|| range.with_max_sample_rate()))
+}
+
 fn default_input_device() -> Option<Device> {
-    // TODO
-    None
+    if Host::is_available() && is_get_user_media_available() {
+        Some(Device)
+    } else {
+        None
+    }
 }
 
 fn default_output_device() -> Option<Device> {
