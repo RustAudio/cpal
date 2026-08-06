@@ -6,7 +6,7 @@
 
 mod host_id;
 
-pub use host_id::{AvailableHostsIter, HostId, available_hosts, default_host, host_from_id};
+pub use host_id::{AvailableHostsIter, HostId, default_host, host_from_id};
 
 pub use self::platform_impl::*;
 
@@ -67,13 +67,6 @@ pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream
 macro_rules! impl_platform_host {
     ($($(#[cfg($feat: meta)])? $HostVariant:ident $($HostName:literal)? => $Host:ty),* $(,)?) => {
         /// All hosts supported by CPAL on this platform.
-        pub const ALL_HOSTS: &'static [HostId] = &[
-            $(
-                $(#[cfg($feat)])?
-                HostId::$HostVariant,
-            )*
-        ];
-
         pub(crate) const SUPPORTED_HOSTS: &[HostId] = &[
             $(
                 $(#[cfg($feat)])?

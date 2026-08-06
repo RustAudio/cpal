@@ -165,11 +165,6 @@ impl Iterator for AvailableHostsIter {
     }
 }
 
-/// Produces a list of hosts that are currently available on the system.
-pub fn available_hosts() -> Vec<HostId> {
-    HostId::available_hosts().collect()
-}
-
 /// The default host for the current compilation target platform.
 pub fn default_host() -> crate::Host {
     HostId::default()
