@@ -6,7 +6,7 @@
 
 mod host_id;
 
-pub use host_id::{AvailableHostsIter, HostId, default_host, host_from_id};
+pub use host_id::{AvailableHostsIter, HostId, default_host};
 
 pub use self::platform_impl::*;
 

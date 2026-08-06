@@ -5,6 +5,16 @@ use crate::platform;
 /// Not all hosts in this enum are available at runtime, or are even supported
 /// by the current platform. This can be checked with `is_available` or
 /// `is_supported` respectively.
+///
+/// # Getting a Host
+/// If you have a `HostId` that you would like to turn into an instance of a [`Host`],
+/// you can use the `TryFrom<HostId>` implementation of [`Host`].
+///
+/// ```ignore
+/// let host = Host::try_from(HostId::Jack);
+/// ```
+///
+/// [`Host`]: crate::Host
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum HostId {
@@ -183,21 +193,4 @@ pub fn default_host() -> crate::Host {
     HostId::default()
         .try_into()
         .expect("the default host should always be available")
-}
-
-/// Given a unique host identifier, initialise and produce the host if it is available.
-///
-/// # Errors
-///
-/// - [`ErrorKind::HostUnavailable`] if the host identified by `id` is not currently
-///   reachable (e.g. the audio daemon is not running).
-/// - [`ErrorKind::UnsupportedOperation`] if the host identified by `id` is not
-///   supported by this configuration of CPAL.
-/// - [`ErrorKind::BackendError`] for unclassifiable initialization failures.
-///
-/// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
-/// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-/// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
-pub fn host_from_id(id: HostId) -> Result<crate::Host, crate::Error> {
-    crate::Host::try_from(id)
 }
