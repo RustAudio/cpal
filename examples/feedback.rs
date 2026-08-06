@@ -72,11 +72,11 @@ fn main() -> anyhow::Result<()> {
     // cargo run --release --example beep --features jack -- --jack
     let host = if opt.jack {
         jack_host_id
-            .and_then(cpal::host_from_id)
+            .and_then(TryFrom::try_from)
             .expect("make sure `--features jack` is specified, and the platform is supported")
     } else if opt.pulseaudio {
         pulseaudio_host_id
-            .and_then(cpal::host_from_id)
+            .and_then(TryFrom::try_from)
             .expect("make sure `--features pulseaudio` is specified, and the platform is supported")
     } else {
         cpal::default_host()
