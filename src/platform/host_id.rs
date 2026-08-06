@@ -77,15 +77,15 @@ impl Default for HostId {
 
 impl std::fmt::Display for HostId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name().to_ascii_lowercase())
+        f.write_str(self.name())
     }
 }
 
 impl std::str::FromStr for HostId {
     type Err = crate::Error;
 
-    /// Parse a host identifier from its string representation (e.g. `"alsa"`,
-    /// `"coreaudio"`). This conversion is case-insensitive.
+    /// Parse a host identifier from its string representation (e.g. `"ALSA"`,
+    /// `"CoreAudio"`). This conversion is case-insensitive.
     ///
     /// # Errors
     ///
@@ -132,7 +132,7 @@ impl std::str::FromStr for HostId {
 
                 _ => Err(crate::Error::with_message(
                     crate::ErrorKind::UnsupportedOperation,
-                    format!("unknown host \"{s}\"")
+                    format!("unknown host string \"{s}\"")
                 )),
             }
         }
@@ -142,8 +142,21 @@ impl std::str::FromStr for HostId {
 impl TryFrom<HostId> for platform::Host {
     type Error = crate::Error;
 
+    /// Given a unique host identifier, initialise and produce the host if it is available.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::HostUnavailable`] if the host identified by `id` is not currently
+    ///   reachable (e.g. the audio daemon is not running).
+    /// - [`ErrorKind::UnsupportedOperation`] if the host identified by `id` is not
+    ///   supported by this configuration of CPAL.
+    /// - [`ErrorKind::BackendError`] for unclassifiable initialization failures.
+    ///
+    /// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
+    /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
     fn try_from(value: HostId) -> Result<Self, Self::Error> {
-        host_from_id(value)
+        crate::platform::host_from_id_impl(value)
     }
 }
 
@@ -156,7 +169,7 @@ impl Iterator for AvailableHostsIter {
         loop {
             let host_id = self.0.next()?;
 
-            if host_id.is_supported() {
+            if host_id.is_available() {
                 return Some(*host_id);
             } else {
                 continue;
@@ -186,5 +199,5 @@ pub fn default_host() -> crate::Host {
 /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
 /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
 pub fn host_from_id(id: HostId) -> Result<crate::Host, crate::Error> {
-    crate::platform::host_from_id_impl(id)
+    crate::Host::try_from(id)
 }
