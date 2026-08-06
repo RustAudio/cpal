@@ -194,3 +194,32 @@ pub fn default_host() -> crate::Host {
         .try_into()
         .expect("the default host should always be available")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    const EVERY_HOSTID: &[HostId] = &[
+        HostId::AAudio,
+        HostId::Alsa,
+        HostId::Asio,
+        HostId::AudioWorklet,
+        HostId::CoreAudio,
+        HostId::Custom,
+        HostId::Jack,
+        HostId::Null,
+        HostId::PipeWire,
+        HostId::PulseAudio,
+        HostId::Wasapi,
+        HostId::WebAudio,
+    ];
+
+    #[test]
+    fn host_id_display_roundtrips() {
+        for &hostid in EVERY_HOSTID {
+            assert_eq!(HostId::from_str(&hostid.to_string()), Ok(hostid));
+        }
+    }
+}
