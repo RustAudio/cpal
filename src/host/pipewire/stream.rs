@@ -191,13 +191,13 @@ impl From<SampleFormat> for AudioFormat {
             SampleFormat::U16 => Self::U16BE,
 
             #[cfg(target_endian = "little")]
-            SampleFormat::I24 => Self::S24LE,
+            SampleFormat::I24 => Self::S24_32LE,
             #[cfg(target_endian = "big")]
-            SampleFormat::I24 => Self::S24BE,
+            SampleFormat::I24 => Self::S24_32BE,
             #[cfg(target_endian = "little")]
-            SampleFormat::U24 => Self::U24LE,
+            SampleFormat::U24 => Self::U24_32LE,
             #[cfg(target_endian = "big")]
-            SampleFormat::U24 => Self::U24BE,
+            SampleFormat::U24 => Self::U24_32BE,
             #[cfg(target_endian = "little")]
             SampleFormat::I32 => Self::S32LE,
             #[cfg(target_endian = "big")]
