@@ -54,6 +54,35 @@ fn main() {
             data_type: SampleFormat::F32,
         };
         println!("  Input {:?}", in_fmt);
+        print_channels(
+            &driver
+                .input_channel_infos()
+                .expect("failed to retrieve input channel info"),
+        );
         println!("  Output {:?}", out_fmt);
+        print_channels(
+            &driver
+                .output_channel_infos()
+                .expect("failed to retrieve output channel info"),
+        );
+    }
+}
+
+fn print_channels(infos: &[sys::ChannelInfo]) {
+    for info in infos {
+        // An unnamed channel is legal, but an empty name here is also what a botched string
+        // decode would look like, so call it out rather than printing a blank.
+        let name = if info.name.is_empty() {
+            "<unnamed - driver returned an empty name>"
+        } else {
+            &info.name
+        };
+        println!(
+            "    {}: {:?} (group {}, {})",
+            info.channel,
+            name,
+            info.channel_group,
+            if info.is_active { "active" } else { "inactive" },
+        );
     }
 }
