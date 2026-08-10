@@ -95,13 +95,13 @@ pub struct Channels {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ChannelInfo {
     /// Index of this channel within its direction (0-based).
-    pub channel: c_long,
+    pub channel: i32,
     /// `true` for an input channel, `false` for an output channel.
     pub is_input: bool,
     /// Whether the driver currently has this channel active (buffers created for it).
     pub is_active: bool,
     /// Driver-defined grouping; channels of one physical device usually share a group.
-    pub channel_group: c_long,
+    pub channel_group: i32,
     /// Sample format of this channel. `None` if the driver reported a value this crate does
     /// not know — the channel is still usable and still has a name.
     pub sample_type: Option<AsioSampleType>,
@@ -530,7 +530,7 @@ impl Driver {
     /// Information about a single input channel.
     ///
     /// Returns `AsioError::InvalidInput` if `index` is not below `channels()?.ins`.
-    pub fn input_channel_info(&self, index: c_long) -> Result<ChannelInfo, AsioError> {
+    pub fn input_channel_info(&self, index: i32) -> Result<ChannelInfo, AsioError> {
         let _guard = self.inner.lock_state();
         let channels = asio_channels()?;
         checked_channel_info(index, true, channels.ins)
@@ -539,7 +539,7 @@ impl Driver {
     /// Information about a single output channel.
     ///
     /// Returns `AsioError::InvalidInput` if `index` is not below `channels()?.outs`.
-    pub fn output_channel_info(&self, index: c_long) -> Result<ChannelInfo, AsioError> {
+    pub fn output_channel_info(&self, index: i32) -> Result<ChannelInfo, AsioError> {
         let _guard = self.inner.lock_state();
         let channels = asio_channels()?;
         checked_channel_info(index, false, channels.outs)
@@ -1145,11 +1145,7 @@ fn asio_channels() -> Result<Channels, AsioError> {
 /// must happen before we call into the SDK.
 ///
 /// The caller must hold the `DriverState` lock.
-fn checked_channel_info(
-    index: c_long,
-    is_input: bool,
-    count: c_long,
-) -> Result<ChannelInfo, AsioError> {
+fn checked_channel_info(index: i32, is_input: bool, count: i32) -> Result<ChannelInfo, AsioError> {
     if index < 0 || index >= count {
         return Err(AsioError::InvalidInput);
     }
