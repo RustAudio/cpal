@@ -468,6 +468,28 @@ macro_rules! impl_platform_host {
                 }
             }
 
+            fn input_channel_descriptions(&self) -> Result<Vec<crate::ChannelDescription>, crate::Error> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => {
+                            crate::traits::DeviceTrait::input_channel_descriptions(d)
+                        }
+                    )*
+                }
+            }
+
+            fn output_channel_descriptions(&self) -> Result<Vec<crate::ChannelDescription>, crate::Error> {
+                match self.0 {
+                    $(
+                        $(#[cfg($feat)])?
+                        DeviceInner::$HostVariant(ref d) => {
+                            crate::traits::DeviceTrait::output_channel_descriptions(d)
+                        }
+                    )*
+                }
+            }
+
             fn build_input_stream_raw<D, E>(
                 &self,
                 config: crate::StreamConfig,

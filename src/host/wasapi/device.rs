@@ -12,10 +12,10 @@ use std::{
 use crate::{
     error::ResultExt,
     host::{com::ComString, ErrorCallbackArc},
-    BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
-    DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
+    BufferSize, ChannelDescription, ChannelPosition, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount,
+    InputCallbackInfo, InterfaceType, OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange, COMMON_SAMPLE_RATES,
 };
 
 use windows::{
@@ -114,6 +114,14 @@ impl DeviceTrait for Device {
         Self::default_output_config(self)
     }
 
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Self::input_channel_descriptions(self)
+    }
+
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Self::output_channel_descriptions(self)
+    }
+
     fn build_input_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -171,6 +179,63 @@ impl Drop for WaveFormatExPtr {
             Com::CoTaskMemFree(Some(self.0 as *mut _));
         }
     }
+}
+
+/// The WAVE `dwChannelMask` speaker bits, in ascending bit order.
+///
+/// The order of this table is load-bearing: the channels of a `WAVEFORMATEXTENSIBLE` buffer appear
+/// in ascending bit order of the set bits, so expanding the mask means walking this table from the
+/// low bit up and emitting one entry per bit that is set. Iterating positions in any "logical"
+/// order instead would silently produce a shifted mapping.
+const SPEAKER_POSITIONS: [(u32, ChannelPosition); 18] = [
+    (0x1, ChannelPosition::FrontLeft),
+    (0x2, ChannelPosition::FrontRight),
+    (0x4, ChannelPosition::FrontCenter),
+    (0x8, ChannelPosition::LowFrequency),
+    (0x10, ChannelPosition::BackLeft),
+    (0x20, ChannelPosition::BackRight),
+    (0x40, ChannelPosition::FrontLeftOfCenter),
+    (0x80, ChannelPosition::FrontRightOfCenter),
+    (0x100, ChannelPosition::BackCenter),
+    (0x200, ChannelPosition::SideLeft),
+    (0x400, ChannelPosition::SideRight),
+    (0x800, ChannelPosition::TopCenter),
+    (0x1000, ChannelPosition::TopFrontLeft),
+    (0x2000, ChannelPosition::TopFrontCenter),
+    (0x4000, ChannelPosition::TopFrontRight),
+    (0x8000, ChannelPosition::TopBackLeft),
+    (0x10000, ChannelPosition::TopBackCenter),
+    (0x20000, ChannelPosition::TopBackRight),
+];
+
+/// Expands a `WAVEFORMATEXTENSIBLE.dwChannelMask` into one position per channel, in buffer order.
+///
+/// Returns an empty `Vec` whenever the mask cannot be trusted to describe exactly `channels`
+/// channels in order:
+///
+/// - `mask == 0`. `KSAUDIO_SPEAKER_DIRECTOUT` is `0` and means "no assignment"; cpal's own
+///   `config_to_waveformatextensible` passes `0` too.
+/// - The number of set bits differs from `channels`. A partial mapping would shift every label
+///   after the discrepancy onto the wrong channel.
+/// - A bit outside [`SPEAKER_POSITIONS`] is set. The bit still consumes a channel slot, so
+///   skipping it would shift everything after it.
+///
+/// A shifted label is worse than no label, so all three cases yield "unknown" rather than a guess.
+fn positions_from_mask(mask: u32, channels: u16) -> Vec<ChannelPosition> {
+    if mask == 0 || mask.count_ones() != u32::from(channels) {
+        return Vec::new();
+    }
+
+    let known: u32 = SPEAKER_POSITIONS.iter().map(|&(bit, _)| bit).sum();
+    if mask & !known != 0 {
+        return Vec::new();
+    }
+
+    SPEAKER_POSITIONS
+        .iter()
+        .filter(|&&(bit, _)| mask & bit != 0)
+        .map(|&(_, position)| position)
+        .collect()
 }
 
 unsafe fn immendpoint_from_immdevice(device: Audio::IMMDevice) -> Audio::IMMEndpoint {
@@ -827,6 +892,70 @@ impl Device {
         }
     }
 
+    /// Per-channel speaker positions taken from the endpoint's mix format.
+    ///
+    /// WASAPI endpoints carry no per-channel names, so `name` is always `None`.
+    ///
+    /// The layout described is the **shared-mode mix format**'s, which is the format cpal streams
+    /// this endpoint in. An exclusive-mode stream at a different channel count is not described by
+    /// it.
+    fn channel_descriptions(
+        &self,
+        data_flow: Audio::EDataFlow,
+    ) -> Result<Vec<ChannelDescription>, Error> {
+        // An endpoint is either capture or render, never both; the other direction has no
+        // channels to describe. Empty is the documented "no information" answer.
+        if self.data_flow() != data_flow {
+            return Ok(Vec::new());
+        }
+
+        // initializing COM because we call `CoTaskMemFree` to release the format.
+        com::com_initialized();
+
+        let lock = self
+            .ensure_future_audio_client(None)
+            .context("Failed to get audio client")?;
+        // ensure_future_audio_client always sets the Option to Some before returning Ok.
+        let client = &lock.as_ref().unwrap().0;
+
+        unsafe {
+            let format_ptr = client
+                .GetMixFormat()
+                .map(WaveFormatExPtr)
+                .context("Failed to get mix format")?;
+
+            // `dwChannelMask` only exists on WAVEFORMATEXTENSIBLE. A plain WAVEFORMATEX carries no
+            // layout, and reading past it would be reading memory the endpoint never allocated.
+            let format = &*format_ptr.0;
+            if format.wFormatTag as u32 != KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+                || (format.cbSize as usize)
+                    < mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>()
+                        - mem::size_of::<Audio::WAVEFORMATEX>()
+            {
+                return Ok(Vec::new());
+            }
+
+            let extensible = &*(format_ptr.0 as *const Audio::WAVEFORMATEXTENSIBLE);
+            Ok(
+                positions_from_mask(extensible.dwChannelMask, format.nChannels)
+                    .into_iter()
+                    .map(|position| ChannelDescription {
+                        name: None,
+                        position: Some(position),
+                    })
+                    .collect(),
+            )
+        }
+    }
+
+    pub fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.channel_descriptions(Audio::eCapture)
+    }
+
+    pub fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.channel_descriptions(Audio::eRender)
+    }
+
     pub(crate) fn build_input_stream_raw_inner(
         &self,
         config: StreamConfig,
@@ -1443,4 +1572,84 @@ fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) ->
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
     ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Masks as they appear in Ksmedia.h.
+    const KSAUDIO_SPEAKER_DIRECTOUT: u32 = 0;
+    const KSAUDIO_SPEAKER_STEREO: u32 = 0x3;
+    const KSAUDIO_SPEAKER_5POINT1: u32 = 0x3F;
+    const KSAUDIO_SPEAKER_5POINT1_SURROUND: u32 = 0x60F;
+
+    #[test]
+    fn stereo_mask_expands_left_then_right() {
+        assert_eq!(
+            positions_from_mask(KSAUDIO_SPEAKER_STEREO, 2),
+            vec![ChannelPosition::FrontLeft, ChannelPosition::FrontRight],
+        );
+    }
+
+    #[test]
+    fn five_point_one_expands_in_bit_order() {
+        // Not speaker-pair order: LFE sits at index 3, between the front and back pairs.
+        assert_eq!(
+            positions_from_mask(KSAUDIO_SPEAKER_5POINT1, 6),
+            vec![
+                ChannelPosition::FrontLeft,
+                ChannelPosition::FrontRight,
+                ChannelPosition::FrontCenter,
+                ChannelPosition::LowFrequency,
+                ChannelPosition::BackLeft,
+                ChannelPosition::BackRight,
+            ],
+        );
+    }
+
+    #[test]
+    fn side_channels_sort_after_the_lfe_not_after_the_front_pair() {
+        // The side pair is bits 9 and 10, so it lands at indices 4 and 5 despite being the
+        // "surround" pair a speaker-order list would emit second.
+        let positions = positions_from_mask(KSAUDIO_SPEAKER_5POINT1_SURROUND, 6);
+        assert_eq!(positions[3], ChannelPosition::LowFrequency);
+        assert_eq!(positions[4], ChannelPosition::SideLeft);
+        assert_eq!(positions[5], ChannelPosition::SideRight);
+    }
+
+    #[test]
+    fn directout_yields_no_information() {
+        assert!(positions_from_mask(KSAUDIO_SPEAKER_DIRECTOUT, 2).is_empty());
+    }
+
+    #[test]
+    fn mask_with_too_few_bits_for_the_channel_count_is_rejected() {
+        // A stereo mask on a 6-channel endpoint would label channels 0 and 1 and leave 2..6
+        // unlabelled — but nothing guarantees the two named ones are the first two.
+        assert!(positions_from_mask(KSAUDIO_SPEAKER_STEREO, 6).is_empty());
+    }
+
+    #[test]
+    fn mask_with_too_many_bits_for_the_channel_count_is_rejected() {
+        assert!(positions_from_mask(KSAUDIO_SPEAKER_5POINT1, 2).is_empty());
+    }
+
+    #[test]
+    fn unknown_bit_rejects_the_whole_mask() {
+        // Bit 31 consumes a channel slot we cannot name; emitting the other five would shift
+        // every label after it.
+        let mask = KSAUDIO_SPEAKER_STEREO | 0x8000_0000;
+        assert!(positions_from_mask(mask, 3).is_empty());
+    }
+
+    #[test]
+    fn every_position_is_reachable_and_distinct() {
+        let all: u32 = SPEAKER_POSITIONS.iter().map(|&(bit, _)| bit).sum();
+        let positions = positions_from_mask(all, SPEAKER_POSITIONS.len() as u16);
+        assert_eq!(positions.len(), SPEAKER_POSITIONS.len());
+        for (i, &(_, expected)) in SPEAKER_POSITIONS.iter().enumerate() {
+            assert_eq!(positions[i], expected);
+        }
+    }
 }

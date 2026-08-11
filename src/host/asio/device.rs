@@ -7,9 +7,9 @@ use std::{
 use super::sys;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    host::com, ChannelCount, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
-    ErrorKind, FrameCount, SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    host::com, ChannelCount, ChannelDescription, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceId, Error, ErrorKind, FrameCount, SampleFormat, SampleRate, SupportedBufferSize,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 /// A ASIO Device
@@ -82,6 +82,76 @@ impl Device {
     /// Returns the default output config
     pub fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.default_config(self.channels_out, self.output_sample_format)
+    }
+
+    /// Per-channel metadata for this driver's input channels.
+    ///
+    /// ASIO drivers name every channel but report no speaker layout, so `position` is always
+    /// `None`.
+    pub fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.channel_descriptions(true)
+    }
+
+    /// Per-channel metadata for this driver's output channels.
+    ///
+    /// ASIO drivers name every channel but report no speaker layout, so `position` is always
+    /// `None`.
+    pub fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.channel_descriptions(false)
+    }
+
+    /// Query the loaded driver for one direction's channel names.
+    ///
+    /// The index alignment the API promises holds because a cpal ASIO stream creates its buffers
+    /// with `channel_num` running `0..channels` in the same direction, so interleaved offset `i`
+    /// is always ASIO channel `i`.
+    fn channel_descriptions(&self, is_input: bool) -> Result<Vec<ChannelDescription>, Error> {
+        com::com_initialized();
+
+        // Reuse the process-wide instance rather than creating one: ASIO is one-driver-per-process
+        // and `load_driver` returns the already-loaded driver when the name matches, so this does
+        // not disturb a live stream on this device.
+        let driver = super::GLOBAL_ASIO
+            .get()
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "ASIO driver is not initialized",
+                )
+            })?
+            .load_driver(&self.name)
+            .map_err(|e| match e {
+                // Another ASIO driver is loaded (e.g. a stream on a different device holds it).
+                // Its channel names are not ours to report.
+                sys::LoadDriverError::DriverAlreadyExists => Error::with_message(
+                    ErrorKind::DeviceBusy,
+                    "A different ASIO driver is currently loaded",
+                ),
+                _ => Error::with_message(ErrorKind::DeviceNotAvailable, "Failed to load driver"),
+            })?;
+
+        let infos = if is_input {
+            driver.input_channel_infos()
+        } else {
+            driver.output_channel_infos()
+        }
+        .map_err(|_| {
+            Error::with_message(
+                ErrorKind::BackendError,
+                "Failed to query ASIO channel information",
+            )
+        })?;
+
+        Ok(infos
+            .into_iter()
+            .map(|info| ChannelDescription {
+                // A driver is permitted to leave a channel unnamed; report that as "no name"
+                // rather than as an empty label.
+                name: Some(info.name).filter(|n| !n.is_empty()),
+                // ASIO has no concept of a speaker layout.
+                position: None,
+            })
+            .collect())
     }
 
     fn default_config(

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `DeviceTrait::input_channel_descriptions()` and `DeviceTrait::output_channel_descriptions()`,
+  returning per-channel metadata index-aligned with the channels of a stream built on the device.
+  Both have a default implementation returning an empty `Vec`, so existing custom hosts are
+  unaffected.
+- Added `ChannelDescription` (an optional driver-supplied `name` and an optional `position`) and
+  `ChannelPosition` (the WAVE `dwChannelMask` speaker positions).
+- **ASIO**: `output_channel_descriptions()` / `input_channel_descriptions()` report the driver's
+  per-channel names. For aggregating drivers such as ASIO4ALL the name is the only stable handle on
+  a channel, since enabling another device renumbers everything after it.
+- **WASAPI**: `output_channel_descriptions()` / `input_channel_descriptions()` report speaker
+  positions expanded from the mix format's `dwChannelMask`.
+- `examples/enumerate.rs` now prints each channel's index, name and position.
 - **AAudio**: Xruns are now reported as `ErrorKind::Xrun`.
 - **CoreAudio**: Xruns are now reported as `ErrorKind::Xrun`.
 - **PipeWire**: Xruns are now reported as `ErrorKind::Xrun`.

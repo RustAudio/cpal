@@ -6,13 +6,44 @@
 //! - Retrieving device IDs for persistent identification
 //! - Getting device descriptions with metadata
 //! - Listing supported input and output stream configurations
+//! - Printing per-channel names and speaker positions where the host reports them
 //!
 //! Run with: `cargo run --example enumerate`
 
 extern crate anyhow;
 extern crate cpal;
 
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{
+    traits::{DeviceTrait, HostTrait},
+    ChannelDescription,
+};
+
+/// Prints one line per channel: its index, and whatever the host knows about it.
+///
+/// An empty list is the normal result for a host with no per-channel metadata (ALSA, JACK, ...),
+/// so nothing is printed at all in that case.
+fn print_channel_descriptions(label: &str, descriptions: &[ChannelDescription]) {
+    if descriptions.is_empty() {
+        return;
+    }
+    println!("    {label} channels:");
+    for (index, description) in descriptions.iter().enumerate() {
+        let name = description
+            .name
+            .as_deref()
+            .map_or_else(|| "<none>".to_string(), |n| format!("{n:?}"));
+        let position = description
+            .position
+            .map_or_else(|| "<none>".to_string(), |p| p.to_string());
+        println!("      {index}. name: {name}, position: {position}");
+
+        // A driver may legally leave a channel unnamed, but an empty name where one was
+        // expected is also what a decoding bug looks like — so say when it happens.
+        if description.name.is_none() && description.position.is_none() {
+            println!("         (host reported neither a name nor a position)");
+        }
+    }
+}
 
 fn main() -> Result<(), anyhow::Error> {
     // To print raw ALSA errors to stderr during enumeration, comment out the line below:
@@ -48,6 +79,16 @@ fn main() -> Result<(), anyhow::Error> {
                 println!("  {}. {id} ({})", device_index + 1, desc);
             } else {
                 println!("  {}. {id}", device_index + 1);
+            }
+
+            // Per-channel metadata
+            match device.input_channel_descriptions() {
+                Ok(descriptions) => print_channel_descriptions("Input", &descriptions),
+                Err(e) => println!("    Error getting input channel descriptions: {e:?}"),
+            }
+            match device.output_channel_descriptions() {
+                Ok(descriptions) => print_channel_descriptions("Output", &descriptions),
+                Err(e) => println!("    Error getting output channel descriptions: {e:?}"),
             }
 
             // Input configs

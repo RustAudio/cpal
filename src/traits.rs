@@ -12,9 +12,9 @@ use std::{
 };
 
 use crate::{
-    Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, InputDevices, OutputCallbackInfo,
-    OutputDevices, SampleFormat, SizedSample, StreamConfig, StreamInstant, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    ChannelDescription, Data, DeviceDescription, DeviceId, Error, InputCallbackInfo, InputDevices,
+    OutputCallbackInfo, OutputDevices, SampleFormat, SizedSample, StreamConfig, StreamInstant,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 /// A [`Host`] provides access to the available audio devices on the system.
@@ -223,6 +223,48 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error>;
+
+    /// Per-channel metadata for the device's input channels.
+    ///
+    /// See [`output_channel_descriptions`](Self::output_channel_descriptions); the ordering
+    /// contract, the meaning of an empty result and the error cases are identical.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::BackendError`] for unclassifiable backend failures.
+    ///
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Ok(Vec::new())
+    }
+
+    /// Per-channel metadata for the device's output channels, in the same order as the channels of
+    /// a stream built on this device.
+    ///
+    /// `descriptions[i]` describes the samples at offset `i` of each interleaved frame. A host that
+    /// cannot guarantee that alignment returns an empty `Vec` rather than a best guess, because a
+    /// label that does not match the buffer index it appears to describe is worse than no label.
+    ///
+    /// An empty `Vec` means "this host has no per-channel information" and is **not** an error —
+    /// it is the normal result for ALSA, JACK, and every backend that does not implement this. The
+    /// returned length may also be *shorter* than a stream's channel count, so callers must index
+    /// defensively and fall back to a positional label such as `"Channel 3"`.
+    ///
+    /// This queries the device and allocates. It is an enumeration-time call and must not be made
+    /// from a stream's data callback.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::BackendError`] for unclassifiable backend failures.
+    ///
+    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Ok(Vec::new())
+    }
 
     /// Create an input stream.
     ///

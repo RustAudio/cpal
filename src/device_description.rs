@@ -1,8 +1,9 @@
 //! Device metadata and description types.
 //!
 //! This module provides structured information about audio devices including manufacturer,
-//! device type, interface type, and connection details. Not all backends provide complete
-//! information - availability depends on platform capabilities.
+//! device type, interface type, and connection details, as well as per-channel metadata via
+//! [`ChannelDescription`]. Not all backends provide complete information - availability depends
+//! on platform capabilities.
 
 use std::fmt;
 
@@ -148,6 +149,118 @@ pub enum DeviceDirection {
     /// Direction unknown or not yet determined
     #[default]
     Unknown,
+}
+
+/// Where a channel sits in a standard speaker layout.
+///
+/// Mirrors the WAVE `dwChannelMask` speaker positions, which CoreAudio's `AudioChannelLabel` and
+/// ALSA's channel maps also map onto.
+///
+/// A position is *not* a unique identifier: an aggregate device can carry two channels that are
+/// both [`FrontLeft`](ChannelPosition::FrontLeft) on different sub-devices. Use the channel's
+/// [`name`](ChannelDescription::name) where one exists if a selection has to be persisted.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum ChannelPosition {
+    /// Front left speaker.
+    FrontLeft,
+    /// Front right speaker.
+    FrontRight,
+    /// Front centre speaker.
+    FrontCenter,
+    /// Low-frequency effects (subwoofer).
+    LowFrequency,
+    /// Back (surround) left speaker.
+    BackLeft,
+    /// Back (surround) right speaker.
+    BackRight,
+    /// Front left-of-centre speaker.
+    FrontLeftOfCenter,
+    /// Front right-of-centre speaker.
+    FrontRightOfCenter,
+    /// Back centre speaker.
+    BackCenter,
+    /// Side left speaker.
+    SideLeft,
+    /// Side right speaker.
+    SideRight,
+    /// Top centre speaker.
+    TopCenter,
+    /// Top front left speaker.
+    TopFrontLeft,
+    /// Top front centre speaker.
+    TopFrontCenter,
+    /// Top front right speaker.
+    TopFrontRight,
+    /// Top back left speaker.
+    TopBackLeft,
+    /// Top back centre speaker.
+    TopBackCenter,
+    /// Top back right speaker.
+    TopBackRight,
+}
+
+impl fmt::Display for ChannelPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ChannelPosition::FrontLeft => "Front Left",
+            ChannelPosition::FrontRight => "Front Right",
+            ChannelPosition::FrontCenter => "Front Center",
+            ChannelPosition::LowFrequency => "Low Frequency",
+            ChannelPosition::BackLeft => "Back Left",
+            ChannelPosition::BackRight => "Back Right",
+            ChannelPosition::FrontLeftOfCenter => "Front Left of Center",
+            ChannelPosition::FrontRightOfCenter => "Front Right of Center",
+            ChannelPosition::BackCenter => "Back Center",
+            ChannelPosition::SideLeft => "Side Left",
+            ChannelPosition::SideRight => "Side Right",
+            ChannelPosition::TopCenter => "Top Center",
+            ChannelPosition::TopFrontLeft => "Top Front Left",
+            ChannelPosition::TopFrontCenter => "Top Front Center",
+            ChannelPosition::TopFrontRight => "Top Front Right",
+            ChannelPosition::TopBackLeft => "Top Back Left",
+            ChannelPosition::TopBackCenter => "Top Back Center",
+            ChannelPosition::TopBackRight => "Top Back Right",
+        };
+        f.write_str(s)
+    }
+}
+
+/// What a host knows about one channel of a device.
+///
+/// Both fields are optional and independent: ASIO gives names without positions, WASAPI gives
+/// positions without names, and a host that knows neither returns neither.
+///
+/// Obtained from [`DeviceTrait::output_channel_descriptions`] and
+/// [`DeviceTrait::input_channel_descriptions`].
+///
+/// [`DeviceTrait::output_channel_descriptions`]: crate::traits::DeviceTrait::output_channel_descriptions
+/// [`DeviceTrait::input_channel_descriptions`]: crate::traits::DeviceTrait::input_channel_descriptions
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ChannelDescription {
+    /// Driver-supplied name, e.g. `"AMD HD Audio DP out #3 1"`.
+    ///
+    /// `None` when the host has no per-channel names, and never `Some("")` — a driver that
+    /// reports an empty name is treated as having reported nothing.
+    pub name: Option<String>,
+
+    /// Speaker position, when the host reports a layout.
+    pub position: Option<ChannelPosition>,
+}
+
+impl fmt::Display for ChannelDescription {
+    /// Formats the most informative label available, or `"Unknown"` when the host knew nothing.
+    ///
+    /// Callers building a channel picker will usually want their own fallback chain ending in
+    /// `"Channel N"`, since the index is not part of this type.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.name, self.position) {
+            (Some(name), Some(position)) => write!(f, "{name} ({position})"),
+            (Some(name), None) => f.write_str(name),
+            (None, Some(position)) => write!(f, "{position}"),
+            (None, None) => f.write_str("Unknown"),
+        }
+    }
 }
 
 impl DeviceDescription {
