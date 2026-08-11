@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
 - **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
+- **WASAPI**: 24-bit streams are no longer 48 dB out. A container wider than the sample it carries
+  holds that sample left-justified, so `SampleFormat::I24` samples are now shifted up on their way
+  to the device and back down on their way in. Formats whose container is exactly full — `I16`,
+  `I32`, `F32` — are untouched.
 - **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.

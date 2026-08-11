@@ -11,7 +11,7 @@ use std::{
 
 use crate::{
     error::ResultExt,
-    host::{com::ComString, ErrorCallbackArc},
+    host::{com::ComString, container_align, ErrorCallbackArc},
     BufferSize, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceId,
     DeviceType, Error, ErrorKind, FrameCount, InputCallbackInfo, InterfaceType, OutputCallbackInfo,
     SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
@@ -700,7 +700,7 @@ impl Device {
                 };
 
                 for sample_format in WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS {
-                    if let Some(waveformat) = config_to_waveformatextensible(
+                    if let Some((waveformat, _)) = config_to_waveformatextensible(
                         StreamConfig {
                             channels: format.channels,
                             sample_rate,
@@ -856,14 +856,14 @@ impl Device {
             }
 
             // Computing the format and initializing the device.
+            let (format_attempt, container_shift) =
+                config_to_waveformatextensible(config, sample_format).ok_or_else(|| {
+                    Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        "Stream configuration could not be converted to a compatible format",
+                    )
+                })?;
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
-                    .ok_or_else(|| {
-                        Error::with_message(
-                            ErrorKind::UnsupportedConfig,
-                            "Stream configuration could not be converted to a compatible format",
-                        )
-                    })?;
                 let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
 
                 // Finally, initializing the audio client
@@ -918,6 +918,20 @@ impl Device {
                 Duration::from_nanos(hns.max(0) as u64 * 100)
             };
 
+            // WASAPI lends the capture buffer to be read, so samples arriving left-justified are
+            // shifted down into a staging buffer instead of in place. Sized once here, so the
+            // callback allocates nothing, and left empty for formats needing no shift.
+            //
+            // `i32` rather than `u8` because it reaches the callback as a `Data`, whose
+            // `as_slice` casts to the sample type, and a `Vec<u8>` guarantees no alignment.
+            let capture_scratch = if container_shift == 0 {
+                Vec::new()
+            } else {
+                let containers = max_frames_in_buffer as usize * waveformatex.nBlockAlign as usize
+                    / mem::size_of::<i32>();
+                vec![0i32; containers]
+            };
+
             Ok(StreamInner {
                 audio_client,
                 audio_clock,
@@ -930,6 +944,8 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
+                container_shift,
+                capture_scratch,
             })
         }
     }
@@ -957,14 +973,14 @@ impl Device {
             let buffer_duration = buffer_size_to_duration(&config.buffer_size, config.sample_rate);
 
             // Computing the format and initializing the device.
+            let (format_attempt, container_shift) =
+                config_to_waveformatextensible(config, sample_format).ok_or_else(|| {
+                    Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        "Stream configuration could not be converted to a compatible format",
+                    )
+                })?;
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
-                    .ok_or_else(|| {
-                        Error::with_message(
-                            ErrorKind::UnsupportedConfig,
-                            "Stream configuration could not be converted to a compatible format",
-                        )
-                    })?;
                 let share_mode = Audio::AUDCLNT_SHAREMODE_SHARED;
 
                 // Finally, initializing the audio client
@@ -1033,6 +1049,10 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
+                container_shift,
+                // Render writes into WASAPI's own buffer, which is the backend's to modify until
+                // `ReleaseBuffer`, so the shift happens where the samples already are.
+                capture_scratch: Vec::new(),
             })
         }
     }
@@ -1341,13 +1361,15 @@ const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 7] = [
     SampleFormat::F64,
 ];
 
-// Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
+// Turns a `Format` into a `WAVEFORMATEXTENSIBLE`, paired with the shift its samples need to sit
+// left-justified in the container it declares.
 //
-// Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
+// Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format, or if the
+// container it would ask for is padded in a way the backend cannot align.
 fn config_to_waveformatextensible(
     config: StreamConfig,
     sample_format: SampleFormat,
-) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
+) -> Option<(Audio::WAVEFORMATEXTENSIBLE, u32)> {
     let format_tag = match sample_format {
         SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
 
@@ -1410,7 +1432,27 @@ fn config_to_waveformatextensible(
         SubFormat: sub_format,
     };
 
-    Some(waveformatextensible)
+    let shift = container_shift(&waveformatextensible)?;
+
+    Some((waveformatextensible, shift))
+}
+
+/// How far the negotiated format's samples must move up to sit left-justified in their container,
+/// or `None` for a padded container the backend cannot align.
+///
+/// Read off the `WAVEFORMATEXTENSIBLE` handed to `Initialize` rather than off the `SampleFormat`,
+/// so the answer comes from the format's own two bit counts and no format has to be named here.
+fn container_shift(format: &Audio::WAVEFORMATEXTENSIBLE) -> Option<u32> {
+    // A plain `WAVE_FORMAT_PCM` header carries no extension for the device to read, so its
+    // `wValidBitsPerSample` means nothing and the container is full by definition.
+    if format.Format.cbSize == 0 {
+        return Some(0);
+    }
+    // SAFETY: `Samples` is a union of three `u16`s. `wValidBitsPerSample` is the member
+    // `config_to_waveformatextensible` writes, and the one `WAVE_FORMAT_EXTENSIBLE` defines for
+    // the PCM and IEEE-float subformats this backend emits.
+    let valid_bits = unsafe { format.Samples.wValidBitsPerSample };
+    container_align::padding_bits(format.Format.wBitsPerSample, valid_bits)
 }
 
 /// Get the default device period in frames for a shared-mode stream.
@@ -1443,4 +1485,38 @@ fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) ->
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
     ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn container_shift_for(sample_format: SampleFormat) -> u32 {
+        let config = StreamConfig {
+            channels: 2,
+            sample_rate: 48_000,
+            buffer_size: BufferSize::Default,
+        };
+        config_to_waveformatextensible(config, sample_format)
+            .expect("a format the backend encodes")
+            .1
+    }
+
+    #[test]
+    fn only_a_padded_container_is_shifted() {
+        // I24 is the one format CPAL carries in a container wider than the sample: 24 valid bits
+        // in four bytes.
+        assert_eq!(container_shift_for(SampleFormat::I24), 8);
+
+        for sample_format in [
+            SampleFormat::U8,
+            SampleFormat::I16,
+            SampleFormat::I32,
+            SampleFormat::I64,
+            SampleFormat::F32,
+            SampleFormat::F64,
+        ] {
+            assert_eq!(container_shift_for(sample_format), 0, "{sample_format}");
+        }
+    }
 }
