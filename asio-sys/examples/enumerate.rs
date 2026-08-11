@@ -71,14 +71,15 @@ fn main() {
 fn print_channels(infos: &[sys::ChannelInfo]) {
     for info in infos {
         // An unnamed channel is legal, but an empty name here is also what a botched string
-        // decode would look like, so call it out rather than printing a blank.
+        // decode would look like, so call it out rather than printing a blank. Quote real names
+        // ourselves so the placeholder is not mistaken for one.
         let name = if info.name.is_empty() {
-            "<unnamed - driver returned an empty name>"
+            "<unnamed>".to_string()
         } else {
-            &info.name
+            format!("{:?}", info.name)
         };
         println!(
-            "    {}: {:?} (group {}, {})",
+            "    {}: {} (group {}, {})",
             info.channel,
             name,
             info.channel_group,
