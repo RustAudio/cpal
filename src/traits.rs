@@ -182,9 +182,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
     ///
     /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support input.
+    /// - [`ErrorKind::UnsupportedConfig`] if the backend could not determine what the device
+    ///   supports.
     ///
     /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error>;
 
     /// An iterator yielding output stream configurations that are supported by the device.
@@ -193,9 +196,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display {
     ///
     /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support output.
+    /// - [`ErrorKind::UnsupportedConfig`] if the backend could not determine what the device
+    ///   supports.
     ///
     /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error>;
 
     /// The default input stream configuration for the device.
